@@ -761,3 +761,16 @@ Engineering (rules 0.8.0, server):
   - each demigod's piece carrying its story
   - the visible d20 roll event
   - map encounters, hidden until stepped on and remembered once revealed
+
+> Do all of the items listed.
+
+Engineering: Benito's correction (via the bridge) means all EIGHT features, governed by the DM's rulebook and the
+place×time memory:
+1. growing settlements
+2. the piece carries its story
+3. the visible d20
+4. map encounters
+5. loot left behind
+6. day and night on the board
+7. paths that wear in
+8. shrines to your demigod
