@@ -955,3 +955,7 @@ Engineering:
 - It ends at a knockout or a deadline (default 45 s), then the world resumes and the result is applied.
 - Every client shows the duel full-screen as spectators.
 - Pieces: they ARE at their lat/lon. The client slid them whenever the view changed; they now snap on view changes and glide only on real moves.
+
+> Clicking it keeps warping the view around the map. Asked whether that has been fixed.
+
+Engineering: a single click must never move the board view. Only an explicit zoom (wheel, double-click on a demigod, the RESET VIEW button) or your own summon landing off-board may move it.
