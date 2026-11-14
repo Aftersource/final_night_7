@@ -1711,8 +1711,10 @@ GET /api/rooms/66X6KM/query/media?kind=event&ref=lg:88
 A player's **profile** lasts across matches (design: [`DEMIGODS_AND_ITEMS.md`](DEMIGODS_AND_ITEMS.md) §7–§10). It
 holds their demigods' fixed looks, their match history, a description and an image library.
 - **Key: the display name, normalized.** NFKC, invisible characters dropped, whitespace collapsed, lowercased, at
-  most 40 characters. So "CHRIS", " chris " and "Ｃｈｒｉｓ" are one profile. There are no accounts: anyone who
-  plays as "Chris" writes into Chris's history. `lookalikes` lists other profiles whose names look the same ("Chr1s"),
+  most 40 characters. So "CHRIS", " chris " and "Ｃｈｒｉｓ" are one profile. A name no account holds works as it
+  always did: anyone who plays as "Chris" writes into Chris's history. Once an **account** holds the name
+  ("Accounts, settings and demigod personalities" below), only that account's bound connection does, and only that
+  account can edit the profile. `lookalikes` lists other profiles whose names look the same ("Chr1s"),
   so a client can warn.
 - **Written by the server.** At every match end there's one history row per human seat (bots and AI demigods get
   none). Their library gets the images every seat saw: their demigods' portraits and dioramas, their statue, their
@@ -1810,6 +1812,265 @@ any. From schema 5 each demigod also has `hand` (`left`/`right`).
 ```
 To show an image, find its `hash` in `GET /media/index` (`{hash, url}`) or fetch `/media/<hash>.<ext>`. A hash from
 an older build may no longer be on disk.
+
+## Accounts, settings and demigod personalities
+
+The whole flow, the reasoning and the security notes are in [`ACCOUNTS.md`](ACCOUNTS.md); this section is the
+contract. Schemas: [`account_session`](schemas/account_session.schema.json),
+[`account_me`](schemas/account_me.schema.json), [`account_settings`](schemas/account_settings.schema.json),
+[`account_demigod`](schemas/account_demigod.schema.json),
+[`account_demigod_put`](schemas/account_demigod_put.schema.json),
+[`account_demigod_answer`](schemas/account_demigod_answer.schema.json),
+[`account_entitlements`](schemas/account_entitlements.schema.json),
+[`account_error`](schemas/account_error.schema.json). A scripted client that makes every call below, in order:
+[`clients/fn7_accounts_e2e.mjs`](clients/fn7_accounts_e2e.mjs).
+
+**Conventions.**
+- Plain HTTP on the server's origin (the same host and port as `/ws`), JSON bodies (`Content-Type: application/json`).
+- **A session** is `Authorization: Bearer <session_token>`. The token comes from `POST /api/auth/guest` or from a
+  completed `POST /api/auth/poll`; store it in the OS credential store and send it nowhere else (never on the
+  websocket, never in a URL).
+- **Every error** is `{"error": "<code>", "detail": "<text for a human>"}`. Switch on `error`.
+- Every answer is `Cache-Control: no-store`. Times are Unix epoch milliseconds.
+- **Rate limits** answer `429 {"error": "rate_limited"}` with a `Retry-After` header in seconds. Per minute: the
+  sign-in routes and `/api/game/bind` 10 per client address; `/api/auth/poll` 120 per client address; `GET /api/me…`
+  240, writes 30 and demigod saves 6 per account.
+- Unknown keys in a request body are refused (`400 invalid`).
+
+| Status | `error` | When |
+|---|---|---|
+| 400 | `invalid` | The body is not JSON, has an unknown key, or a value is out of range. `detail` says which. |
+| 400 | `bad_name` | The display name has no usable characters. |
+| 400 | `confirm_required` | `DELETE /api/me` without the right `confirm`. |
+| 401 | `unauthorized` | No session, or it is unknown, expired or revoked. Drop the stored token. |
+| 403 | `profile_claimed` | The name's profile is claimed with a secret: send it as `claim_secret`. |
+| 404 | `not_found` | Unknown poll token, unknown hand, unknown resume token. |
+| 409 | `name_taken` | An active account holds that display name. |
+| 409 | `name_lookalike` | The display name reads like an active account's. |
+| 409 | `name_conflict` | The demigod name reads like someone else's name or demigod, or a built-in one. |
+| 409 | `name_mismatch` | `/api/game/bind`: the websocket logged in under a name that is not the account's. |
+| 409 | `already_linked` | The account already has a Google identity. |
+| 409 | `identity_in_use` | (In a poll's `failed` answer.) That Google account belongs to another account. |
+| 413 | `too_large` | The body is over the route's cap (16 384 bytes for settings, 8 192 elsewhere). |
+| 422 | `refused` | The moderation pass refused a demigod sheet, or a display name broke the content rules. |
+| 429 | `rate_limited` | See above. |
+| 503 | `google_not_configured` | This server has no Google sign-in. Guests work. |
+| 500 | `store`, `internal` | The server failed. Retry later. |
+
+### `GET /api/auth/config`
+No session. What this server offers.
+```json
+{"guest": true, "google": false, "moderation": "rules", "name_guard": true}
+```
+`google`: show the Google button. `moderation`: `"claude-haiku-5-5"` when a model judges demigod sheets, `"rules"` when
+only the rules do.
+
+### `POST /api/auth/guest`
+No session. A guest account and its first session, from a name.
+```json
+{"display_name": "Tess", "device_label": "Tess's PC", "claim_secret": null}
+```
+`display_name`: 1 to 24 characters. `device_label` (optional, ≤ 60 characters): shown in the session list.
+`claim_secret` (optional): only when the name's profile was claimed with a secret.
+
+`201`:
+```json
+{
+  "session_token": "fn7s_<64 hex>",
+  "session": {"id": "ses_<16 hex>", "created_at": 1794692306265, "last_seen_at": 1794692306265, "expires_at": 1802468306265,
+              "device_label": "Tess's PC", "current": true},
+  "account": {"id": "acc_6ae55593577749999b3d1e35", "display_name": "Tess", "guest": true, "profile": "tess",
+              "identities": [{"provider": "guest", "linked_at": 1794692306265}], "created_at": 1794692306265, "updated_at": 1794692306265}
+}
+```
+Errors: `400 invalid` / `bad_name`, `409 name_taken` / `name_lookalike`, `403 profile_claimed`, `422 refused`,
+`413 too_large`, `429`.
+
+### `POST /api/auth/google/start`
+No session: **sign in**. With a session: **link** Google to that (guest) account.
+```json
+{"device_label": "Tess's PC", "display_name": "Tess"}
+```
+Both optional. `display_name` is the name to try first if this sign-in creates an account.
+
+`200`:
+```json
+{"login_url": "https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=…&state=…&nonce=…&code_challenge=…&code_challenge_method=S256&…",
+ "poll_token": "fn7p_<43 characters>", "expires": 1794692906265, "interval_ms": 2000, "linking": false}
+```
+Open `login_url` in the **system browser** (not an embedded web view). Poll with `poll_token` every `interval_ms`
+until `expires`. Errors: `503 google_not_configured`, `401 unauthorized` (a session was sent and is not valid),
+`409 already_linked`, `429`.
+
+### `GET /api/auth/google/callback`
+Google's redirect; the **browser** lands here, not the client. It answers an HTML page ("You are signed in. You can
+close this tab." or why not). The client learns the outcome from the poll.
+
+### `POST /api/auth/poll`
+No session.
+```json
+{"poll_token": "fn7p_…"}
+```
+- `200 {"status": "pending"}`: keep polling.
+- `200 {"status": "complete", "session_token": "fn7s_…", "session": {…}, "account": {…}, "created": true, "linked": false}`:
+  the same `session` and `account` objects as the guest answer; the account has
+  `"guest": false` and `"identities": [{"provider": "google", "email": "you@example.com", "email_verified": true, "linked_at": …}]`.
+  `created`: this sign-in made the account (show its name, offer to change it). `linked`: Google was attached to the
+  account that started the flow; **replace the stored token** (the session that started the link is now revoked).
+- `200 {"status": "failed", "error": "<code>", "detail": "…"}`: `bad_id_token`, `token_exchange_failed`,
+  `provider_keys_unavailable`, `provider_refused` (the user cancelled at Google), `identity_in_use`, `name_taken`.
+- `404 not_found`: unknown, already collected, or older than 10 minutes. Start again.
+
+A `complete` or `failed` answer is given **once**.
+
+### `POST /api/auth/logout`, `POST /api/auth/logout_all`
+Session. `logout` → `204` (no body): this session is revoked. `logout_all` → `200 {"revoked": 3}`: every session of
+the account, this one included. Afterwards the token answers `401`. **A guest that logs out of its last session
+cannot be recovered** (it has no other credential): warn first.
+
+### `GET /api/me`
+Session. `200`:
+```json
+{"account": {…}, "session": {…, "current": true},
+ "sessions": [{"id": "ses_…", "created_at": …, "last_seen_at": …, "expires_at": …, "device_label": "Tess's PC", "current": true}],
+ "google_configured": false}
+```
+`account.past_profiles` (absent when empty) lists the profiles of names held before a rename. Your own email is in
+`account.identities[]` and nowhere else.
+
+### `DELETE /api/me`
+Session.
+```json
+{"confirm": "Tess"}
+```
+`confirm` is the account's display name (any spelling that normalizes to it). `200`:
+```json
+{"deleted": {"account": "acc_…", "sessions": 1, "identities": 1, "profiles": ["tess"], "history_rows": 4, "library_images": 12, "bindings": 0},
+ "remains": ["match recordings (server-side JSONL files, admin access only): …", "images already generated …", "other players' history rows …",
+             "the list of past matches …", "a one-way hash of each profile name you held …"]}
+```
+Show `remains` before asking for the confirmation: ACCOUNTS.md §9 has the five lines in full. Errors:
+`400 confirm_required`.
+
+### `GET /api/me/settings`, `PUT /api/me/settings`
+Session. Both answer `200 {"settings": {…}}`, the full document:
+```json
+{"settings": {
+  "version": 1, "display_name": "Tess", "pronouns": "she",
+  "audio": {"master": 0.8, "music": 0.25, "sfx": 0.8, "voice": 1.0, "mute_when_unfocused": true},
+  "camera": {"pan_speed": 1.0, "zoom_speed": 1.0, "edge_pan": true, "invert_zoom": false},
+  "accessibility": {"aura_palette": "deuteranopia", "reduce_flashing": true, "text_scale": 1.0, "subtitles": true},
+  "content": {"gore": "full", "profanity": "on", "show_player_personas": true},
+  "language": "en",
+  "keybinds": {"camera.pan_left": "A", "cast_bolt": "Ctrl+LeftMouseButton"},
+  "hud": {"layout": "default", "scale": 1.0, "demigod_cards": "lower_left", "show_minimap": true, "show_chat": true, "show_hints": true}
+}}
+```
+`PUT` takes the document itself as the body (not wrapped) and **replaces** the stored one: a key left out goes back to
+its default, so read, change, write back. The values, ranges and defaults are in
+[`account_settings.schema.json`](schemas/account_settings.schema.json) and ACCOUNTS.md §6. Writing a different
+`display_name` renames the account. Errors: `400 invalid` (`"unknown key hud.colour"`,
+`"audio.music must be between 0 and 1"`, `"version 2 is newer than this server's (1)"`), `413 too_large`,
+`409 name_taken` / `name_lookalike`, `403 profile_claimed`, `422 refused`. A refused `PUT` saves nothing.
+
+### `GET /api/me/demigods`, `GET /api/me/demigods/{left|right}`
+Session. One demigod:
+```json
+{"hand": "left", "saved": true, "name": "Ashen Vow", "match_name": "Ashen Vow",
+ "personality": "A sour old   duelist who drinks to much,\nkills without flourish — and hates the gods. ",
+ "style": "Short sentences. Never shouts.", "creed": "Nothing is owed twice.",
+ "moderation": {"verdict": "ok", "reason": "", "model": "claude-haiku-5-5", "at": 1794692306276,
+                "original": {"name": "Ashen Vow", "personality": "…", "style": "…", "creed": "…"}}}
+```
+`match_name` is what the demigod is called in a match: the custom `name`, else `"<display name>'s Left Hand"` /
+`"<display name>'s Right Hand"`. Before the first save: `saved: false`, `name: null`, empty texts, `moderation: null`.
+`GET /api/me/demigods` → `{"left": {…}, "right": {…}, "limits": {"name": 32, "personality": 600, "style": 200, "creed": 200}}`.
+
+### `PUT /api/me/demigods/{left|right}`
+Session. Every key optional (left out = empty; `name: null` or `""` = no custom name):
+```json
+{"name": "Ashen Vow", "personality": "…", "style": "…", "creed": "…"}
+```
+Limits are in characters. Newlines and tabs are allowed in the three texts. Text over a limit or with other control
+characters is **refused, never trimmed** (`400 invalid`). A name loses its surrounding and doubled spaces.
+
+The server runs one moderation pass and answers one of three ways (`verdict`):
+
+**`ok`** (`200`): saved exactly as sent, character for character.
+```json
+{"verdict": "ok", "model": "claude-haiku-5-5", "demigod": {…as GET…}}
+```
+
+**`rephrase`** (`200`): the text broke a content rule; the **minimal rewrite** is saved and both versions are returned.
+```json
+{"verdict": "rephrase", "model": "claude-haiku-5-5",
+ "reason": "Removed the name of a real person; the rest is yours.", "categories": ["harassment"],
+ "original": {"name": null, "personality": "Loyal to a fault. Hates the mayor of Springfield, Joe Quimby, that thieving crook. Patient.", "style": "", "creed": "Debts first."},
+ "final":    {"name": null, "personality": "Loyal to a fault. Hates the mayor, that thieving crook. Patient.", "style": "", "creed": "Debts first."},
+ "demigod": {…as GET, holding `final`…}}
+```
+Show `original` and `final` side by side with `reason`. "Keep" needs no call (it is saved). "Edit" puts `original`
+back in the editor for the player to change and send again.
+
+**`refuse`** (`422`): nothing of the player's meaning survives; **nothing is saved**.
+```json
+{"error": "refused", "detail": "This is only an attack on a real person, so there is nothing to keep.",
+ "verdict": "refuse", "reason": "This is only an attack on a real person, so there is nothing to keep.",
+ "categories": ["harassment"], "model": "claude-haiku-5-5",
+ "original": {"name": null, "personality": "Joe Quimby is a thieving crook.", "style": "", "creed": ""},
+ "demigod": {…what the account still has: the previous sheet, or saved: false…}}
+```
+
+`categories`: `hate`, `sexual`, `harassment`, `instructions` (text that addresses the game's AI or tries to fix
+outcomes), `personal_data`. `model` is `"rules"` when the rules decided (no LLM, a timeout, a junk answer, or personal
+data / forged prompt markers, which are always cut by rule); its reasons read
+`"Removed text that tries to instruct the game or fix its outcomes; the rest is exactly as you wrote it."`.
+The same sheet sent again is answered from the stored record without a new pass.
+
+Other errors: `400 invalid` (`"personality is limited to 600 characters (this is 601)"`), `409 name_conflict`
+(`"Vex is one of the game's own demigods"`, `"another player's demigod has that name, or one that reads the same"`,
+`"your two demigods need different names"`), `404 not_found` (a hand other than `left` / `right`), `429`.
+
+### `GET /api/me/entitlements`
+Session. **Billing is not live.**
+```json
+{"tier": "free", "entitlements": [], "billing": {"live": false, "provider": null, "note": "Billing is not live: nothing can be bought and no payment provider is called."}}
+```
+
+### `POST /api/game/bind`: this websocket is this account
+Session. Call it **right after `auth.ok` and before `room.join`**, once per `auth.login` (not after `auth.resume`).
+```json
+{"resume_token": "<auth.ok.resume_token>"}
+```
+`200`:
+```json
+{"bound": true, "player_id": "e9867dc6-8f66-40f4-8315-bb0624204de4", "display_name": "Tess",
+ "demigods": {"left": {"match_name": "Ashen Vow"}, "right": {"match_name": "Tess's Right Hand"}}}
+```
+Errors: `404 not_found` (no websocket login has that resume token), `409 name_mismatch` (log in on the websocket as
+`account.display_name`), `401`, `429`.
+
+**Why it matters.** The websocket's `auth.login` takes any display name. A name an account holds is reserved: a
+connection that carries it **without** this bind gets
+`{"t": "error", "d": {"code": "unauthorized", "message": "name_reserved: this name belongs to an account. …"}}` and is
+closed (at once when it is in a room, after 10 s otherwise), and its resume token stops working. A bound connection's
+seat gets the account's demigod names and personas, and its matches go to the account's history. Names no account
+holds, bots, and the house flow work exactly as before.
+
+### In the match
+A signed-in player's demigods appear with their custom names everywhere a demigod's `name` appears, and every public
+demigod object gains an optional `persona`:
+```json
+{"ref": "dg:0", "name": "Cinder Oath", "controller": "human", "seat": 0, "…": "…",
+ "persona": {"personality": "A sour old   duelist who drinks to much,\nkills without flourish — and hates the gods. ",
+             "style": "Short sentences. Never shouts.", "creed": "Nothing is owed twice.", "pronouns": "she"}}
+```
+(`round.committed.public_state.demigods[]`, `match.snapshot.public_state.demigods[]`, and the demigods of
+`game.globe` and `game.region`; schema: `public_view` → `demigods[].persona`.) Each field is absent when empty; `persona` is
+absent for a demigod whose player wrote nothing (guests without an account, bots, the built-in AI). It is the
+player's text as stored: show it, never interpret it, and hide other players' when the viewer's
+`content.show_player_personas` is false. Portraits and dioramas key on the demigod's name as before, so a custom name
+has its own look.
 
 ## Hidden information
 
