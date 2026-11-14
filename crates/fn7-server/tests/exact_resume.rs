@@ -195,6 +195,23 @@ fn temp_dir() -> PathBuf {
     d
 }
 
+fn d_scene(present: &Value, id: &str) -> Value {
+    duel(present, id)["scene"].clone()
+}
+
+fn d_panels(present: &Value, id: &str) -> Vec<Value> {
+    duel(present, id)["panels"].as_array().cloned().unwrap_or_default()
+}
+
+/// A panel as it is stored (an event's `seq`, `received_at_ms` and `also` are its envelope).
+fn strip(p: &Value) -> Value {
+    let mut p = p.clone();
+    for k in ["seq", "received_at_ms", "also"] {
+        p.as_object_mut().unwrap().remove(k);
+    }
+    p
+}
+
 fn duel<'a>(present: &'a Value, id: &str) -> &'a Value {
     present["duels"].as_array().and_then(|a| a.iter().find(|d| d["duel_id"] == id)).unwrap_or_else(|| panic!("no duel {id} in {present}"))
 }
@@ -218,7 +235,7 @@ async fn the_exact_present_survives_reconnects_a_kill_and_a_fork() {
     let mut a = Client::connect(port, "Ash").await;
     let me = a.login().await;
     let token = me["resume_token"].as_str().unwrap().to_string();
-    let settings = json!({ "seed": 4242, "beats_total": 400, "llm": false, "flow_ms": 2500, "duel_ai_chance": 0.0,
+    let settings = json!({ "seed": 4242, "beats_total": 400, "llm": false, "flow_ms": 4000, "duel_ai_chance": 0.0,
                            "dm_encounters_per_beat": 0, "duel_deadline_ms": 240_000, "duel_damage_scale": 0.05,
                            "slow_ms": 20_000, "allow_midmatch_join": true });
     let (t, room) = a.ask("room.create", json!({ "visibility": "private", "settings": settings })).await;
@@ -244,6 +261,18 @@ async fn the_exact_present_survives_reconnects_a_kill_and_a_fork() {
     let lock = a.instant(2, json!({ "challenge": { "demigod": mine, "target": rival_ref, "level": "people" } }), "challenge.lock").await;
     let id = lock["duel_id"].as_str().unwrap().to_string();
     let b1 = a.instant(2, json!({ "duel": { "duel_id": id, "text": "I kick your knee into the mud" } }), "duel.blow").await;
+    // Rules 0.8.2: the lock carries the duel's scene and panel 0; a tick at the input close brings panel 1 on time.
+    let (scene, p0) = (lock["also"][0].clone(), lock["also"][1].clone());
+    assert_eq!((scene["event"].as_str(), p0["event"].as_str(), p0["n"].as_u64()), (Some("duel.scene"), Some("duel.panel"), Some(0)));
+    assert!(scene["objects"].as_array().is_some_and(|o| o.len() >= 6));
+    assert_eq!(p0["starts_at_ms"], lock["received_at_ms"]);
+    let close = p0["input_closes_ms"].as_i64().unwrap();
+    assert!(close < p0["starts_at_ms"].as_i64().unwrap() + p0["play_ms"].as_i64().unwrap());
+    tokio::time::sleep(Duration::from_millis((close - now_ms() + 20).max(0) as u64)).await;
+    let p1 = a.instant(2, json!({ "duel_tick": { "duel_id": id } }), "duel.panel").await;
+    assert_eq!((p1["n"].as_u64(), p1["blows"].clone()), (Some(1), json!([b1["n"]])), "panel 1 stages the line typed in window 0");
+    let lead = p1["starts_at_ms"].as_i64().unwrap() - now_ms();
+    assert!(lead > 300, "the next panel arrives before it starts (the render lead): {lead} ms ahead");
     a.ask("action.begin", json!({})).await;
     let window = a.wait("window.opened", |_| true).await;
 
@@ -266,7 +295,8 @@ async fn the_exact_present_survives_reconnects_a_kill_and_a_fork() {
     assert!((server_now - asked).abs() < 5_000, "the server's clock, to seek to the exact offset: {server_now} vs {asked}");
     assert_eq!(p["live"], true);
     let events: Vec<&str> = p["events"].as_array().unwrap().iter().map(|e| e["event"].as_str().unwrap_or("")).collect();
-    assert_eq!(&events[..3], ["summoning", "challenge.lock", "duel.blow"], "the mid-beat events since the last resolve, in order");
+    assert_eq!(&events[..4], ["summoning", "challenge.lock", "duel.blow", "duel.panel"], "the mid-beat events since the last resolve, in order");
+    assert_eq!((d_scene(p, &id), d_panels(p, &id)), (scene.clone(), vec![p0.clone(), strip(&p1)]), "the scene and every panel so far");
     for (k, e) in [&summoning, &lock, &b1].into_iter().enumerate() {
         assert_eq!((p["events"][k]["seq"].clone(), p["events"][k]["received_at_ms"].clone()), (e["seq"].clone(), e["received_at_ms"].clone()));
     }
@@ -346,6 +376,8 @@ async fn the_exact_present_survives_reconnects_a_kill_and_a_fork() {
     let pr = &snap["public_state"]["present"];
     let after = duel(pr, &id);
     assert_eq!(timeline(after), timeline(&before), "the duel is still open with the same blows after the kill");
+    assert_eq!((&after["scene"], &after["panels"]), (&before["scene"], &before["panels"]), "and the same scene and panels");
+    assert!(before["panels"].as_array().unwrap().len() >= 3);
     assert_eq!(after["hp"], before["hp"]);
     for k in ["range", "initiative", "stances", "started_ms", "ends_beat", "n", "typed"] {
         assert_eq!(after[k], before[k], "{k}");
@@ -393,6 +425,7 @@ async fn the_exact_present_survives_reconnects_a_kill_and_a_fork() {
     let hist = &public["state"]["present"];
     let hist = if hist.is_null() { &public["present"] } else { hist };
     assert_eq!(timeline(duel(hist, &id)), timeline(&at_commit), "state at a round returns the open duel: {}", public.to_string().chars().take(300).collect::<String>());
+    assert_eq!(duel(hist, &id)["panels"], at_commit["panels"]);
     let raw = admin(port, &format!("/admin/matches/{match_id}/state?after_round={fork_round}&view=raw")).await;
     let raw_state = if raw["state"]["dm"].is_object() { &raw["state"] } else { &raw };
     assert_eq!(raw_state["dm"]["duels"][0]["blows"].as_array().map(Vec::len), Some(4), "the whole timeline is in the state");
@@ -407,6 +440,7 @@ async fn the_exact_present_survives_reconnects_a_kill_and_a_fork() {
     let fork_id = fsnap["match_id"].as_str().unwrap().to_string();
     let fd = duel(&fsnap["public_state"]["present"], &id);
     assert_eq!(timeline(fd), timeline(&at_commit), "the forked room has the duel open, as it was at that beat");
+    assert_eq!((&fd["scene"], &fd["panels"]), (&at_commit["scene"], &at_commit["panels"]), "with its scene and panels");
     let frs = f.wait("round.started", |d| d["round"].as_u64() == Some(fork_round + 1)).await;
     assert!(frs["public"]["duel_clock"]["pause"]["ms"].as_i64().unwrap_or(0) >= 0);
     f.wait("phase.changed", |d| d["round"].as_u64() == Some(fork_round + 1) && d["phase"] == "compose").await;
