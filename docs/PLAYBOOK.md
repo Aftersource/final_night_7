@@ -93,6 +93,31 @@ reaches STABLE, and every client change, runs this loop so the Unreal client nev
 The bridge always talks to the backend for anything that affects the server contract. The Mac verifier talks only
 to the backend. Nobody pushes to another team's repo without an instruction.
 
+**Play 9: git, the same for everyone, in every repo.** Re-read this after every compaction; save it to memory.
+1. **`main` is the trunk.** Default: work on `main`.
+   - Before every commit: `git pull --rebase origin main`.
+   - Commit, push, then report to the backend: `<repo> <hash> <message> <files changed>`.
+2. **Commit messages:** a short abstract name in brackets that says what changed, lowercase, 2–5 words.
+   - Examples: `[ lobby join and host wait ]`, `[ quoted server url ]`, `[ lonlat order fix ]`, `[ simulator api ]`.
+   - One change per commit, one distinct message per commit. Never a reused catch-all message.
+   - No attribution lines.
+   - If Chris gives an exact message, use his verbatim.
+3. **Branches only when the backend says so**, named `<owner>/<topic>`:
+   - owner: `backend`, `bridge`, `windows` or `mac`
+   - topic: kebab-case, the same abstract style as commit names
+   - e.g. `mac/lonlat-order-fix`, `bridge/media-cards`
+4. **The backend directs every merge into `main`:**
+   - It merges with the commit message `[ merge <topic> ]` (or fast-forwards), verifies (build and tests), deletes the branch, and tells everyone the new `main` hash to pull.
+   - Nobody else merges into `main` from a branch.
+5. **Never:** force-push, rewrite `main`'s history, push tags (tags are the backend's: `playtest-N`), or commit secrets (keys and tokens live in env vars and git-ignored local files).
+6. **Committers:**
+   - `final_night_7`: the backend.
+   - `final_night_7_unreal`: the bridge, the Windows builder and the Mac verifier may all commit on `main` under rules 1–2. The backend keeps the history straight and relays hashes.
+   - `final_night_7_web`: frozen.
+   - `theatre`: the theatre_worker session only.
+7. **This playbook exists in both repos:** `final_night_7/docs/PLAYBOOK.md` (the source) and
+   `final_night_7_unreal/docs/PLAYBOOK.md` (a copy). The backend updates both together in one commit each.
+
 **Play 7: the unexpected.** Anything not covered here: ask the backend first, then act. When in doubt, don't push,
 don't deploy, don't delete.
 
