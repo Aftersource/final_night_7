@@ -104,6 +104,9 @@ pub struct Input {
     /// Rules 0.8.2: `fields.duel_tick {duel_id}`: a duellist's client says the panel's input window closed (an instant
     /// action that travels alone; it only moves the panel cycle on, see [`crate::panel`]).
     pub tick: Option<String>,
+    /// `fields.duel_keys {duel_id, len, tail}`: a duellist's live typing (an instant action that travels alone; relayed
+    /// as `duel.typing` and nothing else, see [`crate::typing`]).
+    pub keys: Option<crate::typing::KeysOrder>,
 }
 
 impl Input {
@@ -114,7 +117,7 @@ impl Input {
 
     /// Does it carry a challenge or a duel line (rules 0.8.1)?
     pub fn is_duel(&self) -> bool {
-        self.challenge.is_some() || self.blow.is_some() || self.tick.is_some()
+        self.challenge.is_some() || self.blow.is_some() || self.tick.is_some() || self.keys.is_some()
     }
 }
 
@@ -413,8 +416,9 @@ pub fn parse(text: &str, fields: &Value) -> Result<Input, String> {
                         .chars().take(64).collect()),
         None => None,
     };
+    i.keys = crate::typing::keys_of(fields)?;
     if i.is_duel()
-        && (i.challenge.is_some() as u8 + i.blow.is_some() as u8 + i.tick.is_some() as u8 > 1
+        && (i.challenge.is_some() as u8 + i.blow.is_some() as u8 + i.tick.is_some() as u8 + i.keys.is_some() as u8 > 1
             || !i.casts.is_empty()
             || !i.summons.is_empty()
             || !i.god_powers.is_empty()

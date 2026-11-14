@@ -38,10 +38,12 @@ pub mod phases;
 pub mod present;
 pub mod queries;
 pub mod settings;
+pub mod skin;
 pub mod society;
 pub mod summon;
 pub mod table;
 pub mod testkit;
+pub mod typing;
 pub mod visual;
 pub mod world;
 
@@ -257,6 +259,8 @@ pub struct FinalNight7Plugin {
     live: duel::LiveCache,
     /// Schema 8 (exact resume): the accepted instant actions of each match since its last resolve ([`present`]).
     journal: present::Journal,
+    /// Live typing in duels: each duellist's current line length, display only ([`typing`]).
+    typing: typing::Typing,
     /// The side inputs of a recorded match (replay verification), instead of the journal and the clock.
     feed: Option<present::Feed>,
     /// The server's media style config (`{version, hash, source, body}`), recorded in every match's ruleset as
@@ -270,6 +274,7 @@ impl Default for FinalNight7Plugin {
             pantheon: Arc::new(fn7_pantheon::load()),
             live: Default::default(),
             journal: Default::default(),
+            typing: Default::default(),
             feed: None,
             media_style: None,
         }
@@ -293,6 +298,13 @@ impl FinalNight7Plugin {
     pub fn with_feed(mut self, feed: present::Feed) -> Self {
         self.feed = Some(feed);
         self
+    }
+
+    /// `present` (the journal's view) with each open duel's live typing lengths.
+    fn present(&self, w: &World) -> Value {
+        let mut v = self.journal.present(w);
+        self.typing.fill(w.meta.seed, &mut v);
+        v
     }
 
     pub fn pantheon(&self) -> &Arc<Pantheon> {
@@ -497,6 +509,10 @@ impl FinalNight7Plugin {
         ctx: &RoundContext,
         llm: Option<&dyn LlmProvider>,
     ) -> RoundOutcome {
+        // Typing relays (`fields.duel_keys`) were shown when they arrived and are nothing to a resolve: without them
+        // the batch is exactly the batch of a match nobody typed live in.
+        let kept = typing::strip(actions);
+        let actions = kept.as_deref().unwrap_or(actions);
         // Schema 8: the instant actions an earlier boot of the server accepted and never delivered come first (a
         // recorded side input: `journal_recovered`).
         let merged;
@@ -649,7 +665,7 @@ impl GamePlugin for FinalNight7Plugin {
         if name == "present" {
             // The one query that needs the plugin's journal (and the whole state: ask it on (re)connect, don't poll it).
             let w = world::load(state).map_err(|e| e.to_string())?;
-            return Ok(if w.resume_rules() { self.journal.present(&w) } else { Value::Null });
+            return Ok(if w.resume_rules() { self.present(&w) } else { Value::Null });
         }
         queries::query(&self.pantheon, state, seat, name, args)
     }
@@ -743,6 +759,9 @@ impl GamePlugin for FinalNight7Plugin {
             if kind != SubmitKind::Instant {
                 return Err("a challenge or a duel line is an instant action".into());
             }
+            if let Some(k) = &i.keys {
+                return typing::validate(&self.journal, &w, seat, k);
+            }
             return if w.resume_rules() { duel::validate_now(&self.journal, &w, seat, &i) } else { duel::validate(&self.live, &w, seat, &i) };
         }
         if kind == SubmitKind::Instant && i.has_orders() {
@@ -802,7 +821,15 @@ impl GamePlugin for FinalNight7Plugin {
 
     fn on_instant(&self, state: &Value, seat: Seat, action: &Action) -> Option<Value> {
         let w = world::load(state).ok()?;
+        // Live typing: relayed and forgotten (not journaled: `present` never replays keystrokes).
+        if typing::is_keys(action) {
+            return self.typing.relay(&self.journal, &w, seat, action);
+        }
         let v = self.instant_event(&w, seat, action);
+        // The line is sent: what its author was typing is gone.
+        if let Some(id) = v.as_ref().filter(|v| v["event"] == "duel.blow").and_then(|v| v["duel_id"].as_str()) {
+            self.typing.sent(w.meta.seed, id, seat, action.received_at_ms);
+        }
         // Schema 8: every accepted instant action is journaled with its stamps and its public event, so the present
         // can be redrawn (a reconnect) and survives a restart.
         if w.resume_rules() {
@@ -902,7 +929,7 @@ impl GamePlugin for FinalNight7Plugin {
                 // Schema 8 (exact resume): the present moment (the server's clock, the public events since the last
                 // resolve, every open duel in full), so a `match.snapshot` redraws it.
                 if w.resume_rules() {
-                    v["present"] = self.journal.present(&w);
+                    v["present"] = self.present(&w);
                 }
                 v
             })
@@ -943,3 +970,5 @@ mod duel_tests;
 mod resume_tests;
 #[cfg(test)]
 mod panel_tests;
+#[cfg(test)]
+mod typing_tests;

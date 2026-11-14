@@ -755,6 +755,7 @@ pub fn split_turn(w: &World, seat: u8, lead: DemigodId, input: Input) -> Vec<Tur
                 challenge: None,
                 tick: None,
                 blow: None,
+                keys: None,
             },
         });
     }

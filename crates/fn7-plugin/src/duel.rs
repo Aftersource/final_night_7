@@ -436,7 +436,7 @@ fn side_json(w: &World, f: &Fighter) -> Value {
     let d = &w.demigods[f.id.ix()];
     json!({ "demigod": Ref::Demigod(f.id), "name": f.name, "player": d.player_name(),
             "seat": (d.seat < crate::SYNTHETIC_SEAT).then_some(d.seat), "controller": crate::table::controller(w, d),
-            "health": n1(f.health), "max_health": n1(f.max),
+            "health": n1(f.health), "max_health": n1(f.max), "skin": crate::skin::of(w, d),
             // The media wrapper adds `portrait_image` / `diorama_image` next to these (the lock-in portraits).
             "portrait_prompt": crate::payload::portrait_prompt(w, d), "diorama_prompt": crate::payload::diorama_prompt(w, d) })
 }
@@ -1566,6 +1566,7 @@ fn apply_segment(w: &mut World, beat: u32, bout: &mut Bout, pantheon: &Pantheon,
             if let Some(o) = lock[k].as_object_mut() {
                 o.remove("portrait_prompt");
                 o.remove("diorama_prompt");
+                o.remove("skin"); // display only: never in the state
             }
         }
         dm::remember(w, beat, &wh, Decision { scope: Scope::Cell, kind: "duel.lock", query: Some(format!("{}:lock", d.id)), public: true,
