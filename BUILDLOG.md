@@ -997,3 +997,38 @@ Engineering:
 - The summon's mishap d20 and health loss are decided AT THE ACCEPT, ahead of the teleport: the `summoning` event carries the roll and health_lost.
 - A challenge may fire immediately during or after a teleport, and the duel starts with the summon's health loss already counted (Archon-style risk).
 - No view change on ANY double-click; the studio's left-click zoom is removed.
+
+## 2026-11-14: Chris's batch (relayed by the Mac session, spelling fixed) + formal challenge mode and mannequins
+
+> Stop placing the poles in front. Make sure all of this works; nothing here should be guesswork.
+> Asks whether any of this is guesswork.
+
+> Double-clicking is not centering the globe map and the table map.
+
+> Healing all of them did not work; ask main why the behavior broke. Also, double-clicking any demigods
+> including the opponent's portrait, the globe must align to their position near the front and make the
+> selection centered on them on the map. This must happen.
+
+> Double-clicking an opponent's demigod on the table map should open the challenge, and it currently does not.
+
+> Make this scroll-like, in the same style, with stone tablet backgrounds. All
+> of this must be high quality.
+
+> Asks whether the ruleset basically emulates hierarchical group reasoning dynamics, and notes that what Benito described is close in scale.
+> Asks about a DM for challenge mode. Wants challenge mode formalized into a series of interrelations and flips.
+> etc, so the team can animate a small posable character for each, with proper joints and procedural animation for
+> what they are doing. Unsure whether this agent or a different model should do it, but that is the goal.
+> Research how others currently do this. There are some Meshy credits available, and a wooden-style animation should be achievable.
+> The joints are not working fairly effectively yet.
+
+Engineering:
+- The poles are removed. The Mac's gate now renders two zoom levels and screenshots Chris's live editor viewport.
+- Double-clicking ANY demigod turns the globe so that position faces near-front and centres the table on it. Double-clicking a rival in your hex sends a challenge.
+- The heal bug: a heal routed to "god" with no matching god was silently dropped, and "all my demigods" targeted every demigod. The fix routes heals to Nature for your own demigods, and no intent may vanish without a visible ruling.
+- The WORLD feed and header become scrolls; the YOU panel gets a stone-tablet background.
+- Challenge mode formalized:
+  - duel state: range, initiative, stances
+  - move classes and an interaction matrix with FLIPS
+  - a choreography per blow: a pose vocabulary, contacts, timing
+- The client draws a procedural wooden 15-joint mannequin per duellist (a pose library with Full Body IK). Meshy-rigged figures later.
+- Research: Unreal Control Rig/FBIK, Meshy's rigging and 500+ preset animation library, text-to-motion AI (NVIDIA ARDY and MotionBricks, Tencent Motus) as a stretch.
