@@ -788,17 +788,26 @@ pub fn events_json(w: &World, beat: u32, changes: &[Change]) -> Vec<Value> {
         .collect()
 }
 
-/// A demigod's looks so far, oldest first (the admin's and the profile's timeline): `[{loadout_hash, since_beat,
-/// until_beat, gear: [names]}]`, ending with the current one (`until_beat: null`).
+/// A demigod's looks so far, oldest first (the match summary's timeline, which the profile library is written from):
+/// `[{loadout_hash, image_loadout_hash, since_beat, until_beat, items: [names]}]`, ending with the current one
+/// (`until_beat: null`). A gear look also carries the media layer's inputs (so the server attaches its
+/// `portrait_image` and `diorama_image`).
 pub fn history_json(w: &World, d: DemigodId) -> Vec<Value> {
     let b = book(w);
     let Some(rec) = b.looks.iter().find(|l| l.demigod == d) else { return vec![] };
-    let names = |g: &[Shown]| g.iter().map(|s| s.gear.name.clone()).collect::<Vec<_>>();
-    let mut out: Vec<Value> = rec
-        .past
-        .iter()
-        .map(|p| json!({ "loadout_hash": p.loadout, "since_beat": p.since_beat, "until_beat": p.until_beat, "gear": names(&p.gear) }))
-        .collect();
-    out.push(json!({ "loadout_hash": rec.loadout, "since_beat": rec.since_beat, "until_beat": null, "gear": names(&rec.gear) }));
+    let Some(dg) = w.demigods.get(d.ix()) else { return vec![] };
+    let entry = |loadout: &str, since: u32, until: Option<u32>, gear: &[Shown]| {
+        let mut v = json!({ "loadout_hash": loadout, "image_loadout_hash": loadout, "since_beat": since, "until_beat": until,
+                            "items": gear.iter().map(|s| s.gear.name.clone()).collect::<Vec<_>>() });
+        if !gear.is_empty() {
+            v["base_portrait"] = crate::payload::portrait_prompt_for(&dg.name).into();
+            v["base_diorama"] = crate::payload::diorama_prompt_for(&dg.name).into();
+            v["portrait_subject"] = portrait_subject(&dg.name, gear).into();
+            v["diorama_subject"] = diorama_subject(&dg.name, gear).into();
+        }
+        v
+    };
+    let mut out: Vec<Value> = rec.past.iter().map(|p| entry(&p.loadout, p.since_beat, Some(p.until_beat), &p.gear)).collect();
+    out.push(entry(&rec.loadout, rec.since_beat, None, &rec.gear));
     out
 }

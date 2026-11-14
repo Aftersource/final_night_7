@@ -67,7 +67,7 @@ fn migration_keeps_existing_profiles() {
         .unwrap();
     }
     let s = ProfileStore::open(&path).unwrap();
-    assert_eq!(s.version().unwrap(), 2);
+    assert_eq!(s.version().unwrap(), schema::latest());
     let p = s.profile("Chris").unwrap().expect("the profile survived");
     assert_eq!(p.description.user, "since before accounts");
     // And an account can take the name: the old profile becomes its linked profile.
@@ -325,7 +325,7 @@ fn deleting_an_account_removes_its_personal_data() {
     let at = now_ms() + 60_000;
     s.record_match(&a_match("m1", at, vec![seat(0, "Chris", Some(&g.id)), seat(1, "Benito", None)])).unwrap();
     s.add_image("Chris", &NewImage { hash: "h1".into(), kind: "portrait".into(), caption: "c".into(), subject: None,
-                                      subject_name: None, match_id: Some("m1".into()), at: None }).unwrap();
+                                      subject_name: None, match_id: Some("m1".into()), at: None, ..Default::default() }).unwrap();
     s.put_settings(&g.id, 1, &json!({ "version": 1 })).unwrap();
     let doc = DemigodDoc { name: Some("Ashen Vow".into()), personality: "dry".into(), ..Default::default() };
     s.put_demigod(&g.id, "left", &doc, &doc, "ok", "", &[], "rules").unwrap();

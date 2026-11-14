@@ -219,6 +219,12 @@ CREATE TABLE profile_tombstones (
     deleted_at INTEGER NOT NULL
 );
 "#,
+    // 2 → 3: gear looks. An image's appearance in a match may say when and with what: the beat it became the
+    // demigod's look and the loadout it shows (gear portraits and dioramas).
+    r#"
+ALTER TABLE library_matches ADD COLUMN beat INTEGER;
+ALTER TABLE library_matches ADD COLUMN detail TEXT;   -- JSON {loadout_hash, loadout: [item names]}
+"#,
 ];
 
 /// The schema version a fully migrated store has.

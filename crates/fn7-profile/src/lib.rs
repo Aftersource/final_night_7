@@ -276,10 +276,14 @@ pub struct LibraryImage {
     pub matches: Vec<String>,
     pub first_seen: i64,
     pub last_seen: i64,
+    /// Gear looks: where it was a demigod's look, oldest first: `[{match_id, beat, loadout_hash, loadout: [names]}]`
+    /// (a gear portrait or diorama; empty for everything else).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub looks: Vec<Value>,
 }
 
 /// An image to add to a library by hand (`add_image`), e.g. one the media layer just made.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct NewImage {
     pub hash: String,
     pub kind: String,
@@ -293,6 +297,12 @@ pub struct NewImage {
     /// Epoch ms; `None` = now.
     #[serde(default)]
     pub at: Option<i64>,
+    /// Gear looks: the beat it became the demigod's look in `match_id`.
+    #[serde(default)]
+    pub beat: Option<u32>,
+    /// Gear looks: `{loadout_hash, loadout: [item names]}`.
+    #[serde(default)]
+    pub detail: Option<Value>,
 }
 
 /// A page of results. `page` is 0-based; `next` is the next page, if any.
@@ -657,6 +667,8 @@ impl ProfileStore {
                         subject_name: img.subject_name.clone(),
                         match_id: Some(m.match_id.clone()),
                         at: Some(at),
+                        beat: img.beat,
+                        detail: img.detail.clone(),
                     },
                 )?;
                 report.images += 1;
@@ -754,13 +766,25 @@ impl ProfileStore {
             "SELECT l.hash, l.kind, l.caption, l.subject, l.subject_name, l.first_seen, l.last_seen,
                     (SELECT json_group_array(match_id) FROM
                         (SELECT match_id FROM library_matches x WHERE x.profile_key = l.profile_key AND x.hash = l.hash
-                         ORDER BY x.at))
+                         ORDER BY x.at)),
+                    (SELECT json_group_array(json_object('match_id', match_id, 'beat', beat, 'detail', detail)) FROM
+                        (SELECT match_id, beat, detail FROM library_matches x
+                         WHERE x.profile_key = l.profile_key AND x.hash = l.hash AND x.detail IS NOT NULL ORDER BY x.at))
              FROM library l WHERE l.profile_key = ?1 AND (?2 IS NULL OR l.kind = ?2)
              ORDER BY l.last_seen DESC, l.hash LIMIT ?3 OFFSET ?4",
         )?;
         let items = st
             .query_map(params![key, kind, per, page as i64 * per as i64], |r| {
                 let ms: String = r.get(7)?;
+                let looks: String = r.get(8)?;
+                let looks: Vec<Value> = serde_json::from_str::<Vec<Value>>(&looks)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|x| {
+                        let d: Value = x["detail"].as_str().and_then(|s| serde_json::from_str(s).ok()).unwrap_or(Value::Null);
+                        serde_json::json!({ "match_id": x["match_id"], "beat": x["beat"], "loadout_hash": d["loadout_hash"], "loadout": d["loadout"] })
+                    })
+                    .collect();
                 Ok(LibraryImage {
                     hash: r.get(0)?,
                     kind: r.get(1)?,
@@ -770,6 +794,7 @@ impl ProfileStore {
                     first_seen: r.get(5)?,
                     last_seen: r.get(6)?,
                     matches: serde_json::from_str(&ms).unwrap_or_default(),
+                    looks,
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -909,9 +934,12 @@ fn add_image_tx(conn: &Connection, key: &str, img: &NewImage) -> Result<()> {
         params![key, img.hash, img.kind, clean_text(&img.caption, 300), img.subject, img.subject_name, at],
     )?;
     if let Some(mid) = &img.match_id {
+        let detail = img.detail.as_ref().map(|d| d.to_string());
         conn.execute(
-            "INSERT OR IGNORE INTO library_matches (profile_key, hash, match_id, at) VALUES (?1, ?2, ?3, ?4)",
-            params![key, img.hash, mid, at],
+            "INSERT INTO library_matches (profile_key, hash, match_id, at, beat, detail) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT (profile_key, hash, match_id) DO UPDATE SET
+                beat = COALESCE(beat, excluded.beat), detail = COALESCE(detail, excluded.detail)",
+            params![key, img.hash, mid, at, img.beat, detail],
         )?;
     }
     Ok(())

@@ -17,11 +17,19 @@
 //! `game.library` from the persistent store (the plugin never sees them), writes the match's history rows in
 //! `summarize` (after annotation, so image hashes are present), and adds a player's demigod portraits and dioramas
 //! asked for through `game.media` to their library once ready.
+//!
+//! **Gear looks** (docs/MEDIA.md "Looks"): the look pass (`fn7_media::Media::annotate_seen`) turns each demigod's
+//! `look` and each `look.changed` event into images (the gear image when ready, else the previous look's, with
+//! `pending`). This wrapper adds two things it alone can: every gear portrait and diorama of a human player's demigod
+//! goes into that player's library once ready, with its match, beat and loadout; and a `look.changed` event that
+//! went out while its images were still rendering is sent again, with `ready: true`, in the `looks[]` of the next
+//! public payload of that match after they exist.
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use fn7_media::{ImageKind, Media};
+use fn7_media::{ImageKind, LookSeen, Media, Status};
 use fn7_plugin::payload::{diorama_prompt_for, hand_names, portrait_prompt_for};
 use fn7_profile::NewImage;
 use serde_json::Value;
@@ -33,11 +41,24 @@ pub struct MediaPlugin<P> {
     inner: P,
     media: Media,
     profiles: Option<Arc<Profiles>>,
+    /// Per match (run id): the `look.changed` events sent while their gear images were still rendering.
+    waiting: Mutex<HashMap<String, Vec<Waiting>>>,
 }
+
+/// A `look.changed` event waiting for its images.
+struct Waiting {
+    /// The event as the plugin sent it.
+    event: Value,
+    /// The gear images it waits for.
+    hashes: Vec<String>,
+}
+
+/// The most events one match keeps waiting (a cap on memory; older ones are dropped).
+const WAITING_MAX: usize = 64;
 
 impl<P: GamePlugin> MediaPlugin<P> {
     pub fn new(inner: P, media: Media) -> Self {
-        Self { inner, media, profiles: None }
+        Self { inner, media, profiles: None, waiting: Mutex::new(HashMap::new()) }
     }
 
     /// Answer the profile queries, record history at match end and register library images (see the module doc).
@@ -52,7 +73,77 @@ impl<P: GamePlugin> MediaPlugin<P> {
 
     fn mark(&self, v: &mut Value) {
         let run = Self::run();
-        self.media.annotate(v, run.as_deref());
+        let (_, looks) = self.media.annotate_seen(v, run.as_deref());
+        for l in looks {
+            self.saw_look(l, run.as_deref());
+        }
+    }
+
+    /// A look went out: its gear images go to the player's library once ready, and a `look.changed` event whose
+    /// images are still rendering is kept to be sent again when they are.
+    fn saw_look(&self, l: LookSeen, run: Option<&str>) {
+        let imgs: Vec<(&'static str, &fn7_media::ImageRef)> =
+            [("portrait", l.portrait.as_ref()), ("diorama", l.diorama.as_ref())].into_iter().filter_map(|(k, i)| i.map(|i| (k, i))).collect();
+        if imgs.is_empty() {
+            return;
+        }
+        if let (Some(profiles), Some(player)) = (&self.profiles, l.player.as_ref().filter(|p| !p.trim().is_empty())) {
+            let name = l.name.clone().unwrap_or_default();
+            for (kind, img) in &imgs {
+                if img.status == "off" {
+                    continue;
+                }
+                let with = if l.loadout.is_empty() { "gear".to_string() } else { l.loadout.join(", ") };
+                profiles.register_when_ready(&self.media, player.clone(), NewImage {
+                    hash: img.hash.clone(),
+                    kind: kind.to_string(),
+                    caption: format!("{name}, {kind} with {with}"),
+                    subject: l.demigod.clone(),
+                    subject_name: l.name.clone(),
+                    match_id: run.map(str::to_string),
+                    at: None,
+                    beat: l.since_beat.map(|b| b as u32),
+                    detail: Some(serde_json::json!({ "loadout_hash": l.loadout_hash, "loadout": l.loadout })),
+                });
+            }
+        }
+        let (Some(event), Some(run)) = (l.event, run) else { return };
+        let hashes: Vec<String> = imgs.iter().filter(|(_, i)| i.status == "pending").map(|(_, i)| i.hash.clone()).collect();
+        if hashes.is_empty() || event.get("ready").is_some() {
+            return;
+        }
+        let mut w = self.waiting.lock().unwrap_or_else(|e| e.into_inner());
+        let list = w.entry(run.to_string()).or_default();
+        if !list.iter().any(|x| x.event["memory"] == event["memory"] && x.event["demigod"] == event["demigod"]) {
+            list.push(Waiting { event, hashes });
+            if list.len() > WAITING_MAX {
+                list.remove(0);
+            }
+        }
+    }
+
+    /// The `look.changed` events of this match whose images now exist (each is handed out once, with `ready: true`);
+    /// ones whose images failed or were refused are dropped.
+    fn ready_looks(&self, run: &str) -> Vec<Value> {
+        let mut w = self.waiting.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(list) = w.get_mut(run) else { return vec![] };
+        let status = |h: &String| self.media.entry(h).map(|e| e.status);
+        let mut out = vec![];
+        list.retain(|x| {
+            let st: Vec<Option<Status>> = x.hashes.iter().map(status).collect();
+            if st.iter().all(|s| *s == Some(Status::Ready)) {
+                let mut e = x.event.clone();
+                e["ready"] = true.into();
+                out.push(e);
+                false
+            } else {
+                st.iter().all(|s| matches!(s, Some(Status::Ready | Status::Pending)))
+            }
+        });
+        if list.is_empty() {
+            w.remove(run);
+        }
+        out
     }
 
     /// `game.media`: the plugin's `{kind, ref, name, image_prompt, image_kind}` → `{kind, ref, name, image, reason?}`.
@@ -95,11 +186,22 @@ impl<P: GamePlugin> MediaPlugin<P> {
             subject_name: Some(subject),
             match_id: run.map(str::to_string),
             at: None,
+            ..Default::default()
         };
         profiles.register_when_ready(&self.media, player, img);
     }
 
     fn mark_seats(&self, public: &mut Value, per_seat: &mut [(Seat, Value)]) {
+        // Looks announced earlier whose images have arrived ride in this payload's `looks[]`.
+        if let Some(run) = Self::run() {
+            let ready = self.ready_looks(&run);
+            if !ready.is_empty() && public.is_object() {
+                match public["looks"].as_array_mut() {
+                    Some(a) => a.extend(ready),
+                    None => public["looks"] = ready.into(),
+                }
+            }
+        }
         self.mark(public);
         for (_, v) in per_seat.iter_mut() {
             self.mark(v);

@@ -114,6 +114,7 @@ impl Media {
                 .get("loadout")
                 .and_then(Value::as_array)
                 .map(|a| a.iter().filter_map(|x| x["name"].as_str().map(str::to_string)).collect())
+                .or_else(|| o.get("items").and_then(Value::as_array).map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()))
                 .unwrap_or_default(),
             portrait: None,
             diorama: None,
