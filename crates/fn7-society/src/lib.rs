@@ -37,7 +37,7 @@ pub use rules::{
     arena_close_beats, arena_progress, arena_radius_at, capture_rewind, setting_f64, ARENA_EASE, drift, due_debts, shrink_arena, spread, ARENA_END_FRACTION,
     DRIFT_WINDOW, FOLLOW_JOIN, FOLLOW_LEAVE, SPREAD_DECAY, SPREAD_HORIZON,
 };
-pub use setup::{find_city, setup, CITIES_PER_REGION, CITY_KM, PLANET_END_RADIUS_KM, PLANET_START_MARGIN_KM};
+pub use setup::{find_city, setup, split_hands, SIBLING_FRACTION_CITY, SIBLING_KM_PLANET, CITIES_PER_REGION, CITY_KM, PLANET_END_RADIUS_KM, PLANET_START_MARGIN_KM};
 pub use util::{demigod_of, exists, is_alive, place_of};
 pub use venn::{headcount, members, overlap_graph};
 pub use world_rules::{

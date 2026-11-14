@@ -129,6 +129,10 @@ pub fn is_public_head(w: &World, verb: &str, magnitude: u8, source: &Source, act
     if PUBLIC_VERBS.contains(&verb) {
         return true;
     }
+    // Rules 0.7.0: a manifestation is public from relic tier up (its row's magnitude is 4 + tier).
+    if verb == "manifest" {
+        return magnitude >= 6;
+    }
     let entropy = w.gods.iter().find(|g| g.name == "Entropy").map(|g| g.id);
     match *source {
         Source::God { god, .. } if Some(god) == entropy => true,
@@ -357,13 +361,67 @@ pub fn powers_json() -> Vec<Value> {
         .powers
         .iter()
         .map(|p| {
+            let var = |s: CastScale| {
+                let v = p.variant(s);
+                // cost: 1 bolt (mega) or 1 spark (mini).
+                let _ = s;
+                json!({ "radius_km": v.radius_km, "magnitude": v.magnitude, "damage": v.damage, "cost": 1 })
+            };
             json!({ "slug": p.slug, "name": p.name, "icon": p.icon, "cost": p.cost, "radius_km": p.radius_km,
-                    "target": p.target, "magnitude": p.magnitude, "damage": p.damage, "tags": p.tags })
+                    "target": p.target, "magnitude": p.magnitude, "damage": p.damage, "tags": p.tags,
+                    "mega": var(CastScale::Mega), "mini": var(CastScale::Mini) })
         })
         .collect();
     v.push(json!({ "slug": "custom", "name": "Custom power", "icon": "custom", "cost": null, "radius_km": 200.0,
                    "target": "point", "magnitude": null, "damage": null, "tags": ["custom"] }));
     v
+}
+
+/// Per-player aura colours (rules 0.7.0), by player index (the order of each player's first demigod; stable for the
+/// match). Chosen to stay distinct for the common colour-vision deficiencies (Okabe-Ito based, brightened) and readable
+/// on the table's dark cobalt and violet; no cyan (the AI flicker's) and no grey (the fallen's).
+pub const AURAS: [&str; 8] = ["#E69F00", "#F0E442", "#009E73", "#F28CC0", "#D55E00", "#A6D854", "#FFFFFF", "#C9A27E"];
+
+/// A seat's aura colour (both of its demigods share it).
+pub fn aura(w: &World, seat: u8) -> &'static str {
+    let i = w.player_seats().iter().position(|s| *s == seat).unwrap_or(0);
+    AURAS[i % AURAS.len()]
+}
+
+/// Time's bill for a slow window opened now by demigod `d`'s player (rules 0.7.0, the live bill): `debt(t) =
+/// min(debt_cap, debt_base + debt_per_second × t)` after `t` seconds open, plus one bolt; `debt_base = 0.5 ×
+/// repeat_factor` (`1 + 0.5 × slows in the last 20 beats`), doubled when the purse has no bolt.
+pub fn time_bill(w: &World, d: DemigodId) -> Value {
+    let x = &w.demigods[d.ix()];
+    let recent = x.slows.iter().filter(|b| **b + crate::flow::SLOW_REPEAT_BEATS > w.meta.beat.max(1)).count() as u32;
+    let repeat = 1.0 + 0.5 * recent as f32;
+    let pay = x.bolts >= 1;
+    let base = crate::flow::SLOW_DEBT_BASE * repeat * if pay { 1.0 } else { 2.0 };
+    json!({ "bolts": 1, "can_pay_bolt": pay, "recent_slows": recent, "repeat_factor": repeat,
+            "debt_base": base, "debt_per_second": base / 10.0, "debt_per_10s": base, "debt_cap": 10.0,
+            "instant_order_debt": crate::world::settings(w).instant_order_debt * if pay { 1.0 } else { 2.0 } })
+}
+
+/// The seat list (rules 0.7.0): one entry per player, `{seat, player, aura, controller, connected, alive, bolts,
+/// demigods: [ref], time_bill}` (the built-in AI's `seat` is null; `index` is the player's stable index).
+pub fn players_json(w: &World) -> Vec<Value> {
+    w.player_seats()
+        .into_iter()
+        .enumerate()
+        .filter_map(|(i, seat)| {
+            let first = w.demigod_of_seat(seat)?;
+            let lead = w.lead_of_seat(seat).unwrap_or(first.id);
+            let mut v = json!({
+                "index": i, "seat": (seat < crate::SYNTHETIC_SEAT).then_some(seat), "player": first.player_name(),
+                "aura": aura(w, seat), "alive": w.seat_alive(seat), "bolts": first.bolts, "sparks": first.sparks,
+                "charges": { "bolts": first.bolts, "sparks": first.sparks },
+                "demigods": w.bodies_of_seat(seat).map(|d| Ref::Demigod(d.id)).collect::<Vec<_>>(),
+                "time_bill": time_bill(w, lead),
+            });
+            crate::table::add_table_fields(w, first, &mut v);
+            Some(v)
+        })
+        .collect()
 }
 
 /// The open slow-time window as of the last resolve, publicly: `{by, by_ref, window_id, opened_ms, deadline_ms,
@@ -424,7 +482,7 @@ pub fn subagents(w: &World, hand: AgentId, said: &BTreeMap<AgentId, String>) -> 
 /// The seat view's hand.
 pub fn seat_hand(w: &World, h: AgentId) -> SeatHand {
     let a = &w.agents[h.ix()];
-    SeatHand {
+    let mut h = SeatHand {
         agent: Ref::Agent(h),
         name: a.name.clone(),
         live: a.is_live(),
@@ -432,7 +490,21 @@ pub fn seat_hand(w: &World, h: AgentId) -> SeatHand {
         portrait_prompt: portrait_prompt_for(&a.name),
         diorama_prompt: diorama_prompt_for(&a.name),
         visual: Some(crate::visual::demigod_by_name(&a.name).to_json()),
+        demigod: None,
+        side: None,
+        health: None,
+        alive: None,
+    };
+    // Rules 0.7.0: the hand is a demigod in its own right.
+    if let AgentKind::Hand { demigod, hand } = a.kind {
+        if let Some(d) = w.demigods.get(demigod.ix()).filter(|d| d.side.is_some()) {
+            h.demigod = Some(Ref::Demigod(d.id));
+            h.side = Some(hand);
+            h.health = Some(d.health);
+            h.alive = Some(d.alive);
+        }
     }
+    h
 }
 
 /// News lines as a client gets them: newest first (by row), at most one line per ledger row, refs without repeats.

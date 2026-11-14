@@ -62,7 +62,47 @@ fn power_of(o: &CastOrder, powers: &fn7_pantheon::Powers) -> PowerDef {
         damage: (mag as f32 * 0.3 * 10.0).round() / 10.0,
         tags: vec!["custom".into()],
         blurb: text,
+        mega: None,
+        mini: None,
     }
+}
+
+/// Rules 0.7.0: a cast's scale in this world (`None` before schema 5: the old bolt-priced cast; absent = mini).
+pub fn scale_of(w: &World, o: &CastOrder) -> Option<CastScale> {
+    w.two_bodies().then(|| o.scale.unwrap_or(CastScale::Mini))
+}
+
+/// The power as it lands: the palette entry at its mega or mini variant (radius, magnitude, damage), or as is.
+fn scaled(p: PowerDef, scale: Option<CastScale>) -> PowerDef {
+    match scale {
+        Some(s) => {
+            let v = p.variant(s);
+            PowerDef { radius_km: v.radius_km, magnitude: v.magnitude, damage: v.damage, cost: 1, ..p }
+        }
+        None => p,
+    }
+}
+
+/// Can demigod `d`'s player pay for `casts` (against the last commit)? Schema 5: one bolt per mega, one spark per
+/// mini; before, the casts' bolt prices.
+pub fn affordable(w: &World, d: DemigodId, casts: &[CastOrder]) -> Result<(), String> {
+    let me = &w.demigods[d.ix()];
+    if w.two_bodies() {
+        let megas = casts.iter().filter(|c| scale_of(w, c) == Some(CastScale::Mega)).count() as u32;
+        let minis = casts.len() as u32 - megas;
+        if megas > me.bolts {
+            return Err(format!("not enough bolts: {megas} mega power(s) cost {megas}, you have {}", me.bolts));
+        }
+        if minis > me.sparks {
+            return Err(format!("not enough sparks: {minis} mini power(s) cost {minis}, you have {}", me.sparks));
+        }
+        return Ok(());
+    }
+    let cost: u32 = casts.iter().map(cost_of).sum();
+    if cost > me.bolts {
+        return Err(format!("not enough bolts: these casts cost {cost}, you have {}", me.bolts));
+    }
+    Ok(())
 }
 
 /// A name → a ref: demigods, places, crowds and people by exact name (case-insensitive), then places and demigods by
@@ -124,13 +164,18 @@ fn aim(w: &World, t: &CastTarget, power: &PowerDef) -> Option<(LonLat, Option<Re
 /// Entropy 40+ a cast may still land off target there.
 pub fn streak(w: &World, d: DemigodId, seat: u8, casts: &[CastOrder]) -> Option<Value> {
     let powers = crate::powers();
-    let name = w.demigods[d.ix()].name.clone();
+    // Casts are the player's (paid from the shared purse): `by` is the player, `by_ref` the lead demigod.
+    let name = w.demigods[d.ix()].player_name().to_string();
     let lines: Vec<Value> = casts
         .iter()
         .map(|o| {
-            let p = power_of(o, powers);
+            let scale = scale_of(w, o);
+            let p = scaled(power_of(o, powers), scale);
             let mut v = json!({ "power": p.slug, "power_name": p.name, "icon": p.icon, "cost": p.cost,
                                 "radius_km": p.radius_km });
+            if let Some(s) = scale {
+                v["tier"] = json!(s);
+            }
             if let Some(t) = o.text.as_ref().filter(|_| p.slug == "custom") {
                 v["text"] = t.clone().into();
             }
@@ -184,15 +229,31 @@ pub fn process(
     order.sort_by_key(|(t, o)| (t.seat < SYNTHETIC_SEAT, o.seq, t.demigod.0));
     let mut by_region: BTreeMap<PlaceId, Vec<(CastLine, IntentId)>> = BTreeMap::new();
     let mut k = 0u64;
+    // Rules 0.7.0: a player spends at most the charges it held when the beat began (what arrival validation checked:
+    // the last commit); bolts gifted by a rival's mega this beat are spendable from the next.
+    let start: BTreeMap<u8, (u32, u32)> = w.demigods.iter().map(|d| (d.seat, (d.bolts, d.sparks))).collect();
+    let mut used: BTreeMap<u8, (u32, u32)> = BTreeMap::new();
     {
         for (t, o) in order {
             k += 1;
             let d = t.demigod;
-            let p = power_of(o, powers);
+            let scale = scale_of(w, o);
+            let p = scaled(power_of(o, powers), scale);
             let name = w.demigods[d.ix()].name.clone();
-            let have = w.demigods[d.ix()].bolts;
-            let base = json!({ "by": name, "by_ref": Ref::Demigod(d), "power": p.slug, "icon": p.icon,
+            // What the player can pay with: bolts (old casts, megas) or sparks (minis), within the beat's start purse.
+            let seat = w.demigods[d.ix()].seat;
+            let (s0, u0) = (start.get(&seat).copied().unwrap_or((0, 0)), used.get(&seat).copied().unwrap_or((0, 0)));
+            let (have, unit) = match scale {
+                Some(CastScale::Mini) => (w.demigods[d.ix()].sparks.min(s0.1.saturating_sub(u0.1)), "sparks"),
+                Some(CastScale::Mega) => (w.demigods[d.ix()].bolts.min(s0.0.saturating_sub(u0.0)), "bolts"),
+                None => (w.demigods[d.ix()].bolts, "bolts"),
+            };
+            let mut base = json!({ "by": w.demigods[d.ix()].player_name(), "by_ref": Ref::Demigod(d), "power": p.slug, "icon": p.icon,
                                "power_name": p.name, "cost": p.cost, "seq": o.seq, "instant": o.instant });
+            if let Some(s) = scale {
+                base["tier"] = json!(s);
+                base["radius_km"] = json!(p.radius_km);
+            }
             let Some((mut at, mut target)) = aim(w, &o.target, &p) else {
                 let mut v = base;
                 v["fizzled"] = "no such target".into();
@@ -204,13 +265,18 @@ pub fn process(
             };
             if !w.demigods[d.ix()].alive || have < p.cost {
                 let mut v = base;
-                v["fizzled"] = format!("needs {} bolts, has {have}", p.cost).into();
+                v["fizzled"] = format!("needs {} {unit}, has {have}", p.cost).into();
                 v["at"] = json!(at);
                 event("cast_fizzled", Some(Ref::Demigod(d).to_string()),
                       json!({ "beat": beat, "by": d, "power": p.slug, "cost": p.cost, "have": have,
                               "reason": "not enough bolts", "seq": o.seq, "instant": o.instant }));
                 out.lines.push(v);
                 continue;
+            }
+            match scale {
+                Some(CastScale::Mega) => used.entry(seat).or_default().0 += 1,
+                Some(CastScale::Mini) => used.entry(seat).or_default().1 += 1,
+                None => {}
             }
             // Unreliable physics: at Entropy 40+ a third of casts land off target.
             let mut off = false;
@@ -272,6 +338,8 @@ pub fn process(
                     target,
                     cost: p.cost,
                     damage: p.damage,
+                    scale,
+                    radius_km: if scale.is_some() { p.radius_km } else { 0.0 },
                 },
                 act,
                 actor: Ref::Demigod(d),
@@ -313,7 +381,12 @@ pub fn process(
                     at,
                     place_name,
                     target,
-                    cost: p.cost,
+                    // The ramifications' weight: a mega counts like a 3-bolt power, a mini like a free one.
+                    cost: match scale {
+                        Some(CastScale::Mega) => 3,
+                        Some(CastScale::Mini) => 0,
+                        None => p.cost,
+                    },
                     magnitude: p.magnitude,
                     radius_km: p.radius_km,
                     tags: p.tags.clone(),

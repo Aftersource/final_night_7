@@ -285,7 +285,8 @@ pub enum Hand {
     Right,
 }
 
-/// A player's demigod: one per seat, the battle royale contestant.
+/// A demigod: one body on the globe. Schema ≤ 4: one per seat. Schema 5: two per seat, the player's Left and Right
+/// hands ([`Demigod::side`]).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Demigod {
     pub id: DemigodId,
@@ -325,6 +326,34 @@ pub struct Demigod {
     /// theme). Absent in states from before it existed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub home: Option<PlaceId>,
+    /// Schema 5: which of its player's two hands this body is. Each player has two demigods (Left and Right), each a
+    /// row here with its own health, position, items and elimination; both share the seat (and its purse of bolts).
+    /// `None` in schema-4 states (one demigod per seat).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub side: Option<Hand>,
+    /// Schema 5: the player's display name (both of a player's demigods share it). Empty in schema-4 states, where
+    /// the demigod's `name` is the player's.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub player: String,
+    /// Rules 0.7.0: sparks, the mini-power currency (a per-player purse like `bolts`, mirrored on both demigods).
+    /// 0 (absent) in schema-4 states.
+    #[serde(default, skip_serializing_if = "crate::society::is_zero_u32")]
+    pub sparks: u32,
+}
+
+pub(crate) fn is_zero_u32(x: &u32) -> bool {
+    *x == 0
+}
+
+impl Demigod {
+    /// The player's display name: [`Demigod::player`], or the demigod's own name before schema 5.
+    pub fn player_name(&self) -> &str {
+        if self.player.is_empty() {
+            &self.name
+        } else {
+            &self.player
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -349,6 +378,10 @@ pub struct Item {
     pub created_by: Option<Ref>,
     pub holders: Vec<Ref>,
     pub uses: u32,
+    /// Schema 5: what the item engine knows about it (kind, tier, count, state, provenance, custody). Flattened, so
+    /// schema-4 items load with the defaults (one held object of kind `other`, tier `trinket`) and serialize as before.
+    #[serde(flatten, default, skip_serializing_if = "crate::manifest::ItemExt::is_plain")]
+    pub ext: crate::manifest::ItemExt,
 }
 
 /// Pairwise feelings, stored sparse and sorted by `(a, b)`. Directed: `a` about `b`.

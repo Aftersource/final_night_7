@@ -220,6 +220,13 @@ fn query_replies_validate() {
     if let Some(c) = w.cells.first() {
         cases.push(("node", None, json!({ "ref": s(Ref::Cell(c.id)) }), &state));
     }
+    cases.push(("items", None, json!({}), &state));
+    cases.push(("items", Some(0), json!({ "limit": 100 }), &state));
+    let mine: Vec<Ref> = w.items.iter().filter(|i| i.holders.last() == Some(&Ref::Demigod(DemigodId(0)))).map(|i| Ref::Item(i.id)).collect();
+    let item_args: Vec<Value> = mine.iter().take(1).map(|r| json!({ "ref": s(*r) })).collect();
+    for a in &item_args {
+        cases.push(("item", Some(0), a.clone(), &state));
+    }
     if let Some(m) = w.mobs.first() {
         cases.push(("node", None, json!({ "ref": s(Ref::Mob(m.id)) }), &state));
     }

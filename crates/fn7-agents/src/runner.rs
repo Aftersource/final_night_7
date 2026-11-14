@@ -14,6 +14,7 @@ use crate::fold::{self, FoldCtx};
 use crate::general::{self, GeneralCtx};
 use crate::god::{self, GodCtx, GodOut};
 use crate::hand::{self, HandCtx, HandOut};
+use crate::manifest::{self, ManifestCtx, ManifestOut};
 use crate::materialize::{self, MaterializeCtx};
 use crate::narrator::{self, Narration, NarratorCtx};
 use crate::ramify::{self, RamifyCtx, RamifyOut};
@@ -54,6 +55,8 @@ pub enum MindCall {
     Fold(FoldCtx),
     Ramify(RamifyCtx),
     General(GeneralCtx),
+    /// Rules 0.7.0: words for an item-engine verdict.
+    Manifest(ManifestCtx),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -68,6 +71,7 @@ pub enum MindReply {
     Fold(String),
     Ramify(RamifyOut),
     General(fn7_model::Judgment),
+    Manifest(ManifestOut),
 }
 
 impl MindCall {
@@ -83,6 +87,7 @@ impl MindCall {
             MindCall::Fold(_) => fold::STEP,
             MindCall::Ramify(_) => ramify::STEP,
             MindCall::General(_) => general::STEP,
+            MindCall::Manifest(_) => manifest::STEP,
         }
     }
 
@@ -98,6 +103,7 @@ impl MindCall {
             MindCall::Fold(c) => Some(c.owner.to_string()),
             MindCall::Ramify(c) => Some(c.region.to_string()),
             MindCall::General(c) => Some(c.army.to_string()),
+            MindCall::Manifest(c) => Some(c.demigod.to_string()),
         }
     }
 
@@ -112,6 +118,7 @@ impl MindCall {
             MindCall::Fold(c) => fold::run(llm, c).await.map(MindReply::Fold),
             MindCall::Ramify(c) => ramify::run(llm, c).await.map(MindReply::Ramify),
             MindCall::General(c) => general::run(llm, c).await.map(MindReply::General),
+            MindCall::Manifest(c) => manifest::run(llm, c).await.map(MindReply::Manifest),
         }
     }
 
@@ -126,6 +133,7 @@ impl MindCall {
             MindCall::Fold(c) => MindReply::Fold(fold::fallback(c)),
             MindCall::Ramify(c) => MindReply::Ramify(ramify::fallback(c)),
             MindCall::General(c) => MindReply::General(general::fallback(c)),
+            MindCall::Manifest(c) => MindReply::Manifest(manifest::fallback(c)),
         }
     }
 }

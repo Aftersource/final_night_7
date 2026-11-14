@@ -149,6 +149,7 @@ pub fn setup(cfg: &SetupConfig, seats: &[(u8, String)], pantheon: &Pantheon) -> 
         mobs: vec![],
         battles: vec![],
         soc: Default::default(),
+        manifests: vec![],
     };
 
     // ---- places -------------------------------------------------------------------------------------------------
@@ -507,6 +508,9 @@ pub fn setup(cfg: &SetupConfig, seats: &[(u8, String)], pantheon: &Pantheon) -> 
             slows: vec![],
             orders: vec![],
             home,
+            side: None,
+            player: String::new(),
+            sparks: 0,
         });
     }
     for (gi, god) in pantheon.gods.iter().enumerate() {
@@ -566,6 +570,86 @@ pub fn setup(cfg: &SetupConfig, seats: &[(u8, String)], pantheon: &Pantheon) -> 
     // The demigods' landing stirs the streets around them (the society's first events happen there).
     crate::sim::crowds::stir_homes(&mut w);
     w
+}
+
+/// How far a player's Right demigod lands from its Left at setup: kilometres on the planet, and this fraction of the
+/// arena radius in a city.
+pub const SIBLING_KM_PLANET: f64 = 150.0;
+pub const SIBLING_FRACTION_CITY: f64 = 0.08;
+
+/// Schema 5 (rules 0.7.0): every player gets TWO demigods, their Left and Right hands. [`setup`] makes one row per seat;
+/// this makes that row the player's **Left** demigod and appends the **Right** one (ids `n..2n`, in seat order), each a
+/// full body with its own health, position and elimination:
+/// - names: `"<player>'s Left Hand"` / `"<player>'s Right Hand"` (the hand agents' names, which the media layer already
+///   keys portraits and dioramas on), with `player` = the player's name;
+/// - each body's `hands` are its own hand agent twice (`[own, own]`), and that agent's `AgentKind::Hand.demigod` is the
+///   body, so the left text drives the Left demigod and the right text the Right one;
+/// - the Right body lands [`SIBLING_KM_PLANET`] away (a city: [`SIBLING_FRACTION_CITY`] of the radius) on a seeded
+///   bearing; both share the seat, the home region, the Following group and the purse of bolts;
+/// - the crowds that leaned toward the player at setup lean the same way toward the Right body; gods' favor rows grow.
+pub fn split_hands(w: &mut World) {
+    let n = w.demigods.len();
+    if n == 0 || w.demigods.iter().any(|d| d.side.is_some()) {
+        return;
+    }
+    let radius = w.meta.arena_radius_km;
+    for i in 0..n {
+        let left = w.demigods[i].clone();
+        let player = left.name.clone();
+        let [lh, rh] = left.hands;
+        let rid = DemigodId::from_ix(w.demigods.len());
+        let mut rng = Rng::derive(w.meta.seed, &[hash_str("sibling"), i as u64]);
+        let km = if w.meta.arena_kind == ArenaKind::Planet { SIBLING_KM_PLANET } else { radius * SIBLING_FRACTION_CITY };
+        let pos = destination(left.pos, rng.f64() * 360.0, km);
+        let place = place_at(w, pos);
+        {
+            let l = &mut w.demigods[i];
+            l.side = Some(Hand::Left);
+            l.player = player.clone();
+            l.name = w.agents[lh.ix()].name.clone();
+            l.hands = [lh, lh];
+        }
+        let rname = w.agents[rh.ix()].name.clone();
+        if let AgentKind::Hand { demigod, .. } = &mut w.agents[rh.ix()].kind {
+            *demigod = rid;
+        }
+        for a in [lh, rh] {
+            let me = if a == lh { "the Left" } else { "the Right" };
+            let ag = &mut w.agents[a.ix()];
+            ag.persona = format!(
+                "{me} hand of {player}, and a demigod in its own right: a body on the globe with its own health; it \
+                 plans, spawns subagents and acts."
+            );
+            ag.goal = format!("Keep yourself and your sibling hand alive and make {player} the last player standing.");
+        }
+        w.demigods.push(Demigod {
+            id: rid,
+            name: rname,
+            pos,
+            place,
+            hands: [rh, rh],
+            items: vec![],
+            orders: vec![],
+            slows: left.slows.clone(),
+            side: Some(Hand::Right),
+            player,
+            ..left
+        });
+        for c in w.clusters.iter_mut() {
+            if let Ok(k) = c.allegiance.binary_search_by(|x| x.0.cmp(&left.id)) {
+                let v = c.allegiance[k].1;
+                if let Err(j) = c.allegiance.binary_search_by(|x| x.0.cmp(&rid)) {
+                    c.allegiance.insert(j, (rid, v));
+                }
+            }
+        }
+    }
+    let m = w.demigods.len();
+    for g in w.gods.iter_mut() {
+        if g.favor.len() < m {
+            g.favor.resize(m, 0.0);
+        }
+    }
 }
 
 fn unique_label(rng: &mut Rng, a: &ClusterArchetype, district: &str, taken: &[String]) -> String {

@@ -722,7 +722,7 @@ pub fn clashes(w: &mut World, cx: &mut Ctx) {
                 if !(hot(x) || hot(y)) || x.mood.anger < 0.45 || y.mood.anger < 0.45 {
                     continue;
                 }
-                let rival_side = matches!((side(x), side(y)), (Some(p), Some(q)) if p != q);
+                let rival_side = matches!((side(x), side(y)), (Some(p), Some(q)) if !w.same_player(p, q));
                 let rival_faith = x.mood.devotion >= 0.62
                     && y.mood.devotion >= 0.62
                     && matches!((faith(x), faith(y)), (Some(p), Some(q)) if p != q);

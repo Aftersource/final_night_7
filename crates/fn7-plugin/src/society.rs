@@ -487,7 +487,8 @@ pub(crate) fn alleg_json(w: &World, v: &[(DemigodId, f32)]) -> Vec<Value> {
 pub(crate) fn who_json(w: &World, c: Option<CharId>) -> Value {
     match c.and_then(|c| w.characters.get(c.ix())) {
         Some(x) => json!({ "ref": Ref::Char(x.id), "name": x.name, "alive": x.alive,
-                            "role": x.life.as_ref().map(|l| l.role), "title": x.life.as_ref().map(|l| l.rank.title.clone()) }),
+                            "role": x.life.as_ref().map(|l| l.role), "title": x.life.as_ref().map(|l| l.rank.title.clone()),
+                            "pos": x.pos, "cell": people_cell(x.pos) }),
         None => Value::Null,
     }
 }
@@ -508,9 +509,23 @@ pub fn node_json(w: &World, p: PlaceId) -> Value {
 pub fn crowd_json(w: &World, k: ClusterId) -> Value {
     let c = &w.clusters[k.ix()];
     let cells: Vec<Value> = c.cells.iter().filter(|x| w.cells[x.ix()].ended.is_none()).map(|x| cell_json(w, *x)).collect();
+    let pos = piece_pos(w, k);
     json!({ "ref": Ref::Cluster(k), "name": c.label, "size": c.size, "place": Ref::Place(c.place),
             "at": fn7_society::geo::pos_of(w, Ref::Cluster(k)), "mood": mood_json(&c.mood), "need": c.need, "stance": c.stance,
-            "allegiance": alleg_json(w, &c.allegiance), "leader": who_json(w, c.leader), "dead": c.dead, "cells": cells })
+            "allegiance": alleg_json(w, &c.allegiance), "leader": who_json(w, c.leader), "dead": c.dead, "cells": cells,
+            "pos": pos, "cell": people_cell(pos),
+            "village": fn7_model::hexgrid::cell_at(pos, fn7_model::hexgrid::HexLevel::Villages).key() })
+}
+
+/// Where a crowd's piece stands on the table (rules 0.7.0): crowds live at their place's centre (`at`), so each gets a
+/// fixed spot around it (seeded by the match and the crowd: within a third of the place's radius, at most 3 km), so
+/// the pieces of a city's crowds don't stack on one hex.
+pub fn piece_pos(w: &World, k: ClusterId) -> LonLat {
+    let c = &w.clusters[k.ix()];
+    let (center, radius) = w.places.get(c.place.ix()).map(|p| (p.center, p.radius_km)).unwrap_or(([0.0, 0.0], 1.0));
+    let mut r = fn7_model::seed::Rng::derive(w.meta.seed, &[fn7_model::seed::hash_str("piece"), k.0 as u64]);
+    let km = (radius / 3.0).clamp(0.05, 3.0) * (0.2 + 0.8 * r.f64());
+    fn7_society::geo::destination(center, r.f64() * 360.0, km)
 }
 
 pub fn cell_json(w: &World, id: CellId) -> Value {
@@ -551,6 +566,7 @@ pub fn person_json(w: &World, c: CharId) -> Value {
 
 pub fn mob_json(w: &World, m: &Mob) -> Value {
     json!({ "ref": Ref::Mob(m.id), "name": m.name, "size": m.size, "action": m.action, "target": m.target,
+            "pos": m.pos, "cell": people_cell(m.pos), "ringleader_ref": m.ringleader.map(Ref::Char),
             "ringleader": who_json(w, m.ringleader), "cause": m.cause, "at": m.pos, "city": Ref::Place(m.city),
             "place": Ref::Place(m.place), "region": crate::payload::region_name(w, m.pos), "side": m.side.map(Ref::Demigod),
             "anger": m.anger, "fear": m.fear, "cells": m.cells.iter().map(|c| Ref::Cell(*c)).collect::<Vec<_>>(), "formed_beat": m.formed, "ended_beat": m.ended,

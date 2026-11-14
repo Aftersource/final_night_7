@@ -74,6 +74,15 @@ pub fn seat_takeover(w: &mut World, t: &SeatTakeover) -> bool {
         let d = w.seats[i].demigod;
         let was_bot = w.seats[i].is_bot;
         w.seats[i].is_bot = false;
+        // Schema 5: the seat's player is now the joiner (for profiles); their demigods keep their names this match.
+        if w.two_bodies() && was_bot && !t.display_name.trim().is_empty() {
+            let name: String = t.display_name.trim().chars().take(40).collect();
+            w.seats[i].display_name = name.clone();
+            let seat = w.seats[i].seat;
+            for x in w.demigods.iter_mut().filter(|x| x.seat == seat && x.side.is_some()) {
+                x.player = name.clone();
+            }
+        }
         let x = &w.demigods[d.ix()];
         event(
             "seat_takeover",
@@ -83,15 +92,15 @@ pub fn seat_takeover(w: &mut World, t: &SeatTakeover) -> bool {
         );
         return was_bot;
     }
-    // A new seat: the built-in AI demigod still alive with the most health (then the lowest id).
+    // A new seat: the built-in AI player still standing with the most health over its demigods (then the lowest id;
+    // schema 4: the AI demigod with the most health). Both of its demigods come with it.
+    let health = |seat: u8| w.bodies_of_seat(seat).filter(|d| d.alive).map(|d| d.health).sum::<f32>();
     let pick = w
         .seats
         .iter()
-        .filter(|s| s.seat >= SYNTHETIC_SEAT)
-        .map(|s| &w.demigods[s.demigod.ix()])
-        .filter(|d| d.alive)
-        .max_by(|a, b| a.health.total_cmp(&b.health).then(b.id.cmp(&a.id)))
-        .map(|d| d.id);
+        .filter(|s| s.seat >= SYNTHETIC_SEAT && w.seat_alive(s.seat))
+        .max_by(|a, b| health(a.seat).total_cmp(&health(b.seat)).then(b.demigod.cmp(&a.demigod)))
+        .map(|s| s.demigod);
     let Some(d) = pick else {
         event(
             "seat_takeover_spectator",
@@ -101,10 +110,20 @@ pub fn seat_takeover(w: &mut World, t: &SeatTakeover) -> bool {
         return false;
     };
     let from = w.demigods[d.ix()].seat;
-    w.demigods[d.ix()].seat = t.seat;
+    for x in w.demigods.iter_mut().filter(|x| x.seat == from) {
+        x.seat = t.seat;
+        // The joiner's name becomes the player's (the demigods keep their names for this match).
+        if x.side.is_some() && !t.display_name.trim().is_empty() {
+            x.player = t.display_name.trim().chars().take(40).collect();
+        }
+    }
+    let two = w.two_bodies();
     if let Some(s) = w.seats.iter_mut().find(|s| s.demigod == d) {
         s.seat = t.seat;
         s.is_bot = false;
+        if two && !t.display_name.trim().is_empty() {
+            s.display_name = t.display_name.trim().chars().take(40).collect();
+        }
     }
     w.seats.sort_by_key(|s| s.seat);
     let x = &w.demigods[d.ix()];

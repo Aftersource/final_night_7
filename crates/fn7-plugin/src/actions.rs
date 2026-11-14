@@ -38,6 +38,8 @@ pub struct CastOrder {
     pub seq: u64,
     /// Sent as an instant action (`action.submit { instant: true }`), the path clients use for casts.
     pub instant: bool,
+    /// Rules 0.7.0: `"mega"` (a bolt, map scale) or `"mini"` (a spark, the board). Absent = mini in a schema-5 match.
+    pub scale: Option<CastScale>,
 }
 
 /// One seat's input for one beat. Two separate paths: text entry (orders to the hands: the God of Time interaction,
@@ -94,8 +96,15 @@ fn cast_target(v: &Value) -> Result<CastTarget, String> {
 
 /// One cast: `{power, target, text?, magnitude?}`, or (for `bolt`/`bolts`) `{target}` or the bare target.
 fn cast_of(v: &Value, default_power: Option<&str>) -> Result<CastOrder, String> {
+    let mut scale = None;
     let (power, target, text, magnitude) = match v {
         Value::Object(o) => {
+            scale = match o.get("tier").or(o.get("scale")) {
+                None | Some(Value::Null) => None,
+                Some(Value::String(s)) if s.eq_ignore_ascii_case("mega") => Some(CastScale::Mega),
+                Some(Value::String(s)) if s.eq_ignore_ascii_case("mini") => Some(CastScale::Mini),
+                _ => return Err("a cast's `tier` is \"mega\" (a bolt) or \"mini\" (a spark)".into()),
+            };
             let power = match (o.get("power"), default_power) {
                 (Some(Value::String(p)), _) => p.trim().to_lowercase(),
                 (None | Some(Value::Null), Some(d)) => d.to_string(),
@@ -138,6 +147,7 @@ fn cast_of(v: &Value, default_power: Option<&str>) -> Result<CastOrder, String> 
         magnitude,
         seq: 0,
         instant: false,
+        scale,
     })
 }
 
@@ -306,6 +316,38 @@ fn short(label: &str) -> String {
     label.split(" of ").next().unwrap_or(label).to_lowercase()
 }
 
+/// The built-in AI's input for a seat this beat. One demigod (schema 4): [`bot_lines`] for it. Two (schema 5): each
+/// standing demigod gets its own lines (its ordinary act, then any reach for a god, joined), the Left's in `left` and
+/// the Right's in `right`; zoom and casts come from the lead demigod's lines (casts are the player's, paid from the
+/// shared purse).
+pub fn bot_input(w: &World, seat: u8, beat: u32) -> Input {
+    let bodies: Vec<&Demigod> = w.bodies_of_seat(seat).collect();
+    let Some(lead) = w.lead_of_seat(seat) else {
+        return Input::default();
+    };
+    if bodies.len() < 2 {
+        return bot_lines(w, lead, beat);
+    }
+    let mut out = Input::default();
+    for d in bodies.iter().filter(|d| d.alive) {
+        let i = bot_lines(w, d.id, beat);
+        let text = [i.left.as_str(), i.right.as_str()]
+            .into_iter()
+            .filter(|t| !t.trim().is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+        match d.side {
+            Some(Hand::Right) => out.right = text,
+            _ => out.left = text,
+        }
+        if d.id == lead {
+            out.zoom = i.zoom;
+            out.casts = i.casts;
+        }
+    }
+    out
+}
+
 /// The built-in AI's lines for demigod `d` this beat: seeded, cheap, no LLM. The left hand does ordinary acts; the
 /// right hand sometimes reaches for a god, spawns a scout, possesses someone, zooms or recalls.
 pub fn bot_lines(w: &World, d: DemigodId, beat: u32) -> Input {
@@ -314,7 +356,7 @@ pub fn bot_lines(w: &World, d: DemigodId, beat: u32) -> Input {
     }
     let me = &w.demigods[d.ix()];
     let mut rng = Rng::derive(w.meta.seed, &[hash_str("bot"), beat as u64, d.0 as u64]);
-    let rivals: Vec<&Demigod> = w.demigods.iter().filter(|x| x.alive && x.id != d).collect();
+    let rivals: Vec<&Demigod> = w.demigods.iter().filter(|x| x.alive && !w.same_player(x.id, d)).collect();
     let rival = rng
         .pick(&rivals)
         .map(|x| x.name.clone())
@@ -354,7 +396,7 @@ pub fn bot_lines(w: &World, d: DemigodId, beat: u32) -> Input {
         _ => None,
     });
     let rival_general = fn7_society::armies(w)
-        .filter(|(_, a)| a.demigod != d && !a.rogue)
+        .filter(|(_, a)| !w.same_player(a.demigod, d) && !a.rogue)
         .find_map(|(_, a)| a.general.filter(|g| w.characters[g.ix()].alive))
         .map(surname);
     let person = rng.pick(&people).cloned();
@@ -379,8 +421,20 @@ pub fn bot_lines(w: &World, d: DemigodId, beat: u32) -> Input {
     let arena_center = w.places[w.meta.arena.ix()].center;
     let edge = fn7_society::geo::distance_km(me.pos, arena_center) > w.meta.arena_radius_km * 0.8;
     let late = beat * 10 >= w.meta.beats_total * 6 || edge;
+    // Rules 0.7.0: the built-in AI drifts toward the action (the nearest hotspot within reach), now and then, when the
+    // circle isn't pressing. Drawn only in schema-5 worlds.
+    let drift = if w.two_bodies() && !edge && !late && rng.below(4) == 0 {
+        let spots = crate::hotspots::hotspots(w, crate::hotspots::recent_rows(w));
+        let reach = if w.is_planet() { 4000.0 } else { w.meta.arena_radius_km };
+        crate::hotspots::nearest(&spots, me.pos, reach)
+            .filter(|h| fn7_society::geo::distance_km(h.pos, me.pos) > h.radius_km)
+            .map(|h| w.name_of(Ref::Place(fn7_society::geo::place_at(w, h.pos))))
+    } else {
+        None
+    };
     let left = match rng.below(10) {
         _ if edge => format!("go to {center}"),
+        _ if drift.is_some() => format!("go to {}", drift.clone().expect("checked")),
         0 | 1 if late => format!("go to {center}"),
         0 => format!("go to {elsewhere}"),
         1 | 2 => format!("recruit the {crowd}"),
@@ -398,8 +452,7 @@ pub fn bot_lines(w: &World, d: DemigodId, beat: u32) -> Input {
             None => format!("go to {rival}"),
         },
     };
-    let subs = me
-        .hands
+    let subs = crate::world::hands_of(me)
         .iter()
         .map(|h| crate::world::live_children(w, *h).len())
         .sum::<usize>();
@@ -440,6 +493,13 @@ pub fn bot_lines(w: &World, d: DemigodId, beat: u32) -> Input {
         20..=34 => format!("rally the {crowd}"),
         _ => String::new(),
     };
+    // Rules 0.7.0: a demigod with nothing else for its right hand manifests something now and then (the item engine
+    // judges it). Drawn only in schema-5 worlds, so schema-4 recordings replay.
+    let right = if w.two_bodies() && right.is_empty() && rng.below(8) == 0 {
+        manifest_line(&mut rng, &elsewhere, me.bolts)
+    } else {
+        right
+    };
 
     let zoom = match rng.below(12) {
         0 => Some((Zoom::World, None)),
@@ -452,10 +512,44 @@ pub fn bot_lines(w: &World, d: DemigodId, beat: u32) -> Input {
     // about one beat in six (always when the arena's edge is near). It can't open the core's action windows (only a
     // connected client's `action.begin` can), so its orders are instant Enters: a zero-second slow. It casts a power
     // about one beat in nine when it has the bolts, on beats it doesn't speak (casts never carry orders).
-    let speak = edge || rng.below(6) == 0;
-    let (left, right) = if speak { (left, right) } else { (String::new(), String::new()) };
+    // Rules 0.7.0: a player's two demigods each speak about one beat in twelve, so the player speaks (and pays Time)
+    // about as often as one demigod did.
+    let speak = edge || rng.below(if w.two_bodies() { 12 } else { 6 }) == 0;
+    // The Final Wish (beat 1, rules 0.7.0): every built-in AI demigod makes a wish.
+    let wish = crate::beat::is_final_wish(w, beat);
+    let (left, right) = if wish {
+        (left, manifest_line(&mut rng, &elsewhere, me.bolts))
+    } else if speak {
+        (left, right)
+    } else {
+        (String::new(), String::new())
+    };
     let mut casts = vec![];
-    if me.bolts >= 1 && rng.below(9) == 0 && !speak {
+    if w.two_bodies() {
+        // Rules 0.7.0: minis often (a spark), megas sometimes (a bolt, and only with a bolt to spare for Time: the AI
+        // hoards); never on a beat it speaks.
+        let mega = me.bolts >= 2 && rng.below(14) == 0;
+        let mini = !mega && me.sparks >= 1 && rng.below(5) == 0;
+        if (mega || mini) && !speak {
+            let pw = &crate::powers().powers;
+            if let Some(p) = rng.pick(pw) {
+                let target = match rng.pick(&rivals) {
+                    Some(r) if mini || p.target == PowerTarget::Unit || rng.below(2) == 0 => CastTarget::Ref(Ref::Demigod(r.id)),
+                    Some(r) => CastTarget::At(r.pos),
+                    None => CastTarget::At(arena_center),
+                };
+                casts.push(CastOrder {
+                    power: p.slug.clone(),
+                    target,
+                    text: None,
+                    magnitude: None,
+                    seq: 0,
+                    instant: false,
+                    scale: Some(if mega { CastScale::Mega } else { CastScale::Mini }),
+                });
+            }
+        }
+    } else if me.bolts >= 1 && rng.below(9) == 0 && !speak {
         let pw: Vec<&PowerDef> = crate::powers().powers.iter().filter(|p| p.cost <= me.bolts).collect();
         if let Some(p) = rng.pick(&pw) {
             let target = match rng.pick(&rivals) {
@@ -475,6 +569,7 @@ pub fn bot_lines(w: &World, d: DemigodId, beat: u32) -> Input {
                 magnitude: None,
                 seq: 0,
                 instant: false,
+                scale: None,
             });
         }
     }
@@ -483,6 +578,34 @@ pub fn bot_lines(w: &World, d: DemigodId, beat: u32) -> Input {
         right,
         zoom,
         casts,
+    }
+}
+
+/// A built-in AI's manifestation order (rules 0.7.0): an army under banners at a seeded scale it can pay for (the
+/// item engine's tier price, so the AI never wishes itself into a lethal debt), or a seeded object.
+fn manifest_line(rng: &mut Rng, place: &str, bolts: u32) -> String {
+    // (words, bolts the tier costs): relic, wonder, wonder, legend, myth, titan.
+    const ALL: [(&str, u32); 6] =
+        [("10,000", 1), ("250,000", 1), ("a million", 1), ("10,000,000", 2), ("100,000,000", 3), ("a billion", 4)];
+    let scales: Vec<&str> = ALL.iter().filter(|(_, c)| *c <= bolts.max(1)).map(|x| x.0).collect();
+    const SCALES_FALLBACK: [&str; 1] = ["10,000"];
+    let scales: &[&str] = if scales.is_empty() { &SCALES_FALLBACK } else { &scales };
+    const THINGS: [&str; 8] = [
+        "forge a sword of stars",
+        "conjure a crown that hears lies",
+        "summon a dragon over the hills",
+        "raise a fortress overnight",
+        "manifest an armada of airships",
+        "conjure a storm that follows me",
+        "forge armor from a dead moon",
+        "summon a relic of the first war",
+    ];
+    // The AI never borrows for it: "no debt" makes the item engine refuse what the purse can't pay.
+    if rng.below(2) == 0 {
+        let s = rng.pick(scales).copied().unwrap_or("10,000");
+        format!("raise banners of {s} soldiers at {place}, no debt")
+    } else {
+        format!("{}, no debt", rng.pick(&THINGS).copied().unwrap_or("forge a sword of stars"))
     }
 }
 
@@ -506,6 +629,9 @@ pub fn action_of(seat: u8, i: &Input) -> Action {
                     CastTarget::Name(n) => json!(n),
                 };
                 let mut v = json!({ "power": c.power, "target": target });
+                if let Some(s) = c.scale {
+                    v["tier"] = json!(s);
+                }
                 if let Some(t) = &c.text {
                     v["text"] = t.clone().into();
                 }

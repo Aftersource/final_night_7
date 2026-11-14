@@ -199,9 +199,24 @@ pub fn narrator_ctx(w: &World, b: u32) -> NarratorCtx {
     }
 }
 
+/// Rules 0.7.0: beat 1 of a schema-5 match is THE FINAL WISH: each player's orders are their final wish (anything they
+/// can do): both hands get `max_intents_per_window` acts, every act gets `final_wish_magnitude` more magnitude, the
+/// hand and resolver prompts frame it, the narrator calls them wishes, and the built-in AI makes one too. Every wish
+/// costs as normal.
+pub fn is_final_wish(w: &World, beat: u32) -> bool {
+    beat == 1 && w.two_bodies()
+}
+
+/// The resolver's and narrator's line for the Final Wish beat.
+pub const FINAL_WISH_LINE: &str = "THE FINAL WISH: this first beat, every demigod's orders are their final wish; grant \
+them grandly (they still cost what anything costs) and call them wishes.";
+
 /// The narrator's world lines for beat `b`: the Entropy line, who slowed time, heat death.
 fn narrator_world(w: &World, b: u32) -> Vec<String> {
     let mut v = vec![fn7_society::entropy_prose(w)];
+    if is_final_wish(w, b) {
+        v.push(FINAL_WISH_LINE.into());
+    }
     for d in w.demigods.iter().filter(|d| d.slows.contains(&b)) {
         v.push(format!("{} slowed time this beat.", d.name));
     }
@@ -450,6 +465,7 @@ fn set_standing_orders(w: &mut World, from: usize, beat: u32) {
             continue;
         };
         if !matches!(i.route, Route::World | Route::Pending)
+            || crate::items::is_manifest_act(w, i)
             || is_army_act(w, i)
             || i.how == STANDING_HOW
             || crate::society::is_society_act(w, i)
@@ -548,6 +564,37 @@ pub struct Turn {
     pub demigod: DemigodId,
     pub seat: u8,
     pub input: Input,
+}
+
+/// A seat's input as turns, one per standing demigod (rules 0.7.0). One demigod per seat (schema 4): one turn for
+/// `lead`, unchanged. Two: the left text goes to the Left demigod and the right text to the Right one (a fallen
+/// demigod's text goes to its standing sibling); zoom and casts ride on the lead demigod's turn (casts are the
+/// player's, paid from the shared purse).
+pub fn split_turn(w: &World, seat: u8, lead: DemigodId, input: Input) -> Vec<Turn> {
+    let bodies: Vec<&Demigod> = w.bodies_of_seat(seat).collect();
+    if bodies.len() < 2 {
+        return vec![Turn { demigod: lead, seat, input }];
+    }
+    let standing: Vec<&Demigod> = bodies.iter().copied().filter(|d| d.alive).collect();
+    let mut out = vec![];
+    for d in &standing {
+        let right = d.side == Some(Hand::Right);
+        let (mine, theirs) = if right { (&input.right, &input.left) } else { (&input.left, &input.right) };
+        let text = if standing.len() == 1 { crate::join(mine, theirs) } else { mine.clone() };
+        let (left, right_text) = if right { (String::new(), text) } else { (text, String::new()) };
+        let is_lead = d.id == lead;
+        out.push(Turn {
+            demigod: d.id,
+            seat,
+            input: Input {
+                left,
+                right: right_text,
+                zoom: if is_lead { input.zoom.clone() } else { None },
+                casts: if is_lead { input.casts.clone() } else { vec![] },
+            },
+        });
+    }
+    out
 }
 
 /// What the beat returns to the Theatre.
@@ -704,6 +751,7 @@ pub async fn resolve(
     w.meta.beat = beat;
     record_mut(w, beat);
     let alive_at_start: Vec<DemigodId> = w.alive_demigods().map(|d| d.id).collect();
+    let pos_at_start: Vec<LonLat> = w.demigods.iter().map(|d| d.pos).collect();
     let entropy_at_start = w.meta.entropy;
     let row_start = w.ledger.rows.len();
     let first_new_intent = w.intents.len();
@@ -718,7 +766,12 @@ pub async fn resolve(
     }
 
     // ---- (0a) text entry (the God of Time interaction): settle the core's slow windows (Time's bill) ---------------
-    let flow = crate::flow::process(w, beat, subs, closed, pantheon, &st);
+    // The demigods that received orders, per seat (Time's debt is split between them; rules 0.7.0).
+    let mut ordered: BTreeMap<u8, Vec<DemigodId>> = BTreeMap::new();
+    for t in turns.iter().filter(|t| t.input.has_orders()) {
+        ordered.entry(t.seat).or_default().push(t.demigod);
+    }
+    let flow = crate::flow::process(w, beat, subs, closed, pantheon, &st, &ordered);
     // ---- (0a') casts: god powers from the UX, settled in arrival order (ramifications run in the act batch) --------
     let casts = crate::casts::process(w, beat, &turns, pantheon, &st);
     // Who spoke this beat (their hands, subagents and resolvers use the LLM; everyone else continues by rules).
@@ -778,10 +831,7 @@ pub async fn resolve(
         if !dg.alive {
             continue;
         }
-        let (zoom, focus) = w
-            .seats
-            .iter()
-            .find(|s| s.demigod == d)
+        let (zoom, focus) = seat_of(w, d)
             .map(|s| (s.zoom, s.focus))
             .unwrap_or((Zoom::District, None));
         for (h, text) in [(Hand::Left, &t.input.left), (Hand::Right, &t.input.right)] {
@@ -841,6 +891,7 @@ pub async fn resolve(
                 memory: recall(w, Ref::Agent(agent), &vis, 8),
                 pantheon: pantheon.clone(),
                 max_subagents: st.max_subagents_per_hand as usize,
+                final_wish: is_final_wish(w, beat),
             }));
         }
     }
@@ -870,13 +921,18 @@ pub async fn resolve(
             );
         }
         said.insert(ctx.agent, line);
-        let cap = if flow.windowed.contains(&ctx.demigod) {
+        let wish = is_final_wish(w, beat);
+        let cap = if flow.windowed.contains(&ctx.demigod) || wish {
             st.max_intents_per_window
         } else {
             st.max_intents_per_hand
         };
         for mut i in intents.into_iter().take(cap as usize) {
             i.id = IntentId::from_ix(w.intents.len());
+            if wish {
+                // The Final Wish: every act of the wish is grander (rules 0.7.0).
+                i.magnitude = (i.magnitude as u32 + st.final_wish_magnitude).min(10) as u8;
+            }
             let by = match i.route {
                 Route::God { by, .. } => Some(by),
                 _ => None,
@@ -977,6 +1033,9 @@ pub async fn resolve(
     let mut god_calls: Vec<MindCall> = vec![];
     let mut army_props: Vec<Proposal> = vec![];
     let mut general_meta: Vec<(crate::society::GeneralMeta, Option<Ref>)> = vec![];
+    // Rules 0.7.0: manifestations judged by the item engine (named after the act batch).
+    let mut judged: Vec<crate::items::Judged> = vec![];
+    let mut spent: BTreeMap<u8, u32> = BTreeMap::new();
     for ii in route_from..w.intents.len() {
         let intent = w.intents[ii].clone();
         let d = intent.demigod;
@@ -989,6 +1048,16 @@ pub async fn resolve(
             });
         };
         match &intent.route {
+            _ if crate::items::is_manifest_act(w, &intent) => {
+                if let Some(j) = crate::items::judge(w, &intent, beat, judged.len(), &mut spent, pantheon, &st) {
+                    event(
+                        "manifest_judged",
+                        Some(Ref::Demigod(d).to_string()),
+                        json!({ "beat": beat, "intent": intent.id, "manifestation": j.m }),
+                    );
+                    judged.push(j);
+                }
+            }
             Route::World | Route::Pending => match crate::society::society_intent(w, &intent) {
                 // The order goes TO THE GENERAL, who takes it by their own judgment (the general mind).
                 Some(crate::society::SocietyAct::Order { army, target, text }) => {
@@ -1088,8 +1157,7 @@ pub async fn resolve(
                     })
                     .collect();
                 // Numbered across both hands, so two subagents of one demigod never share a name (nor their news).
-                let n = w.demigods[d.ix()]
-                    .hands
+                let n = hands_of(&w.demigods[d.ix()])
                     .iter()
                     .map(|h| w.agents[h.ix()].children.len())
                     .sum::<usize>()
@@ -1260,6 +1328,7 @@ pub async fn resolve(
             visible: entities(w, &vis),
             orders,
             memory: recall(w, Ref::Agent(a.id), &a.scope, 6),
+            items_by_engine: w.two_bodies(),
         }));
     }
     let eliminated_names: Vec<String> = w
@@ -1275,6 +1344,9 @@ pub async fn resolve(
     for (place, acts) in vicinities {
         resolver_llm.push(acts.iter().any(|a| spoke.contains(&a.intent.demigod) && a.intent.beat == beat && !is_standing(w, &a.intent)));
         let mut world_lines = vec![entropy_line.clone()];
+        if is_final_wish(w, beat) {
+            world_lines.push(FINAL_WISH_LINE.into());
+        }
         world_lines.extend(
             w.mods
                 .iter()
@@ -1314,6 +1386,7 @@ pub async fn resolve(
             eliminated: eliminated_names.clone(),
             world: world_lines,
             accident_scale: st.accident_scale,
+            items_by_engine: w.two_bodies(),
         }));
     }
     clock.lap(Stage::Route);
@@ -1337,6 +1410,23 @@ pub async fn resolve(
         calls.push(MindCall::Ramify(c));
         use_llm.push(true);
     }
+    // The manifest mind: words for what appeared (LLM only for big tiers and twists by a demigod whose player spoke,
+    // within the beat's budget; the rules name everything else).
+    let first_manifest = calls.len();
+    let mut manifest_of: Vec<usize> = vec![];
+    let mut manifest_budget = st.manifest_calls_per_beat;
+    for (k, j) in judged.iter().enumerate() {
+        if let Some(c) = &j.call {
+            let ask = j.ask && manifest_budget > 0 && spoke.contains(&j.m.demigod);
+            if ask {
+                manifest_budget -= 1;
+            }
+            calls.push(MindCall::Manifest(c.clone()));
+            use_llm.push(ask);
+            manifest_of.push(k);
+        }
+    }
+    let mut manifest_words: BTreeMap<usize, (fn7_agents::manifest::ManifestOut, bool)> = BTreeMap::new();
     let t0 = Instant::now();
     let rep = overlap(run_split(llm, calls.clone(), use_llm.clone(), timeout), &mut bg, &mut bg_rep).await;
     count(&rep, t0.elapsed().as_secs_f64() * 1000.0);
@@ -1489,6 +1579,12 @@ pub async fn resolve(
                 }
                 props.push(crate::society::orders_prop(w, m, j, asked));
             }
+            (MindCall::Manifest(_), MindReply::Manifest(words)) => {
+                let asked = use_llm.get(k).copied().unwrap_or(false) && llm.is_some() && o.fallback.is_none();
+                if let Some(j) = manifest_of.get(k - first_manifest) {
+                    manifest_words.insert(*j, (words, asked));
+                }
+            }
             (MindCall::Materialize(ctx), MindReply::Materialize(flavor)) => {
                 if let Some(c) = w
                     .characters
@@ -1521,6 +1617,15 @@ pub async fn resolve(
             _ => {}
         }
         let _ = (k, nr, ng, ns);
+    }
+    // Manifestations: the payment, debt, backfire and Entropy, then the attempt itself (its row and its item).
+    for (k, j) in judged.iter().enumerate() {
+        props.extend(j.props.iter().cloned());
+        let (words, asked) = match manifest_words.get(&k) {
+            Some((wd, a)) => (Some(wd), *a),
+            None => (None, false),
+        };
+        props.push(crate::items::proposal(w, j, words, asked, &st));
     }
     // The world's own rules this beat: armies the hands raised or sent, armies marching and fighting, Entropy's
     // wackiness, the lasting world mods.
@@ -1617,6 +1722,11 @@ pub async fn resolve(
         if w.agents[a.ix()].is_live() {
             end_agent(w, a, AgentStatus::Done, report, beat);
         }
+    }
+    // Rules 0.7.0: manifested hosts follow their armies; no two demigods on one people-level hex unless engaged.
+    if w.two_bodies() {
+        crate::items::sync_hosts(w, beat);
+        crate::occupancy::enforce(w, beat, row_start, &pos_at_start);
     }
     clock.lap(Stage::Merge);
 
@@ -1796,6 +1906,16 @@ pub async fn resolve(
         "events": crate::payload::events(w, &w.ledger.rows[row_start..row_end]),
         "society": crate::society::public_json(w),
     });
+    let mut public = public;
+    if w.two_bodies() {
+        public["players_alive"] = w.alive_seats().len().into();
+        public["manifests"] = w
+            .manifests
+            .iter()
+            .filter(|m| m.beat == beat && m.public)
+            .map(|m| crate::items::manifest_json(w, m, false))
+            .collect();
+    }
     clock.lap(Stage::Broadcast);
 
     let total_ms = started.elapsed().as_secs_f64() * 1000.0;
@@ -1822,7 +1942,6 @@ pub async fn resolve(
         None,
         json!({ "beat": beat, "record": timed, "total_ms": total_ms, "society_ms": soc.ms }),
     );
-    let mut public = public;
     public["timing"] = json!({
         "total_ms": total_ms,
         "society_ms": soc.ms,
@@ -2051,7 +2170,8 @@ pub fn end_agent(w: &mut World, a: AgentId, status: AgentStatus, report: String,
 }
 
 pub fn set_zoom(w: &mut World, d: DemigodId, zoom: Zoom, focus: Option<Ref>, beat: u32) {
-    if let Some(s) = w.seats.iter_mut().find(|s| s.demigod == d) {
+    let seat = w.demigods.get(d.ix()).map(|x| x.seat);
+    if let Some(s) = w.seats.iter_mut().find(|s| s.demigod == d || Some(s.seat) == seat) {
         s.zoom = zoom;
         s.focus = focus;
         let seat = s.seat;
@@ -2119,6 +2239,7 @@ pub fn you_line(w: &World, d: DemigodId) -> YouLine {
         followers: fn7_society::headcount(w, x.following).min(u32::MAX as u64) as u32,
         echo_charges: x.echo_charges,
         bolts: x.bolts,
+        sparks: w.two_bodies().then_some(x.sparks),
     }
 }
 
@@ -2134,22 +2255,25 @@ fn seat_deltas(
     let rows = &w.ledger.rows[row_start..row_end];
     let mut out = vec![];
     for s in w.seats.iter().filter(|s| s.seat < crate::SYNTHETIC_SEAT) {
-        let d = s.demigod;
-        let dg = &w.demigods[d.ix()];
-        let hands = dg
-            .hands
-            .iter()
-            .map(|h| HandLine {
-                agent: Ref::Agent(*h),
+        // The seat's lead demigod (its first standing one); news and omens cover both of the player's demigods.
+        let d = w.lead_of_seat(s.seat).unwrap_or(s.demigod);
+        let mine = w.siblings(d);
+        let hands = seat_hands(w, s.seat)
+            .into_iter()
+            .map(|(h, _)| HandLine {
+                agent: Ref::Agent(h),
                 name: w.agents[h.ix()].name.clone(),
-                said: said.get(h).cloned().unwrap_or_default(),
-                subagents: crate::payload::subagents(w, *h, step_said),
+                said: said.get(&h).cloned().unwrap_or_default(),
+                subagents: crate::payload::subagents(w, h, step_said),
             })
             .collect();
         let omens = w
             .rulings
             .iter()
-            .filter(|r| r.beat == beat && (ruling_is_public(w, r) || r.invoker == Ref::Demigod(d)))
+            .filter(|r| {
+                r.beat == beat
+                    && (ruling_is_public(w, r) || matches!(r.invoker, Ref::Demigod(i) if mine.contains(&i)))
+            })
             .map(|r| crate::payload::omen(w, r))
             .collect();
         let delta = SeatDelta {
@@ -2164,6 +2288,24 @@ fn seat_deltas(
             hierarchy: Some(crate::society::hierarchy_json(w, d, s.zoom, s.focus)).filter(|v| !v.is_null()),
         };
         let mut v = json!(delta);
+        if w.two_bodies() && mine.len() > 1 {
+            // Rules 0.7.0: each of the player's demigods this beat, and what they manifested.
+            v["demigods"] = mine
+                .iter()
+                .map(|x| {
+                    let b = &w.demigods[x.ix()];
+                    json!({ "ref": Ref::Demigod(b.id), "side": b.side, "name": b.name, "health": b.health,
+                            "max_health": b.max_health, "alive": b.alive, "pos": b.pos,
+                            "cell": b.alive.then(|| people_cell(b.pos)) })
+                })
+                .collect();
+            v["manifests"] = w
+                .manifests
+                .iter()
+                .filter(|m| m.beat == beat && mine.contains(&m.demigod))
+                .map(|m| crate::items::manifest_json(w, m, true))
+                .collect();
+        }
         crate::payload::tidy(&mut v);
         out.push((s.seat, v));
     }

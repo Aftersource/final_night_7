@@ -64,6 +64,9 @@ pub fn scripted_reply(req: &LlmRequest, n: u64) -> Option<Value> {
         json!({ "flavor": "Paint-flecked overalls, hums sea shanties, wants to be left alone." })
     } else if s.contains("compress memories") {
         json!({ "summary": "A lot happened; I remember the important bits." })
+    } else if s.contains("You name the things demigods conjure") {
+        json!({ "name": "The Copper Tide", "description": "A sea of spears under copper and teal banners.",
+                "motto": "Ten thousand for every star", "twist": "" })
     } else if s.contains("final cut") {
         json!({ "title": "The Last Bill", "story": "Everyone paid. One walked away." })
     } else {
@@ -154,4 +157,13 @@ pub async fn played_state(seed: u64, beats: u32, beats_total: u32) -> Value {
         state = crate::world::save(&w);
     }
     state
+}
+
+/// A new match's world with `players` built-in AI demigods (two bodies each at rules 0.7.0) and `seed`, no seats: for
+/// unit tests of rules that read a whole world.
+pub fn world(players: u32, seed: u64) -> fn7_model::World {
+    let settings = crate::Settings::validate(&serde_json::json!({ "players": players, "seed": seed, "llm": false }))
+        .expect("valid settings");
+    let pantheon = fn7_pantheon::load();
+    crate::phases::new_match(&[], &settings, &pantheon, seed)
 }

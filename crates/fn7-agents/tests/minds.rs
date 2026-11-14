@@ -129,6 +129,7 @@ fn hand_ctx(utterance: &str) -> HandCtx {
         memory: "Vex burned your statue two beats ago.".into(),
         pantheon: pantheon(),
         max_subagents: 3,
+        final_wish: false,
     }
 }
 
@@ -155,6 +156,7 @@ fn step_ctx(kind: StepKind) -> StepCtx {
             vec![]
         },
         memory: String::new(),
+        items_by_engine: false,
     }
 }
 
@@ -230,6 +232,7 @@ fn resolver_ctx() -> ResolverCtx {
         overused: vec![],
         eliminated: vec![],
         accident_scale: 1.0,
+        items_by_engine: false,
     }
 }
 

@@ -142,6 +142,9 @@ pub struct YouLine {
     pub echo_charges: u32,
     /// Lightning bolts you hold.
     pub bolts: u32,
+    /// Rules 0.7.0: sparks you hold (the mini-power currency).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sparks: Option<u32>,
 }
 
 /// A god's ruling as a client sees it (public omens and your own invocations).
@@ -209,4 +212,16 @@ pub struct SeatHand {
     /// The hand's visual sheet: `{sheet_hash, traits: {build, face, outfit, colors, prop, emblem}}`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub visual: Option<serde_json::Value>,
+    /// Rules 0.7.0: the demigod this hand is (each hand is one of the player's two demigods; `seat_view.demigods[]`
+    /// has it in full).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub demigod: Option<Ref>,
+    /// Rules 0.7.0: `left` or `right`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub side: Option<crate::society::Hand>,
+    /// Rules 0.7.0: that demigod's health (a seat sees its own) and whether it stands.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub health: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alive: Option<bool>,
 }

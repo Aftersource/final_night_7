@@ -46,6 +46,10 @@ pub struct ResolverCtx {
     pub world: Vec<String>,
     /// Multiplier on the rules fallback's accident chance (the room's `accident_scale`; 1 = 1 in [`ACCIDENT_ODDS`]).
     pub accident_scale: f32,
+    /// Rules 0.7.0 (state schema 5): making things is the item engine's job, so the rules fallback never turns a
+    /// "make" act into an item (old fallbacks named items after bare verbs: "search", "take"). `false` for schema-4
+    /// worlds, which keep the old behaviour so their recordings replay.
+    pub items_by_engine: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -585,6 +589,13 @@ pub fn fallback(ctx: &ResolverCtx) -> ResolverOut {
                 Some(Feel::Fear),
                 format!("{who} menaces {tn}"),
                 -2,
+            ),
+            ActClass::Make if ctx.items_by_engine => (
+                ResKind::Note,
+                0.0,
+                None,
+                format!("{who} tries to {}, and turns up nothing worth keeping", line(&i.verb, 20)),
+                0,
             ),
             ActClass::Make => (
                 ResKind::Item,

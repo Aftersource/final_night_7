@@ -165,6 +165,9 @@ fn world() -> World {
             slows: vec![],
             orders: vec![],
             home: None,
+            side: None,
+            player: String::new(),
+            sparks: 0,
         }],
         items: vec![],
         relations: vec![],
@@ -215,6 +218,7 @@ fn world() -> World {
         mobs: vec![],
         battles: vec![],
         soc: Default::default(),
+        manifests: vec![],
     }
 }
 

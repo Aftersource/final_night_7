@@ -96,6 +96,23 @@ pub enum RouteBy {
     Llm,
 }
 
+/// Rules 0.7.0: the two kinds of power. MEGA powers act at map scale (region hexes, hundreds to thousands of km) and
+/// cost a lightning bolt; MINI powers act on the table board (a few hexes, 3-30 km) and cost a spark.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub enum CastScale {
+    Mega,
+    Mini,
+}
+
+/// Share of a mega cast's damage that reaches every other rival demigod within its radius.
+pub const MEGA_AREA_SHARE: f32 = 0.4;
+
+pub(crate) fn is_zero_f32(x: &f32) -> bool {
+    *x == 0.0
+}
+
 /// The only way the world changes.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "fx")]
@@ -241,6 +258,13 @@ pub enum Effect {
         target: Option<Ref>,
         cost: u32,
         damage: f32,
+        /// Rules 0.7.0: a mega cast (1 bolt; every other player gains `bolt_gift` bolts and `spark_gift` sparks; its
+        /// damage also reaches rival demigods within `radius_km` at [`MEGA_AREA_SHARE`]) or a mini one (1 spark, no
+        /// gift, its target only). `None`: the old cast (`cost` bolts, every other live demigod gains 2 per bolt).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        scale: Option<CastScale>,
+        #[serde(default, skip_serializing_if = "crate::intent::is_zero_f32")]
+        radius_km: f32,
     },
     /// Bolts paid (`delta` < 0: to `to`, a god, or for slowing time; every other live demigod gains 2 per bolt,
     /// except for a `toll`) or granted (`delta` > 0, by Entropy). Either way Entropy rises.
@@ -276,6 +300,14 @@ pub enum Effect {
     },
     /// A god takes damage (Entropy at its height).
     Wound { god: GodId, amount: f32 },
+    /// Schema 5: one attempt the item engine judged (its verdict is already in the row). Applying it appends the row to
+    /// `World.manifests`; a made thing becomes an item held by the manifester (with its `ext`), and a host with
+    /// `muster > 0` also musters an army cluster of that many under the manifester.
+    Manifest {
+        manifestation: Box<crate::manifest::Manifestation>,
+        #[serde(default)]
+        item: Option<crate::manifest::NewItem>,
+    },
     /// A persistent world mod appears (or, with the same name in the same region, stacks): a lasting storm, gravity at
     /// half strength... applied by the rules every beat until it expires.
     Mod { m: crate::WorldMod },

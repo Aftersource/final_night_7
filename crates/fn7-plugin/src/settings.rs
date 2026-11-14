@@ -72,6 +72,32 @@ pub struct Settings {
     /// Most general-mind (LLM) calls per beat at decision points (engagements, strain); orders a hand gives a general
     /// always ask the general.
     pub general_calls_per_beat: u32,
+    /// Rules 0.7.0: demigods per player: 2 (the Left and Right hands are two bodies, each with its own health; the
+    /// player is out when both fall) or 1 (the hands share one body, as before 0.7.0).
+    pub demigods_per_player: u32,
+    /// Rules 0.7.0: multiplier on the item engine's bolt price per tier (0 = manifesting is free; 2 = twice the price).
+    pub manifest_scale: f32,
+    /// Rules 0.7.0: multiplier on a manifested host's army footprint in the simulation (`muster_size` × this; 0 = hosts
+    /// never take the field, they are only items).
+    pub manifest_muster_scale: f32,
+    /// Rules 0.7.0: most manifest-mind (LLM) calls per beat (names for wonders and up, and twists); the rest are
+    /// named by the rules.
+    pub manifest_calls_per_beat: u32,
+    /// Rules 0.7.0: magnitude added to every act of the Final Wish (beat 1).
+    pub final_wish_magnitude: u32,
+    /// Rules 0.7.0, the 1:5 economy: lightning bolts (the mega currency; they also pay Time's toll and invocations)
+    /// each player starts with. `start_bolts` is accepted as an alias.
+    pub bolt_start: u32,
+    /// Sparks (the mini currency) each player starts with.
+    pub spark_start: u32,
+    /// Bolts every OTHER player gains when someone casts a mega power.
+    pub bolt_gift: u32,
+    /// Sparks every OTHER player gains when someone casts a mega power.
+    pub spark_gift: u32,
+    /// Entropy a mega cast adds (× entropy_scale).
+    pub entropy_per_mega: f32,
+    /// Entropy a mini cast adds (× entropy_scale).
+    pub entropy_per_mini: f32,
 }
 
 impl Default for Settings {
@@ -85,7 +111,7 @@ impl Default for Settings {
             beat_ms: 3000,
             flow_ms: 3000,
             slow_ms: 30_000,
-            start_bolts: 3,
+            start_bolts: DEFAULT_BOLT_START,
             entropy_scale: 1.0,
             clusters: 200,
             max_subagents_per_hand: 3,
@@ -106,6 +132,17 @@ impl Default for Settings {
             max_witnesses: 4,
             society_only: false,
             general_calls_per_beat: 2,
+            demigods_per_player: 2,
+            manifest_scale: 1.0,
+            manifest_muster_scale: DEFAULT_MUSTER_SCALE,
+            manifest_calls_per_beat: 2,
+            final_wish_magnitude: 2,
+            bolt_start: DEFAULT_BOLT_START,
+            spark_start: 5,
+            bolt_gift: 1,
+            spark_gift: 0,
+            entropy_per_mega: 10.0,
+            entropy_per_mini: 1.0,
         }
     }
 }
@@ -116,10 +153,15 @@ pub const DEFAULT_BEATS_TOTAL: u32 = 60;
 pub const DEFAULT_ARENA_CLOSE_BEATS: u32 = 160;
 pub const DEFAULT_DEBT_DUE_BEATS: u32 = 50;
 pub const DEFAULT_KILLER_SCALE: f32 = 0.82;
+/// Rules 0.7.0: lightning bolts a player starts with (the designer's 1 bolt : 5 sparks).
+pub const DEFAULT_BOLT_START: u32 = 1;
+/// Rules 0.7.0: a manifested host's footprint in the simulation, as a share of `muster_size`.
+pub const DEFAULT_MUSTER_SCALE: f32 = 0.25;
 
 /// The f32 settings, echoed back at f32 precision.
 const F32_KEYS: &[&str] =
-    &["debt_scale", "entropy_scale", "instant_order_debt", "accident_scale", "army_strike_scale", "army_first_host_scale"];
+    &["debt_scale", "entropy_scale", "instant_order_debt", "accident_scale", "army_strike_scale", "army_first_host_scale",
+      "manifest_scale", "manifest_muster_scale", "entropy_per_mega", "entropy_per_mini"];
 
 /// The shortest decimal that reads back as `x` (so `0.04f32` is `0.04`, not `0.03999999910593033`).
 fn f32_decimal(x: f32) -> f64 {
@@ -190,7 +232,7 @@ impl Settings {
             beat_ms: flow_ms,
             flow_ms,
             slow_ms: int("slow_ms", d.slow_ms, 1000, 600_000)?,
-            start_bolts: int("start_bolts", d.start_bolts, 0, 99)?,
+            start_bolts: 0, // set from bolt_start below
             entropy_scale: num("entropy_scale", d.entropy_scale, 0.0, 10.0)?,
             clusters: int("clusters", d.clusters, 8, 600)?,
             max_subagents_per_hand: int("max_subagents_per_hand", d.max_subagents_per_hand, 0, 10)?,
@@ -211,7 +253,22 @@ impl Settings {
             max_witnesses: int("max_witnesses", d.max_witnesses, 1, 64)?,
             society_only: boolean("society_only", d.society_only)?,
             general_calls_per_beat: int("general_calls_per_beat", d.general_calls_per_beat, 0, 16)?,
+            demigods_per_player: int("demigods_per_player", d.demigods_per_player, 1, 2)?,
+            manifest_scale: num("manifest_scale", d.manifest_scale, 0.0, 10.0)?,
+            manifest_muster_scale: num("manifest_muster_scale", d.manifest_muster_scale, 0.0, 1.0)?,
+            manifest_calls_per_beat: int("manifest_calls_per_beat", d.manifest_calls_per_beat, 0, 16)?,
+            final_wish_magnitude: int("final_wish_magnitude", d.final_wish_magnitude, 0, 5)?,
+            bolt_start: match m.get("bolt_start") {
+                Some(b) if !b.is_null() => int("bolt_start", d.bolt_start, 0, 99)?,
+                _ => int("start_bolts", d.bolt_start, 0, 99)?,
+            },
+            spark_start: int("spark_start", d.spark_start, 0, 99)?,
+            bolt_gift: int("bolt_gift", d.bolt_gift, 0, 10)?,
+            spark_gift: int("spark_gift", d.spark_gift, 0, 10)?,
+            entropy_per_mega: num("entropy_per_mega", d.entropy_per_mega, 0.0, 100.0)?,
+            entropy_per_mini: num("entropy_per_mini", d.entropy_per_mini, 0.0, 20.0)?,
         };
+        let s = Settings { start_bolts: s.bolt_start, ..s };
         let mut out = match serde_json::to_value(&s).map_err(|e| e.to_string())? {
             Value::Object(o) => o,
             _ => Map::new(),

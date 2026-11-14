@@ -360,6 +360,6 @@ async fn prewarm_caches_the_roster_and_every_match_reuses_it() {
         }
         hashes.push(m);
     }
-    assert_eq!(hashes[0].len(), 4);
+    assert_eq!(hashes[0].len(), 8, "two demigods per player, four players");
     assert_eq!(hashes[0], hashes[1], "the same demigods are the same images in matches with different seeds");
 }

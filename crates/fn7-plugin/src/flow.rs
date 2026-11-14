@@ -74,12 +74,22 @@ pub struct FlowOut {
     pub windowed: BTreeSet<DemigodId>,
 }
 
+/// The seat's lead demigod (its first standing one; schema 4: its only one): who opened the window and owes Time.
 fn demigod_of(w: &World, seat: u8) -> Option<DemigodId> {
-    w.seats.iter().find(|s| s.seat == seat).map(|s| s.demigod)
+    let s = w.seats.iter().find(|s| s.seat == seat)?;
+    Some(w.lead_of_seat(s.seat).unwrap_or(s.demigod))
+}
+
+/// Record a slow on the player (both of a player's demigods keep the same list: slows are the player's).
+fn push_slow(w: &mut World, d: DemigodId, beat: u32) {
+    for s in w.siblings(d) {
+        w.demigods[s.ix()].slows.push(beat);
+    }
 }
 
 fn announce(w: &World, ev: &str, d: DemigodId, extra: Value) -> Value {
-    let name = w.demigods[d.ix()].name.clone();
+    // The player (both of their demigods are theirs; schema 4: the demigod's name).
+    let name = w.demigods[d.ix()].player_name().to_string();
     let mut v = json!({
         "event": ev,
         "by": name,
@@ -99,6 +109,9 @@ fn announce(w: &World, ev: &str, d: DemigodId, extra: Value) -> Value {
 
 /// Settle Time's slow windows (the core's closed windows, oldest first, and window-less orders) from this beat's
 /// submissions, merge Time's penalties, and record everything.
+///
+/// `ordered`: per seat, the demigods that received orders this beat (rules 0.7.0: Time's debt is split evenly between
+/// them, since the acting bodies owe; the bolt comes once from the player's purse). Empty for a seat: its lead owes.
 pub fn process(
     w: &mut World,
     beat: u32,
@@ -106,6 +119,7 @@ pub fn process(
     closed: &[ClosedWindow],
     pantheon: &Arc<Pantheon>,
     st: &Settings,
+    ordered: &BTreeMap<u8, Vec<DemigodId>>,
 ) -> FlowOut {
     let mut out = FlowOut::default();
     let time = pantheon.id_of("time").unwrap_or(GodId(0));
@@ -133,7 +147,7 @@ pub fn process(
         let full = (deadline_ms - opened_ms).max(0);
         let ms_open = (closed_ms - opened_ms).clamp(0, full) as u64;
         let recent = recent_slows(w, d, beat);
-        w.demigods[d.ix()].slows.push(beat);
+        push_slow(w, d, beat);
         event(
             "slow_started",
             Some(Ref::Demigod(d).to_string()),
@@ -142,10 +156,10 @@ pub fn process(
         );
         if ms_open >= st.flow_ms as u64 {
             for s in acts.iter().filter(|s| s.orders) {
-                out.windowed.insert(s.demigod);
+                out.windowed.extend(w.siblings(s.demigod));
             }
         }
-        let bill = bill(w, &mut props, time, d, Some(ms_open), beat, st);
+        let bill = bill(w, &mut props, time, d, Some(ms_open), beat, st, ordered.get(&by_seat));
         let how_s = match cw.reason.as_str() {
             "submitted" => "enter",
             "deadline" => "timeout",
@@ -180,7 +194,7 @@ pub fn process(
     // shouldn't happen) go through unbilled.
     for (id, acts) in by_window {
         for s in &acts {
-            out.windowed.insert(s.demigod);
+            out.windowed.extend(w.siblings(s.demigod));
         }
         event(
             "slow_late_orders",
@@ -200,8 +214,8 @@ pub fn process(
         }
         let d = s.demigod;
         let recent = recent_slows(w, d, beat);
-        w.demigods[d.ix()].slows.push(beat);
-        let bill = bill(w, &mut props, time, d, None, beat, st);
+        push_slow(w, d, beat);
+        let bill = bill(w, &mut props, time, d, None, beat, st, ordered.get(&s.seat));
         event(
             "slow_started",
             Some(Ref::Demigod(d).to_string()),
@@ -241,7 +255,9 @@ struct Bill {
 }
 
 /// Time's bill for a window open `ms_open` milliseconds (`None`: an instant order, no window): a bolt (if there is
-/// one; a toll, so no rival gains from it), a debt, Entropy.
+/// one; a toll, so no rival gains from it), a debt, Entropy. The debt is split evenly between `owers` (the player's
+/// demigods that got orders; rules 0.7.0), else `d` owes it all.
+#[allow(clippy::too_many_arguments)]
 fn bill(
     w: &World,
     props: &mut Vec<Proposal>,
@@ -250,6 +266,7 @@ fn bill(
     ms_open: Option<u64>,
     beat: u32,
     st: &Settings,
+    owers: Option<&Vec<DemigodId>>,
 ) -> Bill {
     let secs = ms_open.unwrap_or(0) as f32 / 1000.0;
     let dg = &w.demigods[d.ix()];
@@ -279,21 +296,30 @@ fn bill(
     let debt = (debt.min(10.0) * 100.0).round() / 100.0;
     let entropy = ((SLOW_ENTROPY + secs / 30.0) * 100.0).round() / 100.0;
     if alive {
-        props.push(time_prop(
-            time,
-            Effect::Debt {
-                owed_by: Ref::Demigod(d),
-                god: time,
-                amount: debt,
-                due_in: st.debt_due_beats,
-            },
-            if secs < 0.05 {
-                format!("Time bills {name} for orders sent without slowing the world")
-            } else {
-                format!("Time bills {name} for {secs:.1} seconds of slowed time")
-            },
-            d,
-        ));
+        let who: Vec<DemigodId> = match owers {
+            Some(v) if v.len() > 1 => v.iter().copied().filter(|x| w.demigods[x.ix()].alive).collect(),
+            _ => vec![d],
+        };
+        let who = if who.is_empty() { vec![d] } else { who };
+        let share = if who.len() > 1 { ((debt / who.len() as f32) * 100.0).round() / 100.0 } else { debt };
+        for o in who {
+            let oname = &w.demigods[o.ix()].name;
+            props.push(time_prop(
+                time,
+                Effect::Debt {
+                    owed_by: Ref::Demigod(o),
+                    god: time,
+                    amount: share,
+                    due_in: st.debt_due_beats,
+                },
+                if secs < 0.05 {
+                    format!("Time bills {} for orders sent without slowing the world", if o == d { &name } else { oname })
+                } else {
+                    format!("Time bills {} for {secs:.1} seconds of slowed time", if o == d { &name } else { oname })
+                },
+                o,
+            ));
+        }
     }
     props.push(time_prop(
         time,

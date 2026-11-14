@@ -72,17 +72,26 @@ pub fn new_match(
     };
     let named: Vec<(u8, String)> = list.iter().map(|(a, b, _)| (*a, b.clone())).collect();
     let mut w = fn7_society::setup(&cfg, &named, pantheon);
+    // Rules 0.7.0: each player's Left and Right hands are two demigods (two bodies, each with its own health).
+    if s.demigods_per_player >= 2 {
+        fn7_society::split_hands(&mut w);
+    }
+    // Rules 0.7.0, the 1:5 economy: every player starts with bolt_start bolts (setup) and spark_start sparks.
+    for d in w.demigods.iter_mut() {
+        d.sparks = s.spark_start;
+    }
     w.meta.settings = sv;
     w.meta.rules_version = crate::RULES_VERSION.into();
     w.seats = list
         .iter()
         .enumerate()
-        .map(|(i, (seat, _, bot))| SeatState {
+        .map(|(i, (seat, name, bot))| SeatState {
             seat: *seat,
             demigod: DemigodId::from_ix(i),
             is_bot: *bot,
             zoom: Zoom::District,
             focus: None,
+            display_name: if s.demigods_per_player >= 2 { name.clone() } else { String::new() },
         })
         .collect();
     w
@@ -243,13 +252,22 @@ pub fn round_start(w: &mut World, round: u32, pantheon: &Arc<Pantheon>) -> Round
         .iter()
         .filter(|s| s.seat < SYNTHETIC_SEAT)
         .map(|s| {
-            let d = &w.demigods[s.demigod.ix()];
-            let due = due_amount.iter().find(|x| x.0 == Ref::Demigod(d.id)).map(|x| x.1).unwrap_or(0.0);
-            (
-                s.seat,
-                tidied(json!({ "beat": round, "health": d.health, "alive": d.alive,
-                        "outside_arena": distance_km(center, d.pos) > w.meta.arena_radius_km, "debt_due": due })),
-            )
+            let due_of = |d: DemigodId| due_amount.iter().find(|x| x.0 == Ref::Demigod(d)).map(|x| x.1).unwrap_or(0.0);
+            let lead = w.lead_of_seat(s.seat).unwrap_or(s.demigod);
+            let d = &w.demigods[lead.ix()];
+            let mut v = json!({ "beat": round, "health": d.health, "alive": w.seat_alive(s.seat),
+                    "outside_arena": distance_km(center, d.pos) > w.meta.arena_radius_km, "debt_due": due_of(d.id) });
+            if w.bodies_of_seat(s.seat).count() > 1 {
+                // Rules 0.7.0: each of the player's two demigods (top-level fields are the lead demigod's).
+                v["demigod"] = json!(Ref::Demigod(lead));
+                v["demigods"] = w
+                    .bodies_of_seat(s.seat)
+                    .map(|x| json!({ "ref": Ref::Demigod(x.id), "side": x.side, "health": x.health, "alive": x.alive,
+                                     "outside_arena": distance_km(center, x.pos) > w.meta.arena_radius_km,
+                                     "debt_due": due_of(x.id) }))
+                    .collect();
+            }
+            (s.seat, tidied(v))
         })
         .collect();
     let public = tidied(json!({
@@ -261,6 +279,7 @@ pub fn round_start(w: &mut World, round: u32, pantheon: &Arc<Pantheon>) -> Round
         "debts_due": w.pending.len(),
         "eliminated": fallen.iter().map(|(_, n, _)| n).collect::<Vec<_>>(),
         "alive": w.alive_demigods().count(),
+        "players_alive": w.alive_seats().len(),
     }));
     RoundStart {
         state: save(w),
@@ -327,9 +346,12 @@ fn report_eliminations(
             Some(Ref::Demigod(d).to_string()),
             json!({ "demigod": d, "beat": beat, "cause": cause, "chain": ch, "name": x.name }),
         );
-        let seat = (x.seat < SYNTHETIC_SEAT).then_some(x.seat);
+        // The player is out (reported to the Theatre) only when every demigod of theirs has fallen, once.
+        let sibs = w.siblings(d);
+        let seat_out = !w.seat_alive(x.seat) && !w.out_reported.iter().any(|o| sibs.contains(o));
+        let seat = (x.seat < SYNTHETIC_SEAT && seat_out).then_some(x.seat);
         out.push((seat, x.name.clone(), cause));
-        if seat.is_some() && !w.out_reported.contains(&d) {
+        if seat.is_some() {
             w.out_reported.push(d);
         }
         if let Some(b) = w.beats.last_mut().filter(|b| b.beat == beat) {
@@ -342,15 +364,18 @@ fn report_eliminations(
 /// Seated demigods the Theatre was told were eliminated and that are alive again (Death's revive, the survivor rule):
 /// `revived` events; returns (seat, reason) for `Committed.revived` / `RoundStart.revived` (`seat.revived`).
 fn report_revivals(w: &mut World, beat: u32) -> Vec<(Seat, String)> {
+    // A seat reported out is back as soon as any demigod of the player stands again.
     let back: Vec<DemigodId> = w
         .out_reported
         .iter()
         .copied()
-        .filter(|d| w.demigods.get(d.ix()).is_some_and(|x| x.alive))
+        .filter(|d| w.demigods.get(d.ix()).is_some_and(|x| w.seat_alive(x.seat)))
         .collect();
     w.out_reported.retain(|d| !back.contains(d));
     let mut out = vec![];
     for d in back {
+        // The demigod that stands again (itself, else its revived sibling).
+        let d = w.siblings(d).into_iter().find(|s| w.demigods[s.ix()].alive).unwrap_or(d);
         let me = Ref::Demigod(d);
         let row = w
             .ledger
@@ -449,10 +474,14 @@ pub(crate) fn score(w: &World, d: &Demigod) -> f64 {
         + favor as f64 * 100.0
 }
 
-/// Exactly one demigod walks away from the Final Night; and a beat never ends with nobody standing. The survivor:
-/// the lowest outstanding debt, then the most health now, then the most health at the beat's start, then the lowest
-/// id. A fallen survivor comes back at its start-of-beat health (immune that beat); everyone else still standing on the
-/// Final Night falls.
+/// Exactly one **player** walks away from the Final Night; and a beat never ends with nobody standing.
+///
+/// Players are seats (rules 0.7.0: two demigods each). The surviving player: the most total **standing** over its
+/// candidate demigods (their health now minus their outstanding debt), then the most total health at the beat's start,
+/// then its lowest demigod id. Schema 4 (one demigod per seat) keeps the old rule exactly: the lowest outstanding debt,
+/// then the most health now, then at the beat's start, then the lowest id. Its standing demigods keep standing; if
+/// none stands, its demigod with the most start-of-beat health (then the lowest id) comes back at that health (immune
+/// that beat). Every other player's standing demigods fall on the Final Night.
 fn survivor_rule(
     w: &mut World,
     round: u32,
@@ -463,7 +492,8 @@ fn survivor_rule(
 ) {
     let final_night = at_commit && round >= w.meta.beats_total;
     let alive: Vec<DemigodId> = w.alive_demigods().map(|d| d.id).collect();
-    if !(alive.is_empty() || final_night && alive.len() > 1) {
+    let players_alive = w.alive_seats().len();
+    if !(alive.is_empty() || final_night && players_alive > 1) {
         return;
     }
     let cands: Vec<DemigodId> = if alive.is_empty() {
@@ -487,26 +517,55 @@ fn survivor_rule(
             })
             .unwrap_or(1.0)
     };
-    let Some(survivor) = cands.iter().copied().min_by(|a, b| {
-        let key = |d: DemigodId| {
-            (
-                open_debt(w, Ref::Demigod(d), None),
-                -w.demigods[d.ix()].health,
-                -start_health(d),
-            )
-        };
-        let (ka, kb) = (key(*a), key(*b));
+    // Candidate players, each with its candidate demigods (id order).
+    let mut players: Vec<(u8, Vec<DemigodId>)> = vec![];
+    for d in &cands {
+        let seat = w.demigods[d.ix()].seat;
+        match players.iter_mut().find(|p| p.0 == seat) {
+            Some(p) => p.1.push(*d),
+            None => players.push((seat, vec![*d])),
+        }
+    }
+    let two = w.two_bodies();
+    let key = |ds: &[DemigodId]| {
+        let debt = ds.iter().map(|d| open_debt(w, Ref::Demigod(*d), None)).sum::<f32>();
+        let health = ds.iter().map(|d| w.demigods[d.ix()].health).sum::<f32>();
+        let start = ds.iter().map(|d| start_health(*d)).sum::<f32>();
+        let id = ds.iter().copied().min().unwrap_or(DemigodId(u32::MAX));
+        if two {
+            // Rules 0.7.0: the most total standing (health minus the debt it still owes: debts are damage to come),
+            // then the most health at the beat's start.
+            (debt - health, -start, 0.0, id)
+        } else {
+            (debt, -health, -start, id)
+        }
+    };
+    let Some((seat, bodies)) = players.iter().min_by(|a, b| {
+        let (ka, kb) = (key(&a.1), key(&b.1));
         ka.0.total_cmp(&kb.0)
             .then(ka.1.total_cmp(&kb.1))
             .then(ka.2.total_cmp(&kb.2))
-            .then(a.cmp(b))
+            .then(ka.3.cmp(&kb.3))
     }) else {
         return;
     };
+    let (seat, bodies) = (*seat, bodies.clone());
+    // The survivor demigod named in the record: its first standing one, else the one that comes back.
+    let survivor = bodies
+        .iter()
+        .copied()
+        .find(|d| w.demigods[d.ix()].alive)
+        .unwrap_or_else(|| {
+            bodies
+                .iter()
+                .copied()
+                .min_by(|a, b| start_health(*b).total_cmp(&start_health(*a)).then(a.cmp(b)))
+                .expect("a candidate player has a demigod")
+        });
     let time = pantheon.id_of("time").unwrap_or(GodId(0));
     let death = pantheon.id_of("death").unwrap_or(time);
     let mut props = vec![];
-    for d in alive.iter().copied().filter(|d| *d != survivor) {
+    for d in alive.iter().copied().filter(|d| w.demigods[d.ix()].seat != seat) {
         props.push(Proposal {
             source: Source::Rules,
             intent: None,
@@ -549,16 +608,16 @@ fn survivor_rule(
             b.eliminated.retain(|d| *d != survivor);
         }
     }
-    event(
-        "final_night_survivor",
-        Some(Ref::Demigod(survivor).to_string()),
-        json!({ "beat": round, "demigod": survivor, "revived": revived, "final_night": final_night }),
-    );
+    let mut data = json!({ "beat": round, "demigod": survivor, "revived": revived, "final_night": final_night });
+    if w.two_bodies() {
+        data["seat"] = json!(seat);
+    }
+    event("final_night_survivor", Some(Ref::Demigod(survivor).to_string()), data);
 }
 
 /// `round` is the last beat played (the core asks after a commit, and with `round - 1` after the next beat's Start).
 pub fn match_over(w: &World, round: u32) -> bool {
-    round >= w.meta.beats_total || w.alive_demigods().count() <= 1
+    round >= w.meta.beats_total || w.alive_seats().len() <= 1
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -612,7 +671,9 @@ pub fn public_view(w: &World) -> Value {
         "beats_total": w.meta.beats_total,
         "arena": arena_json(w),
         "alive": w.alive_demigods().count(),
+        "players_alive": w.alive_seats().len(),
         "demigods": w.demigods.iter().map(|d| demigod_public(w, d)).collect::<Vec<_>>(),
+        "players": crate::payload::players_json(w),
         "omens": omens,
         "caption": caption,
         "caption_beat": caption_beat,
@@ -627,8 +688,9 @@ pub fn public_view(w: &World) -> Value {
     }))
 }
 
-/// One demigod as everyone sees it: never health; a live one's position, place and region, a dead one's beat and cause;
-/// its table fields (`controller`, `connected`, `seat`; [`crate::table`]) and its portrait and diorama prompts.
+/// One demigod as everyone sees it: never health; a live one's position, place, region and people-level hex `cell`, a
+/// dead one's beat and cause; its table fields (`controller`, `connected`, `seat`; [`crate::table`]) and its portrait
+/// and diorama prompts. Rules 0.7.0 adds `side` (left/right), `player`, the player's `aura` and its public `items`.
 pub(crate) fn demigod_public(w: &World, d: &Demigod) -> Value {
     let mut v = json!({ "ref": Ref::Demigod(d.id), "name": d.name, "alive": d.alive,
                         "seat": (d.seat < SYNTHETIC_SEAT).then_some(d.seat), "bolts": d.bolts,
@@ -636,8 +698,17 @@ pub(crate) fn demigod_public(w: &World, d: &Demigod) -> Value {
                         "diorama_prompt": crate::payload::diorama_prompt(w, d), "diorama_image_kind": "diorama",
                         "visual": crate::visual::demigod(w, d).to_json() });
     crate::table::add_table_fields(w, d, &mut v);
+    if w.two_bodies() {
+        v["sparks"] = d.sparks.into();
+        v["side"] = json!(d.side);
+        v["player"] = d.player_name().into();
+        v["aura"] = crate::payload::aura(w, d.seat).into();
+        v["sibling"] = json!(w.siblings(d.id).into_iter().find(|s| *s != d.id).map(Ref::Demigod));
+        v["items"] = json!(crate::items::public_items_of(w, d.id));
+    }
     if d.alive {
         v["pos"] = json!(d.pos);
+        v["cell"] = people_cell(d.pos).into();
         v["place"] = w.name_of(Ref::Place(d.place)).into();
         v["region"] = crate::payload::region_name(w, d.pos).into();
     } else {
@@ -653,27 +724,65 @@ fn tidied(mut v: Value) -> Value {
     v
 }
 
-/// Everything one seat may see: its own demigod in full, its view at its zoom, its hands and agents, favor, debts and
-/// the recent news it knows.
+/// One of the seat's own demigods in full (rules 0.7.0; the seat sees both of its own): health, position, cell, items,
+/// debts, standing orders, its hand, its portrait and diorama prompts.
+pub(crate) fn demigod_private(w: &World, d: &Demigod) -> Value {
+    let mut v = demigod_public(w, d);
+    let me = Ref::Demigod(d.id);
+    v["health"] = d.health.into();
+    v["max_health"] = d.max_health.into();
+    v["pos"] = json!(d.pos);
+    v["cell"] = people_cell(d.pos).into();
+    v["place"] = w.name_of(Ref::Place(d.place)).into();
+    v["region"] = crate::payload::region_name(w, d.pos).into();
+    v["debt_open"] = open_debt(w, me, None).into();
+    v["items"] = json!(crate::items::items_of(w, d.id));
+    v["hand"] = json!(hands_of(d).first().map(|h| crate::payload::seat_hand(w, *h)));
+    v["orders"] = d.orders.iter().map(|o| json!({ "hand": o.hand, "text": o.span, "since": o.since })).collect();
+    v["manifests"] = w
+        .manifests
+        .iter()
+        .rev()
+        .filter(|m| m.demigod == d.id)
+        .take(8)
+        .map(|m| crate::items::manifest_json(w, m, true))
+        .collect();
+    v
+}
+
+/// Everything one seat may see: its demigods in full (rules 0.7.0: both of them, in `demigods[]`; the top-level fields
+/// describe the seat's lead demigod, its first standing one), its view at its zoom, its hands and agents, favor, debts
+/// and the recent news it knows.
 pub fn seat_view(w: &World, seat: Seat) -> Value {
     let Some(s) = seat_state(w, seat) else {
         return Value::Null;
     };
-    let d = s.demigod;
+    let d = w.lead_of_seat(s.seat).unwrap_or(s.demigod);
     let dg = &w.demigods[d.ix()];
-    let vis = visible(w, d, s.zoom, s.focus, 60);
-    let hands: Vec<SeatHand> = dg
-        .hands
-        .iter()
-        .map(|h| crate::payload::seat_hand(w, *h))
+    let mut vis = visible(w, d, s.zoom, s.focus, 60);
+    for sib in w.siblings(d).into_iter().filter(|x| *x != d) {
+        for r in visible(w, sib, s.zoom, s.focus, 30) {
+            if !vis.contains(&r) && vis.len() < 90 {
+                vis.push(r);
+            }
+        }
+    }
+    let hands: Vec<SeatHand> = seat_hands(w, s.seat)
+        .into_iter()
+        .map(|(h, _)| crate::payload::seat_hand(w, h))
         .collect();
+    let mine = w.siblings(d);
     let debts: Vec<Value> = w
         .ledger
         .open_debts()
-        .filter_map(|r| r.debt.filter(|x| x.owed_by == Ref::Demigod(d)).map(|x| (r.id, x)))
+        .filter_map(|r| {
+            r.debt
+                .filter(|x| matches!(x.owed_by, Ref::Demigod(o) if mine.contains(&o)))
+                .map(|x| (r.id, x))
+        })
         .map(|(row, x)| json!({ "row": Ref::Ledger(row), "owed_to": w.name_of(Ref::God(x.owed_to)),
                                 "owed_to_ref": Ref::God(x.owed_to), "amount": x.amount, "due_beat": x.due_beat,
-                                "status": x.status }))
+                                "status": x.status, "owed_by": x.owed_by }))
         .collect();
     let since = w.meta.beat.saturating_sub(2);
     let recent: Vec<LedgerRow> = w
@@ -686,11 +795,26 @@ pub fn seat_view(w: &World, seat: Seat) -> Value {
         .collect();
     let mut news = news_for(w, d, &recent);
     news.truncate(20);
-    tidied(json!({
+    let items: Vec<Value> = mine
+        .iter()
+        .flat_map(|x| w.demigods[x.ix()].items.iter().map(|i| entity_json(w, Ref::Item(*i))))
+        .collect();
+    let orders: Vec<Value> = mine
+        .iter()
+        .flat_map(|x| w.demigods[x.ix()].orders.iter())
+        .map(|o| json!({ "hand": o.hand, "text": o.span, "since": o.since }))
+        .collect();
+    let mut armies = crate::payload::armies_json(w, Some(d));
+    for sib in mine.iter().filter(|x| **x != d) {
+        armies.extend(crate::payload::armies_json(w, Some(*sib)));
+    }
+    let mut v = json!({
         "seat": seat,
         "demigod": Ref::Demigod(d),
         "name": dg.name,
-        "alive": dg.alive,
+        "player": dg.player_name(),
+        "aura": crate::payload::aura(w, s.seat),
+        "alive": w.seat_alive(s.seat),
         "beat": w.meta.beat,
         "you": you_line(w, d),
         "max_health": dg.max_health,
@@ -698,23 +822,36 @@ pub fn seat_view(w: &World, seat: Seat) -> Value {
         "focus": s.focus.map(|f| entity_json(w, f)),
         "visible": vis.iter().map(|r| entity_json(w, *r)).collect::<Vec<_>>(),
         "hands": hands,
-        "items": dg.items.iter().map(|i| entity_json(w, Ref::Item(*i))).collect::<Vec<_>>(),
+        "items": items,
         "debts": debts,
         "news": news,
-        "armies": crate::payload::armies_json(w, Some(d)),
+        "armies": armies,
         "hierarchy": crate::society::hierarchy_json(w, d, s.zoom, s.focus),
-        "orders": dg.orders.iter().map(|o| json!({ "hand": o.hand, "text": o.span, "since": o.since }))
-            .collect::<Vec<_>>(),
+        "orders": orders,
         "slow": w.slow.as_ref().map(|s| json!({
-            "yours": s.initiator == d,
+            "yours": mine.contains(&s.initiator),
             "window_id": s.window_id,
         })),
-    }))
+        "time_bill": crate::payload::time_bill(w, d),
+    });
+    if w.two_bodies() {
+        v["charges"] = json!({ "bolts": dg.bolts, "sparks": dg.sparks });
+    }
+    if w.two_bodies() {
+        v["demigods"] = w.bodies_of_seat(s.seat).map(|x| demigod_private(w, x)).collect();
+        v["my_items"] = mine.iter().flat_map(|x| crate::items::items_of(w, *x)).collect();
+    }
+    tidied(v)
 }
 
 pub fn brief_public(w: &World, round: u32, pantheon: &Pantheon) -> Value {
     tidied(json!({
-        "title": format!("Beat {round} of {}", w.meta.beats_total),
+        "title": if crate::beat::is_final_wish(w, round) {
+            format!("The Final Wish: beat {round} of {}", w.meta.beats_total)
+        } else {
+            format!("Beat {round} of {}", w.meta.beats_total)
+        },
+        "final_wish": crate::beat::is_final_wish(w, round),
         "beat": round,
         "beats_total": w.meta.beats_total,
         "final_night": round >= w.meta.beats_total,
@@ -747,7 +884,7 @@ pub fn brief_public(w: &World, round: u32, pantheon: &Pantheon) -> Value {
 // ---------------------------------------------------------------------------------------------------------------------
 
 fn pile(w: &World, d: &Demigod) -> Value {
-    let me = selves(w, d.id);
+    let me = body_selves(w, d.id);
     let acts = w.ledger.rows.iter().filter(|r| me.contains(&r.actor)).count();
     let paid = debt_paid(d.id, w.ledger.rows.iter().filter_map(|r| r.debt.as_ref()));
     pile_with(w, d, &me, acts, paid)
@@ -817,7 +954,19 @@ pub(crate) fn pile_with(w: &World, d: &Demigod, me: &[Ref], acts: usize, paid: f
         "alive": d.alive,
         "items": held.iter().map(|i| {
             let (origin, origin_ref) = crate::payload::item_origin(&i.origin);
-            json!({ "item": Ref::Item(i.id), "name": i.name, "origin": origin, "origin_ref": origin_ref })
+            let mut v = json!({ "item": Ref::Item(i.id), "name": i.name, "origin": origin, "origin_ref": origin_ref });
+            if !i.ext.is_plain() {
+                // Rules 0.7.0: what the item engine made.
+                let e = &i.ext;
+                v["kind"] = json!(e.kind);
+                v["icon"] = fn7_model::manifest::icon_of(e.kind, &i.name).into();
+                v["tier"] = json!(e.tier);
+                v["count"] = e.count.round().into();
+                v["unit"] = e.unit.clone().into();
+                v["state"] = json!(e.state);
+                v["image_prompt"] = json!(e.image_prompt);
+            }
+            v
         }).collect::<Vec<_>>(),
         "summons": summons.iter().map(|i| json!({ "item": Ref::Item(i.id), "name": i.name })).collect::<Vec<_>>(),
         "stats": {
@@ -839,7 +988,108 @@ pub(crate) fn pile_with(w: &World, d: &Demigod, me: &[Ref], acts: usize, paid: f
     })
 }
 
+/// A player's out beat: `None` while any demigod of theirs stands, else the beat their last one fell.
+fn player_out(w: &World, seat: u8) -> Option<u32> {
+    if w.seat_alive(seat) {
+        None
+    } else {
+        w.bodies_of_seat(seat).filter_map(|d| d.eliminated_beat).max()
+    }
+}
+
+/// Players ranked (rules 0.7.0): standing players first (most total health, then the lowest demigod id), then the
+/// fallen by the beat their last demigod fell (latest first), then total health, then the lowest id.
+pub(crate) fn ranked_players(w: &World) -> Vec<u8> {
+    let mut seats = w.player_seats();
+    let health = |s: u8| w.bodies_of_seat(s).filter(|d| d.alive).map(|d| d.health).sum::<f32>();
+    let first = |s: u8| w.demigod_of_seat(s).map(|d| d.id).unwrap_or(DemigodId(u32::MAX));
+    seats.sort_by(|a, b| {
+        w.seat_alive(*b)
+            .cmp(&w.seat_alive(*a))
+            .then(player_out(w, *b).unwrap_or(u32::MAX).cmp(&player_out(w, *a).unwrap_or(u32::MAX)))
+            .then(health(*b).total_cmp(&health(*a)))
+            .then(first(*a).cmp(&first(*b)))
+    });
+    seats
+}
+
+/// The rules-0.7.0 summary fields: champions, standings and players per player, each demigod's state shown.
+fn summary_players(w: &World, sum: &mut Summary) {
+    let ranked = ranked_players(w);
+    let Some(&top) = ranked.first() else {
+        return;
+    };
+    let real = |s: u8| (s < SYNTHETIC_SEAT).then_some(s);
+    let mut champs: Vec<&Demigod> = w.bodies_of_seat(top).filter(|d| d.alive).collect();
+    if champs.is_empty() {
+        let last = player_out(w, top);
+        champs = w.bodies_of_seat(top).filter(|d| d.eliminated_beat == last).collect();
+    }
+    champs.sort_by(|a, b| b.health.total_cmp(&a.health).then(a.id.cmp(&b.id)));
+    let body = |d: &Demigod| {
+        json!({ "ref": Ref::Demigod(d.id), "demigod": Ref::Demigod(d.id), "side": d.side, "name": d.name,
+                "alive": d.alive, "health": d.health, "eliminated_beat": d.eliminated_beat, "cause": d.cause,
+                "cell": d.alive.then(|| people_cell(d.pos)),
+                "visual": crate::visual::demigod(w, d).to_json() })
+    };
+    sum.winners = real(top).into_iter().collect();
+    sum.summary["champions"] = champs
+        .iter()
+        .map(|d| json!({ "demigod": Ref::Demigod(d.id), "name": d.name, "seat": real(d.seat), "health": d.health,
+                         "side": d.side, "player": d.player_name() }))
+        .collect();
+    sum.summary["champion_seat"] = json!(real(top));
+    sum.summary["champion_player"] = json!(champs.first().map(|d| d.player_name()));
+    let mut standings = vec![];
+    let mut players = vec![];
+    for (i, s) in ranked.iter().enumerate() {
+        let bodies: Vec<&Demigod> = w.bodies_of_seat(*s).collect();
+        let first = bodies[0];
+        let lead = w.lead_of_seat(*s).unwrap_or(first.id);
+        let last_fell = bodies.iter().filter(|d| !d.alive).max_by_key(|d| (d.eliminated_beat, d.id));
+        standings.push(json!({
+            "rank": i + 1, "seat": real(*s), "player": first.player_name(), "name": first.player_name(),
+            "demigod": Ref::Demigod(lead), "alive": w.seat_alive(*s), "eliminated_beat": player_out(w, *s),
+            "cause": if w.seat_alive(*s) { Value::Null } else { json!(last_fell.and_then(|d| d.cause.clone())) },
+            "score": bodies.iter().map(|d| score(w, d)).fold(0.0, f64::max),
+            "aura": crate::payload::aura(w, *s),
+            "demigods": bodies.iter().map(|d| body(d)).collect::<Vec<_>>(),
+        }));
+        players.push(json!({
+            "seat": real(*s), "display_name": first.player_name(), "demigod": Ref::Demigod(lead), "rank": i + 1,
+            "champion": *s == top, "alive": w.seat_alive(*s), "aura": crate::payload::aura(w, *s),
+            "controller": crate::table::controller(w, first),
+            "demigods": bodies.iter().map(|d| {
+                let mut v = body(d);
+                v["hand"] = json!(d.side); // fn7-profile reads `hand`
+                v["rank"] = (i + 1).into();
+                v["items"] = json!(crate::items::items_of(w, d.id));
+                v["portrait_prompt"] = crate::payload::portrait_prompt(w, d).into();
+                v["diorama_prompt"] = crate::payload::diorama_prompt(w, d).into();
+                v
+            }).collect::<Vec<_>>(),
+        }));
+    }
+    sum.summary["standings"] = json!(standings);
+    sum.summary["players"] = json!(players);
+    sum.summary["manifests"] = w
+        .manifests
+        .iter()
+        .filter(|m| m.public)
+        .map(|m| crate::items::manifest_json(w, m, false))
+        .collect();
+}
+
 pub fn summary_base(w: &World) -> Summary {
+    let mut sum = summary_base_v4(w);
+    if w.demigods.iter().any(|d| d.side.is_some()) {
+        summary_players(w, &mut sum);
+    }
+    sum
+}
+
+/// The summary as rules 0.6.0 wrote it (one demigod per seat); [`summary_base`] adds the per-player fields.
+fn summary_base_v4(w: &World) -> Summary {
     let mut alive: Vec<&Demigod> = w.alive_demigods().collect();
     alive.sort_by(|a, b| b.health.total_cmp(&a.health).then(a.id.cmp(&b.id)));
     let champions: Vec<&Demigod> = if alive.is_empty() {

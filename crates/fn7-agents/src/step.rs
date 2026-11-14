@@ -58,6 +58,9 @@ pub struct StepCtx {
     pub orders: Vec<String>,
     /// Recalled memory, rendered.
     pub memory: String,
+    /// Rules 0.7.0 (state schema 5): the rules fallback never makes an item (the item engine does); see
+    /// `ResolverCtx::items_by_engine`.
+    pub items_by_engine: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -440,6 +443,7 @@ pub fn fallback(ctx: &StepCtx) -> StepOut {
         ActClass::Attack => ActionKind::Attack,
         ActClass::Social => ActionKind::Persuade,
         ActClass::Scare => ActionKind::Scare,
+        ActClass::Make if ctx.items_by_engine => ActionKind::Other,
         ActClass::Make => ActionKind::Item,
         ActClass::Other => ActionKind::Other,
     };

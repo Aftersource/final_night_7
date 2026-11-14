@@ -22,6 +22,9 @@ pub mod beat;
 pub mod casts;
 pub mod driver;
 pub mod flow;
+pub mod hotspots;
+pub mod items;
+pub mod occupancy;
 pub mod merge;
 pub mod payload;
 pub mod phases;
@@ -37,11 +40,12 @@ pub use settings::Settings;
 
 pub const PLUGIN_ID: &str = "final_night_7";
 /// Bump on any change to rules, prompts or how outcomes are computed.
-pub const RULES_VERSION: &str = "0.6.0";
+pub const RULES_VERSION: &str = "0.7.0";
 pub const RULES_LABEL: &str = "planet edition on Theatre v2.2: flow beats that never wait; text entry = Time's slow \
 windows (core action windows, Enter cut-off, penalty from real seconds open); casts = instant bolts with a public streak, \
 Entropy's yes and ramifications; Death's revive returns a seat to play; armies, world mods, Entropy to heat death; \
-Final Night leaves exactly one";
+Final Night leaves exactly one player; two demigods per player (Left and Right hands, each its own body and health); \
+the item engine judges manifestations; no two demigods share a people-level hex unless engaged";
 /// The compiled-in power palette (`data/powers.json`).
 pub fn powers() -> &'static fn7_pantheon::Powers {
     static P: std::sync::OnceLock<fn7_pantheon::Powers> = std::sync::OnceLock::new();
@@ -58,6 +62,7 @@ pub const MECHANICS: &[&str] = &[
     "Start: Time's clock shrinks the arena on an ease-out curve over arena_close_beats; demigods and possessed bodies outside take 0.5-3 damage (0.5 + 1.5 x the circle's progress + 4 x the overshoot) and are dragged back inside. Debts due (everything on the Final Night) are queued as Consequence's collections. Agents past their budget expire; a rewind frame is captured.",
     "Text entry is the God of Time interaction, on the Theatre's action windows: a seat's action.begin opens a slow-time window (deadline slow_ms; refused, with no window, if its demigod is dead or has no bolt) and everyone is told who; flow beats keep resolving. Other seats' orders are held by the core, hidden (a begin from another seat only registers it as engaged, unseen), and arrive at the next resolve when it closes. The initiator's submit (Enter) closes it at once; later submits get a private cut reply and never arrive. On close Time takes a bolt as a toll (no rival gains from it; Entropy still rises 0.4) and writes a debt of 0.5 x (1 + seconds open/10) x (1 + 0.5 x slows in the last 20 beats) (doubled if the bolt can't be paid), and Entropy rises by 0.5 + seconds/30; seconds open run from the window's real open time to the Enter's received_at_ms (or the deadline). Orders sent without a window (Compose: bots, the plugin's AI, clients that skip action.begin) are an instant order: the same toll and Entropy as a zero-second slow, but a flat debt of instant_order_debt (no repeat or seconds factor; doubled if the bolt can't be paid); they still count as slows for a later window's repeat factor.",
     "Casts (UX god powers from data/powers.json, or a custom power priced by magnitude) are Theatre instant actions (any phase): validated on arrival (known power, enough bolts for the action's total at the last commit; casts never carry orders) and shown to everyone at once as a public streak (on_instant). They are paid at the start of the next Resolve in arrival order (the plugin's AI first, then the core's seq); a cast its caster can no longer pay fizzles. It costs its price in bolts, every other live demigod gains 2 per bolt, Entropy rises 0.4 per bolt (0.2 per bolt Entropy hands out), and it strikes its point at once. Entropy's check always says yes: one ramifications call per region with casts (N = 1 + cost + magnitude/3 per cast, at most 10) in the act batch becomes geotagged rows and lasting world mods (at most 24 live; the same name in the same region stacks, up to 5).",
+    "Mega and mini powers (rules 0.7.0, the 1:5 economy): every player holds lightning bolts (the mega currency, bolt_start 1) and sparks (the mini currency, spark_start 5), a purse both demigods share. A cast says tier mega or mini (absent = mini). A MEGA acts at map scale (each power's mega variant: radius x 4 within 600-2500 km, magnitude + 2, damage x 1.5 on its target and 40% on every rival demigod within the radius) and costs a bolt; every OTHER player with a demigod standing gains bolt_gift (1) bolts and spark_gift (0) sparks, once; Entropy rises entropy_per_mega (10). A MINI acts on the board (radius / 20 within 3-30 km, magnitude - 3, damage x 0.6, its target only), costs a spark, gifts nothing, and raises Entropy entropy_per_mini (1). This replaces the old cast price and its 2-per-bolt gift; bolts still pay Time's toll and gods' prices. A player spends at most the charges it held at the beat's start (gifts are spendable from the next beat). Charges are public.",
     "Intake: each hand with words is one hand-mind call (max_intents_per_hand acts, or max_intents_per_window for orders from a window open at least one beat). Hands that spoke keep their ordinary acts as standing orders (2 per hand); silent demigods' hands carry them out by rules every other beat, with no LLM call.",
     "Mentions: places and groups match by name words; people resolve to an existing character (fuzzy name/alias) or are memorized from the best cluster (max_memorize_per_beat), inheriting what their cluster knew; a materialize mind writes their flavor.",
     "Route: world acts group by district/region (one resolver per active one; it uses the LLM only when someone who spoke this beat acts there); army acts (raise an army from a crowd, send it at a place or a rival) are rules; divine acts go to the owning god (one god mind per invocation; it costs 1 + magnitude/5 bolts, paid unless refused; a god whose price can't be paid twists or refuses; Entropy charges nothing, always says yes and gives 2 bolts; an unmade god's invocations go to Entropy; Time can cool Entropy by 4 + 1.2 x magnitude for its price). Subagents and possessions use the LLM only when their demigod spoke, paladins when their god ruled. Resolvers, gods, steps, flavor and ramifications run in ONE concurrent batch.",
@@ -66,12 +71,17 @@ pub const MECHANICS: &[&str] = &[
     "Consequence's bill: per demigod per beat, debt_scale x sum of debt_for(magnitude, words this beat) over its acts that landed, due in debt_due_beats.",
     "Consequence stage: memories from the beat's rows; news spreads one hop along group overlaps; moods and allegiances drift; owners over memory_per_owner fold by rules, except the first llm_folds_per_beat of them, whose folds the fold mind writes during the next beat.",
     "Narrate (off the critical path): beat N's narrator runs during beat N+1 (with the LLM only if beat N was loud: someone spoke, a power was cast or someone fell), on beat N's applied rows, public rulings, eliminations, standings and the Entropy line; delivered as previous_caption. The last beat's caption is written in the summary.",
-    "Hidden information: a seat sees the rows its demigod, hands, agents or possessed bodies did, saw, were told or were hit by, plus what its Following heard. Public: the arena, live demigods' positions and bolts, casts and their ramifications, armies, world mods, freak weather, eliminations, big rulings, Entropy, the slow window's initiator (never who else typed), the caption, each demigod's influence per region.",
+    "Hidden information: a seat sees the rows its demigod, hands, agents or possessed bodies did, saw, were told or were hit by, plus what its Following heard. Public: the arena, live demigods' positions, hex cells and bolts (never health, per demigod: a seat sees only its own two demigods' health), casts and their ramifications, armies, world mods, freak weather, eliminations, big rulings, Entropy, the slow window's initiator (never who else typed), the caption, each demigod's influence per region.",
     "Heat death: Entropy reaching 100 makes that beat the Final Night at once: every outstanding debt is collected at its commit, then the survivor rule.",
     "Revive: a demigod brought back from the dead (Death's raise-the-dead, or the survivor rule) whose seat was reported eliminated is reported revived (seat.revived) and plays again.",
-    "Final Night (beat = beats_total, whatever the circle's schedule), and any beat that would end with nobody standing: exactly one demigod survives: lowest outstanding debt, then most health, then most health at the beat's start; a fallen survivor is revived at its start-of-beat health (immune that beat).",
+    "Final Night (beat = beats_total, whatever the circle's schedule), and any beat that would end with nobody standing: exactly one PLAYER survives (rules 0.7.0): the most total standing over its demigods (health now minus outstanding debt), then the most total health at the beat's start, then its lowest demigod id; its standing demigods stand, every other player's fall; with none standing, its demigod with the most start-of-beat health is revived at that health (immune that beat). Schema-4 matches keep the per-demigod rule: lowest outstanding debt, then most health, then most health at the beat's start.",
+    "Two demigods per player (rules 0.7.0, state schema 5; room setting demigods_per_player, default 2): each player's Left and Right hands are two demigods, each a body on the globe with its own health (10), position, items, deeds, look, portrait and diorama, wounded, eliminated and revived on its own. Default names \"<player>'s Left Hand\" / \"<player>'s Right Hand\". The Right lands 150 km from the Left (a city: 8% of the radius). The left text (l: / fields.left) drives the Left demigod and the right text the Right one; a fallen demigod's text goes to its standing sibling. Bolts are a per-player purse (both demigods show it; every rival PLAYER gains 2 per bolt spent, once). Debts are per demigod: the acting body owes (Time's debt for orders is split evenly between the demigods that got orders; casts and Time's bolt come from the purse; the lead demigod, the first standing, answers for the seat). Every rule that touches a demigod applies per body: Time's circle, armies striking (never a sibling's army), accidents, casts' area, gods' prices (Life), revive, Entropy's flinging, possession. Rivals are other players' demigods. A player is out (seat.eliminated) only when both demigods have fallen, and back (seat.revived) when either stands again.",
+    "Item engine (rules 0.7.0): an order to manifest something (a making verb: manifest, conjure, forge, summon, raise, build, create... and a thing: army, fleet, creature, structure, weapon, armor, relic, artifact, phenomenon; an army only with a count >= 1,000, banners or a strong verb; acts routed to a god by keyword count too, except phenomena) is judged by rules: tier from kind, count and magnitude (trinket <= 12, artifact <= 1,000, relic <= 100,000, wonder <= 1M, legend <= 10M, myth <= 100M, titan <= 1B, apocalypse beyond); cost = tier price in bolts (0,0,1,1,2,3,4,6 x manifest_scale) from the purse, the shortfall as debt to Consequence 0.6 x missing x (1 + tier/4) (refused instead if the order says no debt); odds = clamp(sigmoid(logit(base[tier]) + 0.35 x extra bolts - 0.15 x missing + 1.2 x favor/10 + 0.8 x Entropy/100 (wonder+) - 0.3 x recent attempts), 0.02, 0.99) with bases 0.97,0.90,0.80,0.66,0.52,0.38,0.25,0.14; one seeded roll (seed, MANIFEST_SALT, beat, mf id): success, twisted (0.04 + 0.30 x e of successes), partial (0.25 + 0.05 x tier of failures: a tenth of a host, one tier down for an object), backfired ((0.05 + 0.25 x e) x tier/7: 0.5 + 0.25 x tier damage to the maker) or failed. Bolts spent gift rivals and raise Entropy as any bolt, plus 0.15 per tier above relic. Every attempt is a row (mf:N); a made thing is an item held by its maker with kind, icon, tier, count (f64), state, banner and custody; a host of 100+ takes the field as an army of muster_size(count) x manifest_muster_scale under its maker, its losses scaling the item's count, destroyed when gone. The LLM (manifest mind, wonders and up and twists, at most manifest_calls_per_beat) only names and describes; the rules name the rest (never a bare verb). Public from relic tier up.",
+    "People-level occupancy (rules 0.7.0, Benito's rule): cells are the client's hex cells (cube-face gnomonic projection, R = 6,371 km, pointy-top axial, people level 3 m). After each beat's moves no two standing demigods share a people-level cell unless engaged (one acted directly on the other this beat: a fight, a seduction, a parley); otherwise the later mover is nudged to the nearest free neighbouring cell (rings 1-6, fixed order; non-movers keep their cells first, then movers by their last move row).",
+    "The Final Wish (rules 0.7.0): beat 1 is the final wish: each player's orders are their final wish; both hands get max_intents_per_window acts, every act gets final_wish_magnitude more magnitude, the hand and resolver prompts frame it, the narrator calls them wishes, and every built-in AI demigod makes a wish (within its purse). Every wish costs as normal.",
+    "Hotspots (rules 0.7.0): per region, the densest weighted spot of the last 5 beats (public events 1 + magnitude/3, battles 4, live mobs 2 + size/2000 up to 6, crowds in unrest 1 + 2 x anger, demigods 3) within a quarter of the region's radius (25-400 km; a city 0.3-3 km): centre = weighted mean, radius = weighted spread (at least half that), score = weight. Built-in AI demigods drift toward the nearest hotspot within reach about one beat in four when the circle isn't pressing.",
     "Mid-match join (room setting allow_midmatch_join): at the round boundary a human taking over a bot's seat keeps its demigod, now human-controlled; a new seat takes over the built-in AI demigod still alive with the most health (then the lowest id), whose hands follow that seat's orders from that beat; with none alive the joiner spectates (no demigod). Every demigod's public controller is human or ai.",
-    "Match ends at beats_total or when at most one demigod stands. Every demigod gets a pile, a portrait prompt, a diorama prompt and an amiibo statue prompt.",
+    "Match ends at beats_total or when at most one player stands. Standings and the champion are per player (each demigod's state shown); every demigod gets a pile, a portrait prompt, a diorama prompt and an amiibo statue prompt.",
 ];
 
 /// The rules body recorded with every run (`theatre_trace::ruleset`).
@@ -135,6 +145,7 @@ fn sample_hand_prompt(w: &World, pantheon: &Pantheon) -> String {
         memory: String::new(),
         pantheon: Arc::new(pantheon.clone()),
         max_subagents: world::settings(w).max_subagents_per_hand as usize,
+        final_wish: false,
     })
 }
 
@@ -190,6 +201,7 @@ fn sample_step_prompt(kind: fn7_agents::step::StepKind) -> String {
         visible: vec![],
         orders: vec![],
         memory: String::new(),
+        items_by_engine: false,
     })
 }
 
@@ -244,7 +256,9 @@ impl FinalNight7Plugin {
         let Some(s) = world::seat_state(w, seat) else {
             return PhaseControl::default();
         };
-        let d = &w.demigods[s.demigod.ix()];
+        // The seat's lead demigod (its first standing one): a player is in play while either demigod stands.
+        let lead = w.lead_of_seat(s.seat).unwrap_or(s.demigod);
+        let d = &w.demigods[lead.ix()];
         if let Some(info) = window {
             // Someone else's window: this seat engages, unseen. Recorded for the data, never shown.
             world::event(
@@ -273,6 +287,7 @@ impl FinalNight7Plugin {
         let st = world::settings(w);
         let now = theatre_trace::now_ms();
         let deadline = now + st.slow_ms as i64;
+        let bill = crate::payload::time_bill(w, d.id);
         let id = next_window_id; // exact: the id the core gives the window this call opens
         world::event(
             "slow_begin",
@@ -288,11 +303,23 @@ impl FinalNight7Plugin {
             }),
             public: Some(json!({
                 "event": "slowed",
-                "by": d.name,
+                "by": d.player_name(),
                 "by_ref": Ref::Demigod(d.id),
                 "by_seat": seat,
                 "slow_ms": st.slow_ms,
-                "text": format!("{} slowed time", d.name),
+                "text": format!("{} slowed time", d.player_name()),
+                // The live Time bill (rules 0.7.0): debt(t) = min(debt_cap, debt_base + debt_per_second × t), t = seconds
+                // since opened_at_ms, plus one bolt (doubled debt if it can't be paid; see `time_bill`).
+                "opened_at_ms": now,
+                "deadline_ms": deadline,
+                "bill_now": { "bolts": 1, "debt": bill["debt_base"].clone() },
+                "debt_base": bill["debt_base"].clone(),
+                "debt_per_second": bill["debt_per_second"].clone(),
+                "debt_per_10s": bill["debt_per_10s"].clone(),
+                "debt_cap": bill["debt_cap"].clone(),
+                "repeat_factor": bill["repeat_factor"].clone(),
+                "recent_slows": bill["recent_slows"].clone(),
+                "bolt_paid": bill["can_pay_bolt"].clone(),
             })),
             ..Default::default()
         }
@@ -305,12 +332,14 @@ impl FinalNight7Plugin {
         let mut out = vec![];
         let mut subs = vec![];
         for s in &w.seats {
-            let d = &w.demigods[s.demigod.ix()];
-            if !d.alive {
+            // The seat's lead demigod (its first standing one; schema 4: its only one) answers for the seat's orders
+            // and casts; a player is out only when every demigod of theirs has fallen.
+            let Some(lead) = w.lead_of_seat(s.seat).filter(|_| w.seat_alive(s.seat)) else {
                 continue;
-            }
+            };
+            let d = &w.demigods[lead.ix()];
             let input = if s.seat >= SYNTHETIC_SEAT {
-                let i = actions::bot_lines(w, d.id, round);
+                let i = actions::bot_input(w, s.seat, round);
                 if i.has_orders() {
                     subs.push(flow::Sub {
                         demigod: d.id,
@@ -364,11 +393,7 @@ impl FinalNight7Plugin {
                 }
                 input
             };
-            out.push(beat::Turn {
-                demigod: d.id,
-                seat: s.seat,
-                input,
-            });
+            out.extend(beat::split_turn(w, s.seat, d.id, input));
         }
         (out, subs)
     }
@@ -392,7 +417,7 @@ impl FinalNight7Plugin {
     }
 }
 
-fn join(a: &str, b: &str) -> String {
+pub(crate) fn join(a: &str, b: &str) -> String {
     match (a.trim().is_empty(), b.trim().is_empty()) {
         (true, _) => b.to_string(),
         (_, true) => a.to_string(),
@@ -503,7 +528,7 @@ impl GamePlugin for FinalNight7Plugin {
         let Some(s) = world::seat_state(&w, seat) else {
             return Ok(());
         };
-        let d = &w.demigods[s.demigod.ix()];
+        let d = &w.demigods[w.lead_of_seat(s.seat).unwrap_or(s.demigod).ix()];
         if i.casts.is_empty() {
             return Ok(()); // a fallen demigod's player may type; it is ignored
         }
@@ -511,14 +536,10 @@ impl GamePlugin for FinalNight7Plugin {
             return Err("casts never carry orders: send casts as an instant action and orders as text entry".into());
         }
         if !d.alive {
-            return Err("your demigod has fallen: it casts nothing".into());
+            return Err("your demigods have fallen: they cast nothing".into());
         }
         // Read-only: checked against the last committed state; spending is settled at the next resolve.
-        let cost: u32 = i.casts.iter().map(casts::cost_of).sum();
-        if cost > d.bolts {
-            return Err(format!("not enough bolts: these casts cost {cost}, you have {}", d.bolts));
-        }
-        Ok(())
+        casts::affordable(&w, d.id, &i.casts)
     }
 
     fn on_action_begin(
@@ -542,7 +563,7 @@ impl GamePlugin for FinalNight7Plugin {
         if i.casts.is_empty() {
             return None;
         }
-        let mut v = casts::streak(&w, s.demigod, seat, &i.casts)?;
+        let mut v = casts::streak(&w, w.lead_of_seat(s.seat).unwrap_or(s.demigod), seat, &i.casts)?;
         v["seq"] = action.seq.into();
         v["received_at_ms"] = action.received_at_ms.into();
         world::event("cast_streak", Some(Ref::Demigod(s.demigod).to_string()), v.clone());
@@ -572,11 +593,11 @@ impl GamePlugin for FinalNight7Plugin {
         let Some(s) = world::seat_state(&w, seat) else {
             return Ok(self.default_action(state, seat));
         };
-        if !w.demigods[s.demigod.ix()].alive {
+        if !w.seat_alive(s.seat) {
             return Ok(self.default_action(state, seat));
         }
         // The brief comes before Compose, so the coming beat is meta.beat (set at the beat's Start).
-        let i = actions::bot_lines(&w, s.demigod, w.meta.beat.max(1));
+        let i = actions::bot_input(&w, s.seat, w.meta.beat.max(1));
         Ok(actions::action_of(seat, &i))
     }
 
@@ -654,3 +675,5 @@ mod query_tests;
 mod media_tests;
 #[cfg(test)]
 mod table_tests;
+#[cfg(test)]
+mod two_bodies_tests;

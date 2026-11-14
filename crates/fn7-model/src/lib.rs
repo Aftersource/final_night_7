@@ -11,6 +11,7 @@
 pub mod agents;
 pub mod beat;
 pub mod gods;
+pub mod hexgrid;
 pub mod hier;
 pub mod ids;
 pub mod intent;
@@ -31,11 +32,16 @@ pub use ledger::*;
 pub use memory::*;
 pub use refs::*;
 pub use society::*;
+pub use hexgrid::people_cell;
 
 use serde::{Deserialize, Serialize};
 
 /// Version of the [`World`] layout. Bump on any breaking change; recordings carry it so old runs still load.
-pub const STATE_SCHEMA: u32 = 4;
+///
+/// Schema 5 (rules 0.7.0): two demigods per seat (`Demigod::side`, `Demigod::player`), each with its own health,
+/// position and elimination; manifestations (`World::manifests`) and item-engine fields on items (`Item::ext`). Rules
+/// that changed in 0.7.0 read [`World::two_bodies`] (or `meta.schema`), so a schema-4 recording replays exactly.
+pub const STATE_SCHEMA: u32 = 5;
 
 /// Match-wide settings and clocks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -122,6 +128,15 @@ pub struct ModEffects {
     pub devotion: f32,
 }
 
+/// A power's mega or mini variant (rules 0.7.0).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct PowerScale {
+    pub radius_km: f32,
+    pub magnitude: u8,
+    pub damage: f32,
+}
+
 /// One power of the palette (`data/powers.json`): what a demigod can cast from the UX, paid in bolts.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -142,6 +157,30 @@ pub struct PowerDef {
     pub tags: Vec<String>,
     /// One line for the ramifications mind ("a column of fire and ash...").
     pub blurb: String,
+    /// Rules 0.7.0: its MEGA variant (map scale, a bolt) and MINI variant (the board, a spark).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mega: Option<PowerScale>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mini: Option<PowerScale>,
+}
+
+impl PowerDef {
+    /// The variant for `scale` (from the palette, else derived: mega = radius × 4 within 600-2,500 km, magnitude + 2,
+    /// damage × 1.5; mini = radius / 20 within 3-30 km, magnitude - 3, damage × 0.6).
+    pub fn variant(&self, scale: CastScale) -> PowerScale {
+        match scale {
+            CastScale::Mega => self.mega.unwrap_or(PowerScale {
+                radius_km: (self.radius_km * 4.0).clamp(600.0, 2500.0),
+                magnitude: (self.magnitude + 2).min(10),
+                damage: (self.damage * 1.5 * 10.0).round() / 10.0,
+            }),
+            CastScale::Mini => self.mini.unwrap_or(PowerScale {
+                radius_km: (self.radius_km / 20.0).clamp(3.0, 30.0),
+                magnitude: self.magnitude.saturating_sub(3).max(1),
+                damage: (self.damage * 0.6 * 10.0).round() / 10.0,
+            }),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -298,6 +337,9 @@ pub struct World {
     /// Running totals of the society's action; `battles` doubles as the next battle id.
     #[serde(default)]
     pub soc: SocietyTotals,
+    /// Schema 5: every manifestation attempt (`mf:N` = index), made or not. Append-only.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub manifests: Vec<manifest::Manifestation>,
 }
 
 /// One seat's view: what it is zoomed on. Changed only by `Route::Zoom` intents or the action's `zoom` field.
@@ -308,11 +350,87 @@ pub struct SeatState {
     pub is_bot: bool,
     pub zoom: Zoom,
     pub focus: Option<Ref>,
+    /// Schema 5: the seat's display name (the player's name; both of its demigods carry it as `Demigod::player`).
+    /// Empty in schema-4 states (where the demigod's name is the player's).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub display_name: String,
 }
 
 impl World {
+    /// The seat's first demigod (its Left hand in schema 5; the only one before).
     pub fn demigod_of_seat(&self, seat: u8) -> Option<&Demigod> {
         self.demigods.iter().find(|d| d.seat == seat)
+    }
+    /// Schema 5 rules are on: two demigods per player, the people-level occupancy rule, the item engine.
+    pub fn two_bodies(&self) -> bool {
+        self.meta.schema >= 5
+    }
+    /// A seat's demigods, in id order (Left then Right in schema 5).
+    pub fn bodies_of_seat(&self, seat: u8) -> impl Iterator<Item = &Demigod> {
+        self.demigods.iter().filter(move |d| d.seat == seat)
+    }
+    /// `d` and its sibling (the same player's other demigod), in id order. Just `[d]` before schema 5.
+    pub fn siblings(&self, d: DemigodId) -> Vec<DemigodId> {
+        match self.demigods.get(d.ix()) {
+            Some(x) => self.bodies_of_seat(x.seat).map(|y| y.id).collect(),
+            None => vec![],
+        }
+    }
+    /// Do two demigods belong to the same player (the same seat)? Rivals are demigods of other players.
+    pub fn same_player(&self, a: DemigodId, b: DemigodId) -> bool {
+        a == b
+            || matches!((self.demigods.get(a.ix()), self.demigods.get(b.ix())), (Some(x), Some(y)) if x.seat == y.seat)
+    }
+    /// Is any of the seat's demigods standing? A player is out only when all of theirs have fallen.
+    pub fn seat_alive(&self, seat: u8) -> bool {
+        self.bodies_of_seat(seat).any(|d| d.alive)
+    }
+    /// The seat's lead demigod: its first one still standing, else its first. Who pays and answers for the player's
+    /// seat-level acts (Time's bill for orders, casts).
+    pub fn lead_of_seat(&self, seat: u8) -> Option<DemigodId> {
+        self.bodies_of_seat(seat)
+            .find(|d| d.alive)
+            .or_else(|| self.demigod_of_seat(seat))
+            .map(|d| d.id)
+    }
+    /// The players (seats) with at least one demigod standing, in order of their first demigod's id.
+    pub fn alive_seats(&self) -> Vec<u8> {
+        let mut v: Vec<u8> = vec![];
+        for d in self.demigods.iter().filter(|d| d.alive) {
+            if !v.contains(&d.seat) {
+                v.push(d.seat);
+            }
+        }
+        v
+    }
+    /// The players (seats) in order of their first demigod's id.
+    pub fn player_seats(&self) -> Vec<u8> {
+        let mut v: Vec<u8> = vec![];
+        for d in &self.demigods {
+            if !v.contains(&d.seat) {
+                v.push(d.seat);
+            }
+        }
+        v
+    }
+    /// Set the player's purse of bolts: bolts are per player, so every demigod of the seat holds the same count (a
+    /// schema-4 seat has one demigod, so this is that demigod's bolts).
+    pub fn set_sparks(&mut self, d: DemigodId, sparks: u32) {
+        let Some(seat) = self.demigods.get(d.ix()).map(|x| x.seat) else {
+            return;
+        };
+        for x in self.demigods.iter_mut().filter(|x| x.seat == seat) {
+            x.sparks = sparks;
+        }
+    }
+    /// See [`World::set_sparks`]: the player's purse of bolts (the mega currency), on every demigod of the seat.
+    pub fn set_bolts(&mut self, d: DemigodId, bolts: u32) {
+        let Some(seat) = self.demigods.get(d.ix()).map(|x| x.seat) else {
+            return;
+        };
+        for x in self.demigods.iter_mut().filter(|x| x.seat == seat) {
+            x.bolts = bolts;
+        }
     }
     pub fn is_planet(&self) -> bool {
         self.meta.arena_kind == ArenaKind::Planet

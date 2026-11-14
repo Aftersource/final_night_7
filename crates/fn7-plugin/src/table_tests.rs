@@ -53,13 +53,14 @@ async fn a_taken_over_bot_seat_keeps_its_demigod_and_turns_human() {
     let w = world::load(&s2).unwrap();
     let st = world::seat_state(&w, 1).unwrap();
     assert_eq!((st.demigod, st.is_bot), (DemigodId(1), false), "same demigod, now human");
-    assert_eq!(w.demigods[1].name, "Brix", "the demigod keeps its name");
+    assert_eq!(w.demigods[1].name, "Brix's Left Hand", "the demigod keeps its name");
+    assert_eq!((w.demigods[1].player.as_str(), w.seats[1].display_name.as_str()), ("Benito", "Benito"), "the joiner is the player now");
     let after = by_ref(&demigods(&p.public_view(&s2)), "dg:1").clone();
     assert_eq!(after["controller"], "human");
     assert!(after["connected"].is_null(), "presence is the core's: null for a human");
     assert_eq!(after["seat"], 1);
     // Nothing else moved.
-    for r in ["dg:0", "dg:2", "dg:3"] {
+    for r in ["dg:0", "dg:2", "dg:3", "dg:4", "dg:6", "dg:7"] {
         assert_eq!(by_ref(&demigods(&before), r), by_ref(&demigods(&p.public_view(&s2)), r));
     }
     // Deterministic, and idempotent: the seat is already human.
@@ -130,9 +131,16 @@ async fn every_public_demigod_carries_the_table_fields() {
     let s = p.on_match_start(&seats, &settings, &Failing).await.unwrap();
     let want = [("dg:0", json!(0), "human", Value::Null), ("dg:1", json!(1), "ai", json!(true)), ("dg:2", Value::Null, "ai", json!(true))];
     let check = |what: &str, ds: &[Value], key: &str| {
-        assert_eq!(ds.len(), 3, "{what}");
-        for (r, seat, controller, connected) in &want {
-            let d = ds.iter().find(|d| d[key] == *r).unwrap_or_else(|| panic!("{what}: no {r}"));
+        // Rules 0.7.0: two demigods per player; the Right ones are dg:3..5, with their player's table fields.
+        assert_eq!(ds.len(), 6, "{what}");
+        let right: Vec<(String, Value, &str, Value)> = want
+            .iter()
+            .map(|(r, s, c, n)| (format!("dg:{}", r[3..].parse::<u32>().unwrap() + 3), s.clone(), *c, n.clone()))
+            .collect();
+        let all: Vec<(String, Value, &str, Value)> =
+            want.iter().map(|(r, s, c, n)| (r.to_string(), s.clone(), *c, n.clone())).chain(right).collect();
+        for (r, seat, controller, connected) in &all {
+            let d = ds.iter().find(|d| d[key] == r.as_str()).unwrap_or_else(|| panic!("{what}: no {r}"));
             assert_eq!(&d["seat"], seat, "{what} {r} seat");
             assert_eq!(d["controller"], *controller, "{what} {r} controller");
             assert_eq!(&d["connected"], connected, "{what} {r} connected");
@@ -142,6 +150,7 @@ async fn every_public_demigod_carries_the_table_fields() {
     check("globe", &demigods(&p.query(&s, None, "globe", &json!({})).unwrap()), "ref");
     let st = p.query(&s, Some(0), "standings", &json!({})).unwrap();
     check("standings", st["standings"].as_array().unwrap(), "demigod");
+    assert_eq!(st["players"].as_array().unwrap().len(), 3, "the standings' players: one row each");
     // The region query lists the live demigods in a region with the same fields.
     let home = world::load(&s).unwrap().demigods[0].home.expect("home region");
     let reg = p.query(&s, None, "region", &json!({ "ref": Ref::Place(home).to_string() })).unwrap();
@@ -252,7 +261,7 @@ async fn portraits_and_dioramas_are_identity_only_across_matches() {
         assert_eq!(x["portrait_prompt"].as_str().unwrap(), payload::portrait_prompt_for(name));
         assert_eq!(x["diorama_prompt"].as_str().unwrap(), payload::diorama_prompt_for(name));
     }
-    assert_eq!(shared, 4, "the seats and the AI roster give the same four names");
+    assert_eq!(shared, 8, "the seats and the AI roster give the same eight demigod names (two per player)");
 }
 
 #[tokio::test]
@@ -272,7 +281,13 @@ async fn each_hand_is_a_demigod_with_its_own_identity_images() {
         assert_eq!(h["portrait_prompt"], hb[i]["portrait_prompt"], "the same hand in another match: the same prompt");
     }
     assert_ne!(ha[0]["visual"]["sheet_hash"], ha[1]["visual"]["sheet_hash"], "left and right are different figures");
-    let dg = &demigods(&p.public_view(&a))[0];
-    assert_ne!(dg["portrait_prompt"], ha[0]["portrait_prompt"], "the demigod's own portrait is unchanged and separate");
+    // Rules 0.7.0: each hand IS one of the player's two demigods: the same name, portrait and diorama.
+    let ds = demigods(&p.public_view(&a));
+    for h in ha {
+        let d = by_ref(&ds, h["demigod"].as_str().unwrap());
+        assert_eq!((&d["name"], &d["portrait_prompt"], &d["diorama_prompt"]), (&h["name"], &h["portrait_prompt"], &h["diorama_prompt"]));
+        assert_eq!(d["side"], h["side"]);
+    }
+    assert_eq!((ds[0]["side"].as_str(), ha[1]["side"].as_str()), (Some("left"), Some("right")));
     assert_eq!(payload::hand_names("Ash"), ["Ash's Left Hand".to_string(), "Ash's Right Hand".to_string()]);
 }

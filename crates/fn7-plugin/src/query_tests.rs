@@ -66,7 +66,7 @@ fn manifest_lists_every_query_with_an_args_schema() {
     let names: Vec<&str> = specs.iter().map(|s| s.name.as_str()).collect();
     assert_eq!(
         names,
-        ["globe", "region", "node", "person", "army", "events", "me", "powers", "gods", "standings", "media", "piles_final"]
+        ["globe", "region", "node", "person", "army", "events", "me", "powers", "gods", "standings", "media", "items", "item", "piles_final"]
     );
     for s in &specs {
         assert_eq!(s.args_schema["type"], "object", "{}", s.name);
@@ -84,7 +84,12 @@ fn every_query_has_its_shape() {
     keys(&g["arena"], &["center", "radius_km", "start_radius_km", "end_radius_km", "city"]);
     keys(&g["events"], &["items", "since", "next", "more", "head"]);
     assert_eq!(g["beat"], 20);
-    assert_eq!(g["demigods"].as_array().unwrap().len(), 4);
+    assert_eq!(g["demigods"].as_array().unwrap().len(), 8, "two demigods per player (rules 0.7.0)");
+    assert_eq!(g["players"].as_array().unwrap().len(), 4);
+    for d in g["demigods"].as_array().unwrap().iter().filter(|d| d["alive"] == true) {
+        keys(d, &["ref", "side", "player", "aura", "cell", "pos", "items", "visual"]);
+        assert!(d.get("health").is_none(), "rival health stays hidden, per demigod");
+    }
     for e in g["events"]["items"].as_array().unwrap() {
         keys(e, &["row", "beat", "kind", "text", "at", "region", "region_ref", "refs", "magnitude"]);
     }

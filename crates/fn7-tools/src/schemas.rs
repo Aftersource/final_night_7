@@ -189,13 +189,24 @@ fn shared_defs() -> Map<String, Value> {
             "`phase.event.public` right after `window.opened`: who slowed time (from `action.begin`).",
             &[
                 ("event", json!({ "const": "slowed" })),
-                ("by", string("The initiator's demigod name.")),
+                ("by", string("The initiator: the player's name (rules 0.7.0; before, the demigod's).")),
                 ("by_ref", r("Ref")),
                 ("by_seat", int("The initiator's seat (= window.opened.by_seat).")),
                 ("slow_ms", int("How long the window stays open at most.")),
                 ("text", string("\"<name> slowed time\".")),
             ],
-            &[],
+            &[
+                ("opened_at_ms", int("Rules 0.7.0, the live Time bill: when the window opened (server epoch ms).")),
+                ("deadline_ms", int("When it closes at the latest (epoch ms).")),
+                ("bill_now", object("The bill if Enter came now (at opening): one bolt and `debt_base`.", &[("bolts", int("")), ("debt", num(""))], &[])),
+                ("debt_base", num("debt(t) = min(debt_cap, debt_base + debt_per_second × t), t = seconds since opened_at_ms.")),
+                ("debt_per_second", num("")),
+                ("debt_per_10s", num("= debt_base.")),
+                ("debt_cap", num("10.")),
+                ("repeat_factor", num("1 + 0.5 × the opener's slows in the last 20 beats (already in debt_base).")),
+                ("recent_slows", int("")),
+                ("bolt_paid", boolean("The purse has the bolt (else the debt is doubled, already in debt_base).")),
+            ],
         ),
     );
     let streak_cast = object(
@@ -209,6 +220,7 @@ fn shared_defs() -> Map<String, Value> {
         ],
         &[
             ("text", string("custom only: what it is.")),
+            ("tier", json!({ "type": "string", "enum": ["mega", "mini"], "description": "Rules 0.7.0." })),
             ("at", r("LonLat")),
             ("region", string("Region (planet) or district (city) aimed at.")),
             ("region_ref", r("Ref")),
@@ -261,6 +273,8 @@ fn shared_defs() -> Map<String, Value> {
                 ("instant", boolean("Sent as an instant action.")),
             ],
             &[
+                ("tier", json!({ "type": "string", "enum": ["mega", "mini"], "description": "Rules 0.7.0: mega (cost a bolt) or mini (cost a spark)." })),
+                ("radius_km", num("Rules 0.7.0: the variant's radius.")),
                 ("at", r("LonLat")),
                 ("region", string("Region (planet) or district (city) it struck.")),
                 ("region_ref", r("Ref")),
@@ -431,7 +445,7 @@ fn shared_defs() -> Map<String, Value> {
                 ("due_beat", int("Beat it falls due (everything falls due on the Final Night).")),
                 ("status", r("DebtStatus")),
             ],
-            &[],
+            &[("owed_by", json!({ "$ref": "#/$defs/Ref", "description": "Rules 0.7.0: which of your two demigods owes it (the acting body)." }))],
         ),
     );
     d
@@ -648,7 +662,7 @@ fn settings_schema() -> Value {
         "description": "planet: the whole Earth (regions → cities; `city` = where the Final Night converges). city: one real city (districts → sites)." }));
     p("flow_ms", i(500, 120_000, json!(3000), "Flow beat length in ms: the world's action runs in beats this long whether or not anyone types. compose_seconds defaults to flow_ms / 1000."));
     p("slow_ms", i(1000, 600_000, json!(30000), "How long a slow-time window may stay open (ceil(slow_ms / flow_ms) flow beats)."));
-    p("start_bolts", i(0, 99, json!(3), "Lightning bolts each demigod starts with."));
+    p("start_bolts", i(0, 99, json!(fn7_plugin::settings::DEFAULT_BOLT_START), "Alias of bolt_start (rules 0.7.0: lightning bolts each player starts with)."));
     p("entropy_scale", json!({ "type": "number", "minimum": 0, "maximum": 10, "default": 1.0,
         "description": "Multiplier on every Entropy rise (a playtest dial; 2 = heat death twice as fast). Cooling is not scaled." }));
     p("max_intents_per_window", i(1, 24, json!(12), "Acts one hand makes from orders that closed a slow window open at least one beat."));
@@ -713,6 +727,19 @@ fn settings_schema() -> Value {
     p("accident_scale", scale(k, "Multiplier on the rules fallback's Final Destination accident chance (1 in 20 per non-attack act at 1)."));
     p("army_strike_scale", scale(k, "Multiplier on the damage an army does when it storms a demigod."));
     p("army_first_host_scale", scale(k, "Multiplier on the extra chance a crowd near an unarmed demigod raises their first volunteer host."));
+    p("demigods_per_player", i(1, 2, json!(2), "Rules 0.7.0: 2 = each player's Left and Right hands are two demigods, each with its own health (the player is out when both fall); 1 = one shared body (as before 0.7.0)."));
+    p("manifest_scale", scale(1.0, "Rules 0.7.0: multiplier on the item engine's bolt price per tier."));
+    let muster: f64 = format!("{}", fn7_plugin::settings::DEFAULT_MUSTER_SCALE).parse().unwrap_or(0.25);
+    p("manifest_muster_scale", json!({ "type": "number", "minimum": 0, "maximum": 1, "default": muster,
+        "description": "Rules 0.7.0: a manifested host's army footprint in the simulation, as a share of muster_size(count) (0 = hosts never take the field)." }));
+    p("manifest_calls_per_beat", i(0, 16, json!(2), "Rules 0.7.0: most manifest-mind (LLM) calls per beat (names for wonders and up, and twists)."));
+    p("final_wish_magnitude", i(0, 5, json!(2), "Rules 0.7.0: magnitude added to every act of the Final Wish (beat 1)."));
+    p("bolt_start", i(0, 99, json!(fn7_plugin::settings::DEFAULT_BOLT_START), "Rules 0.7.0: lightning bolts (the mega currency; also Time's toll and gods' prices) each player starts with. `start_bolts` is an alias."));
+    p("spark_start", i(0, 99, json!(5), "Rules 0.7.0: sparks (the mini currency) each player starts with."));
+    p("bolt_gift", i(0, 10, json!(1), "Rules 0.7.0: bolts every OTHER player gains when someone casts a mega power."));
+    p("spark_gift", i(0, 10, json!(0), "Rules 0.7.0: sparks every OTHER player gains when someone casts a mega power."));
+    p("entropy_per_mega", json!({ "type": "number", "minimum": 0, "maximum": 100, "default": 10.0, "description": "Rules 0.7.0: Entropy a mega cast adds (x entropy_scale)." }));
+    p("entropy_per_mini", json!({ "type": "number", "minimum": 0, "maximum": 20, "default": 1.0, "description": "Rules 0.7.0: Entropy a mini cast adds (x entropy_scale)." }));
     p(
         "memory_per_owner",
         i(
@@ -794,7 +821,9 @@ fn action_fields_schema() -> Value {
             "power": { "type": "string", "maxLength": 40, "description": "Palette slug or \"custom\". Optional in `bolt`/`bolts` (lightning)." },
             "target": target.clone(),
             "text": { "type": ["string", "null"], "maxLength": 200, "description": "custom only: what the power is (required for custom)." },
-            "magnitude": { "type": ["number", "null"], "minimum": 0, "maximum": 10, "description": "custom only: 0..10 (default 5); prices it (1 + magnitude/3 bolts, at most 4)." }
+            "magnitude": { "type": ["number", "null"], "minimum": 0, "maximum": 10, "description": "custom only: 0..10 (default 5); prices it (1 + magnitude/3 bolts, at most 4) before rules 0.7.0." },
+            "tier": { "type": ["string", "null"], "enum": ["mega", "mini", null], "description": "Rules 0.7.0: mega (a lightning bolt, map scale, every other god gains a bolt) or mini (a spark, the board). Default mini, so old clients never burn bolts. `scale` is accepted as an alias." },
+            "scale": { "type": ["string", "null"], "enum": ["mega", "mini", null], "description": "Alias of tier." }
         },
         "required": ["target"]
     });
@@ -854,7 +883,7 @@ fn round_started_public() -> Value {
             ("eliminated", array(json!({ "type": "string" }), "Names of demigods that fell during Start.")),
             ("alive", int("Demigods still standing.")),
         ],
-        &[],
+        &[("players_alive", int("Rules 0.7.0: players with a demigod standing."))],
     )
 }
 
@@ -868,7 +897,11 @@ fn round_started_private() -> Value {
             ("outside_arena", boolean("You are outside the safe radius: move inward or keep taking damage each beat.")),
             ("debt_due", num("Damage points Consequence collects from you this beat (resolved in this beat's merge; a Time delay can push it back).")),
         ],
-        &[],
+        &[
+            ("demigod", json!({ "$ref": "#/$defs/Ref", "description": "Rules 0.7.0: the lead demigod the top-level fields describe." })),
+            ("demigods", array(object("", &[("ref", r("Ref")), ("side", r("Hand")), ("health", num("")), ("alive", boolean("")),
+                ("outside_arena", boolean("")), ("debt_due", num(""))], &[]), "Rules 0.7.0: each of your two demigods.")),
+        ],
     )
 }
 
@@ -876,7 +909,7 @@ fn brief_public() -> Value {
     object(
         "`round.brief.public`.",
         &[
-            ("title", string("\"Beat <n> of <total>\".")),
+            ("title", string("\"Beat <n> of <total>\" (\"The Final Wish: beat 1 of <total>\" on the Final Wish).")),
             ("beat", int("This beat.")),
             ("beats_total", int("The Final Night's beat.")),
             ("final_night", boolean("True on the last beat.")),
@@ -910,7 +943,10 @@ fn brief_public() -> Value {
                     ("damage", json!({ "type": ["number", "null"], "description": "Direct damage to a body it hits." })),
                     ("tags", array(json!({ "type": "string" }), "")),
                 ],
-                &[],
+                &[
+                    ("mega", object("Rules 0.7.0: the MEGA variant (map scale; send `cast.tier: \"mega\"`).", &[("radius_km", num("")), ("magnitude", int("")), ("damage", num("Its target's damage; rival demigods within the radius take 40%.")), ("cost", int("1 bolt."))], &[])),
+                    ("mini", object("Rules 0.7.0: the MINI variant (the board; `cast.tier: \"mini\"`, the default).", &[("radius_km", num("")), ("magnitude", int("")), ("damage", num("")), ("cost", int("1 spark."))], &[])),
+                ],
             ), "The power palette, then the custom entry.")),
             ("entropy", r("Entropy")),
             ("flow", object(
@@ -934,7 +970,7 @@ fn brief_public() -> Value {
                 &[],
             ), "Every region, in id order.")),
         ],
-        &[],
+        &[("final_wish", boolean("Rules 0.7.0: this beat is THE FINAL WISH (beat 1): your orders are your final wish; both hands get the window act budget and +final_wish_magnitude."))],
     )
 }
 
@@ -964,7 +1000,16 @@ fn seat_view_body(desc: &str) -> Value {
                 &[("yours", boolean("You opened it.")), ("window_id", int("The Theatre's window id."))], &[])],
                 "description": "null when no window is open." })),
         ],
-        &[("hierarchy", json!({ "type": ["object", "null"], "additionalProperties": true, "description": "The society hierarchy at your zoom (schema 4: node, path, children, crowds, cells, people, armies with chains of command, mobs, battles). Its shape is not frozen yet (the society build is in progress); read defensively." }))],
+        &[
+            ("player", string("Rules 0.7.0: your name (both of your demigods are yours).")),
+            ("aura", string("Rules 0.7.0: your aura colour, `#RRGGBB`.")),
+            ("time_bill", r("TimeBill")),
+            ("charges", r("Charges")),
+            ("demigods", array(json!({ "type": "object", "additionalProperties": true,
+                "description": "Rules 0.7.0: one of your two demigods in full: the public fields plus health, max_health, debt_open, items (Item), hand (SeatHand), orders, manifests (Manifestation, with verdicts)." }),
+                "Rules 0.7.0: both of your demigods, [left, right].")),
+            ("my_items", array(r("Item"), "Rules 0.7.0: every item your demigods hold.")),
+            ("hierarchy", json!({ "type": ["object", "null"], "additionalProperties": true, "description": "The society hierarchy at your zoom (schema 4: node, path, children, crowds, cells, people, armies with chains of command, mobs, battles). Its shape is not frozen yet (the society build is in progress); read defensively." }))],
     )
 }
 
@@ -1005,7 +1050,11 @@ fn outcome_public() -> Value {
                 ],
             )),
         ],
-        &[("society", json!({ "type": ["object", "null"], "additionalProperties": true, "description": "The society's public summary (schema 4). Its shape is not frozen yet (the society build is in progress); read defensively." }))],
+        &[
+            ("society", json!({ "type": ["object", "null"], "additionalProperties": true, "description": "The society's public summary (schema 4). Its shape is not frozen yet (the society build is in progress); read defensively." })),
+            ("players_alive", int("Rules 0.7.0: players with a demigod standing.")),
+            ("manifests", array(r("Manifestation"), "Rules 0.7.0: public manifestations this beat (made things of tier relic or up, or legend+ attempts).")),
+        ],
     )
 }
 
@@ -1032,7 +1081,20 @@ fn public_view() -> Value {
             "diorama_image_kind": { "type": "string", "enum": ["diorama"], "description": "The kind of diorama_prompt." },
             "visual": { "$ref": "#/$defs/Visual", "description": "Its visual sheet (stable all match). Always present since the media release; absent in older recordings." },
             "portrait_image": { "$ref": "#/$defs/ImageObject", "description": "Its portrait (images on only)." },
-            "diorama_image": { "$ref": "#/$defs/ImageObject", "description": "Its diorama, the table minifig (images on only; kind diorama)." }
+            "diorama_image": { "$ref": "#/$defs/ImageObject", "description": "Its diorama, the table minifig (images on only; kind diorama)." },
+            "cell": { "type": "string", "description": "Alive only: its people-level hex cell (`<face>:people:<q>:<r>`, the client's own indexing; rules 0.7.0)." },
+            "side": { "type": ["string", "null"], "enum": ["left", "right", null], "description": "Rules 0.7.0: which of its player's two hands it is." },
+            "player": { "type": "string", "description": "Rules 0.7.0: its player's name." },
+            "aura": { "type": "string", "description": "Rules 0.7.0: its player's aura colour (#RRGGBB)." },
+            "sibling": { "anyOf": [{ "$ref": "#/$defs/Ref" }, { "type": "null" }], "description": "Rules 0.7.0: its player's other demigod." },
+            "items": { "type": "array", "items": { "$ref": "#/$defs/Item" }, "description": "Rules 0.7.0: its public item pieces (manifested, tier relic or up, or deployed)." },
+            "sparks": { "type": "integer", "minimum": 0, "description": "Rules 0.7.0: its player's sparks (the mini-power currency; public, like bolts: hoarding is visible)." },
+            "health": { "type": "number", "description": "Your own demigods only (seat_view.demigods[]); never a rival's." },
+            "max_health": { "type": "number" },
+            "debt_open": { "type": "number" },
+            "hand": { "$ref": "#/$defs/SeatHand" },
+            "orders": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+            "manifests": { "type": "array", "items": { "$ref": "#/$defs/Manifestation" } }
         },
         "required": ["ref", "name", "alive", "seat"],
         "oneOf": [
@@ -1047,7 +1109,7 @@ fn public_view() -> Value {
             ("beats_total", int("The Final Night's beat.")),
             ("arena", r("Arena")),
             ("alive", int("Demigods still standing.")),
-            ("demigods", array(demigod, "Every demigod in the match, seats and built-in AI, in id order (dg:0, dg:1, ...).")),
+            ("demigods", array(demigod, "Every demigod in the match, seats and built-in AI, in id order (dg:0, dg:1, ...). Rules 0.7.0: two per player, the Left hands first (dg:0..n), then the Right (dg:n..2n).")),
             ("omens", array(r("Omen"), "The last resolved beat's public rulings.")),
             ("caption", string("The latest caption written (narrated one beat late, so usually the beat before `beat`).")),
             ("caption_beat", json!({ "type": ["integer", "null"], "minimum": 0,
@@ -1059,7 +1121,9 @@ fn public_view() -> Value {
             ("mods", array(r("WorldMod"), "Every live world mod.")),
             ("gods", array(object("", &[("ref", r("Ref")), ("name", string("")), ("health", num("0..10; high Entropy wounds gods; at 0 Entropy answers its invocations."))], &[]), "The gods' health.")),
         ],
-        &[("society", json!({ "type": ["object", "null"], "additionalProperties": true, "description": "The society's public summary (schema 4). Its shape is not frozen yet (the society build is in progress); read defensively." }))],
+        &[("players_alive", int("Rules 0.7.0: players with a demigod standing.")),
+          ("players", array(r("Player"), "Rules 0.7.0: the seat list, one entry per player.")),
+          ("society", json!({ "type": ["object", "null"], "additionalProperties": true, "description": "The society's public summary (schema 4). Its shape is not frozen yet (the society build is in progress); read defensively." }))],
     )
 }
 
@@ -1073,7 +1137,7 @@ fn match_summary() -> Value {
             ("seat", opt_seat.clone()),
             ("health", num("Health at the end.")),
         ],
-        &[],
+        &[("side", r("Hand")), ("player", string("Rules 0.7.0: the champion player's name."))],
     );
     let standing = object(
         "One demigod's final place.",
@@ -1087,7 +1151,11 @@ fn match_summary() -> Value {
             ("cause", nullable(string("How it fell."))),
             ("score", num("Same formula as round.committed scores: 1e6 if alive + followers + 100 x total favor.")),
         ],
-        &[],
+        &[
+            ("player", string("Rules 0.7.0: standings are per player; the player's name.")),
+            ("aura", string("Rules 0.7.0.")),
+            ("demigods", array(json!({ "type": "object", "additionalProperties": true, "description": "{ref, demigod, side, name, alive, health, eliminated_beat, cause, cell, visual}" }), "Rules 0.7.0: each of the player's demigods.")),
+        ],
     );
     let item = object(
         "",
@@ -1099,7 +1167,9 @@ fn match_summary() -> Value {
             ("origin_ref", json!({ "anyOf": [{ "$ref": "#/$defs/Ref" }, { "type": "null" }],
                                    "description": "The source item (`it:<n>`) for echoed, the god (`gd:<n>`) for granted, else null." })),
         ],
-        &[],
+        &[("kind", json!({ "type": "string" })), ("icon", json!({ "type": "string" })), ("tier", json!({ "type": "string" })),
+          ("count", num("")), ("unit", string("")), ("state", json!({ "type": "string" })), ("image_prompt", json!({ "type": ["string", "null"] })),
+          ("image", r("ImageObject"))],
     );
     let summon = object("", &[("item", r("Ref")), ("name", string(""))], &[]);
     let pile = object(
@@ -1171,6 +1241,10 @@ fn match_summary() -> Value {
             ("heat_death", json!({ "type": ["integer", "null"], "minimum": 0, "description": "The beat heat death struck (the Final Night came early), or null." })),
         ],
         &[
+            ("champion_player", json!({ "type": ["string", "null"], "description": "Rules 0.7.0: the surviving player." })),
+            ("players", array(json!({ "type": "object", "additionalProperties": true,
+                "description": "Rules 0.7.0 (for fn7-profile): {seat, display_name, demigod, rank, champion, alive, aura, controller, demigods: [{ref, side, name, alive, health, eliminated_beat, cause, cell, visual, rank, items, portrait_prompt, diorama_prompt}]}" }), "One per player, best first.")),
+            ("manifests", array(r("Manifestation"), "Rules 0.7.0: every public manifestation of the match.")),
             ("storyboard", array(r("StoryboardShot"), "The final-cut animatic, in play order: the title, the biggest moments as they happened, the champion. Always present since the media release; absent in older recordings.")),
             (
             "last_caption",
@@ -1186,11 +1260,100 @@ fn match_summary() -> Value {
 }
 
 /// Every schema, as (file stem, schema).
+/// Rules 0.7.0 payload pieces: items, manifestations, the seat list, Time's live bill, hotspots, a demigod in full.
+fn v07_defs() -> Map<String, Value> {
+    let mut d = Map::new();
+    let e = |vals: &[&str], desc: &str| json!({ "type": "string", "enum": vals, "description": desc });
+    let tiers = ["trinket", "artifact", "relic", "wonder", "legend", "myth", "titan", "apocalypse"];
+    let kinds = ["artifact", "weapon", "armor", "relic", "structure", "army", "fleet", "creature", "phenomenon", "other"];
+    let states = ["held", "deployed", "destroyed", "transferred", "stolen"];
+    let outcomes = ["success", "twisted", "partial", "failed", "backfired", "refused"];
+    d.insert("Item".into(), object(
+        "Rules 0.7.0: an item (a manifested thing, or one an older path made).",
+        &[
+            ("ref", r("Ref")), ("name", string("")), ("description", string("")),
+            ("kind", e(&kinds, "What it is.")),
+            ("icon", e(fn7_model::manifest::ICONS, "The client's piece or icon.")),
+            ("tier", e(&tiers, "Its scale tier.")),
+            ("count", num("Soldiers, vessels, creatures or copies (rounded; f64 range: 100,000,000 is fine).")),
+            ("unit", string("\"soldiers\", \"vessels\", \"creatures\" or \"\" (copies).")),
+            ("state", e(&states, "")),
+            ("holder", json!({ "anyOf": [{ "$ref": "#/$defs/Ref" }, { "type": "null" }] })),
+            ("holder_name", json!({ "type": ["string", "null"] })),
+            ("created_beat", int("")),
+            ("manifestation", json!({ "type": ["string", "null"], "description": "`mf:<n>`, the attempt that made it." })),
+            ("at", nullable(r("LonLat"))),
+            ("banner", json!({ "anyOf": [{ "type": "null" }, object("A host's banner.", &[("device", string("")), ("colors", array(json!({"type": "string"}), ""))], &[("motto", string(""))])] })),
+            ("image_prompt", string("The item image subject (`image_kind` item).")),
+            ("image_kind", json!({ "const": "item" })),
+        ],
+        &[("image", r("ImageObject")), ("origin", string("game.item only.")), ("created_by", json!({})), ("holders", array(r("Ref"), "")),
+          ("history", array(json!({ "type": "object", "additionalProperties": true }), "Custody: {beat, state, holder?, by?, row?, count?}.")),
+          ("rows", array(r("Ref"), "game.item only: the attempt's ledger rows.")),
+          ("manifestation_detail", json!({}))],
+    ));
+    d.insert("Manifestation".into(), object(
+        "Rules 0.7.0: one manifestation attempt (made or not).",
+        &[
+            ("ref", string("`mf:<n>`.")), ("beat", int("")), ("by", r("Ref")), ("by_name", string("")),
+            ("side", json!({ "anyOf": [{ "$ref": "#/$defs/Hand" }, { "type": "null" }] })),
+            ("kind", e(&kinds, "")), ("icon", e(fn7_model::manifest::ICONS, "")), ("tier", e(&tiers, "")),
+            ("count", num("")), ("unit", string("")), ("outcome", e(&outcomes, "")),
+            ("item", json!({ "anyOf": [{ "$ref": "#/$defs/Ref" }, { "type": "null" }] })),
+            ("name", json!({ "type": ["string", "null"] })), ("at", nullable(r("LonLat"))),
+            ("region", json!({ "type": ["string", "null"] })), ("public", boolean("")),
+            ("image_prompt", json!({ "type": ["string", "null"] })), ("image_kind", json!({ "const": "item" })),
+        ],
+        &[("verdict", json!({ "type": "object", "additionalProperties": true, "description": "Your own only: outcome, tier, odds {success, twist, partial, backfire, terms}, roll, cost {required, bolts, extra, missing, debt}, god, favor, entropy, reasons, flavor." })),
+          ("request", json!({ "type": "object", "additionalProperties": true, "description": "Your own only: kind, count, magnitude." })),
+          ("image", r("ImageObject"))],
+    ));
+    d.insert("TimeBill".into(), object(
+        "Rules 0.7.0: Time's bill for a window the player opened now: debt(t) = min(debt_cap, debt_base + debt_per_second × t) plus one bolt.",
+        &[("bolts", int("")), ("can_pay_bolt", boolean("")), ("recent_slows", int("")), ("repeat_factor", num("")),
+          ("debt_base", num("")), ("debt_per_second", num("")), ("debt_per_10s", num("")), ("debt_cap", num("")),
+          ("instant_order_debt", num("An order without a window (doubled when no bolt)."))],
+        &[],
+    ));
+    d.insert("Player".into(), object(
+        "Rules 0.7.0: one player (a seat, or a built-in AI) and both of its demigods.",
+        &[("index", int("Stable player index (aura order).")), ("seat", json!({ "type": ["integer", "null"], "minimum": 0 })),
+          ("player", string("")), ("aura", string("`#RRGGBB`, shared by both demigods.")), ("alive", boolean("Either demigod stands.")),
+          ("bolts", int("The player's purse of lightning bolts (the mega currency; both demigods share it).")),
+          ("sparks", int("The player's sparks (the mini currency).")),
+          ("charges", r("Charges")),
+          ("demigods", array(r("Ref"), "[left, right].")),
+          ("time_bill", r("TimeBill")), ("controller", e(&["human", "ai"], "")),
+          ("connected", json!({ "type": ["boolean", "null"] }))],
+        &[],
+    ));
+    d.insert("Charges".into(), object(
+        "Rules 0.7.0, the 1:5 economy: the player's power charges (public). A MEGA power costs a bolt (and every other player gains bolt_gift bolts, spark_gift sparks); a MINI costs a spark (no gifts). Bolts also pay Time's toll and gods' prices.",
+        &[("bolts", int("")), ("sparks", int(""))],
+        &[],
+    ));
+    d.insert("Hotspot".into(), object(
+        "Rules 0.7.0: a region's most dynamic area (events, battles, mobs, unrest, demigods of the last 5 beats).",
+        &[("pos", r("LonLat")), ("radius_km", num("")), ("score", num("Weight inside it.")),
+          ("why", array(e(&["events", "battles", "mobs", "unrest", "demigods"], ""), "Heaviest first."))],
+        &[],
+    ));
+    d
+}
+
 pub fn all() -> Vec<(&'static str, Value)> {
     let mut pool = model_defs();
     pool.extend(shared_defs());
+    pool.extend(v07_defs());
     pool.extend(queries::defs());
     let mut round_private = pool["SeatDelta"].clone();
+    if let Some(props) = round_private["properties"].as_object_mut() {
+        props.insert("demigods".into(), array(object("Rules 0.7.0: one of your two demigods this beat.",
+            &[("ref", r("Ref")), ("side", r("Hand")), ("name", string("")), ("health", num("")), ("max_health", num("")),
+              ("alive", boolean("")), ("pos", r("LonLat")), ("cell", json!({ "type": ["string", "null"], "description": "People-level hex key." }))], &[]),
+            "Rules 0.7.0: both of your demigods (`you` is your lead one: the first standing)."));
+        props.insert("manifests".into(), array(r("Manifestation"), "Rules 0.7.0: your demigods' manifestations this beat, with the verdict."));
+    }
     round_private["description"] =
         "`round.private.private` (the `SeatDelta`): what only your seat learns from the beat that just resolved. \
          Sent to every human seat, spectators included."

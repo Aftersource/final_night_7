@@ -72,9 +72,24 @@ pub fn live_children(w: &World, hand: AgentId) -> Vec<AgentId> {
         .collect()
 }
 
-/// Everything that is "you" for a demigod: itself, its hands, every agent under them, and the bodies they steer.
-/// Sorted.
+/// Everything that is "you" for a demigod's player: the demigod and its sibling (schema 5: the player's two demigods
+/// know what either knows), their hands, every agent under them, and the bodies they steer. Sorted. One body's own
+/// deeds use [`body_selves`].
 pub fn selves(w: &World, d: DemigodId) -> Vec<Ref> {
+    let mut v = vec![];
+    for s in w.siblings(d) {
+        v.extend(body_selves(w, s));
+    }
+    if v.is_empty() {
+        v = body_selves(w, d);
+    }
+    v.sort_unstable();
+    v.dedup();
+    v
+}
+
+/// One demigod body's own "you": itself, its hand(s), every agent under them, and the bodies they steer. Sorted.
+pub fn body_selves(w: &World, d: DemigodId) -> Vec<Ref> {
     let mut v = vec![Ref::Demigod(d)];
     for a in &w.agents {
         if fn7_society::demigod_of(w, Ref::Agent(a.id)) == Some(d) && a.parent().is_some()
@@ -529,6 +544,34 @@ pub fn society_people(w: &World, d: DemigodId, near_place: PlaceId) -> Vec<Ref> 
 /// The seat state for `seat`, if any.
 pub fn seat_state(w: &World, seat: u8) -> Option<&SeatState> {
     w.seats.iter().find(|s| s.seat == seat)
+}
+
+/// The seat state of the player a demigod belongs to (either of its two demigods).
+pub fn seat_of(w: &World, d: DemigodId) -> Option<&SeatState> {
+    let seat = w.demigods.get(d.ix())?.seat;
+    seat_state(w, seat)
+}
+
+/// A demigod's hand agents without repeats (schema 5: its own hand; before: both of the player's hands).
+pub fn hands_of(dg: &Demigod) -> Vec<AgentId> {
+    if dg.hands[0] == dg.hands[1] {
+        vec![dg.hands[0]]
+    } else {
+        dg.hands.to_vec()
+    }
+}
+
+/// The hand agents a seat speaks through (both hands, Left then Right), with the demigod each belongs to.
+pub fn seat_hands(w: &World, seat: u8) -> Vec<(AgentId, DemigodId)> {
+    let mut v = vec![];
+    for d in w.bodies_of_seat(seat) {
+        for h in hands_of(d) {
+            if !v.iter().any(|(x, _)| *x == h) {
+                v.push((h, d.id));
+            }
+        }
+    }
+    v
 }
 
 pub fn words(text: &str) -> u32 {

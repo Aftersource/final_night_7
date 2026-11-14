@@ -588,7 +588,7 @@ fn act(w: &mut World, cx: &mut Ctx, mi: usize) {
             Some(d) => w
                 .demigods
                 .iter()
-                .any(|o| o.id != d && o.alive && (c.groups.contains(o.following) || get(&c.allegiance, o.id) >= 0.35)),
+                .any(|o| !w.same_player(o.id, d) && o.alive && (c.groups.contains(o.following) || get(&c.allegiance, o.id) >= 0.35)),
             None => w.demigods.iter().any(|o| o.alive && c.groups.contains(o.following)) && m.anger > 0.75,
         }
     });

@@ -68,11 +68,9 @@ async fn play(
 
 fn one_winner(r: &Run) {
     let w = load(&r.last);
-    assert_eq!(
-        w.alive_demigods().count(),
-        1,
-        "exactly one demigod standing at the end"
-    );
+    // Rules 0.7.0: exactly one PLAYER stands (one or both of their demigods).
+    assert_eq!(w.alive_seats().len(), 1, "exactly one player standing at the end");
+    assert!((1..=2).contains(&w.alive_demigods().count()));
     assert_eq!(
         r.summary.winners.len(),
         1,
@@ -81,7 +79,9 @@ fn one_winner(r: &Run) {
     );
     let champ = w.alive_demigods().next().unwrap();
     assert_eq!(r.summary.winners[0], champ.seat);
-    assert_eq!(r.summary.summary["piles"].as_array().unwrap().len(), 4);
+    assert_eq!(r.summary.summary["piles"].as_array().unwrap().len(), w.demigods.len());
+    assert_eq!(r.summary.summary["players"].as_array().unwrap().len(), 4, "one row per player");
+    assert_eq!(r.summary.summary["standings"].as_array().unwrap().len(), 4, "standings are per player");
     assert!(r.summary.summary["piles"][0]["statue_prompt"]
         .as_str()
         .unwrap()
@@ -459,7 +459,8 @@ async fn settings_and_actions() {
     let seats = bots(2);
     let s = p.on_match_start(&seats, &settings, &Failing).await.unwrap();
     let w = load(&s);
-    assert_eq!(w.demigods.len(), 4, "AI demigods fill the empty places");
+    assert_eq!(w.demigods.len(), 8, "AI players fill the empty places; two demigods per player (rules 0.7.0)");
+    assert_eq!(w.player_seats().len(), 4);
     assert_eq!(
         w.seats.iter().filter(|x| x.seat >= SYNTHETIC_SEAT).count(),
         2
@@ -723,7 +724,7 @@ fn closed(id: u64, by: Seat, opened: i64, deadline: i64, closed_ms: i64, reason:
 #[tokio::test(flavor = "multi_thread")]
 async fn slow_windows_bill_time_from_real_seconds() {
     let p = FinalNight7Plugin::new();
-    let settings = json!({"seed": 3, "beats_total": 30, "clusters": 40, "players": 3, "llm": false});
+    let settings = json!({"seed": 3, "beats_total": 30, "clusters": 40, "players": 3, "llm": false, "start_bolts": 3});
     let t0: i64 = 1_000_000;
     let script = |seat: Seat, round: u32| -> Option<Action> {
         Some(match (round, seat) {
@@ -794,7 +795,9 @@ async fn slow_windows_bill_time_from_real_seconds() {
     let words = |d: usize| w3.demigods[d].words_spoken;
     assert!(words(0) > 0 && words(1) > 0 && words(2) == 0, "{} {} {}", words(0), words(1), words(2));
     // Time's debt for 8 seconds (opened_ms to the core's closed_ms), no repeats: 0.5 × (1 + 0.8) = 0.9.
-    assert!((time_debt(w3, 0, 3) - 0.9).abs() < 1e-4, "{}", time_debt(w3, 0, 3));
+    // Rules 0.7.0: Ash's orders went to both of Ash's demigods (dg:0 left, dg:3 right), so they owe half each.
+    assert!((time_debt(w3, 0, 3) - 0.45).abs() < 1e-4, "{}", time_debt(w3, 0, 3));
+    assert!((time_debt(w3, 3, 3) - 0.45).abs() < 1e-4, "{}", time_debt(w3, 3, 3));
     assert_eq!(w3.demigods[0].slows.len(), 1, "one window, one slow");
     assert!(w3.meta.entropy > seen[0].3.meta.entropy);
     assert_eq!(w3.slow_settled.last().map(|s| s.window_id), Some(1));
@@ -826,7 +829,7 @@ async fn instant_orders_pay_a_flat_toll() {
         for (k, v) in extra.as_object().unwrap() {
             settings[k] = v.clone();
         }
-        let start = settings.get("start_bolts").and_then(Value::as_u64).unwrap_or(3) as u32;
+        let start = settings.get("start_bolts").and_then(Value::as_u64).unwrap_or(crate::settings::DEFAULT_BOLT_START as u64) as u32;
         let mut seen = vec![];
         crate::driver::run_match_with(&p, &humans(3), &settings, &Failing, Some(4), &script, &none,
             |_: &BeatReport, s: &Value| {
@@ -857,10 +860,20 @@ async fn revive_returns_the_seat_to_play() {
     let settings = json!({"seed": 4, "beats_total": 30, "clusters": 40, "players": 2, "llm": false});
     let r = play(settings, &Failing, humans(2), Some(1)).await;
     let mut w = load(&r.last);
-    w.demigods[1].alive = false;
-    w.demigods[1].health = 0.0;
-    w.demigods[1].eliminated_beat = Some(2);
-    w.demigods[1].cause = Some("struck down".into());
+    // Rules 0.7.0: Brix (seat 1) has two demigods, dg:1 (Left) and dg:3 (Right). One falling isn't the seat's end.
+    assert_eq!(w.siblings(DemigodId(1)), vec![DemigodId(1), DemigodId(3)]);
+    let fall = |w: &mut World, d: usize, beat: u32| {
+        w.demigods[d].alive = false;
+        w.demigods[d].health = 0.0;
+        w.demigods[d].eliminated_beat = Some(beat);
+        w.demigods[d].cause = Some("struck down".into());
+    };
+    fall(&mut w, 3, 2);
+    let c = p.commit_round(&world::save(&w), 2, &[], &Failing).await.unwrap();
+    assert!(c.eliminated.is_empty(), "Brix still stands on his Left: {:?}", c.eliminated);
+    let mut w = load(&c.state);
+    assert!(w.out_reported.is_empty());
+    fall(&mut w, 1, 2);
     let c = p.commit_round(&world::save(&w), 2, &[], &Failing).await.unwrap();
     assert_eq!(c.eliminated.len(), 1, "{:?}", c.eliminated);
     assert_eq!(c.eliminated[0].0, 1);
@@ -885,8 +898,9 @@ async fn revive_returns_the_seat_to_play() {
     assert!(load(&c.state).out_reported.is_empty());
 }
 
-/// Casts: instant actions with a public streak at once, paid at the next resolve in `seq` order (overspend fizzles),
-/// gifts to everyone else, Entropy's yes and its ramifications, every row geotagged; typed text can never cast.
+/// Casts (rules 0.7.0, the 1:5 economy): instant actions with a public streak at once, paid at the next resolve in `seq`
+/// order (overspend fizzles): a MEGA costs a bolt and gives every rival player a bolt, a MINI costs a spark and gives
+/// nothing; Entropy's yes and its ramifications, every row geotagged; typed text can never cast.
 #[tokio::test(flavor = "multi_thread")]
 async fn casts_pay_gift_ramify_and_geotag() {
     let p = FinalNight7Plugin::new();
@@ -900,13 +914,13 @@ async fn casts_pay_gift_ramify_and_geotag() {
     let extras = |round: u32| -> (Vec<Action>, RoundContext) {
         let a = match round {
             1 => vec![
-                instant(1, 5, json!({"bolt": {"target": "Ash"}})),
-                instant(0, 6, json!({"cast": {"power": "volcano", "target": "dg:1"}})),
+                instant(1, 5, json!({"bolt": {"target": "Ash's Left Hand"}})),
+                instant(0, 6, json!({"cast": {"power": "volcano", "target": "dg:1", "tier": "mega"}})),
                 instant(0, 7, json!({"bolts": [[2.35, 48.85]]})),
             ],
-            // Ash pays Time for speaking first, so this bolt (validated against last commit's 1) fizzles.
-            2 => vec![instant(0, 19, json!({"bolt": "Brix"})),
-                      instant(1, 20, json!({"cast": {"power": "meteor", "target": [0.0, 0.0]}}))],
+            // Ash has no bolt left (the mega took it): this mega is refused on arrival.
+            2 => vec![instant(0, 19, json!({"cast": {"power": "lightning", "target": "Brix's Left Hand", "tier": "mega"}})),
+                      instant(1, 20, json!({"cast": {"power": "meteor", "target": [0.0, 0.0], "tier": "mega"}}))],
             _ => vec![],
         };
         (a, RoundContext::default())
@@ -922,13 +936,15 @@ async fn casts_pay_gift_ramify_and_geotag() {
     let (pub1, w1) = &seen[0];
     let casts = pub1["casts"].as_array().unwrap();
     assert_eq!(casts.len(), 3, "{casts:?}");
-    assert_eq!(casts[0]["by"], "Brix", "arrival order (seq)");
+    assert_eq!(casts[0]["by"], "Brix", "arrival order (seq); `by` is the player");
+    assert_eq!((casts[0]["tier"].as_str(), casts[1]["tier"].as_str()), (Some("mini"), Some("mega")), "absent = mini");
     assert_eq!(casts[0]["instant"], true);
-    // Ash: 3 + 2 (Brix's bolt) - 3 (volcano) - 1 (lightning) = 1; Brix: 3 - 1 + 2×4 = 10.
     assert!(casts.iter().all(|c| c.get("fizzled").is_none()), "{casts:?}");
-    assert_eq!(w1.demigods[0].bolts, 1);
-    assert_eq!(w1.demigods[1].bolts, 10);
-    assert!(w1.meta.entropy > 0.0);
+    // Ash: 1 bolt - 1 (the mega) = 0, 5 sparks - 1 = 4. Brix: 1 bolt + 1 (Ash's mega's gift) = 2, 5 - 1 = 4 sparks.
+    assert_eq!((w1.demigods[0].bolts, w1.demigods[0].sparks), (0, 4));
+    assert_eq!((w1.demigods[1].bolts, w1.demigods[1].sparks), (2, 4));
+    assert_eq!((w1.demigods[2].bolts, w1.demigods[3].sparks), (0, 4), "the purse is the player's: both demigods show it");
+    assert!(w1.meta.entropy >= 10.0, "a mega adds entropy_per_mega: {}", w1.meta.entropy);
     let entropy = GodId(6);
     assert!(w1.rulings.iter().any(|r| r.god == entropy && r.verdict == Verdict::Grant), "Entropy says yes");
     let events = pub1["events"].as_array().unwrap();
@@ -938,24 +954,22 @@ async fn casts_pay_gift_ramify_and_geotag() {
     }
     assert!(events.iter().any(|e| e.get("image_prompt").is_some()));
     assert!(w1.ledger.rows.iter().all(|r| r.at.is_some() || r.place.is_none()));
-    assert!(!w1.mods.is_empty(), "a big cast leaves a lasting mod");
-    // Beat 2: typed text never casts; Brix can afford a meteor (4); Ash's bolt fizzles (overspent).
+    // Beat 2: typed text never casts; Ash's mega never arrives (validated on arrival against the last commit: no
+    // bolt); Brix's mega lands.
     let (pub2, w2) = &seen[1];
     let c2 = pub2["casts"].as_array().unwrap();
-    assert_eq!(c2.len(), 2, "{c2:?}");
-    assert_eq!(c2[0]["by"], "Ash");
-    assert!(c2[0]["fizzled"].as_str().unwrap().contains("needs 1"), "{}", c2[0]);
-    assert_eq!(c2[1]["by"], "Brix");
-    assert!(c2[1].get("fizzled").is_none());
-    // Brix: 10 - 4 (meteor) + 2 per bolt Ash's hands paid Nature (an invocation still gifts); Ash's bolt to Time for
-    // typing is a toll and gifts nothing.
-    let ash_paid: u32 = w2.rulings.iter().filter(|r| r.beat == 2 && r.invoker == Ref::Demigod(DemigodId(0))).map(|r| r.bolts).sum();
-    assert_eq!(w2.demigods[1].bolts, 10 - 4 + 2 * ash_paid);
+    assert_eq!(c2.len(), 1, "{c2:?}");
+    assert_eq!(c2[0]["by"], "Brix");
+    assert!(c2[0].get("fizzled").is_none());
+    // The mega row: Brix paid it; its gift is a bolt for Ash (god invocations still gift 2 per bolt; casts don't).
+    assert!(w2.ledger.rows.iter().any(|r| r.beat == 2 && r.verb == "cast" && r.actor == Ref::Demigod(DemigodId(1))));
+    assert!(w2.demigods[1].bolts < 2 + 2 * 4, "no cast gifts 2 per bolt any more");
     // Validation (read-only, against the last commit): unknown powers, overspend, casts carrying orders.
     let st = world::save(w2);
     assert!(p.validate_action(&st, 0, "", &json!({"cast": {"power": "nuke", "target": "dg:1"}}), SubmitKind::Instant).is_err());
     assert!(p.validate_action(&st, 0, "", &json!({"cast": {"power": "custom", "target": "dg:1"}}), SubmitKind::Instant).is_err());
-    let rich = { let mut w = w2.clone(); w.demigods[0].bolts = 9; world::save(&w) };
+    assert!(p.validate_action(&st, 0, "", &json!({"cast": {"power": "lightning", "target": "dg:1", "tier": "huge"}}), SubmitKind::Instant).is_err());
+    let rich = { let mut w = w2.clone(); w.set_bolts(DemigodId(0), 9); world::save(&w) };
     assert!(p
         .validate_action(&rich, 0, "", &json!({"cast": {"power": "custom", "text": "rain of frogs", "target": "Lagos"}}), SubmitKind::Instant)
         .is_ok());
@@ -964,11 +978,15 @@ async fn casts_pay_gift_ramify_and_geotag() {
     // Instant actions never carry orders (enforced on arrival, faa7220's SubmitKind); text entry may.
     assert!(p.validate_action(&rich, 0, "", &json!({"left": "march on Lagos"}), SubmitKind::Instant).is_err());
     assert!(p.validate_action(&rich, 0, "", &json!({"left": "march on Lagos"}), SubmitKind::Window { window_id: 3 }).is_ok());
-    let broke = { let mut w = w2.clone(); w.demigods[0].bolts = 0; world::save(&w) };
-    assert!(p.validate_action(&broke, 0, "", &json!({"bolt": "Brix"}), SubmitKind::Instant).unwrap_err().contains("not enough bolts"));
+    let broke = { let mut w = w2.clone(); w.set_bolts(DemigodId(0), 0); w.set_sparks(DemigodId(0), 0); world::save(&w) };
+    let mega = json!({"cast": {"power": "meteor", "target": "dg:1", "tier": "mega"}});
+    assert!(p.validate_action(&broke, 0, "", &mega, SubmitKind::Instant).unwrap_err().contains("not enough bolts"));
+    assert!(p.validate_action(&broke, 0, "", &json!({"bolt": "dg:1"}), SubmitKind::Instant).unwrap_err().contains("not enough sparks"));
     // The streak: shown at once, read-only (nothing paid yet).
-    let streak = p.on_instant(&rich, 0, &instant(0, 30, json!({"cast": {"power": "meteor", "target": "Brix"}}))).unwrap();
+    let streak = p.on_instant(&rich, 0, &instant(0, 30, mega)).unwrap();
     assert_eq!((streak["event"].as_str(), streak["by"].as_str(), streak["power"].as_str()), (Some("streak"), Some("Ash"), Some("meteor")));
+    assert_eq!(streak["casts"][0]["tier"], "mega");
+    assert!(streak["casts"][0]["radius_km"].as_f64().unwrap() >= 600.0, "a mega is map scale");
     assert!(streak["icon"].is_string() && streak["at"].is_array() && streak["region"].is_string(), "{streak}");
     assert_eq!(streak["target"], "dg:1");
     assert_eq!(load(&rich).demigods[0].bolts, 9);
@@ -984,7 +1002,9 @@ async fn frantic_casting_ends_the_world_in_about_30_seconds() {
     let palette: Vec<String> = crate::powers().powers.iter().map(|x| x.slug.clone()).collect();
     let cheap: Vec<String> = crate::powers().powers.iter().filter(|x| x.cost == 1).map(|x| x.slug.clone()).collect();
     assert!(palette.len() >= 10 && !cheap.is_empty());
-    for (label, powers) in [("mixed", &palette), ("cheapest", &cheap)] {
+    // Rules 0.7.0, the 1:5 economy: frantic MEGA casting (a bolt each; every mega gives every rival a bolt) still ends
+    // the world at the 2nd or 3rd resolve; frantic MINI casting (a spark each, no gifts) can't.
+    for (label, powers, scale) in [("mixed mega", &palette, "mega"), ("cheapest mega", &cheap, "mega"), ("mini", &palette, "mini")] {
         let settings = json!({"seed": 6, "beats_total": 30, "clusters": 40, "players": 4, "llm": false,
                               "flow_ms": 12000, "entropy_scale": 1.0});
         let script = |seat: Seat, _: u32| -> Option<Action> { Some(act(seat, json!({}))) };
@@ -996,7 +1016,7 @@ async fn frantic_casting_ends_the_world_in_about_30_seconds() {
                     let k = (i * 4 + seat as usize + round as usize) % powers.len();
                     let seq = (round as u64) * 1000 + (i * 4) as u64 + seat as u64;
                     // Open ocean, so nobody is hurt and every seat keeps casting.
-                    v.push(instant(seat, seq, json!({"cast": {"power": powers[k], "target": [-30.0, 0.0]}})));
+                    v.push(instant(seat, seq, json!({"cast": {"power": powers[k], "target": [-30.0, 0.0], "tier": scale}})));
                 }
             }
             (v, RoundContext::default())
@@ -1010,6 +1030,10 @@ async fn frantic_casting_ends_the_world_in_about_30_seconds() {
         .await
         .unwrap();
         let w = load(&last);
+        if scale == "mini" {
+            assert!(w.meta.heat_death.is_none() && w.meta.entropy < 50.0, "{label}: minis are contained: {entropy:?}");
+            continue;
+        }
         let hd = w.meta.heat_death.unwrap_or_else(|| panic!("{label}: no heat death; Entropy by resolve {entropy:?}"));
         eprintln!("    {label}: heat death at resolve {hd}; Entropy by resolve {entropy:?}");
         assert!((2..=3).contains(&hd), "{label}: heat death at resolve {hd} ({entropy:?}), expected the 2nd or 3rd");

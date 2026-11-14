@@ -56,7 +56,7 @@ pub fn hostile_mob(w: &World, a: &Army, m: &Mob) -> bool {
     !a.rogue
         && m.ended.is_none()
         && m.size > 0
-        && m.side != Some(a.demigod)
+        && m.side.is_none_or(|sd| !w.same_player(sd, a.demigod))
         && (m.side.is_some_and(|d| w.demigods.get(d.ix()).is_some_and(|x| x.alive))
             || matches!(m.action, MobAction::Looting | MobAction::Attacking))
 }
@@ -67,7 +67,75 @@ pub fn armies_of(w: &World, d: DemigodId) -> usize {
 }
 
 fn hostile(w: &World, a: &Army, b: &Army) -> bool {
-    a.rogue || b.rogue || (a.demigod != b.demigod && serves(w, a) && serves(w, b))
+    a.rogue || b.rogue || (!w.same_player(a.demigod, b.demigod) && serves(w, a) && serves(w, b))
+}
+
+/// Schema 5: an army the item engine conjured (a manifested host): `size` people (the host's [`muster_size`]
+/// footprint, never taken from a crowd) at the demigod's position, under the demigod's banner. Its `from` is the
+/// nearest crowd (the host's nominal home, for the record). The general and captains come from the next society step.
+/// `None` if there is no crowd at all to stand in.
+///
+/// [`muster_size`]: fn7_model::manifest::muster_size
+pub fn muster_army(w: &mut World, demigod: DemigodId, size: u32, name: &str, beat: u32) -> Option<ClusterId> {
+    let at = w.demigods.get(demigod.ix())?.pos;
+    let from = w
+        .clusters
+        .iter()
+        .filter(|c| c.army.is_none())
+        .min_by(|a, b| {
+            let d = |c: &Cluster| w.places.get(c.place.ix()).map(|p| distance_km(p.center, at)).unwrap_or(f64::MAX);
+            d(a).total_cmp(&d(b)).then(a.id.cmp(&b.id))
+        })?
+        .id;
+    let src = w.clusters[from.ix()].clone();
+    let id = ClusterId::from_ix(w.clusters.len());
+    let seed = fn7_model::seed::Rng::derive(w.meta.seed, &[hash_str("army"), id.0 as u64]).next_u64();
+    let here = place_at(w, at);
+    let city = city_of(w, here).unwrap_or(here);
+    let mut groups = GroupSet::default();
+    groups.insert(w.demigods[demigod.ix()].following);
+    w.clusters.push(Cluster {
+        id,
+        label: name.to_string(),
+        size: size.max(1),
+        place: city,
+        traits: vec!["conjured".into(), "armed".into()],
+        needs: vec!["orders".into(), "plunder".into()],
+        mood: Mood { anger: 0.5, fear: 0.1, hope: 0.7, devotion: 0.9 },
+        baseline: Mood { anger: 0.4, fear: 0.1, hope: 0.6, devotion: 0.8 },
+        groups,
+        worship: src.worship.clone(),
+        allegiance: vec![(demigod, 1.0)],
+        materialized: 0,
+        seed,
+        army: Some(Army {
+            demigod,
+            orders: String::new(),
+            pos: at,
+            dest: None,
+            target: None,
+            raised_beat: beat,
+            from,
+            general: None,
+            captains: vec![],
+            units: vec![],
+            morale: 0.9,
+            supply: 1.0,
+            stance: Stance::Holding,
+            rogue: false,
+            order: None,
+            strain: 0.0,
+            battles: 0,
+            losses: 0,
+            volunteer: false,
+        }),
+        need: Need::default(),
+        stance: Stance::Holding,
+        leader: None,
+        cells: vec![],
+        dead: 0,
+    });
+    Some(id)
 }
 
 /// Create an army cluster split from crowd `from` (the body of `Effect::RaiseArmy`, and the society's volunteer
@@ -362,7 +430,7 @@ pub fn initiative_target(w: &World, army: ClusterId) -> Option<Ref> {
     if best.is_some() {
         return best.map(|b| b.1);
     }
-    for d in w.demigods.iter().filter(|d| d.alive && (a.rogue || d.id != a.demigod)) {
+    for d in w.demigods.iter().filter(|d| d.alive && (a.rogue || !w.same_player(d.id, a.demigod))) {
         consider(&mut best, distance_km(a.pos, d.pos), Ref::Demigod(d.id), 4000.0);
     }
     if best.is_some() {
@@ -376,7 +444,7 @@ pub fn initiative_target(w: &World, army: ClusterId) -> Option<Ref> {
         let lean = n
             .allegiance
             .iter()
-            .filter(|(d, x)| *d != a.demigod && *x > 0.25)
+            .filter(|(d, x)| !w.same_player(*d, a.demigod) && *x > 0.25)
             .count();
         if lean > 0 || a.rogue {
             let c = w.places[n.place.ix()].center;
@@ -1492,7 +1560,7 @@ fn strike(w: &mut World, cx: &mut Ctx, id: ClusterId, struck: &mut Vec<DemigodId
     let scale = crate::rules::setting_f64(w, "army_strike_scale", 1.0) as f32;
     let c = &w.clusters[id.ix()];
     let a = c.army.as_ref().expect("army");
-    for d in w.demigods.iter().filter(|d| d.alive && (a.rogue || d.id != a.demigod)) {
+    for d in w.demigods.iter().filter(|d| d.alive && (a.rogue || !w.same_player(d.id, a.demigod))) {
         // One army storms a demigod per beat (the others can't all reach them at once).
         if struck.contains(&d.id) {
             continue;

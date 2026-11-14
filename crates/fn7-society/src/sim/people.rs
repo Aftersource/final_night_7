@@ -346,7 +346,7 @@ pub fn promote(
             };
             let cl = w.clusters.get(army.ix()).ok_or("no such army")?;
             let a = cl.army.as_ref().ok_or("not an army")?;
-            if a.demigod != by {
+            if !w.same_player(a.demigod, by) {
                 return Err("not your army".into());
             }
             let label = cl.label.clone();

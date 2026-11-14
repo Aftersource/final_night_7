@@ -76,7 +76,7 @@ pub(super) fn defs() -> Map<String, Value> {
                 ("role", nullable(r("Role"))),
                 ("title", json!({ "type": ["string", "null"], "description": "\"General of Ash's Host of Cairo\"." })),
             ],
-            &[],
+            &[("pos", r("LonLat")), ("cell", string("Rules 0.7.0: their people-level hex cell (`<face>:people:<q>:<r>`)."))],
         ),
     );
     d.insert(
@@ -139,7 +139,11 @@ pub(super) fn defs() -> Map<String, Value> {
                 ("dead", int("")),
                 ("cells", array(r("Cell"), "Live cells.")),
             ],
-            &[],
+            &[
+                ("pos", json!({ "$ref": "#/$defs/LonLat", "description": "Rules 0.7.0: where its piece stands (a fixed seeded spot around its place, so a city's crowds don't stack)." })),
+                ("cell", string("Rules 0.7.0: `pos`'s people-level hex cell.")),
+                ("village", string("Rules 0.7.0: `pos`'s village-level hex cell.")),
+            ],
         ),
     );
     d.insert(
@@ -167,7 +171,11 @@ pub(super) fn defs() -> Map<String, Value> {
                 ("casualties", int("")),
                 ("kills", int("")),
             ],
-            &[],
+            &[
+                ("pos", json!({ "$ref": "#/$defs/LonLat", "description": "Rules 0.7.0: = at." })),
+                ("cell", string("Rules 0.7.0: its people-level hex cell.")),
+                ("ringleader_ref", opt_ref("Rules 0.7.0: the ringleader (`ch:`).")),
+            ],
         ),
     );
     d.insert(
@@ -329,7 +337,12 @@ pub(super) fn replies() -> Vec<(&'static str, &'static str, Value)> {
                 ("armies", array(r("ArmyMarker"), "Live armies.")),
                 ("events", r("EventPage")),
             ],
-            &[],
+            &[
+                ("players", array(r("Player"), "Rules 0.7.0: the seat list.")),
+                ("regions", array(object("A region and its hotspot.", &[("ref", r("Ref")), ("name", string("")), ("center", r("LonLat")),
+                    ("hotspot", json!({ "anyOf": [{ "$ref": "#/$defs/Hotspot" }, { "type": "null" }] }))], &[]),
+                    "Rules 0.7.0: every region with its hotspot (null where nothing happens). Zoom level 2 opens on it.")),
+            ],
         )),
         ("query_region", "region", object(
             "`game.region`: one region (a district in a city arena).",
@@ -348,7 +361,7 @@ pub(super) fn replies() -> Vec<(&'static str, &'static str, Value)> {
                 ("influence", array(r("Influence"), "Shares of this region.")),
                 ("events", r("EventPage")),
             ],
-            &[],
+            &[("hotspot", json!({ "anyOf": [{ "$ref": "#/$defs/Hotspot" }, { "type": "null" }], "description": "Rules 0.7.0: its most dynamic area." }))],
         )),
         ("query_node", "node", object(
             "`game.node`: one hierarchy node.",
@@ -402,8 +415,22 @@ pub(super) fn replies() -> Vec<(&'static str, &'static str, Value)> {
                     ("connected", json!({ "type": ["boolean", "null"], "description": "As in the PublicView's demigods: true for AI, null for a human (see room.updated seats)." })),
                 ], &[])] }), "Best first.")),
             ],
+            &[
+                ("players_alive", int("Rules 0.7.0.")),
+                ("players", array(object("Rules 0.7.0: one player ranked (never health).", &[("rank", int("")),
+                    ("seat", json!({ "type": ["integer", "null"], "minimum": 0 })), ("player", string("")), ("aura", string("")),
+                    ("alive", boolean("")), ("bolts", int("")),
+                    ("demigods", array(object("", &[("ref", r("Ref")), ("side", r("Hand")), ("name", string("")), ("alive", boolean("")),
+                        ("eliminated_beat", opt_int("")), ("cause", json!({ "type": ["string", "null"] }))], &[]), ""))], &[]), "Best first.")),
+            ],
+        )),
+        ("query_items", "items", object(
+            "`game.items` (rules 0.7.0): a page of items, most recent first: public ones for everyone, your own in full.",
+            &[("items", array(r("Item"), "")), ("next_cursor", opt_int("")), ("total", int("")), ("beat", int(""))],
             &[],
         )),
+        ("query_item", "item", json!({ "type": "object", "description": "`game.item` (rules 0.7.0): one item with its manifestation and custody history.",
+            "allOf": [r("Item"), object("", &[], &[("manifestation", json!({ "anyOf": [{ "$ref": "#/$defs/Manifestation" }, { "type": "string" }, { "type": "null" }] }))])] })),
         ("query_media", "media", object(
             "`game.media`: an image of something in the game, by reference. Through the server: `image` at once \
              (pending, then ready via GET /media/index). The bare plugin (no media server) answers `image_prompt` and \

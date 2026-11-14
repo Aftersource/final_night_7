@@ -58,6 +58,8 @@ pub struct HandCtx {
     pub pantheon: Arc<Pantheon>,
     /// Max live subagents per hand (DESIGN §7: 3).
     pub max_subagents: usize,
+    /// Rules 0.7.0: beat 1 is THE FINAL WISH; the player's orders are their final wish (framed in the user prompt).
+    pub final_wish: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -197,6 +199,13 @@ pub fn user_prompt(ctx: &HandCtx) -> String {
         table = l.render(),
         subs = if subs.is_empty() { "(none)".into() } else { subs.join("\n") },
     );
+    if ctx.final_wish {
+        u.push_str(
+            "\nTHE FINAL WISH: this is the first beat of the Final Night. Your player's orders are their final wish: \
+             anything a demigod can do. Read them as boldly as the words allow: big magnitudes, things manifested, armies \
+             raised, gods invoked. The wish still costs what anything costs (Entropy loves it).\n",
+        );
+    }
     if !ctx.memory.trim().is_empty() {
         u.push_str(&format!(
             "\nWhat you remember:\n{}\n",

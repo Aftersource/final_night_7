@@ -65,6 +65,7 @@ pub fn verb_of(e: &Effect) -> &'static str {
         Effect::RaiseArmy { .. } => "raise_army",
         Effect::March { .. } => "march",
         Effect::Wound { .. } => "wound",
+        Effect::Manifest { .. } => "manifest",
         Effect::Mod { .. } => "mod",
         Effect::Unmod { .. } => "unmod",
         Effect::Happen { .. } => "happen",
@@ -558,6 +559,14 @@ fn effect(w: &mut World, p: &Proposal, beat: u32, row: &mut LedgerRow) -> Result
                 p.actor,
                 *holder,
             );
+            // Rules 0.7.0: things made outside the item engine (a god's gift, a resolver's find) still get a kind; they
+            // are trinkets.
+            if w.two_bodies() {
+                let kind = fn7_model::manifest::classify_kind(&format!("{name} {description}"));
+                let it = &mut w.items[iid.ix()];
+                it.ext.kind = kind;
+                it.ext.unit = kind.unit().to_string();
+            }
             row.targets = vec![Ref::Item(iid), *holder];
         }
         Effect::Echo { item, holder } => {
@@ -843,7 +852,7 @@ fn effect(w: &mut World, p: &Proposal, beat: u32, row: &mut LedgerRow) -> Result
         Effect::Orders { army, by, text, judgment, why, llm } => {
             need(w, Ref::Cluster(*army))?;
             need(w, Ref::Demigod(*by))?;
-            if w.clusters[army.ix()].army.as_ref().is_none_or(|a| a.demigod != *by || a.rogue) {
+            if w.clusters[army.ix()].army.as_ref().is_none_or(|a| !w.same_player(a.demigod, *by) || a.rogue) {
                 return Err(format!("{army} does not take orders from {by}"));
             }
             row.targets = crate::sim::armies::apply_orders(w, *army, *by, text, judgment, why, *llm, beat)?;
@@ -866,17 +875,40 @@ fn effect(w: &mut World, p: &Proposal, beat: u32, row: &mut LedgerRow) -> Result
             target,
             cost,
             damage,
+            scale,
+            radius_km,
         } => {
             need_alive(w, Ref::Demigod(*by))?;
             if !(at[0].is_finite() && at[1].is_finite() && (-90.0..=90.0).contains(&at[1])) {
                 return Err("bad position".into());
             }
             nonneg(*damage, "damage")?;
-            let have = w.demigods[by.ix()].bolts;
-            if have < *cost {
-                return Err(format!("{by} has {have} bolts, the power costs {cost}"));
+            match scale {
+                // Rules 0.7.0: the 1:5 economy (a bolt per mega, a spark per mini).
+                Some(s) => pay_charge(w, *by, *s, beat)?,
+                None => {
+                    let have = w.demigods[by.ix()].bolts;
+                    if have < *cost {
+                        return Err(format!("{by} has {have} bolts, the power costs {cost}"));
+                    }
+                    spend_bolts(w, *by, *cost, beat, true);
+                }
             }
-            spend_bolts(w, *by, *cost, beat, true);
+            // A mega's area: every other rival demigod within its radius takes a share of the damage.
+            if *scale == Some(CastScale::Mega) && *damage > 0.0 {
+                let hit: Vec<DemigodId> = w
+                    .demigods
+                    .iter()
+                    .filter(|d| d.alive && !w.same_player(d.id, *by) && Some(Ref::Demigod(d.id)) != *target)
+                    .filter(|d| crate::geo::distance_km(d.pos, *at) <= *radius_km as f64)
+                    .map(|d| d.id)
+                    .collect();
+                for d in hit {
+                    let h = w.demigods[d.ix()].health - damage * MEGA_AREA_SHARE;
+                    set_health(w, Ref::Demigod(d), h, beat, "caught in a mega power's blast");
+                    row.targets.push(Ref::Demigod(d));
+                }
+            }
             if let Some(t) = target {
                 need(w, *t)?;
                 if is_alive(w, *t) {
@@ -897,7 +929,9 @@ fn effect(w: &mut World, p: &Proposal, beat: u32, row: &mut LedgerRow) -> Result
                     }
                 }
             }
-            row.targets = target.iter().copied().collect();
+            let mut t: Vec<Ref> = target.iter().copied().collect();
+            t.append(&mut row.targets);
+            row.targets = t;
             row.at = Some(*at);
             row.place = Some(place_at(w, *at));
         }
@@ -914,8 +948,8 @@ fn effect(w: &mut World, p: &Proposal, beat: u32, row: &mut LedgerRow) -> Result
                 }
                 spend_bolts(w, *who, n, beat, !*toll);
             } else if *delta > 0 {
-                let d = &mut w.demigods[who.ix()];
-                d.bolts = (d.bolts + *delta as u32).min(MAX_BOLTS);
+                let b = (w.demigods[who.ix()].bolts + *delta as u32).min(MAX_BOLTS);
+                w.set_bolts(*who, b);
                 raise_entropy(w, *delta as f32 * ENTROPY_PER_GRANTED_BOLT, beat);
             }
             row.targets = std::iter::once(Ref::Demigod(*who))
@@ -974,6 +1008,39 @@ fn effect(w: &mut World, p: &Proposal, beat: u32, row: &mut LedgerRow) -> Result
             row.targets = std::iter::once(Ref::Cluster(*army)).chain(*target).collect();
             row.at = Some(*to);
             row.place = Some(pl);
+        }
+        Effect::Manifest { manifestation, item } => {
+            let by = manifestation.demigod;
+            need(w, Ref::Demigod(by))?;
+            let id = fn7_model::manifest::ManifestationId::from_ix(w.manifests.len());
+            let mut m = (**manifestation).clone();
+            m.id = id;
+            m.rows.insert(0, row.id);
+            row.targets = vec![Ref::Demigod(by)];
+            row.at = m.at;
+            row.place = m.place;
+            if let Some(new) = item.as_ref().filter(|_| m.verdict.outcome.made()) {
+                let holder = Ref::Demigod(by);
+                let iid = new_item(w, new.name.clone(), new.description.clone(), ItemOrigin::Summoned, beat, p.actor, holder);
+                let mut ext = new.ext.clone();
+                ext.manifestation = Some(id);
+                ext.history.push(fn7_model::manifest::ItemEvent {
+                    beat,
+                    state: ext.state,
+                    holder: Some(holder),
+                    by: Some(p.actor),
+                    row: Some(row.id),
+                    count: Some(ext.count),
+                });
+                if new.muster > 0 && ext.kind.is_host() && w.demigods[by.ix()].alive {
+                    let army = crate::sim::armies::muster_army(w, by, new.muster, &new.name, beat);
+                    ext.muster = army;
+                }
+                w.items[iid.ix()].ext = ext;
+                m.item = Some(iid);
+                row.targets.insert(0, Ref::Item(iid));
+            }
+            w.manifests.push(m);
         }
         Effect::Wound { god, amount } => {
             need(w, Ref::God(*god))?;
@@ -1048,14 +1115,68 @@ pub const MOD_MAX_STACKS: u32 = 5;
 
 /// `who` pays `n` bolts: every other live demigod gains [`BOLT_GIFT`] each (unless `gift` is false: Time's toll for
 /// an order or a slow window), Entropy rises either way. Assumes validated.
+///
+/// Bolts are a per-player purse (rules 0.7.0): every demigod of a seat holds the same count ([`World::set_bolts`]),
+/// and the gift goes once to every *other player* with a demigod standing. With one demigod per seat (schema 4) that
+/// is exactly "every other live demigod".
 fn spend_bolts(w: &mut World, who: DemigodId, n: u32, beat: u32, gift: bool) {
-    w.demigods[who.ix()].bolts -= n;
+    let left = w.demigods[who.ix()].bolts - n;
+    w.set_bolts(who, left);
     if gift {
-        for d in w.demigods.iter_mut().filter(|d| d.alive && d.id != who) {
-            d.bolts = (d.bolts + BOLT_GIFT * n).min(MAX_BOLTS);
+        let payer = w.demigods[who.ix()].seat;
+        let mut done: Vec<u8> = vec![payer];
+        for i in 0..w.demigods.len() {
+            let d = &w.demigods[i];
+            if !d.alive || done.contains(&d.seat) {
+                continue;
+            }
+            done.push(d.seat);
+            let b = (d.bolts + BOLT_GIFT * n).min(MAX_BOLTS);
+            w.set_bolts(d.id, b);
         }
     }
     raise_entropy(w, n as f32 * ENTROPY_PER_BOLT, beat);
+}
+
+/// Rules 0.7.0: pay one power charge. A mega costs a bolt and every other player (with a demigod standing) gains the
+/// room's `bolt_gift` bolts (1) and `spark_gift` sparks (0), once; Entropy rises `entropy_per_mega` (10). A mini costs
+/// a spark, gifts nothing, and raises Entropy `entropy_per_mini` (1).
+fn pay_charge(w: &mut World, by: DemigodId, scale: CastScale, beat: u32) -> Result<(), String> {
+    let set = |w: &World, k: &str, d: f64| crate::rules::setting_f64(w, k, d);
+    match scale {
+        CastScale::Mega => {
+            let have = w.demigods[by.ix()].bolts;
+            if have < 1 {
+                return Err(format!("{by} has no bolt for a mega power"));
+            }
+            let (bg, sg, e) =
+                (set(w, "bolt_gift", 1.0) as u32, set(w, "spark_gift", 0.0) as u32, set(w, "entropy_per_mega", 10.0) as f32);
+            w.set_bolts(by, have - 1);
+            let payer = w.demigods[by.ix()].seat;
+            let mut done = vec![payer];
+            for i in 0..w.demigods.len() {
+                let d = &w.demigods[i];
+                if !d.alive || done.contains(&d.seat) {
+                    continue;
+                }
+                done.push(d.seat);
+                let (id, b, s) = (d.id, (d.bolts + bg).min(MAX_BOLTS), (d.sparks + sg).min(MAX_BOLTS));
+                w.set_bolts(id, b);
+                w.set_sparks(id, s);
+            }
+            raise_entropy(w, e, beat);
+        }
+        CastScale::Mini => {
+            let have = w.demigods[by.ix()].sparks;
+            if have < 1 {
+                return Err(format!("{by} has no spark for a mini power"));
+            }
+            w.set_sparks(by, have - 1);
+            let e = set(w, "entropy_per_mini", 1.0) as f32;
+            raise_entropy(w, e, beat);
+        }
+    }
+    Ok(())
 }
 
 /// Move the Entropy meter (clamped 0..=ENTROPY_MAX). Reaching the maximum is heat death: this beat becomes the Final
@@ -1107,6 +1228,7 @@ fn new_item(
         created_by: Some(by),
         holders: vec![holder],
         uses: 0,
+        ext: Default::default(),
     });
     if let Ref::Demigod(d) = holder {
         w.demigods[d.ix()].items.push(iid);

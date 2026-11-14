@@ -9,6 +9,7 @@
 //! - [`materialize`]: one line of flavor for a newly memorized person
 //! - [`fold`]: old memory items → one summary
 //! - [`general`]: a general's reading of an order or a decision point (obey, misread, stall, refuse, mutiny, defect)
+//! - [`manifest`]: names and describes what the item engine (rules) made; never decides anything
 //! - [`ramify`]: god powers that landed in a region → Entropy's yes and N geotagged ramifications (and world mods)
 //!
 //! Every call runs under `theatre_trace::annotate(step, actor)`, so prompts, replies and raw HTTP are recorded.
@@ -24,6 +25,7 @@ pub mod fold;
 pub mod general;
 pub mod god;
 pub mod hand;
+pub mod manifest;
 pub mod materialize;
 pub mod narrator;
 pub mod ramify;

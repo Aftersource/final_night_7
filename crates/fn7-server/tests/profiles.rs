@@ -84,7 +84,8 @@ async fn a_match_writes_history_and_library_and_the_routes_serve_them() {
     assert!(row.placement.is_some_and(|p| (1..=field).contains(&p)));
     assert_eq!(row.rules_version.as_deref(), Some(fn7_plugin::RULES_VERSION));
     assert!(!row.champions.is_empty());
-    assert_eq!(row.demigods[0].name, "Chris");
+    assert_eq!(row.demigods[0].name, "Chris's Left Hand");
+    assert_eq!(row.display_name, "Chris");
     assert!(row.demigods[0].sheet_hash.is_some(), "visual sheet from the final public view");
     // Time travel: the admin routes take this match id; the recording is the core's file.
     assert_eq!(row.time_travel.match_id, "pm1");
@@ -135,7 +136,7 @@ async fn a_match_writes_history_and_library_and_the_routes_serve_them() {
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
     let found = found.expect("the diorama was registered once ready");
-    assert_eq!((found.kind.as_str(), found.caption.as_str()), ("diorama", "Chris, diorama"));
+    assert_eq!((found.kind.as_str(), found.caption.as_str()), ("diorama", "Chris's Left Hand, diorama"));
     assert_eq!(found.subject.as_deref(), Some(format!("dg:{dg0}").as_str()));
     // An AI demigod's portrait belongs to nobody.
     let ai = state["demigods"].as_array().unwrap().iter().find(|d| d["seat"].as_u64().unwrap() >= 2).unwrap();

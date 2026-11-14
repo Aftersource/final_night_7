@@ -407,19 +407,35 @@ pub fn influence(w: &World) -> Vec<(PlaceId, DemigodId, f32)> {
         };
         let size = c.size as f64;
         total[r.ix()] += size;
-        for d in w.demigods.iter().filter(|d| d.alive) {
+        // Per player (rules 0.7.0: a player's two demigods share a Following; the player's credit is split evenly
+        // between its standing demigods). One demigod per seat (schema 4): exactly the old per-demigod credit.
+        let mut credit: Vec<(Vec<DemigodId>, f64)> = vec![];
+        for seat in w.alive_seats() {
+            let bodies: Vec<&Demigod> = w.bodies_of_seat(seat).filter(|d| d.alive).collect();
             let mut s = 0.0;
             if let Some(a) = &c.army {
-                if a.demigod == d.id && !a.rogue {
+                if bodies.iter().any(|d| a.demigod == d.id) && !a.rogue {
                     s = 2.0 * size;
                     total[r.ix()] += size;
                 }
-            } else if c.groups.contains(d.following) {
+            } else if bodies.iter().any(|d| c.groups.contains(d.following)) {
                 s = size;
             } else {
-                s = size * get(&c.allegiance, d.id).max(0.0) as f64;
+                let best = bodies.iter().map(|d| get(&c.allegiance, d.id).max(0.0)).fold(0.0f32, f32::max);
+                s = size * best as f64;
             }
-            score[r.ix() * n + d.id.ix()] += s;
+            credit.push((bodies.iter().map(|d| d.id).collect(), s));
+        }
+        // A crowd is never worth more than its people: shares over several players (two Followings, or allegiances
+        // summing past 1) are scaled down to the crowd's size.
+        let sum: f64 = credit.iter().map(|x| x.1).sum();
+        let cap = if c.army.is_some() { 2.0 * size } else { size };
+        let f = if sum > cap && sum > 0.0 { cap / sum } else { 1.0 };
+        for (bodies, s) in credit {
+            let k = bodies.len().max(1) as f64;
+            for d in &bodies {
+                score[r.ix() * n + d.ix()] += if bodies.len() == 1 { s * f } else { s * f / k };
+            }
         }
     }
     for d in w.demigods.iter().filter(|d| d.alive) {

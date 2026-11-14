@@ -76,6 +76,15 @@ pub fn specs() -> Vec<QuerySpec> {
              obj(json!({ "kind": { "type": "string", "enum": ["portrait", "diorama", "place", "event", "army"], "description": "What to draw." },
                          "ref": r#ref(r"^(dg|ch|pl|lg|cl):\d+$", "portrait: `dg:`/`ch:`; diorama: `dg:`; place: `pl:`; event: `lg:`; army: `cl:` (an army).") }),
                  &["kind", "ref"])),
+        spec("items", true,
+             "Rules 0.7.0: a page of items, most recent first. Public items (manifested things of tier relic or up, or deployed) for everyone; the asking seat's own items in full. Optional filters: holder (a `dg:` ref), state, min_tier.",
+             obj(json!({ "holder": r#ref(r"^dg:\d+$", "Only items this demigod holds."),
+                         "state": { "type": "string", "enum": ["held", "deployed", "destroyed", "transferred", "stolen"] },
+                         "min_tier": { "type": "string", "enum": ["trinket", "artifact", "relic", "wonder", "legend", "myth", "titan", "apocalypse"] },
+                         "cursor": cursor, "limit": limit(20, 100) }), &[])),
+        spec("item", true,
+             "Rules 0.7.0: one item (`it:`) with its manifestation (verdict, provenance) and custody history. A private item only for its holder's seat.",
+             obj(json!({ "ref": r#ref(r"^it:\d+$", "The item.") }), &["ref"])),
         spec("piles_final", true,
              "Every demigod's end-of-match pile (items, summons, stats, statue prompt). An error until the match is over.",
              obj(json!({}), &[])),
@@ -97,6 +106,8 @@ pub fn query(pantheon: &Pantheon, state: &Value, seat: Option<Seat>, name: &str,
         "gods" => gods(state, pantheon),
         "standings" => standings(state),
         "piles_final" => piles_final(state),
+        "items" => items(state, seat, &args),
+        "item" => item(state, seat, &args),
         "media" => media(state, seat, &args),
         other => Err(format!("unknown query {other}")),
     }?;
@@ -127,6 +138,7 @@ enum T {
     Mobs,
     Battles,
     Slow,
+    Manifests,
 }
 
 fn table<D: serde::de::DeserializeOwned + Default>(state: &Value, key: &str, want: bool) -> Result<D, String> {
@@ -169,6 +181,7 @@ fn world(state: &Value, t: &[T]) -> Result<World, String> {
         mobs: table(state, "mobs", has(T::Mobs))?,
         battles: table(state, "battles", has(T::Battles))?,
         soc: Default::default(),
+        manifests: table(state, "manifests", has(T::Manifests))?,
     })
 }
 
@@ -200,7 +213,7 @@ fn is_public(w: &World, v: &Value) -> bool {
 
 /// The asking seat's demigod (`None`: a public asker, or a seat with no demigod).
 fn asker(w: &World, seat: Option<Seat>) -> Option<DemigodId> {
-    seat.and_then(|s| seat_state(w, s)).map(|s| s.demigod)
+    seat.and_then(|s| seat_state(w, s)).map(|s| w.lead_of_seat(s.seat).unwrap_or(s.demigod))
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -341,8 +354,42 @@ fn army_marker(w: &World, c: &Cluster, a: &Army) -> Value {
             "stance": a.stance, "morale": a.morale })
 }
 
+/// The ledger rows a hotspot reads (the last `hotspots::WINDOW` beats; at most [`SCAN_CAP`] rows back).
+fn recent_rows(w: &World, state: &Value) -> Vec<LedgerRow> {
+    #[derive(Deserialize)]
+    struct Beat {
+        beat: u32,
+    }
+    let since = w.meta.beat.saturating_sub(crate::hotspots::WINDOW - 1);
+    let all = rows(state);
+    let mut out: Vec<LedgerRow> = all
+        .iter()
+        .rev()
+        .take(SCAN_CAP)
+        .take_while(|v| Beat::deserialize(*v).is_ok_and(|b| b.beat >= since))
+        .filter(|v| is_public(w, v))
+        .filter_map(row)
+        .collect();
+    out.reverse();
+    out
+}
+
+/// Every region with its hotspot (rules 0.7.0): `[{ref, name, center, hotspot: {pos, radius_km, score, why} | null}]`.
+fn regions_with_hotspots(w: &World, state: &Value) -> Vec<Value> {
+    let spots = crate::hotspots::hotspots(w, &recent_rows(w, state));
+    w.places
+        .iter()
+        .filter(|p| p.kind == PlaceKind::District)
+        .map(|p| json!({ "ref": Ref::Place(p.id), "name": p.name, "center": p.center,
+                         "hotspot": spots.get(&p.id).map(|h| h.to_json()) }))
+        .collect()
+}
+
 fn globe(state: &Value, a: &Args) -> Result<Value, String> {
-    let w = world(state, &[T::Places, T::Clusters, T::Characters, T::Demigods, T::Gods, T::Mods, T::Seats])?;
+    let w = world(
+        state,
+        &[T::Places, T::Clusters, T::Characters, T::Demigods, T::Gods, T::Mods, T::Seats, T::Items, T::Mobs, T::Battles],
+    )?;
     let events = event_page(&w, state, a.uint("since")?, a.limit(30, 200)?, None);
     Ok(json!({
         "beat": w.meta.beat,
@@ -352,6 +399,8 @@ fn globe(state: &Value, a: &Args) -> Result<Value, String> {
         "alive": w.alive_demigods().count(),
         "entropy": payload::entropy_json(&w, None),
         "demigods": w.demigods.iter().map(|d| crate::phases::demigod_public(&w, d)).collect::<Vec<_>>(),
+        "players": payload::players_json(&w),
+        "regions": regions_with_hotspots(&w, state),
         "influence": payload::influence_json(&w),
         "mods": payload::mods_json(&w),
         "armies": fn7_society::armies(&w).map(|(c, x)| army_marker(&w, c, x)).collect::<Vec<_>>(),
@@ -382,9 +431,10 @@ fn crowds_under(w: &World, p: PlaceId) -> Vec<&Cluster> {
 fn region(state: &Value, a: &Args) -> Result<Value, String> {
     let w = world(
         state,
-        &[T::Places, T::Nodes, T::Clusters, T::Characters, T::Cells, T::Mobs, T::Demigods, T::Gods, T::Mods, T::Seats],
+        &[T::Places, T::Nodes, T::Clusters, T::Characters, T::Cells, T::Mobs, T::Demigods, T::Gods, T::Mods, T::Seats, T::Items, T::Battles],
     )?;
     let p = region_ref(&w, a.need_ref("ref")?)?;
+    let hotspot = crate::hotspots::hotspots(&w, &recent_rows(&w, state)).get(&p).map(|h| h.to_json());
     let pl = &w.places[p.ix()];
     let cities: Vec<Value> = w
         .places
@@ -400,6 +450,7 @@ fn region(state: &Value, a: &Args) -> Result<Value, String> {
         "center": pl.center,
         "radius_km": pl.radius_km,
         "node": node_json(&w, p),
+        "hotspot": hotspot,
         "cities": cities,
         "crowds": page(crowds_under(&w, p), a.uint("cursor")?.unwrap_or(0), a.limit(10, 50)?, |c| crowd_json(&w, c.id)),
         "mobs": w.mobs.iter().filter(|m| m.ended.is_none() && fn7_society::sim::hier::under(&w, m.place, p))
@@ -480,7 +531,7 @@ fn person(state: &Value, seat: Option<Seat>, a: &Args) -> Result<Value, String> 
     // Yours: a body your agents steer, or someone your side brought into the story.
     let yours = me.contains(&Ref::Char(c)) || x.memorized_by.is_some_and(|m| me.contains(&m));
     let alleg: Vec<(DemigodId, f32)> =
-        x.allegiance.iter().copied().filter(|(of, _)| yours || *of == d).collect();
+        x.allegiance.iter().copied().filter(|(of, _)| yours || w.same_player(*of, d)).collect();
     v["yours"] = yours.into();
     v["follower"] = x.groups.contains(following).into();
     v["allegiance"] = json!(alleg_json(&w, &alleg));
@@ -536,7 +587,7 @@ fn army(state: &Value, seat: Option<Seat>, a: &Args) -> Result<Value, String> {
         },
         _ => return Err(format!("{r} is not an army (`cl:` ref)")),
     };
-    let owner = !x.rogue && asker(&w, seat) == Some(x.demigod);
+    let owner = !x.rogue && asker(&w, seat).is_some_and(|d| w.same_player(d, x.demigod));
     let live = fn7_society::armies(&w).any(|(k, _)| k.id == c.id);
     let mut v = army_marker(&w, c, x);
     let o = v.as_object_mut().expect("object");
@@ -569,7 +620,7 @@ fn me(state: &Value, seat: Option<Seat>) -> Result<Value, String> {
         state,
         &[
             T::Places, T::Groups, T::Clusters, T::Characters, T::Demigods, T::Items, T::Agents, T::Gods, T::Seats,
-            T::Mods, T::Nodes, T::Cells, T::Mobs, T::Battles, T::Slow,
+            T::Mods, T::Nodes, T::Cells, T::Mobs, T::Battles, T::Slow, T::Manifests,
         ],
     )?;
     if seat_state(&w, seat).is_none() {
@@ -631,8 +682,87 @@ fn standings(state: &Value) -> Result<Value, String> {
             v
         })
         .collect();
-    Ok(json!({ "beat": w.meta.beat, "beats_total": w.meta.beats_total, "alive": w.alive_demigods().count(),
-               "over": crate::phases::match_over(&w, w.meta.beat), "standings": rows }))
+    let mut v = json!({ "beat": w.meta.beat, "beats_total": w.meta.beats_total, "alive": w.alive_demigods().count(),
+               "over": crate::phases::match_over(&w, w.meta.beat), "standings": rows });
+    if w.demigods.iter().any(|d| d.side.is_some()) {
+        // Rules 0.7.0: the players ranked (each with both demigods' state; never health).
+        v["players_alive"] = w.alive_seats().len().into();
+        v["players"] = crate::phases::ranked_players(&w)
+            .into_iter()
+            .enumerate()
+            .map(|(i, s)| {
+                let first = w.demigod_of_seat(s).expect("a player has a demigod");
+                json!({ "rank": i + 1, "seat": (s < crate::SYNTHETIC_SEAT).then_some(s), "player": first.player_name(),
+                        "aura": payload::aura(&w, s), "alive": w.seat_alive(s), "bolts": first.bolts,
+                        "demigods": w.bodies_of_seat(s).map(|d| json!({ "ref": Ref::Demigod(d.id), "side": d.side,
+                            "name": d.name, "alive": d.alive, "eliminated_beat": d.eliminated_beat, "cause": d.cause }))
+                            .collect::<Vec<_>>() })
+            })
+            .collect();
+    }
+    Ok(v)
+}
+
+/// Can the asking seat see this item? Public (a manifested thing of tier relic or up, or deployed), or held by one of
+/// the seat's demigods.
+fn item_visible(w: &World, it: &Item, me: Option<DemigodId>) -> bool {
+    let public = it.ext.manifestation.is_some()
+        && (it.ext.tier >= fn7_model::manifest::PUBLIC_TIER || it.ext.state == fn7_model::manifest::ItemState::Deployed);
+    public
+        || me.is_some_and(|d| {
+            it.holders.last().is_some_and(|h| matches!(h, Ref::Demigod(x) if w.same_player(*x, d)))
+        })
+}
+
+fn items(state: &Value, seat: Option<Seat>, a: &Args) -> Result<Value, String> {
+    let w = world(state, &[T::Places, T::Demigods, T::Items, T::Seats, T::Characters, T::Clusters])?;
+    let me = asker(&w, seat);
+    let holder = a.r#ref("holder")?;
+    let state_f = a.get("state").and_then(Value::as_str).map(str::to_string);
+    let min_tier = match a.get("min_tier").and_then(Value::as_str) {
+        None => None,
+        Some(t) => Some(
+            serde_json::from_value::<fn7_model::manifest::Tier>(json!(t)).map_err(|_| format!("`min_tier` {t:?} is not a tier"))?,
+        ),
+    };
+    let list: Vec<&Item> = w
+        .items
+        .iter()
+        .rev()
+        .filter(|i| item_visible(&w, i, me))
+        .filter(|i| holder.is_none_or(|h| i.holders.last() == Some(&h)))
+        .filter(|i| state_f.as_deref().is_none_or(|s| json!(i.ext.state) == json!(s)))
+        .filter(|i| min_tier.is_none_or(|t| i.ext.tier >= t))
+        .collect();
+    let mut v = page(list, a.uint("cursor")?.unwrap_or(0), a.limit(20, 100)?, |i| crate::items::item_json(&w, i));
+    v["beat"] = w.meta.beat.into();
+    Ok(v)
+}
+
+fn item(state: &Value, seat: Option<Seat>, a: &Args) -> Result<Value, String> {
+    let w = world(state, &[T::Places, T::Demigods, T::Items, T::Seats, T::Characters, T::Clusters])?;
+    let id = match a.need_ref("ref")? {
+        Ref::Item(i) if i.ix() < w.items.len() => i,
+        Ref::Item(i) => return Err(format!("no such item {i}")),
+        r => return Err(format!("{r} is not an item (`it:` ref)")),
+    };
+    let it = &w.items[id.ix()];
+    let me = asker(&w, seat);
+    if !item_visible(&w, it, me) {
+        return Err(format!("{} is not something you can see", Ref::Item(id)));
+    }
+    let mut v = crate::items::item_json(&w, it);
+    let manifests: Vec<fn7_model::manifest::Manifestation> = table(state, "manifests", true)?;
+    if let Some(m) = it.ext.manifestation.and_then(|m| manifests.get(m.ix())) {
+        let mine = me.is_some_and(|d| w.same_player(d, m.demigod));
+        v["manifestation"] = crate::items::manifest_json(&w, m, mine);
+        v["rows"] = json!(m.rows.iter().map(|r| Ref::Ledger(*r)).collect::<Vec<_>>());
+    }
+    v["origin"] = crate::payload::item_origin(&it.origin).0.into();
+    v["created_by"] = json!(it.created_by);
+    v["holders"] = json!(it.holders);
+    v["history"] = json!(it.ext.history);
+    Ok(v)
 }
 
 fn piles_final(state: &Value) -> Result<Value, String> {
@@ -654,7 +784,7 @@ fn piles_final(state: &Value) -> Result<Value, String> {
         .demigods
         .iter()
         .map(|d| {
-            let me = selves(&w, d.id);
+            let me = crate::world::body_selves(&w, d.id);
             let acts = lite.iter().filter(|r| me.contains(&r.actor)).count();
             let paid = crate::phases::debt_paid(d.id, lite.iter().filter_map(|r| r.debt.as_ref()));
             crate::phases::pile_with(&w, d, &me, acts, paid)
@@ -711,7 +841,7 @@ pub(crate) fn person_known(w: &World, state: &Value, d: DemigodId, c: CharId) ->
     {
         return true;
     }
-    if let Some(s) = w.seats.iter().find(|s| s.demigod == d) {
+    if let Some(s) = crate::world::seat_of(w, d) {
         if crate::world::visible(w, d, s.zoom, s.focus, 60).contains(&Ref::Char(c)) {
             return true;
         }
