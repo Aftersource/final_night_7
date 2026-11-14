@@ -15,6 +15,7 @@
 
 use async_trait::async_trait;
 use fn7_media::{ImageKind, Media};
+use fn7_plugin::payload::{diorama_prompt_for, hand_names, portrait_prompt_for};
 use serde_json::Value;
 use theatre_plugin_api::*;
 
@@ -211,4 +212,62 @@ impl<P: GamePlugin> GamePlugin for MediaPlugin<P> {
         self.mark(&mut s.summary);
         Ok(s)
     }
+}
+
+/// What [`prewarm`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Prewarm {
+    pub queued: usize,
+    pub cached: usize,
+    /// Refused (budget, unknown price, full queue) or images off.
+    pub refused: usize,
+}
+
+/// The names to prewarm: the built-in AI demigods (`fn7_plugin::phases::AI_NAMES`) plus `FN7_MEDIA_PREWARM_NAMES`
+/// (comma-separated), deduplicated by identity (trimmed, lowercased). Empty when `FN7_MEDIA_PREWARM` is
+/// `0`/`off`/`false` (default on).
+pub fn prewarm_names(get: impl Fn(&str) -> Option<String>) -> Vec<String> {
+    let on = get("FN7_MEDIA_PREWARM")
+        .map(|v| !matches!(v.trim().to_ascii_lowercase().as_str(), "0" | "off" | "false" | "no"))
+        .unwrap_or(true);
+    if !on {
+        return vec![];
+    }
+    let extra = get("FN7_MEDIA_PREWARM_NAMES").unwrap_or_default();
+    let mut seen = std::collections::BTreeSet::new();
+    fn7_plugin::phases::AI_NAMES
+        .iter()
+        .map(|n| n.to_string())
+        .chain(extra.split(',').map(|n| n.trim().chars().take(40).collect::<String>()))
+        .filter(|n| !n.is_empty() && seen.insert(fn7_plugin::visual::identity(n)))
+        .collect()
+}
+
+/// Enqueue the portrait and the diorama of every name and of its two hands (`"<name>'s Left Hand"`, `"<name>'s Right
+/// Hand"`: the player's two demigods), 6 images per name (identity-only prompts: the same images every match serves),
+/// at the queue's top priority, outside any match (budget bucket `prewarm`; the global budget applies). Images already
+/// on disk count as cached and cost nothing.
+pub fn prewarm(media: &Media, names: &[String]) -> Prewarm {
+    let mut out = Prewarm::default();
+    if !media.enabled() {
+        return out;
+    }
+    let all = names.iter().flat_map(|n| {
+        let [l, r] = hand_names(n);
+        [n.clone(), l, r]
+    });
+    for name in all {
+        for (kind, subject) in [
+            (ImageKind::Portrait, portrait_prompt_for(&name)),
+            (ImageKind::Diorama, diorama_prompt_for(&name)),
+        ] {
+            let Some(p) = media.prompt(kind, &subject) else { continue };
+            match media.request_with(&p, Some("prewarm"), false).status {
+                "ready" => out.cached += 1,
+                "pending" => out.queued += 1,
+                _ => out.refused += 1,
+            }
+        }
+    }
+    out
 }

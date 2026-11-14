@@ -72,7 +72,7 @@ pub fn specs() -> Vec<QuerySpec> {
         spec("gods", true, "The pantheon: each god's ref, name, slug, domain and health now.", obj(json!({}), &[])),
         spec("standings", true, "Every demigod ranked now: alive first, then who fell last, then score.", obj(json!({}), &[])),
         spec("media", true,
-             "An image of something in the game, by reference (never a free-text prompt): a portrait of a demigod or person, a demigod's diorama (its minifig on a base themed on its home region), a place, a public event, or an army. Answers at once with `image` (pending, then ready via GET /media/index); the server writes the prompt from the state. Visibility: a seat may ask for what it can see (public things, its own people, events it knows); over HTTP only public refs. Rate-limited per seat and budgeted.",
+             "An image of something in the game, by reference (never a free-text prompt): a portrait of a demigod or person, a demigod's diorama (its miniature on a hex tile, the same in every match), a place, a public event, or an army. Answers at once with `image` (pending, then ready via GET /media/index); the server writes the prompt from the state. Visibility: a seat may ask for what it can see (public things, its own people, events it knows); over HTTP only public refs. Rate-limited per seat and budgeted.",
              obj(json!({ "kind": { "type": "string", "enum": ["portrait", "diorama", "place", "event", "army"], "description": "What to draw." },
                          "ref": r#ref(r"^(dg|ch|pl|lg|cl):\d+$", "portrait: `dg:`/`ch:`; diorama: `dg:`; place: `pl:`; event: `lg:`; army: `cl:` (an army).") }),
                  &["kind", "ref"])),

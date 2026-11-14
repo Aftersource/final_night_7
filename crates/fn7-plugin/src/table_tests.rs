@@ -161,8 +161,9 @@ async fn the_diorama_prompt_is_stable_and_drawable_by_ref() {
         assert_eq!(v["image_kind"], "portrait", "the portrait's kind is unchanged");
         let sheet = visual::demigod(&w, d);
         let home = &w.places[d.home.unwrap().ix()].name;
-        assert!(prompt.contains(&d.name) && prompt.contains(&sheet.traits.prop) && prompt.contains(home.as_str()), "{prompt}");
-        assert!(prompt.contains("minifig") && prompt.contains("diorama"), "{prompt}");
+        assert!(prompt.contains(&d.name) && prompt.contains(&sheet.traits.prop), "{prompt}");
+        assert!(!prompt.contains(home.as_str()), "identity only, no home region: {prompt}");
+        assert!(prompt.contains("hexagonal diorama tile"), "{prompt}");
         assert!(!prompt.contains("dg:"), "no engine ids: {prompt}");
         // game.media {kind: diorama} answers the same subject.
         let m = p.query(&s, None, "media", &json!({ "kind": "diorama", "ref": Ref::Demigod(d.id).to_string() })).unwrap();
@@ -229,4 +230,49 @@ async fn a_joiner_drives_their_demigod_from_the_round_they_join() {
     assert_eq!(joined[2].2[d], at_join, "round 3: the joiner was silent and the AI no longer speaks for it");
     assert_eq!(joined[3].2[d], at_join + 8, "round 4: the joiner's 8 words reached its hands");
     assert!(joined[3..].iter().all(|x| x.2[d] == at_join + 8), "only the joiner speaks for it: {joined:?}");
+}
+
+#[tokio::test]
+async fn portraits_and_dioramas_are_identity_only_across_matches() {
+    // Two matches, different seeds; the AI demigods take the same names (in different slots is fine too).
+    let (p, a) = start(3).await;
+    let (_, b) = start(4242).await;
+    let (wa, wb) = (world::load(&a).unwrap(), world::load(&b).unwrap());
+    assert_ne!(wa.meta.seed, wb.meta.seed);
+    let (da, db) = (demigods(&p.public_view(&a)), demigods(&p.public_view(&b)));
+    let mut shared = 0;
+    for x in &da {
+        let Some(y) = db.iter().find(|y| y["name"] == x["name"]) else { continue };
+        shared += 1;
+        for k in ["portrait_prompt", "diorama_prompt"] {
+            assert_eq!(x[k], y[k], "{k} of {} is the same in both matches", x["name"]);
+        }
+        assert_eq!(x["visual"]["sheet_hash"], y["visual"]["sheet_hash"]);
+        let name = x["name"].as_str().unwrap();
+        assert_eq!(x["portrait_prompt"].as_str().unwrap(), payload::portrait_prompt_for(name));
+        assert_eq!(x["diorama_prompt"].as_str().unwrap(), payload::diorama_prompt_for(name));
+    }
+    assert_eq!(shared, 4, "the seats and the AI roster give the same four names");
+}
+
+#[tokio::test]
+async fn each_hand_is_a_demigod_with_its_own_identity_images() {
+    let (p, a) = start(3).await;
+    let (_, b) = start(77).await;
+    let ha = p.seat_view(&a, 0)["hands"].clone();
+    let hb = p.seat_view(&b, 0)["hands"].clone();
+    let ha = ha.as_array().unwrap();
+    assert_eq!(ha.len(), 2);
+    assert_eq!(ha[0]["name"], "Ash's Left Hand");
+    for (i, h) in ha.iter().enumerate() {
+        let name = h["name"].as_str().unwrap();
+        assert_eq!(h["portrait_prompt"].as_str().unwrap(), payload::portrait_prompt_for(name));
+        assert_eq!(h["diorama_prompt"].as_str().unwrap(), payload::diorama_prompt_for(name));
+        assert_eq!(h["visual"]["sheet_hash"].as_str().unwrap(), visual::demigod_by_name(name).sheet_hash);
+        assert_eq!(h["portrait_prompt"], hb[i]["portrait_prompt"], "the same hand in another match: the same prompt");
+    }
+    assert_ne!(ha[0]["visual"]["sheet_hash"], ha[1]["visual"]["sheet_hash"], "left and right are different figures");
+    let dg = &demigods(&p.public_view(&a))[0];
+    assert_ne!(dg["portrait_prompt"], ha[0]["portrait_prompt"], "the demigod's own portrait is unchanged and separate");
+    assert_eq!(payload::hand_names("Ash"), ["Ash's Left Hand".to_string(), "Ash's Right Hand".to_string()]);
 }

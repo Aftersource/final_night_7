@@ -352,7 +352,11 @@ async fn a_different_style_gives_different_prompts_and_hashes() {
     // The env can point at a style file; a bad one is refused at startup with the field named.
     let dir = temp_dir();
     let good = dir.join("style.json");
-    std::fs::write(&good, serde_json::to_string(&alt_style().body).unwrap()).unwrap();
+    // (Its references resolve next to the file, so this copy drops them.)
+    let mut body = alt_style().body;
+    body.as_object_mut().unwrap().remove("references");
+    body["kinds"]["portrait"].as_object_mut().unwrap().remove("references");
+    std::fs::write(&good, serde_json::to_string(&body).unwrap()).unwrap();
     let c = MediaConfig::from_lookup(|k| (k == "FN7_MEDIA_STYLE").then(|| good.display().to_string())).unwrap();
     assert_eq!((c.style.version.as_str(), c.max_events_per_match), ("2-noir", 3));
     let bad = dir.join("bad.json");
@@ -448,7 +452,8 @@ async fn annotates_demigod_dioramas() {
     let img = &d["diorama_image"];
     assert_eq!(img["kind"], "diorama");
     let prompt = img["prompt"].as_str().unwrap();
-    assert!(prompt.contains("minifig") && prompt.contains("diorama base") && !prompt.contains("dg:0"), "{prompt}");
+    assert!(!prompt.contains("minifig"), "the style rewrites the plugin's collectible wording: {prompt}");
+    assert!(prompt.contains("geometric miniature figure") && prompt.contains("hexagonal diorama tile") && !prompt.contains("dg:0"), "{prompt}");
     // The style file's framing and a square size.
     let style = MediaStyle::builtin();
     let k = style.kind(ImageKind::Diorama);
@@ -460,4 +465,76 @@ async fn annotates_demigod_dioramas() {
     let mut again = public.clone();
     media.annotate(&mut again, Some("m"));
     assert_eq!(again["demigods"][0]["diorama_image"]["hash"], public["demigods"][0]["diorama_image"]["hash"]);
+}
+
+#[tokio::test]
+async fn the_reference_set_is_part_of_the_image_key() {
+    let media = Media::start(cfg(&temp_dir(), 0.0, 0.0), mock(0.0));
+    let p1 = media.prompt(ImageKind::Portrait, "the demigod Rook").unwrap();
+    assert_eq!(p1.refs.len(), 6, "portraits carry Benito's six refs");
+    let mut p2 = p1.clone();
+    p2.refs.pop();
+    assert_ne!(media.key_for(&p1), media.key_for(&p2), "a different ref set is a different image");
+    let mut p3 = p1.clone();
+    p3.refs[0].sha256 = "0".repeat(64);
+    assert_ne!(media.key_for(&p1), media.key_for(&p3), "a changed ref file is a different image");
+    assert_eq!(media.key_for(&p1), media.key_for(&media.prompt(ImageKind::Portrait, "the demigod Rook").unwrap()));
+    // The request record lists the refs by file name.
+    let r = media.request(&p1, Some("m"));
+    assert_eq!(r.status, "pending");
+}
+
+/// Records the order generations start in.
+struct OrderGen {
+    started: Mutex<Vec<String>>,
+    delay: Duration,
+}
+
+#[async_trait::async_trait]
+impl ImageGenerator for OrderGen {
+    fn provider(&self) -> &'static str {
+        "mock"
+    }
+    fn label(&self) -> String {
+        "order".into()
+    }
+    fn price_usd(&self, _: ImageKind, _: &str) -> Option<f64> {
+        Some(0.0)
+    }
+    async fn generate(&self, req: &GenRequest) -> anyhow::Result<Generated> {
+        self.started.lock().unwrap().push(req.prompt.split(':').nth(1).unwrap_or("").trim().split('.').next().unwrap_or("").to_string());
+        tokio::time::sleep(self.delay).await;
+        Ok(Generated { bytes: b"<svg/>".to_vec(), ext: "svg", cost_usd: 0.0, model: "order".into() })
+    }
+}
+
+#[tokio::test]
+async fn the_queue_starts_portraits_before_queued_event_images() {
+    assert_eq!(MediaConfig::default().concurrency, 6, "the default concurrency");
+    let gen = Arc::new(OrderGen { started: Mutex::new(vec![]), delay: Duration::from_millis(60) });
+    let mut c = cfg(&temp_dir(), 1.0, 1.0);
+    c.concurrency = 1;
+    c.max_events_per_match = 100;
+    let media = Media::start(c, Some(gen.clone() as Arc<dyn ImageGenerator>));
+    // Plain-framed kinds so the subject is easy to read back out of the prompt.
+    let mut v: Value = serde_json::from_str(style::BUILTIN_STYLE_JSON).unwrap();
+    for k in ["event", "statue", "item", "portrait", "diorama"] {
+        v["kinds"][k]["framing"] = json!(k);
+    }
+    let st = MediaStyle::from_value(v, "order").unwrap();
+    let q = |kind, s: &str| ImagePrompt::styled(&st, kind, s).unwrap();
+    // e0 takes the only slot; the rest queue up in this order.
+    for (kind, name) in [
+        (ImageKind::Event, "e0"), (ImageKind::Event, "e1"), (ImageKind::Event, "e2"), (ImageKind::Item, "i1"),
+        (ImageKind::Statue, "s1"), (ImageKind::Portrait, "p1"), (ImageKind::Event, "e3"), (ImageKind::Diorama, "d1"),
+        (ImageKind::Portrait, "p2"),
+    ] {
+        media.request(&q(kind, name), Some("m"));
+        if name == "e0" {
+            tokio::time::sleep(Duration::from_millis(15)).await;
+        }
+    }
+    assert!(media.wait_idle(Duration::from_secs(10)).await);
+    let order = gen.started.lock().unwrap().clone();
+    assert_eq!(order, ["e0", "p1", "d1", "p2", "s1", "i1", "e1", "e2", "e3"], "by priority, FIFO within one");
 }

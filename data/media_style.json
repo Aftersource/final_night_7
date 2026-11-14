@@ -1,15 +1,96 @@
 {
-  "version": "1",
-  "house_style": "collectible-figure game illustration, Fortnite meets Final Destination, chunky stylized 3D, bold saturated colors",
+  "version": "2",
+  "_comment": "Benito's lever (docs/MEDIA.md). Two looks: the top-level house_style/references are the max-zoom hex-diorama look (Final Night 7's tabletop geometry in the mood of Benito's references) used by every kind except portrait; kinds.portrait.style/references are Benito's dark-fantasy look (his DEFAULT_STYLE without the fixed keep-and-forest scenery, his refs and REF_NOTE). house_style_original is Benito's verbatim DEFAULT_STYLE, kept for him to choose (never sent to the model). Reference paths are relative to this file. To add the Unreal geometry screenshots, list them in references.geometry (they go first in every request): a data change, no code change.",
+  "house_style": "Final Night 7's tabletop world: an extremely sparse, geometric low-poly miniature diorama on a dark candlelit wooden table: a board of flat raised hexagonal tiles in soft greens, sand and pale sea-blue, chunky voxel blocks, simple extruded white pillars and cones standing in for people, a floating globe made of small cubes. Combined with the mood of the reference images: a mystical early-2000s PlayStation 2 era dark-fantasy, Dark Souls atmosphere, deep cobalt blue and violet night haze with stars and nebulae, warm orange candle and torch light as the only contrast, heavy contrast, simple baked lighting, crunchy low-resolution textures, dreamy and eerie",
+  "house_style_original": "a dark-fantasy world at night: a burning stone keep of crumbling walls, torch-lit corridors and Gothic archways, standing at the edge of a misty pine forest under a vast starry sky with swirling purple and blue nebulae and a thin crescent moon. Deep saturated cobalt blue and violet everywhere, warm orange torch and fire light as the only contrast, glowing sparks and fireflies. Rendered to look like an early-2000s PlayStation 2 era fantasy game cutscene: low-poly models, crunchy over-sharpened low-resolution textures, heavy contrast, slightly jagged edges, simple baked lighting, dreamy and eerie",
   "kinds": {
-    "portrait": { "framing": "waist-up, three-quarter view, dramatic rim light", "size": "1024x1024" },
-    "event": { "framing": "wide cinematic, seen from high above", "size": "1536x1024" },
-    "statue": { "framing": "amiibo-style figure on a round base atop a pile of its items", "size": "1024x1024" },
-    "place": { "framing": "establishing shot", "size": "1536x1024" },
-    "army": { "framing": "wide cinematic, a marching host seen from a low angle, banners raised", "size": "1536x1024" },
-    "item": { "framing": "a single item shown alone like a loot icon, centered, three-quarter view, plain background", "size": "1024x1024" },
-    "diorama": { "framing": "the demigod as a collectible minifig standing on a small square themed diorama base that reflects its home region and shows off its signature prop, three-quarter view from slightly above, centered, square", "size": "1024x1024" }
+    "portrait": {
+      "framing": "waist-up, three-quarter view, dramatic rim light",
+      "size": "1024x1024",
+      "style": "a dark-fantasy world at night under a vast starry sky with swirling purple and blue nebulae and a thin crescent moon. Deep saturated cobalt blue and violet everywhere, warm orange torch and fire light as the only contrast, glowing sparks and fireflies. Rendered to look like an early-2000s PlayStation 2 era fantasy game cutscene: low-poly models, crunchy over-sharpened low-resolution textures, heavy contrast, slightly jagged edges, simple baked lighting, dreamy and eerie",
+      "references": {
+        "geometry": [],
+        "mood": [
+          "style_refs/IMG_3751.jpg",
+          "style_refs/IMG_3754.jpg",
+          "style_refs/IMG_3758.jpg",
+          "style_refs/IMG_3762.jpg",
+          "style_refs/IMG_3764.jpg",
+          "style_refs/IMG_3765.jpg"
+        ],
+        "mood_per_request": 6,
+        "note": "Match the reference images exactly in art style, rendering, colour palette, lighting and level of detail; this is a new shot in that same world, not a copy of them."
+      }
+    },
+    "event": {
+      "framing": "seen from high above the hex-tile table: {subject}, rendered with blocky geometry, tiny white pillar figures for crowds, voxel props, candlelight and starry violet haze",
+      "size": "1536x1024"
+    },
+    "statue": {
+      "framing": "a slightly larger faceted low-poly figure of the demigod on a raised hexagonal plinth atop a heap of blocky voxel item pieces, lit by candles and torches on the dark table",
+      "size": "1024x1024"
+    },
+    "place": {
+      "framing": "an establishing shot across the hex-tile table: {subject}, built as a cluster of raised hexagonal tiles with chunky voxel buildings and terrain, candlelight and starry violet haze above",
+      "size": "1536x1024"
+    },
+    "army": {
+      "framing": "a low angle across the hex-tile table: {subject}, as ranks of small white pillar figures with flat banner blocks in their colours marching over raised hex tiles, candlelight and violet haze",
+      "size": "1536x1024"
+    },
+    "item": {
+      "framing": "a single item shown alone as a tiny faceted low-poly game piece standing on one raised hexagonal tile, centered, three-quarter view, on the dark candlelit table",
+      "size": "1024x1024"
+    },
+    "diorama": {
+      "framing": "the demigod as a tiny, extremely simple geometric miniature figure (a few faceted low-poly blocks, a near-faceless head, glowing hand shapes) standing on a single raised hexagonal diorama tile with its signature prop, three-quarter view from slightly above, centered on the dark candlelit table",
+      "size": "1024x1024"
+    }
   },
-  "avoid": ["text", "logos", "real people's likenesses", "gore close-ups"],
-  "event_selection": { "min_magnitude": 8, "always": ["cast", "elimination", "general_appointed", "mutiny"], "max_per_match": 12 }
+  "avoid": "No words or letters in the picture, no gore, no real people.",
+  "subject_rewrites": [
+    {
+      "from": "an amiibo-style collectible figure of",
+      "to": "a faceted low-poly figure of"
+    },
+    {
+      "from": "a collectible minifig",
+      "to": "a tiny, extremely simple geometric miniature figure"
+    },
+    {
+      "from": "a small square diorama base",
+      "to": "a single raised hexagonal diorama tile"
+    },
+    {
+      "from": "on a round base shaped like",
+      "to": "on a raised hexagonal plinth shaped like"
+    },
+    {
+      "from": "a ridiculous towering pile",
+      "to": "a towering heap of blocky voxel pieces"
+    }
+  ],
+  "references": {
+    "geometry": [],
+    "mood": [
+      "style_refs/IMG_3751.jpg",
+      "style_refs/IMG_3754.jpg",
+      "style_refs/IMG_3762.jpg",
+      "style_refs/IMG_3765.jpg"
+    ],
+    "mood_per_request": 4,
+    "note": "Match the reference images' palette, lighting and atmosphere; keep the geometry extremely simple and the scale miniature, like a tabletop game piece; this is a new shot in that same world, not a copy of them."
+  },
+  "event_selection": {
+    "min_magnitude": 8,
+    "always": [
+      "cast",
+      "elimination",
+      "general_appointed",
+      "mutiny"
+    ],
+    "max_per_match": 12
+  },
+  "_subject_rewrites": "Applied (case-insensitively, in order) to every subject before framing: retires the plugin's older collectible-figure wording without a plugin change.",
+  "_references": "geometry (first, in order) then mood_per_request picked deterministically from mood. All 15 of Benito's pictures are in style_refs/ (IMG_3751..IMG_3765); add any of them to a mood list to widen the pick. style_refs/approved/ holds the approved example renders (not sent)."
 }

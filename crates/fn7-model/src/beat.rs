@@ -199,4 +199,14 @@ pub struct SeatHand {
     pub name: String,
     pub live: bool,
     pub subagents: Vec<SubagentLine>,
+    /// The hand's own portrait prompt (it is one of the player's two demigods): identity only, from its name and its
+    /// name-keyed visual sheet, the same in every match. The server adds `portrait_image` beside it.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub portrait_prompt: String,
+    /// The hand's own diorama prompt (identity only, like `portrait_prompt`). The server adds `diorama_image`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub diorama_prompt: String,
+    /// The hand's visual sheet: `{sheet_hash, traits: {build, face, outfit, colors, prop, emblem}}`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visual: Option<serde_json::Value>,
 }

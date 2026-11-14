@@ -1,11 +1,13 @@
 //! Character visual identity (docs/SHARED_MEDIA_SPEC.md §3.1): every demigod and named person gets a **visual sheet**
-//! (build, face, outfit, two signature colors, one prop, an emblem), picked deterministically from the match seed, the
-//! character's kind and id and its name: nothing that changes during a match, so the sheet is the same at every beat
-//! and in every replay. Every image of the character (portrait, event, statue, army banners) reuses the sheet's
+//! (build, face, outfit, two signature colors, one prop, an emblem), picked deterministically. A **demigod's** sheet
+//! depends only on its name (trimmed, lowercased): "Vex" looks the same in every match, so its portrait and diorama
+//! are one cached image per identity, ever. A **person's** sheet comes from the match seed, its id and its name.
+//! Nothing that changes during a match feeds a sheet, so it is the same at every beat and in every replay. Every image of the character (portrait, event, statue, army banners) reuses the sheet's
 //! [`Visual::brief`], so the same person looks the same everywhere.
 //!
 //! Payload form: `visual: {sheet_hash, traits: {build, face, outfit, colors: [a, b], prop, emblem}}`. `sheet_hash` is
-//! sha256 (hex) of the sheet version, the character's ref and its traits: a client can key art or caches on it.
+//! sha256 (hex) of the sheet version, the identity (a demigod's normalized name; a person's ref) and the traits: a
+//! client can key art or caches on it.
 //!
 //! Read-only: computed from the state on the way out, never stored, so the state and replays are untouched.
 
@@ -15,8 +17,12 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
-/// Bumped when the trait tables or the pick change (it is part of every `sheet_hash`).
-pub const SHEET_VERSION: &str = "fn7-visual/1";
+/// Bumped when the trait tables or the pick change (it is part of every demigod `sheet_hash`). `fn7-visual/2`: a
+/// demigod's sheet depends only on its normalized name.
+pub const SHEET_VERSION: &str = "fn7-visual/2";
+
+/// The version in person sheet hashes (unchanged since `fn7-visual/1`: person sheets are as they were).
+pub const PERSON_SHEET_VERSION: &str = "fn7-visual/1";
 
 const BUILDS: &[&str] = &[
     "towering and broad-shouldered",
@@ -187,15 +193,32 @@ fn pick(r: &mut Rng, xs: &[&str]) -> String {
     r.pick(xs).copied().unwrap_or_default().to_string()
 }
 
+/// A name as an identity: trimmed, lowercased.
+pub fn identity(name: &str) -> String {
+    name.trim().to_lowercase()
+}
+
+/// A demigod's sheet from its name alone (the same in every match).
+pub fn demigod_by_name(name: &str) -> Visual {
+    let id = identity(name);
+    let mut r = Rng::derive(0, &[0x7669_7375_616c, 1, hash_str(&id)]);
+    traits_sheet(&mut r, &format!("{SHEET_VERSION}\ndemigod:{id}"), true)
+}
+
 fn sheet(seed: u64, tag: u64, id: u64, name: &str, rf: Ref, demigod: bool) -> Visual {
     let mut r = Rng::derive(seed, &[0x7669_7375_616c, tag, id, hash_str(name)]);
-    let build = pick(&mut r, BUILDS);
-    let face = pick(&mut r, if demigod { DEMIGOD_FACES } else { PERSON_FACES });
-    let outfit = pick(&mut r, if demigod { DEMIGOD_OUTFITS } else { PERSON_OUTFITS });
+    traits_sheet(&mut r, &format!("{PERSON_SHEET_VERSION}\n{rf}"), demigod)
+}
+
+/// Pick the traits from `r`; `sheet_hash` = sha256(`head` \n traits).
+fn traits_sheet(r: &mut Rng, head: &str, demigod: bool) -> Visual {
+    let build = pick(r, BUILDS);
+    let face = pick(r, if demigod { DEMIGOD_FACES } else { PERSON_FACES });
+    let outfit = pick(r, if demigod { DEMIGOD_OUTFITS } else { PERSON_OUTFITS });
     let a = r.below(COLORS.len() as u64) as usize;
     let b = (a + 1 + r.below(COLORS.len() as u64 - 1) as usize) % COLORS.len();
-    let prop = pick(&mut r, if demigod { DEMIGOD_PROPS } else { PERSON_PROPS });
-    let emblem = pick(&mut r, EMBLEMS);
+    let prop = pick(r, if demigod { DEMIGOD_PROPS } else { PERSON_PROPS });
+    let emblem = pick(r, EMBLEMS);
     let traits = Traits {
         build,
         face,
@@ -205,9 +228,7 @@ fn sheet(seed: u64, tag: u64, id: u64, name: &str, rf: Ref, demigod: bool) -> Vi
         emblem,
     };
     let mut h = Sha256::new();
-    h.update(SHEET_VERSION.as_bytes());
-    h.update(b"\n");
-    h.update(rf.to_string().as_bytes());
+    h.update(head.as_bytes());
     h.update(b"\n");
     h.update(serde_json::to_string(&traits).unwrap_or_default().as_bytes());
     Visual {
@@ -216,9 +237,9 @@ fn sheet(seed: u64, tag: u64, id: u64, name: &str, rf: Ref, demigod: bool) -> Vi
     }
 }
 
-/// A demigod's sheet (seed, id, name).
-pub fn demigod(w: &World, d: &Demigod) -> Visual {
-    sheet(w.meta.seed, 1, d.id.0 as u64, &d.name, Ref::Demigod(d.id), true)
+/// A demigod's sheet: from its name alone ([`demigod_by_name`]), never the seed, id or ref.
+pub fn demigod(_w: &World, d: &Demigod) -> Visual {
+    demigod_by_name(&d.name)
 }
 
 /// A named person's sheet (seed, id, name).
@@ -238,6 +259,15 @@ pub fn of(w: &World, r: Ref) -> Option<Visual> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_demigod_sheet_is_its_name_alone() {
+        let a = demigod_by_name("Vex");
+        assert_eq!(a, demigod_by_name("  vex "), "trimmed and lowercased");
+        assert_ne!(a.sheet_hash, demigod_by_name("Mara").sheet_hash);
+        assert!(["Mara", "Oko", "Chris", "Benito", "Rook"].iter().any(|n| demigod_by_name(n).traits != a.traits));
+        // The seed, the id and the ref never enter (the match-level check is in table_tests.rs).
+    }
 
     #[test]
     fn sheets_are_deterministic_and_distinct() {

@@ -26,9 +26,9 @@ pub mod http;
 pub mod prompt;
 pub mod style;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
@@ -42,7 +42,7 @@ pub use generator::{
     GenRequest, Generated, ImageGenerator, MockGenerator, OpenAiConfig, OpenAiImages,
 };
 pub use prompt::{ImageKind, ImagePrompt, PROMPT_VERSION};
-pub use style::{EventSelection, KindStyle, MediaStyle};
+pub use style::{EventSelection, KindStyle, MediaStyle, RefImage, References, RefsSpec};
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Configuration
@@ -82,7 +82,8 @@ pub struct MediaConfig {
     pub rate_per_min: u32,
     /// The style config (`FN7_MEDIA_STYLE` / `data/media_style.json` / compiled in).
     pub style: MediaStyle,
-    /// `FN7_IMAGE_CONCURRENCY`, default 2: generations in flight.
+    /// `FN7_IMAGE_CONCURRENCY`, default 6: generations in flight. Queued jobs start by priority (portrait and
+    /// diorama, then statue, then army/place/item, then event), first come first served within a priority.
     pub concurrency: usize,
     /// `FN7_IMAGE_QUEUE`, default 256: queued generations; beyond it requests are dropped (status `off`).
     pub queue: usize,
@@ -102,7 +103,7 @@ impl Default for MediaConfig {
             max_events_per_match: MediaStyle::builtin().event_selection.max_per_match,
             rate_per_min: 30,
             style: MediaStyle::builtin(),
-            concurrency: 2,
+            concurrency: 6,
             queue: 256,
             openai: None,
         }
@@ -145,7 +146,7 @@ impl MediaConfig {
         c.max_events_per_match =
             num("FN7_IMAGE_MAX_EVENTS", c.max_events_per_match as f64) as u32;
         c.rate_per_min = num("FN7_MEDIA_RATE_PER_MIN", 30.0).min(100_000.0) as u32;
-        c.concurrency = (num("FN7_IMAGE_CONCURRENCY", 2.0) as usize).clamp(1, 16);
+        c.concurrency = (num("FN7_IMAGE_CONCURRENCY", 6.0) as usize).clamp(1, 16);
         c.queue = (num("FN7_IMAGE_QUEUE", 256.0) as usize).clamp(1, 10_000);
         match get("FN7_IMAGES").map(|m| m.to_ascii_lowercase()).as_deref() {
             None | Some("off") | Some("0") | Some("false") => {}
@@ -312,6 +313,8 @@ struct Inner {
     tx: Option<mpsc::Sender<Job>>,
     /// Set once any payload carries `image_prompt`: from then on the interim prompts (omens, demigod lists) stop.
     seen_image_prompt: AtomicBool,
+    /// Jobs accepted but not yet started (bounded by `cfg.queue`).
+    queued: AtomicUsize,
 }
 
 /// The image service. Cheap to clone. All methods return at once; generation happens on a background queue.
@@ -370,6 +373,7 @@ impl Media {
             }),
             tx,
             seen_image_prompt: AtomicBool::new(false),
+            queued: AtomicUsize::new(0),
         });
         if let Some(rx) = rx {
             tokio::spawn(worker(Arc::downgrade(&inner), rx));
@@ -480,7 +484,7 @@ impl Media {
         }
         // Budget, caps, queue.
         let cfg = &self.inner.cfg;
-        let price = gen.price_usd(prompt.kind, &prompt.size);
+        let price = gen.price_for(prompt.kind, &prompt.size, prompt.refs.len());
         let spend = st.matches.entry(m.clone()).or_default();
         let refusal = match price {
             None => Some("unknown price for this model: set FN7_IMAGE_PRICE_USD".to_string()),
@@ -515,11 +519,16 @@ impl Media {
                 match_id: match_id.map(str::to_string),
                 ctx: theatre_trace::current(),
             };
-            let sent = self
-                .inner
-                .tx
-                .as_ref()
-                .is_some_and(|tx| tx.try_send(job).is_ok());
+            let room = self.inner.queued.load(Ordering::Relaxed) < cfg.queue;
+            let sent = room
+                && self
+                    .inner
+                    .tx
+                    .as_ref()
+                    .is_some_and(|tx| tx.try_send(job).is_ok());
+            if sent {
+                self.inner.queued.fetch_add(1, Ordering::Relaxed);
+            }
             match sent {
                 true => {
                     let spend = st.matches.entry(m.clone()).or_default();
@@ -557,7 +566,8 @@ impl Media {
             ),
             None => (
                 "media_request",
-                json!({ "hash": key, "kind": prompt.kind, "provider": gen.provider(), "model": self.inner.label, "price_usd": price, "prompt": prompt.text }),
+                json!({ "hash": key, "kind": prompt.kind, "provider": gen.provider(), "model": self.inner.label, "price_usd": price, "prompt": prompt.text,
+                        "refs": prompt.refs.iter().map(|r| r.file_name()).collect::<Vec<_>>() }),
             ),
         };
         theatre_trace::event(kind, None, data);
@@ -690,7 +700,8 @@ impl Media {
     }
 }
 
-/// sha256(`PROMPT_VERSION` \n label \n size \n prompt text), hex.
+/// sha256(`PROMPT_VERSION` \n label \n size \n prompt text [\n ref:<sha256 of each reference image, in order>]),
+/// hex. The prompt text carries the kind's house style and reference note; the reference hashes pin the exact files.
 pub fn image_key(label: &str, prompt: &ImagePrompt) -> String {
     let mut h = Sha256::new();
     h.update(PROMPT_VERSION.as_bytes());
@@ -700,28 +711,62 @@ pub fn image_key(label: &str, prompt: &ImagePrompt) -> String {
     h.update(prompt.size.as_bytes());
     h.update(b"\n");
     h.update(prompt.text.as_bytes());
+    for r in &prompt.refs {
+        h.update(b"\nref:");
+        h.update(r.sha256.as_bytes());
+    }
     hex::encode(h.finalize())
 }
 
+/// The queue worker: accepted jobs wait in one lane per priority ([`ImageKind::priority`]); whenever a generation slot
+/// is free, the oldest job of the most urgent non-empty lane starts. So a portrait asked for after twelve moment cards
+/// still starts at the next free slot.
 async fn worker(inner: Weak<Inner>, mut rx: mpsc::Receiver<Job>) {
     let concurrency = inner.upgrade().map(|i| i.cfg.concurrency).unwrap_or(1);
     let sem = Arc::new(Semaphore::new(concurrency));
-    while let Some(job) = rx.recv().await {
-        let Ok(permit) = sem.clone().acquire_owned().await else {
-            return;
-        };
-        let Some(inner) = inner.upgrade() else {
-            return;
-        };
-        tokio::spawn(async move {
-            let _permit = permit;
-            let ctx = job.ctx.clone();
-            let fut = run_job(inner, job);
-            match ctx {
-                Some(c) => theatre_trace::within(c, fut).await,
-                None => fut.await,
+    let mut lanes: [VecDeque<Job>; ImageKind::PRIORITIES] = Default::default();
+    let push = |lanes: &mut [VecDeque<Job>; ImageKind::PRIORITIES], j: Job| {
+        lanes[j.prompt.kind.priority()].push_back(j)
+    };
+    loop {
+        while let Ok(j) = rx.try_recv() {
+            push(&mut lanes, j);
+        }
+        if lanes.iter().all(VecDeque::is_empty) {
+            match rx.recv().await {
+                Some(j) => {
+                    push(&mut lanes, j);
+                    continue;
+                }
+                None => return,
             }
-        });
+        }
+        tokio::select! {
+            biased;
+            permit = sem.clone().acquire_owned() => {
+                let Ok(permit) = permit else { return };
+                // Take in anything that arrived while waiting, so it competes by priority.
+                while let Ok(j) = rx.try_recv() {
+                    push(&mut lanes, j);
+                }
+                let Some(job) = lanes.iter_mut().find_map(VecDeque::pop_front) else { continue };
+                let Some(inner) = inner.upgrade() else { return };
+                inner.queued.fetch_sub(1, Ordering::Relaxed);
+                tokio::spawn(async move {
+                    let _permit = permit;
+                    let ctx = job.ctx.clone();
+                    let fut = run_job(inner, job);
+                    match ctx {
+                        Some(c) => theatre_trace::within(c, fut).await,
+                        None => fut.await,
+                    }
+                });
+            }
+            j = rx.recv() => match j {
+                Some(j) => push(&mut lanes, j),
+                None => return,
+            },
+        }
     }
 }
 
@@ -734,6 +779,7 @@ async fn run_job(inner: Arc<Inner>, job: Job) {
         kind: job.prompt.kind,
         prompt: job.prompt.text.clone(),
         size: job.prompt.size.clone(),
+        refs: job.prompt.refs.clone(),
     };
     let t0 = Instant::now();
     let res = gen.generate(&req).await;

@@ -1,5 +1,7 @@
 //! Image generators: [`MockGenerator`] (free, deterministic SVG placeholders, for tests and UI work) and
-//! [`OpenAiImages`] (the OpenAI Images API over raw HTTPS; paid, so only ever built when the host opts in).
+//! [`OpenAiImages`] (the OpenAI Images API over raw HTTPS; paid, so only ever built when the host opts in). With
+//! reference images on a gpt-image model, [`OpenAiImages`] calls `POST /images/edits` (multipart, one `image[]` part
+//! per reference); otherwise `POST /images/generations`.
 
 use std::time::{Duration, Instant};
 
@@ -9,6 +11,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 use crate::prompt::ImageKind;
+use crate::style::RefImage;
 
 /// What a generator is asked for.
 #[derive(Debug, Clone)]
@@ -20,6 +23,8 @@ pub struct GenRequest {
     pub prompt: String,
     /// `WIDTHxHEIGHT` (from the style's kind).
     pub size: String,
+    /// Reference images to send with it (empty = none; generators that can't use them ignore them).
+    pub refs: Vec<RefImage>,
 }
 
 /// What a generator made.
@@ -43,6 +48,12 @@ pub trait ImageGenerator: Send + Sync {
     /// The price of one image of this kind and size in USD, or `None` when unknown (then nothing is generated: a
     /// budget can't be enforced on an unknown price).
     fn price_usd(&self, kind: ImageKind, size: &str) -> Option<f64>;
+    /// The price of one image sent with `refs` reference images (what budgets reserve). By default the same as
+    /// [`ImageGenerator::price_usd`]; [`OpenAiImages`] adds the input-image cost of an edits call.
+    fn price_for(&self, kind: ImageKind, size: &str, refs: usize) -> Option<f64> {
+        let _ = refs;
+        self.price_usd(kind, size)
+    }
     async fn generate(&self, req: &GenRequest) -> anyhow::Result<Generated>;
 }
 
@@ -176,7 +187,8 @@ impl OpenAiConfig {
     pub const DEFAULT_QUALITY: &'static str = "medium";
 }
 
-/// The OpenAI Images API (`POST /images/generations`), raw HTTPS through reqwest. Never constructed unless the host sets
+/// The OpenAI Images API (`POST /images/generations`, or `POST /images/edits` with reference images on a gpt-image
+/// model), raw HTTPS through reqwest. Never constructed unless the host sets
 /// `FN7_IMAGES=openai` and `OPENAI_API_KEY` (see `MediaConfig::from_lookup`).
 pub struct OpenAiImages {
     cfg: OpenAiConfig,
@@ -223,6 +235,135 @@ impl OpenAiImages {
         }
         b
     }
+
+    /// Whether this request goes to `/images/edits` (reference images on a gpt-image model).
+    pub fn uses_edits(&self, req: &GenRequest) -> bool {
+        self.is_gpt_image() && !req.refs.is_empty()
+    }
+
+    /// The text fields of an edits request: model, prompt, size, quality, n = 1, output_format, and `background:
+    /// transparent` when wanted and not yet refused by the model.
+    pub fn edit_fields(&self, req: &GenRequest, transparent: bool) -> Vec<(&'static str, String)> {
+        let mut f = vec![
+            ("model", self.cfg.model.clone()),
+            ("prompt", req.prompt.clone()),
+            ("size", self.size_of(&req.size).to_string()),
+            ("quality", self.cfg.quality.clone()),
+            ("n", "1".to_string()),
+            ("output_format", "png".to_string()),
+        ];
+        if transparent && req.kind.wants_transparency() {
+            f.push(("background", "transparent".to_string()));
+        }
+        f
+    }
+
+    /// An edits request: `(content-type, multipart body, record)`. `images` are `(file name, bytes)` in order, one
+    /// `image[]` part each. The record is what the HTTP log keeps: the text fields, and for each image its file name,
+    /// size and sha256 (never the bytes; never the key, which only ever travels in the authorization header).
+    pub fn edit_request(
+        &self,
+        req: &GenRequest,
+        images: &[(String, Vec<u8>)],
+        transparent: bool,
+    ) -> (String, Vec<u8>, Value) {
+        let fields = self.edit_fields(req, transparent);
+        let boundary = format!("fn7-media-{}", &req.key[..req.key.len().min(32)]);
+        let body = multipart(&boundary, &fields, images);
+        let mut rec = serde_json::Map::new();
+        for (k, v) in &fields {
+            rec.insert((*k).to_string(), json!(v));
+        }
+        rec.insert(
+            "image[]".into(),
+            json!(images
+                .iter()
+                .map(|(n, b)| json!({ "file": n, "bytes": b.len(), "sha256": hex::encode(Sha256::digest(b)) }))
+                .collect::<Vec<_>>()),
+        );
+        rec.insert("encoding".into(), json!("multipart/form-data"));
+        (format!("multipart/form-data; boundary={boundary}"), body, Value::Object(rec))
+    }
+
+    /// What one call actually cost, from the response's `usage` (edits on a model whose token rates are known): the
+    /// per-image output price plus input text and image tokens. `None` = use the reserved price.
+    fn measured_cost(&self, size: &str, usage: &Value) -> Option<f64> {
+        if self.cfg.price_override.is_some() {
+            return None;
+        }
+        let (text_rate, image_rate) = input_rates(&self.cfg.model)?;
+        let out = price_per_image(&self.cfg.model, self.size_of(size), &self.cfg.quality)?;
+        let image = usage.pointer("/input_tokens_details/image_tokens")?.as_u64()? as f64;
+        let text = usage
+            .pointer("/input_tokens_details/text_tokens")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as f64;
+        Some(out + image * image_rate + text * text_rate)
+    }
+}
+
+/// A multipart/form-data body: the text fields, then one `image[]` part per image.
+pub fn multipart(boundary: &str, fields: &[(&str, String)], images: &[(String, Vec<u8>)]) -> Vec<u8> {
+    let mut b: Vec<u8> = Vec::new();
+    for (k, v) in fields {
+        b.extend_from_slice(
+            format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{k}\"\r\n\r\n{v}\r\n").as_bytes(),
+        );
+    }
+    for (name, bytes) in images {
+        let safe: String = name.chars().filter(|c| *c != '"' && *c != '\r' && *c != '\n').collect();
+        b.extend_from_slice(
+            format!(
+                "--{boundary}\r\nContent-Disposition: form-data; name=\"image[]\"; filename=\"{safe}\"\r\n\
+                 Content-Type: {}\r\n\r\n",
+                image_mime(name)
+            )
+            .as_bytes(),
+        );
+        b.extend_from_slice(bytes);
+        b.extend_from_slice(b"\r\n");
+    }
+    b.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+    b
+}
+
+fn image_mime(name: &str) -> &'static str {
+    let n = name.to_ascii_lowercase();
+    if n.ends_with(".png") {
+        "image/png"
+    } else if n.ends_with(".webp") {
+        "image/webp"
+    } else {
+        "image/jpeg"
+    }
+}
+
+/// Input token prices (USD per token: text, image) for edits calls. **[estimate]**: OpenAI's published per-1M-token
+/// prices as we know them (gpt-image-1-mini $2.00 text / $2.50 image; gpt-image-1 $5 / $10), not confirmed against
+/// the live pricing page; `FN7_IMAGE_PRICE_USD` overrides the whole per-image price.
+pub fn input_rates(model: &str) -> Option<(f64, f64)> {
+    match model {
+        "gpt-image-1-mini" => Some((2.0e-6, 2.5e-6)),
+        "gpt-image-1" => Some((5.0e-6, 10.0e-6)),
+        _ => None,
+    }
+}
+
+/// Input image tokens reserved per reference image (measured: 1,128 per image for gpt-image-1-mini, 4 refs = 4,512
+/// and 6 refs = 6,768; rounded up).
+pub const EST_TOKENS_PER_REF: f64 = 1200.0;
+/// Input text tokens reserved per edits call (measured 260–340 for house-style prompts; rounded up).
+pub const EST_TEXT_TOKENS: f64 = 600.0;
+
+/// USD per edits call with `refs` reference images: the per-image price plus the estimated input cost. `None` when the
+/// model's image price or input rates are unknown.
+pub fn price_per_edit(model: &str, size: &str, quality: &str, refs: usize) -> Option<f64> {
+    let base = price_per_image(model, size, quality)?;
+    if refs == 0 {
+        return Some(base);
+    }
+    let (text, image) = input_rates(model)?;
+    Some(base + refs as f64 * EST_TOKENS_PER_REF * image + EST_TEXT_TOKENS * text)
 }
 
 /// USD per image from OpenAI's published prices (per image, by model, size and quality). Prices change: check
@@ -303,31 +444,65 @@ impl ImageGenerator for OpenAiImages {
             .price_override
             .or_else(|| price_per_image(&self.cfg.model, self.size_of(size), &self.cfg.quality))
     }
+    fn price_for(&self, kind: ImageKind, size: &str, refs: usize) -> Option<f64> {
+        if refs == 0 || !self.is_gpt_image() {
+            return self.price_usd(kind, size);
+        }
+        self.cfg
+            .price_override
+            .or_else(|| price_per_edit(&self.cfg.model, self.size_of(size), &self.cfg.quality, refs))
+    }
 
     async fn generate(&self, req: &GenRequest) -> anyhow::Result<Generated> {
-        let url = format!(
-            "{}/images/generations",
-            self.cfg.base_url.trim_end_matches('/')
-        );
-        let body = self.body(req);
-        let cost = self.price_usd(req.kind, &req.size).unwrap_or(0.0);
+        let edits = self.uses_edits(req);
+        let base = self.cfg.base_url.trim_end_matches('/');
+        let url = if edits {
+            format!("{base}/images/edits")
+        } else {
+            format!("{base}/images/generations")
+        };
+        let mut images: Vec<(String, Vec<u8>)> = Vec::new();
+        if edits {
+            for r in &req.refs {
+                let b = tokio::fs::read(&r.path)
+                    .await
+                    .map_err(|e| anyhow::anyhow!("reference image {}: {e}", r.path.display()))?;
+                images.push((r.file_name(), b));
+            }
+        }
+        let json_body = self.body(req);
+        let refs_sent = if edits { req.refs.len() } else { 0 };
+        let cost = self.price_for(req.kind, &req.size, refs_sent).unwrap_or(0.0);
+        // Edits may refuse `background: transparent` on some models: then it is dropped once and the call repeated
+        // (the picture comes back opaque).
+        let mut transparent = true;
         let mut attempt = 0u32;
         loop {
+            let (content_type, bytes, record) = if edits {
+                self.edit_request(req, &images, transparent)
+            } else {
+                (
+                    "application/json".to_string(),
+                    serde_json::to_vec(&json_body)?,
+                    json_body.clone(),
+                )
+            };
             let started_at = theatre_trace::now_ms();
             let t0 = Instant::now();
             let sent = self
                 .http
                 .post(&url)
                 .bearer_auth(&self.cfg.api_key)
-                .json(&body)
+                .header(reqwest::header::CONTENT_TYPE, content_type.as_str())
+                .body(bytes)
                 .send()
                 .await;
             let mut rec = theatre_trace::HttpRecord {
                 attempt,
                 started_at,
                 url: url.clone(),
-                request: body.clone(),
-                request_headers: json!({ "content-type": "application/json", "authorization": "Bearer <redacted>" }),
+                request: record,
+                request_headers: json!({ "content-type": content_type, "authorization": "Bearer <redacted>" }),
                 ..Default::default()
             };
             let resp = match sent {
@@ -366,6 +541,16 @@ impl ImageGenerator for OpenAiImages {
                     .to_string();
                 rec.error = Some(format!("{status}: {msg}"));
                 theatre_trace::http(rec);
+                if edits
+                    && transparent
+                    && req.kind.wants_transparency()
+                    && status.as_u16() == 400
+                    && msg.to_ascii_lowercase().contains("background")
+                {
+                    tracing::warn!(model = %self.cfg.model, "images/edits refused background=transparent; retrying opaque");
+                    transparent = false;
+                    continue;
+                }
                 if attempt < self.cfg.retries
                     && (status.as_u16() == 429 || status.is_server_error())
                 {
@@ -391,9 +576,16 @@ impl ImageGenerator for OpenAiImages {
             } else {
                 anyhow::bail!("openai images: no image in the response");
             };
+            let cost = match edits {
+                true => parsed
+                    .get("usage")
+                    .and_then(|u| self.measured_cost(&req.size, u))
+                    .unwrap_or(cost),
+                false => cost,
+            };
             return Ok(Generated {
                 bytes,
-                ext: sniff_ext(&body),
+                ext: sniff_ext(&json_body),
                 cost_usd: cost,
                 model: self.cfg.model.clone(),
             });
@@ -448,6 +640,7 @@ mod tests {
             kind,
             prompt: "p".into(),
             size: "1536x1024".into(),
+            refs: vec![],
         };
         let b = g.body(&r(ImageKind::Statue));
         assert_eq!(b["background"], "transparent");
@@ -456,6 +649,138 @@ mod tests {
         assert_eq!(b["size"], "1536x1024", "the style's size wins");
         assert_eq!(g.price_usd(ImageKind::Event, "1536x1024"), Some(0.015));
         assert_eq!(g.price_usd(ImageKind::Event, ""), Some(0.011));
+    }
+
+    fn gen(model: &str, base_url: &str, price_override: Option<f64>) -> OpenAiImages {
+        OpenAiImages::new(OpenAiConfig {
+            api_key: "sk-test-SECRET".into(),
+            base_url: base_url.into(),
+            model: model.into(),
+            size: "1024x1024".into(),
+            quality: "medium".into(),
+            price_override,
+            timeout: Duration::from_secs(5),
+            retries: 0,
+        })
+        .unwrap()
+    }
+
+    fn refs_in(dir: &std::path::Path, n: usize) -> Vec<RefImage> {
+        std::fs::create_dir_all(dir).unwrap();
+        (0..n)
+            .map(|i| {
+                let path = dir.join(format!("IMG_{i}.jpg"));
+                std::fs::write(&path, vec![0xffu8, 0xd8, i as u8, 0x42]).unwrap();
+                RefImage { name: format!("style_refs/IMG_{i}.jpg"), path, sha256: format!("{i:064}") }
+            })
+            .collect()
+    }
+
+    fn temp(tag: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("fn7-gen-{tag}-{}-{}", std::process::id(), theatre_trace::now_ms()))
+    }
+
+    #[test]
+    fn edits_request_is_multipart_with_one_image_part_per_ref_and_no_key() {
+        let g = gen("gpt-image-1-mini", "http://127.0.0.1:9", None);
+        let refs = refs_in(&temp("mp"), 6);
+        let req = GenRequest {
+            key: "ab".repeat(32),
+            kind: ImageKind::Diorama,
+            prompt: "A tiny figure. Style: x.".into(),
+            size: "1024x1024".into(),
+            refs: refs.clone(),
+        };
+        assert!(g.uses_edits(&req));
+        let images: Vec<(String, Vec<u8>)> =
+            refs.iter().map(|r| (r.file_name(), std::fs::read(&r.path).unwrap())).collect();
+        let (ct, body, rec) = g.edit_request(&req, &images, true);
+        let text = String::from_utf8_lossy(&body);
+        assert!(ct.starts_with("multipart/form-data; boundary=fn7-media-"));
+        assert_eq!(text.matches("name=\"image[]\"").count(), 6, "one image[] part per reference");
+        for f in ["model", "prompt", "size", "quality", "n", "output_format", "background"] {
+            assert_eq!(text.matches(&format!("name=\"{f}\"\r\n")).count(), 1, "{f}");
+        }
+        assert!(text.contains("filename=\"IMG_0.jpg\"\r\nContent-Type: image/jpeg"));
+        assert!(text.contains("gpt-image-1-mini") && text.contains("\r\n1\r\n"), "n=1");
+        assert!(text.ends_with("--\r\n"));
+        // The record: fields and file names, never the key nor the image bytes.
+        assert!(!text.contains("sk-test") && !rec.to_string().contains("sk-test"));
+        assert_eq!(rec["image[]"].as_array().unwrap().len(), 6);
+        assert_eq!(rec["image[]"][0]["file"], "IMG_0.jpg");
+        assert_eq!(rec["image[]"][0]["bytes"], 4);
+        assert_eq!(rec["model"], "gpt-image-1-mini");
+        assert_eq!(rec["background"], "transparent");
+        // Opaque fallback drops only `background`; a portrait never asks for it.
+        let (_, body2, rec2) = g.edit_request(&req, &images, false);
+        assert!(!String::from_utf8_lossy(&body2).contains("name=\"background\"") && rec2.get("background").is_none());
+        let portrait = GenRequest { kind: ImageKind::Portrait, ..req.clone() };
+        assert!(g.edit_fields(&portrait, true).iter().all(|(k, _)| *k != "background"));
+        // No refs, or a non-gpt-image model: generations as before.
+        assert!(!g.uses_edits(&GenRequest { refs: vec![], ..req.clone() }));
+        assert!(!gen("dall-e-3", "http://127.0.0.1:9", None).uses_edits(&req));
+    }
+
+    #[test]
+    fn edits_cost_more_by_the_input_images_and_the_override_wins() {
+        let g = gen("gpt-image-1-mini", "http://127.0.0.1:9", None);
+        let six = g.price_for(ImageKind::Portrait, "1024x1024", 6).unwrap();
+        let expect = 0.011 + 6.0 * EST_TOKENS_PER_REF * 2.5e-6 + EST_TEXT_TOKENS * 2.0e-6;
+        assert!((six - expect).abs() < 1e-12, "{six} vs {expect}");
+        assert!(six > 0.028 && six < 0.032, "{six}");
+        assert_eq!(g.price_for(ImageKind::Portrait, "1024x1024", 0), Some(0.011));
+        assert_eq!(gen("gpt-image-1-mini", "x", Some(0.05)).price_for(ImageKind::Event, "1536x1024", 6), Some(0.05));
+        assert_eq!(gen("gpt-image-2-new", "x", None).price_for(ImageKind::Event, "1024x1024", 4), None);
+        // The measured cost comes from usage (the prototype's 6-ref call: 6,768 image + 277 text tokens).
+        let usage = json!({ "input_tokens_details": { "image_tokens": 6768, "text_tokens": 277 } });
+        let m = g.measured_cost("1024x1024", &usage).unwrap();
+        assert!((m - (0.011 + 6768.0 * 2.5e-6 + 277.0 * 2.0e-6)).abs() < 1e-12);
+        assert!(m <= six, "the reservation covers a measured call");
+    }
+
+    #[tokio::test]
+    async fn edits_call_end_to_end_with_opaque_fallback() {
+        use axum::{body::Bytes, http::HeaderMap, routing::post, Router};
+        use std::sync::{Arc, Mutex};
+        let seen: Arc<Mutex<Vec<(String, String)>>> = Arc::default();
+        let s2 = seen.clone();
+        let app = Router::new().route(
+            "/images/edits",
+            post(move |headers: HeaderMap, body: Bytes| {
+                let seen = s2.clone();
+                async move {
+                    let text = String::from_utf8_lossy(&body).to_string();
+                    let auth = headers.get("authorization").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+                    let first = { let mut s = seen.lock().unwrap(); s.push((auth, text.clone())); s.len() == 1 };
+                    if first && text.contains("name=\"background\"") {
+                        return (axum::http::StatusCode::BAD_REQUEST,
+                            axum::Json(json!({ "error": { "message": "Invalid value for background: transparent" } })));
+                    }
+                    (axum::http::StatusCode::OK, axum::Json(json!({
+                        "data": [ { "b64_json": base64::engine::general_purpose::STANDARD.encode(b"PNGBYTES") } ],
+                        "usage": { "input_tokens_details": { "image_tokens": 4512, "text_tokens": 300 } } })))
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let g = gen("gpt-image-1-mini", &format!("http://{addr}"), None);
+        let req = GenRequest {
+            key: "cd".repeat(32),
+            kind: ImageKind::Diorama,
+            prompt: "p".into(),
+            size: "1024x1024".into(),
+            refs: refs_in(&temp("e2e"), 4),
+        };
+        let out = g.generate(&req).await.unwrap();
+        assert_eq!(out.bytes, b"PNGBYTES");
+        assert!((out.cost_usd - (0.011 + 4512.0 * 2.5e-6 + 300.0 * 2.0e-6)).abs() < 1e-12, "measured cost");
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 2, "refused transparent once, then opaque");
+        assert_eq!(seen[0].0, "Bearer sk-test-SECRET", "the key travels only in the header");
+        assert!(seen[0].1.contains("name=\"background\"") && !seen[1].1.contains("name=\"background\""));
+        assert_eq!(seen[1].1.matches("name=\"image[]\"").count(), 4);
     }
 
     #[test]

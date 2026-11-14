@@ -1,7 +1,7 @@
 # Images (`fn7-media`)
 
 The server turns image prompts in payloads into pictures: **portraits** (demigods, memorized characters), demigod
-**dioramas** (each demigod as a collectible minifig on a small base themed on its home region: the table piece), **items**,
+**dioramas** (each demigod as a tiny geometric miniature on a hex tile: the table piece), **items**,
 **events** (moment cards: the public events the style selects; god rulings), end-of-match **statues**, and, on request
 by reference (`game.media`), **places** and **armies**. Every character has a stable **visual sheet**, so the same
 person looks the same in every picture, and every match ends with a **storyboard** (the final-cut animatic). Generation runs in the background and never
@@ -32,7 +32,7 @@ config's `event_selection` picks it (below). Storyboard shots (`match.ended.summ
   "kind": "statue",                 // "portrait" | "item" | "event" | "statue" | "place" | "army" | "diorama"
   "status": "pending",              // "pending" | "ready" | "off"
   "url": null,                      // "/media/<hash>.<ext>" once ready
-  "prompt": "Amiibo-style figure on a round base atop a pile of its items: the demigod Rook (…), … Style: collectible-figure game illustration, …. Avoid: text, logos, …."
+  "prompt": "A slightly larger faceted low-poly figure of the demigod on a raised hexagonal plinth …: the demigod Rook (…), … Style: Final Night 7's tabletop world: …. Match the reference images' palette, …. No words or letters in the picture, no gore, no real people."
 }
 ```
 
@@ -41,11 +41,11 @@ config's `event_selection` picks it (below). Storyboard shots (`match.ended.summ
 - `status: "pending"`: queued or generating. Watch the manifest for `hash`.
 - `status: "off"`: no picture will come (images off, over budget, over the per-match event cap, or the generator
   failed). Show your own placeholder. Don't retry.
-- `hash` is the image's key: sha256 of the prompt version, the generator (provider, model, quality), the size and the
-  prompt text. The same prompt under the same generator is always the same hash and is generated once, ever (it is
+- `hash` is the image's key: sha256 of the prompt version (`fn7-media/3`), the generator (provider, model, quality),
+  the size, the prompt text and the sha256 of every reference image sent with it. The same prompt under the same generator is always the same hash and is generated once, ever (it is
   cached on disk across matches and restarts).
-- `prompt` is the full text sent to the image model: `<Framing for its kind>: <subject>. Style: <house style>. Avoid:
-  <avoid list>.`, all from the style config. It never contains engine ids.
+- `prompt` is the full text sent to the image model: `<Framing for its kind>: <subject>. Style: <the kind's house
+  style>. <reference note> <avoid>`, all from the style config. It never contains engine ids.
 
 The plugin sends `image_prompt` on every public event (and storyboard shot), so the interim rules below are off in
 practice; they remain for older plugins. Until the plugin sends `image_prompt` fields of its own, the server adds images from what payloads already carry:
@@ -86,36 +86,90 @@ The routes are served on the game server's own port (the Theatre's router is ext
 ## The style config: `data/media_style.json`
 
 Benito's lever (docs/SHARED_MEDIA_SPEC.md §4). The server loads `FN7_MEDIA_STYLE` (a path) if set, else
-`data/media_style.json` in its working directory if it exists, else the copy compiled into the binary.
+`data/media_style.json` in its working directory if it exists, else the copy compiled into the binary (whose reference
+paths resolve against the repo's `data/` at build time).
+
+### Two looks (style version 2, 2026-11-14)
+
+Chris's decision: two looks, chosen per kind.
+
+| Look | Kinds | House style | References (in order) | Note |
+|---|---|---|---|---|
+| **Benito's dark fantasy** | `portrait` | Benito's DEFAULT_STYLE without its fixed scenery: "a dark-fantasy world at night under a vast starry sky …, dreamy and eerie" | his six: IMG_3751, 3754, 3758, 3762, 3764, 3765 (the approved render's) | "Match the reference images exactly in art style, rendering, colour palette, lighting and level of detail; this is a new shot in that same world, not a copy of them." |
+| **Max zoom (hex diorama)** | `diorama`, `event`, `statue`, `army`, `place`, `item` | "Final Night 7's tabletop world: an extremely sparse, geometric low-poly miniature diorama on a dark candlelit wooden table: … hexagonal tiles …, voxel blocks, … white pillars and cones standing in for people … Combined with the mood of the reference images: … PlayStation 2 era dark-fantasy, Dark Souls atmosphere …" | geometry refs first (the Unreal table screenshots, when added), then 4 mood refs: IMG_3751, 3754, 3762, 3765 | "Match the reference images' palette, lighting and atmosphere; keep the geometry extremely simple and the scale miniature, like a tabletop game piece; …" |
+
+Approved example renders (not sent to the model) are kept for the record in `data/style_refs/approved/`:
+`portrait.png` (dark fantasy), `maxzoom_diorama.png` and `maxzoom_event.png` (max zoom). All 15 of Benito's reference
+pictures are in `data/style_refs/` (IMG_3751 … IMG_3765, 2.8 MB).
+
+Why the portrait style has no scenery: a prototype showed that naming a fixed scene ("a burning stone keep … at the edge
+of a misty pine forest") puts the same castle into every image, even "Manila harbour". Benito's full original text is
+kept verbatim in the file as `house_style_original` for him to choose; it is never sent.
 
 ```json
-{ "version": "1",
-  "house_style": "collectible-figure game illustration, Fortnite meets Final Destination, chunky stylized 3D, bold saturated colors",
-  "kinds": { "portrait": {"framing": "waist-up, three-quarter view, dramatic rim light", "size": "1024x1024"},
-             "event":    {"framing": "wide cinematic, seen from high above", "size": "1536x1024"},
-             "statue":   {"framing": "amiibo-style figure on a round base atop a pile of its items", "size": "1024x1024"},
-             "place":    {"framing": "establishing shot", "size": "1536x1024"},
-             "army":     {"framing": "wide cinematic, a marching host seen from a low angle, banners raised", "size": "1536x1024"},
-             "item":     {"framing": "a single item shown alone like a loot icon, centered, three-quarter view, plain background", "size": "1024x1024"},
-             "diorama":  {"framing": "the demigod as a collectible minifig standing on a small square themed diorama base that reflects its home region and shows off its signature prop, three-quarter view from slightly above, centered, square", "size": "1024x1024"} },
-  "avoid": ["text", "logos", "real people's likenesses", "gore close-ups"],
+{ "version": "2",
+  "house_style": "Final Night 7's tabletop world: … dreamy and eerie",
+  "house_style_original": "a dark-fantasy world at night: a burning stone keep of crumbling walls, … dreamy and eerie",
+  "kinds": {
+    "portrait": { "framing": "waist-up, three-quarter view, dramatic rim light", "size": "1024x1024",
+                  "style": "a dark-fantasy world at night under a vast starry sky …",
+                  "references": { "geometry": [], "mood": ["style_refs/IMG_3751.jpg", …6], "mood_per_request": 6,
+                                  "note": "Match the reference images exactly in art style, …" } },
+    "event":    { "framing": "seen from high above the hex-tile table: {subject}, rendered with blocky geometry, tiny white pillar figures for crowds, voxel props, candlelight and starry violet haze", "size": "1536x1024" },
+    "statue":   { "framing": "a slightly larger faceted low-poly figure of the demigod on a raised hexagonal plinth atop a heap of blocky voxel item pieces, lit by candles and torches on the dark table", "size": "1024x1024" },
+    "diorama":  { "framing": "the demigod as a tiny, extremely simple geometric miniature figure (…) standing on a single raised hexagonal diorama tile with its signature prop, three-quarter view from slightly above, centered on the dark candlelit table", "size": "1024x1024" },
+    "place": {…}, "army": {…}, "item": {…} },
+  "avoid": "No words or letters in the picture, no gore, no real people.",
+  "subject_rewrites": [ { "from": "a collectible minifig", "to": "a tiny, extremely simple geometric miniature figure" }, … ],
+  "references": { "geometry": [], "mood": ["style_refs/IMG_3751.jpg", "style_refs/IMG_3754.jpg", "style_refs/IMG_3762.jpg", "style_refs/IMG_3765.jpg"],
+                  "mood_per_request": 4, "note": "Match the reference images' palette, lighting and atmosphere; …" },
   "event_selection": { "min_magnitude": 8, "always": ["cast", "elimination", "general_appointed", "mutiny"], "max_per_match": 12 } }
 ```
 
-- **Prompts.** `<framing>: <subject>. Style: <house_style>. Avoid: <avoid>.`, generated at the kind's `size` (the
-  OpenAI request's `size`; it also picks the price). A kind the file leaves out falls back to the built-in framing
-  above.
+- **Prompts.** `<Framing>: <subject>. Style: <house style>. <note> <avoid>`, at the kind's `size`. A framing containing
+  `{subject}` puts the subject there instead of after a colon (the event, place and army framings do). The house style
+  is `kinds.<k>.style` if set, else `house_style`; the references and note are `kinds.<k>.references` if set, else
+  `references`; no references = no note. `avoid` is a sentence sent as written (the shipped file) or a list (`Avoid: a, b.`).
+  A kind the file leaves out falls back to the built-in framing.
+- **Subject rewrites.** `subject_rewrites` (in order, case-insensitive) are applied to every subject before framing.
+  They retire the plugin's older collectible-figure wording (the statue prompt's "amiibo-style collectible figure")
+  without a plugin change. The payload's `prompt` shows the rewritten text.
 - **Selection.** An event gets a moment card when its `magnitude` ≥ `min_magnitude` or its `kind` is in `always`
   (`kind` as in `events[].kind`: the ledger verb; `elimination` is accepted for `eliminate`). At most `max_per_match`
   moment-card images per match (`FN7_IMAGE_MAX_EVENTS` overrides it). Storyboard shots and requests by reference don't
   count against this cap (budgets still apply).
 - **Validation.** At startup: unknown keys (typos) are errors except `_comment`-style keys starting with `_`; kinds
-  must be known; sizes `WIDTHxHEIGHT` (64..4096 each); `min_magnitude` 0..10. A bad file stops the server with the file
-  and field named (`media style: data/media_style.json: kinds.portrait.size "big" is not WIDTHxHEIGHT …`). The startup
-  log line `media images=… style=… style_version=… style_hash=…` says which style is live.
+  must be known; sizes `WIDTHxHEIGHT` (64..4096 each); `min_magnitude` 0..10; every reference file must exist and be
+  readable (`media style: data/media_style.json: references.mood[1] "style_refs/IMG_0000.jpg": cannot read reference
+  image …`); a note must not be empty; at most 16 images per request. A bad file stops the server with the file and
+  field named. The startup log line `media images=… style=… style_version=… style_hash=…` says which style is live.
 - **Recorded.** Every match's ruleset carries `media_style: {version, hash, source, body}` (`hash` = sha256 of the parsed
-  JSON, so reformatting doesn't change it). A new framing, house style, avoid list or size changes every affected
-  image's key (no stale picture is reused); retuning only `event_selection` keeps every cached image.
+  JSON, so reformatting doesn't change it; the per-kind styles and references are in it). A new framing, house style,
+  note, avoid text, size or reference file changes every affected image's key (no stale picture is reused); retuning
+  only `event_selection` keeps every cached image.
+
+### Reference mode
+
+With references configured and a gpt-image model, each image is one `POST /images/edits` call (multipart:
+`model, prompt, size, quality, n=1, output_format=png`, `background=transparent` for diorama/statue/item, and one
+`image[]` part per reference). Otherwise (no references, or `dall-e-*`) it is `POST /images/generations` as before; the
+references' note stays in the prompt text but no images are sent.
+
+- **Which references.** Every `geometry` image first, in order, then `mood_per_request` of the `mood` images, picked
+  deterministically from the prompt (each mood image is ranked by sha256 of the prompt's kind, size and framed subject
+  plus the image's sha256; the lowest win, kept in file order). The same prompt always gets the same references;
+  different prompts spread over a larger pool. With the shipped lists the pool equals the pick (6 of 6 for portraits,
+  4 of 4 otherwise); add more of Benito's pictures to a `mood` list to vary it.
+- **Adding the Unreal geometry screenshots** (`data/style_refs/unreal/{table_wide,hex_close,globe_close,figures}.png`)
+  is a data change: list them in `references.geometry` (paths relative to the style file). They then go first in every
+  max-zoom request. Not added yet (the files don't exist yet).
+- **Transparency.** Edits may refuse `background: transparent` on some models. Then the call is repeated once without
+  it (recorded as two HTTP exchanges, the first with its 400) and the picture comes back opaque. The max-zoom framings
+  put the piece on the dark table anyway.
+- **Recording.** The HTTP record of an edits call holds the text fields and, for each `image[]`, `{file, bytes,
+  sha256}`, never the image bytes and never the key (only the `authorization` header carries it, recorded as
+  `Bearer <redacted>`). The response is redacted as before (base64 replaced by its length). `media_request` lists the
+  reference file names (`refs`).
 
 ## Visual sheets (character identity)
 
@@ -130,12 +184,27 @@ carrying …, with the emblem of a broken crown)"); statues carry the sheet; an 
 and emblem. A demigod's `portrait_image`, its `game.media` portrait and its storyboard close-up are one image.
 
 **Dioramas.** Every demigod also carries `diorama_prompt` (with `diorama_image_kind: "diorama"`; its `image_kind`
-stays `"portrait"`, the kind of `portrait_prompt`): its name and sheet as a collectible minifig standing on a small
-square diorama base themed on its **home region** (the region, or city district, it started in: `Demigod.home`, fixed
-at setup) with its signature **prop** built into the scene and its two colors as trim. Nothing in it changes during a
-match, so it is one image per demigod (`diorama_image`, square, transparent background where the model supports it),
-the same as `game.media {kind: "diorama", ref: "dg:N"}`. States from before `home` existed get a generic "home turf"
-base. The style config's `kinds.diorama` sets its framing and size.
+stays `"portrait"`, the kind of `portrait_prompt`): its name and sheet as a tiny geometric miniature on a single hex
+diorama tile with its signature **prop** built into the scene and its two colors as trim. It no longer names the home
+region (identity only, below), so it is one image per demigod across every match (`diorama_image`, square), the same as
+`game.media {kind: "diorama", ref: "dg:N"}`. The style config's `kinds.diorama` sets its framing and size.
+
+**Identity: one image per demigod, ever** (sheet version `fn7-visual/2`). A demigod's sheet depends only on its name
+(trimmed, lowercased), never the seed, its id or its `dg:N` ref, and its portrait and diorama prompts hold only the name
+and the sheet (no home region, beat or health). So "Vex" is the same picture in every match, and the disk cache serves
+it at once. Person sheets are unchanged (seed, id and name; their hashes keep `fn7-visual/1`).
+
+**Hands.** A player's Left and Right hands are its two demigods: each hand in the seat view (`hands[]` in
+`round.brief` per seat and `game.me` / the seat view) carries its own `visual`, `portrait_prompt` and `diorama_prompt`
+(identity only, from its name, e.g. "Vex's Left Hand"), and the server adds `portrait_image` and `diorama_image` beside
+them. The demigod's own portrait is unchanged. Hands appear only in private seat payloads, not in the public view.
+
+**Prewarm.** With images on, the server queues, at startup, the portrait and diorama of every built-in AI demigod
+(`fn7_plugin::phases::AI_NAMES`: Vex, Mara, Oko, Lune, Sable, Quill, Rook, Juno) and of both its hands, plus any names
+in `FN7_MEDIA_PREWARM_NAMES`: 6 images per name, 48 for the roster. Already-cached images cost nothing. It logs `media
+prewarm: N queued, M already cached`. It spends from a `prewarm` budget bucket, so `FN7_IMAGE_MATCH_BUDGET_USD` and
+`FN7_IMAGE_BUDGET_USD` must both cover it (about $1.31 reserved for the roster with `gpt-image-1-mini` medium, see
+the costs; about $0.16 per extra name).
 
 ## Images by reference: `game.media`
 
@@ -170,9 +239,11 @@ the champion's is its portrait. Video clips per shot (phase 2) are not built: th
 | `FN7_IMAGE_MODEL` | `gpt-image-1-mini` | Any OpenAI Images model (`gpt-image-1`, `dall-e-3`, `dall-e-2`, …) |
 | `FN7_IMAGE_SIZE` | `1024x1024` | Only for a request without a size; the style config gives every kind its size |
 | `FN7_IMAGE_QUALITY` | `medium` | `low/medium/high` (gpt-image), `standard/hd` (dall-e-3) |
-| `FN7_IMAGE_PRICE_USD` | from the table | Price per image; required for a model the table doesn't know (otherwise every request is refused) |
+| `FN7_IMAGE_PRICE_USD` | from the table | Price per image, **the whole call** (in reference mode it replaces the output price plus the input-image estimate); required for a model the table doesn't know (otherwise every request is refused) |
 | `FN7_IMAGE_BASE_URL` | `https://api.openai.com/v1` | |
-| `FN7_IMAGE_CONCURRENCY` | `2` | Generations in flight |
+| `FN7_IMAGE_CONCURRENCY` | `6` | Generations in flight. Waiting jobs start by priority: portrait and diorama, then statue, then army/place/item, then event (first come, first served within a priority), so portraits never wait behind moment cards |
+| `FN7_MEDIA_PREWARM` | on | `0`/`off`/`false` turns the startup prewarm off |
+| `FN7_MEDIA_PREWARM_NAMES` | | Extra names to prewarm, comma-separated (e.g. `Chris,Benito`) |
 | `FN7_IMAGE_QUEUE` | `256` | Queued generations; beyond it requests are refused |
 | `FN7_IMAGE_TIMEOUT_S` | `120` | Per request |
 | `FN7_MEDIA_DIR` | `runs/media` | The cache: `<hash>.<ext>` + `<hash>.json` |
@@ -216,7 +287,26 @@ them, they change):
 That is `(portraits + statues + N) × price`; portraits of returning names are cached across matches. More players or
 memorized-character portraits add one image each.
 
-**Since the style config** (media release): event, place and army images are wide (`1536x1024`), so they cost the wide
+**Reference mode (style version 2).** An edits call also pays for its input images. The budget reserves, per call,
+the per-image price above plus `refs × 1,200` input image tokens and 600 input text tokens, at these rates
+**[estimate]** (OpenAI's per-1M-token prices as we know them, not confirmed against the live pricing page):
+`gpt-image-1-mini` $2.50 image input, $2.00 text input; `gpt-image-1` $10 and $5. Measured (prototype, `gpt-image-1-mini`,
+1024x1024 medium): 1,128 image tokens per reference (4 refs = 4,512, 6 refs = 6,768), 260–340 text tokens, 1,056 output
+tokens. After a call, the cost recorded (and charged against the budgets) is computed from the response's `usage`:
+the per-image price plus the measured input tokens at these rates. `FN7_IMAGE_PRICE_USD` overrides all of it.
+
+| `gpt-image-1-mini` medium | Refs | Reserved | Measured-basis |
+|---|---|---|---|
+| portrait (1024x1024) | 6 | $0.0302 | ≈ $0.0285 |
+| diorama / statue / item (1024x1024) | 4 | $0.0242 | ≈ $0.0229 |
+| event / place / army (1536x1024) | 4 | $0.0282 | ≈ $0.0269 |
+
+A 4-player match where every identity is new (12 portraits and 12 dioramas: 4 demigods and their 8 hands; plus 4
+statues) reserves about $0.75 before moment cards, and each moment card adds about $0.028 ($0.34 more at the 12-card cap). Prewarmed and returning
+identities cost nothing (one image per identity, ever), so in practice a match pays mostly for its moment cards,
+statues and human players' new names.
+
+**Since the style config** (media release, before reference mode): event, place and army images are wide (`1536x1024`), so they cost the wide
 price (`gpt-image-1-mini` medium: $0.015 instead of $0.011). The storyboard adds its title shot and any moment that had
 no card (usually 1 to 4 images; eliminations and casts already have cards), and every `game.media` request for a new
 image adds one. For the default model and the repo style, a 4-player match is about **$0.10** with no moment cards and
@@ -228,7 +318,7 @@ Every step is recorded into the match's run (the image work runs under the hook'
 
 | Event | When | Data |
 |---|---|---|
-| `media_request` | Queued | `hash, kind, provider, model, price_usd, prompt` |
+| `media_request` | Queued | `hash, kind, provider, model, price_usd, prompt, refs` (reference file names) |
 | `media_cached` | Already on disk | `hash, kind, provider, path` |
 | `media_refused` | Over budget / cap / unknown price / queue full | `hash, kind, provider, reason, prompt` |
 | `media_rate_limited` | A `game.media` request past the per-seat rate | `who, rate_per_min, retry_after_s` |
@@ -236,7 +326,8 @@ Every step is recorded into the match's run (the image work runs under the hook'
 | `media_failed` | Generator error | `hash, kind, provider, status, latency_ms, error` |
 
 Each OpenAI exchange is also an `http` record: the exact request body (no key; the `authorization` header is
-redacted), status, response headers, latency, token usage when given, and the response body with the base64 image
+redacted; for an edits call the text fields plus `{file, bytes, sha256}` per reference image instead of the multipart
+bytes), status, response headers, latency, token usage when given, and the response body with the base64 image
 replaced by its length. Image bytes never go into SQLite; the `path` points at the cache file.
 
 ## For the plugin
@@ -249,7 +340,8 @@ adds the framing and house style and scrubs any `xx:N` ids. Without `image_kind`
 built by the plugin (and replays) stay deterministic; the server's `MediaPlugin` wrapper adds the image objects on the
 way out and never touches the state.
 
-Rust API (`crates/fn7-media`): `MediaStyle` (`style.rs`), `ImagePrompt::{styled, from_subject, restyle, portrait, item,
+Rust API (`crates/fn7-media`): `MediaStyle` (`style.rs`; `house_style_for`, `references_for`, `suffix_for`,
+`References::pick`), `ImagePrompt::{styled, from_subject, restyle, portrait, item,
 event, statue}`, `Media::{prompt, request, request_with, request_by_ref, annotate, manifest, style, wait_idle}`,
 `ImageGenerator` (`MockGenerator`, `OpenAiImages`), `fn7_media::http::router`. Plugin side (`crates/fn7-plugin`):
 `visual.rs` (sheets), `payload::{event_subject, portrait_prompt, diorama_prompt, person_portrait_prompt, place_prompt, army_prompt}`,

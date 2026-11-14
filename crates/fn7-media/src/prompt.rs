@@ -1,16 +1,18 @@
-//! Image prompts in one house style. Every prompt is `<Framing for its kind>: <subject>. Style: <house style>. Avoid:
-//! <avoid list>.`, with the framing, size, house style and avoid list from the style config ([`crate::style`],
-//! `data/media_style.json`), built deterministically (same inputs, same bytes) from plain names and text, with engine ids
+//! Image prompts in the house style. Every prompt is `<Framing for its kind>: <subject>. Style: <the kind's house
+//! style>. [<the reference note>] <avoid>` (a framing with `{subject}` in it puts the subject there), with the framing,
+//! size, house style, references and avoid text from the style config ([`crate::style`], `data/media_style.json`), built deterministically (same inputs, same bytes) from plain names and text, with engine ids
 //! (`dg:3`, `ch:12`, `lg:49`, …) scrubbed out: an image model must never see them, and they would make identical
 //! pictures hash differently.
 
 use serde::{Deserialize, Serialize};
 
-use crate::style::MediaStyle;
+use sha2::{Digest, Sha256};
+
+use crate::style::{MediaStyle, RefImage};
 
 /// Bumped when the prompt format changes (it is part of every image key, so old images are not reused for a new
 /// format). The style config's hash is part of the key too.
-pub const PROMPT_VERSION: &str = "fn7-media/2";
+pub const PROMPT_VERSION: &str = "fn7-media/3";
 
 /// Longest subject kept (characters); the rest is cut at a word boundary.
 pub const MAX_SUBJECT_CHARS: usize = 1200;
@@ -30,7 +32,7 @@ pub enum ImageKind {
     Place,
     /// An army (requested by reference).
     Army,
-    /// A demigod as a collectible minifig on a small diorama base themed on its home region (the table piece).
+    /// A demigod as a tiny geometric miniature on a hex diorama tile themed on its home region (the table piece).
     Diorama,
 }
 
@@ -63,6 +65,20 @@ impl ImageKind {
             .find(|k| k.as_str() == s.trim().to_ascii_lowercase())
     }
 
+    /// How many queue priorities there are ([`ImageKind::priority`]).
+    pub const PRIORITIES: usize = 4;
+
+    /// Queue priority (0 = first): portrait and diorama (players look at them all match), then statue, then
+    /// army/place/item, then event (moment cards; skippable when late).
+    pub fn priority(self) -> usize {
+        match self {
+            Self::Portrait | Self::Diorama => 0,
+            Self::Statue => 1,
+            Self::Army | Self::Place | Self::Item => 2,
+            Self::Event => 3,
+        }
+    }
+
     /// Images that want a transparent background where the model supports it.
     pub fn wants_transparency(self) -> bool {
         matches!(self, Self::Item | Self::Statue | Self::Diorama)
@@ -77,6 +93,10 @@ pub struct ImagePrompt {
     pub text: String,
     /// `WIDTHxHEIGHT`, from the style's kind.
     pub size: String,
+    /// The reference images sent with it (the kind's geometry refs, then its deterministic mood pick); empty when the
+    /// style has none for this kind. Their sha256s are part of the image key.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub refs: Vec<RefImage>,
 }
 
 impl ImagePrompt {
@@ -99,13 +119,34 @@ impl ImagePrompt {
 
     fn build(style: &MediaStyle, kind: ImageKind, subject: String) -> Self {
         let k = style.kind(kind);
-        let framing = capitalize(k.framing.trim().trim_end_matches([':', '.', ' ']));
-        let text = format!("{framing}: {subject}. {}", style.suffix());
+        let shown = style.rewrite_subject(&subject);
+        let framing = k.framing.trim().trim_end_matches([':', '.', ' ']);
+        let head = if framing.contains("{subject}") {
+            capitalize(&framing.replace("{subject}", &shown))
+        } else {
+            format!("{}: {shown}", capitalize(framing))
+        };
+        // The mood pick is seeded by everything before the suffix (kind, size, framed subject), so the same prompt
+        // always gets the same references.
+        let refs = style
+            .references_for(kind)
+            .map(|r| {
+                let mut h = Sha256::new();
+                h.update(kind.as_str().as_bytes());
+                h.update(b"\n");
+                h.update(k.size.as_bytes());
+                h.update(b"\n");
+                h.update(head.as_bytes());
+                r.pick(&h.finalize())
+            })
+            .unwrap_or_default();
+        let text = format!("{head}. {}", style.suffix_for(kind));
         Self {
             kind,
             subject,
             text,
             size: k.size,
+            refs,
         }
     }
 
@@ -333,8 +374,8 @@ mod tests {
         let b = ImagePrompt::statue(&st).unwrap();
         assert_eq!(a, b);
         let style = MediaStyle::builtin();
-        assert!(a.text.ends_with(&style.suffix()));
-        assert!(a.text.starts_with("Amiibo-style figure on a round base"), "{}", a.text);
+        assert!(a.text.ends_with(&style.suffix_for(ImageKind::Statue)));
+        assert!(a.text.starts_with("A slightly larger faceted low-poly figure"), "{}", a.text);
         assert_eq!(a.size, "1024x1024");
         assert!(
             a.text.contains("Rook")
@@ -365,11 +406,84 @@ mod tests {
             ),
         ] {
             let p = p.unwrap();
-            assert!(p.text.ends_with(&style.suffix()), "{}", p.text);
-            assert!(p.text.contains(&style.house_style) && p.text.contains("Avoid: text, logos"));
+            assert!(p.text.ends_with(&style.suffix_for(p.kind)), "{}", p.text);
+            assert!(p.text.contains(style.house_style_for(p.kind)));
+            assert!(p.text.ends_with("No words or letters in the picture, no gore, no real people."), "{}", p.text);
             assert!(!p.text.contains("gd:0"));
         }
         assert!(ImagePrompt::from_subject(ImageKind::Event, " dg:1 (ch:2) ").is_none());
+    }
+
+    #[test]
+    fn the_two_looks_render_with_refs_notes_and_the_avoid_sentence() {
+        let style = MediaStyle::builtin_checked().expect("the repo's reference images exist");
+        // Portrait: Benito's dark-fantasy look, his note, his six refs, no hex table.
+        let p = ImagePrompt::styled(&style, ImageKind::Portrait, "the demigod Moth, wiry, teal and gold").unwrap();
+        assert_eq!(
+            p.text,
+            format!(
+                "Waist-up, three-quarter view, dramatic rim light: the demigod Moth, wiry, teal and gold. Style: {}. {} {}",
+                style.house_style_for(ImageKind::Portrait),
+                "Match the reference images exactly in art style, rendering, colour palette, lighting and level of \
+                 detail; this is a new shot in that same world, not a copy of them.",
+                "No words or letters in the picture, no gore, no real people."
+            )
+        );
+        assert!(p.text.contains("dark-fantasy world at night") && !p.text.contains("hex"), "{}", p.text);
+        assert!(!p.text.contains("burning stone keep"), "the fixed scenery is out of the live style");
+        assert_eq!(p.refs.len(), 6);
+        // Everything else: the max-zoom hex look, `{subject}` placed inside the framing.
+        let e = ImagePrompt::styled(&style, ImageKind::Event, "a flood swallows Manila harbour").unwrap();
+        assert!(
+            e.text.starts_with("Seen from high above the hex-tile table: a flood swallows Manila harbour, rendered with blocky"),
+            "{}",
+            e.text
+        );
+        assert!(e.text.contains("Final Night 7's tabletop world") && e.text.contains("keep the geometry extremely simple"));
+        assert!(e.text.ends_with("no real people."));
+        assert_eq!(e.refs.len(), 4);
+        // The plugin's older collectible wording is rewritten in the text (the subject itself is kept as given).
+        let d = ImagePrompt::styled(&style, ImageKind::Diorama, "Moth, a demigod; as a collectible minifig standing on a small square diorama base").unwrap();
+        assert!(!d.text.to_lowercase().contains("minifig") && d.text.contains("hexagonal diorama tile"), "{}", d.text);
+        assert!(d.subject.contains("collectible minifig"));
+        // Without references there is no note, and a list-form avoid renders as before.
+        let mut v: serde_json::Value = serde_json::from_str(crate::style::BUILTIN_STYLE_JSON).unwrap();
+        v.as_object_mut().unwrap().remove("references");
+        v["kinds"]["portrait"].as_object_mut().unwrap().remove("references");
+        v["avoid"] = serde_json::json!(["text", "logos"]);
+        let plain = MediaStyle::from_value(v, "plain").unwrap();
+        let q = ImagePrompt::styled(&plain, ImageKind::Item, "a cursed box").unwrap();
+        assert!(q.refs.is_empty() && !q.text.contains("not a copy of them") && q.text.ends_with("Avoid: text, logos."), "{}", q.text);
+    }
+
+    #[test]
+    fn reference_picks_are_deterministic_ordered_and_varied() {
+        let style = MediaStyle::builtin_checked().unwrap();
+        let mut all = style.references.clone().unwrap();
+        // Widen the mood pool to all 15 so the pick has room to vary.
+        all.mood = (3751..=3765)
+            .map(|n| {
+                let name = format!("style_refs/IMG_{n}.jpg");
+                let path = std::path::Path::new(crate::style::BUILTIN_STYLE_DIR).join(&name);
+                crate::style::RefImage { sha256: format!("{n:064}"), name, path }
+            })
+            .collect();
+        all.mood_per_request = 6;
+        all.geometry = vec![all.mood[14].clone(), all.mood[0].clone()];
+        let a = all.pick(b"seed-a");
+        assert_eq!(a, all.pick(b"seed-a"), "same seed, same refs");
+        assert_eq!(a.len(), 8);
+        assert_eq!((&a[0], &a[1]), (&all.mood[14], &all.mood[0]), "geometry refs come first, in order");
+        let mood: Vec<usize> = a[2..].iter().map(|r| all.mood.iter().position(|m| m == r).unwrap()).collect();
+        assert!(mood.windows(2).all(|w| w[0] < w[1]), "mood picks keep the file's order: {mood:?}");
+        let distinct: std::collections::BTreeSet<Vec<String>> = (0..20)
+            .map(|i| all.pick(format!("seed-{i}").as_bytes())[2..].iter().map(|r| r.name.clone()).collect())
+            .collect();
+        assert!(distinct.len() > 5, "different prompts spread over the set");
+        // Through the prompt: the same prompt, the same refs.
+        let p1 = ImagePrompt::styled(&style, ImageKind::Event, "a riot in Lagos").unwrap();
+        let p2 = ImagePrompt::styled(&style, ImageKind::Event, "a riot in Lagos").unwrap();
+        assert_eq!(p1.refs, p2.refs);
     }
 
     #[test]

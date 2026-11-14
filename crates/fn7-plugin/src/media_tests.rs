@@ -82,11 +82,14 @@ fn visual_sheets_are_stable_across_beats_and_deterministic_across_replays() {
     let p = FinalNight7Plugin::new();
     let globe = p.query(&a.last, None, "globe", &json!({})).unwrap();
     assert_eq!(visuals(&globe["demigods"]), first);
-    // Another seed: other sheets.
+    // Another seed: the same demigod sheets (a demigod's sheet is its name alone), but other person sheets.
     let w = world::load(&a.last).unwrap();
     let mut w2 = w.clone();
     w2.meta.seed ^= 0xdead_beef;
-    assert_ne!(visual::demigod(&w, &w.demigods[0]).sheet_hash, visual::demigod(&w2, &w2.demigods[0]).sheet_hash);
+    assert_eq!(visual::demigod(&w, &w.demigods[0]).sheet_hash, visual::demigod(&w2, &w2.demigods[0]).sheet_hash);
+    if let Some(c) = w.characters.first() {
+        assert_ne!(visual::person(&w, c).sheet_hash, visual::person(&w2, &w2.characters[0]).sheet_hash);
+    }
     // Every image of a character carries its sheet: portrait, statue, and events that name it.
     for (i, d) in w.demigods.iter().enumerate() {
         let brief = visual::demigod(&w, d).brief();

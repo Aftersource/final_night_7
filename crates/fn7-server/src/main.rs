@@ -38,6 +38,16 @@ async fn main() -> anyhow::Result<()> {
     let style = media.style();
     tracing::info!(images = %media.config().note, dir = %media.config().dir.display(), style = %style.source,
                    style_version = %style.version, style_hash = %&style.hash[..12], "media");
+    // Prewarm (FN7_MEDIA_PREWARM, default on; FN7_MEDIA_PREWARM_NAMES adds names): every built-in AI demigod's
+    // portrait and diorama, identity-only, so they are cached before any match needs them.
+    if media.enabled() {
+        let names = fn7_server::media::prewarm_names(|k| std::env::var(k).ok());
+        if !names.is_empty() {
+            let w = fn7_server::media::prewarm(&media, &names);
+            tracing::info!(names = names.len(), queued = w.queued, cached = w.cached, refused = w.refused,
+                           "media prewarm: {} queued, {} already cached", w.queued, w.cached);
+        }
+    }
     // The core records every match (THEATRE_RECORD / THEATRE_RECORD_DIR) and runs every hook in the match's trace
     // context, so the plugin's events, LLM calls and the images' media_* events land in its run.
     let plugin: Arc<dyn GamePlugin> =

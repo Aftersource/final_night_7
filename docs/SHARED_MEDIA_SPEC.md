@@ -24,8 +24,8 @@ a budget.
   `{hash, kind: portrait|item|event|statue|place|army|diorama, status: pending|ready|off, url|null, prompt}`. The places this happens:
   - big events: casts, eliminations, magnitude ≥ 8
   - demigod portraits in the public view, stable for the whole match
-  - demigod dioramas in the public view (`diorama_prompt` → `diorama_image`): the minifig on a home-region base, for
-    the table in front of each seat, stable for the whole match
+  - demigod dioramas in the public view (`diorama_prompt` → `diorama_image`): the miniature on a hex tile, for the
+    table in front of each seat, the same in every match (§9)
   - end-of-match statues in `match.ended.summary.piles[]`
 - **Manifest.** `GET /media/index?since=<cursor>&key=<KEY>` → `{enabled, mode, cursor, items:[{hash, kind, status, url, ...}]}`.
   Poll it and pass back `cursor`.
@@ -124,3 +124,32 @@ Benito tunes the style and selection here; the backend only enforces budgets and
   in well under 0.5 s).
 - Image keys now include the size, and the prompt version is `fn7-media/2`: placeholders made before this release
   are not reused (they're free to remake).
+
+## 9. House style v2: Benito's references (2026-11-14)
+Benito stated via the bridge that the house style is his dark-fantasy references, not the collectible-figure look. Chris approved
+it, with the final split into two looks chosen per kind (details, costs and the config in MEDIA.md, "Two looks" and
+"Reference mode"):
+- **Portraits:** Benito's dark-fantasy style (his DEFAULT_STYLE without the fixed keep-and-forest scenery, which put
+  the same castle into every image), sent with six of his reference pictures and his note ("Match the reference images
+  exactly in art style, …").
+- **Everything else** (diorama, event, statue, army, place, item): the "max zoom" look. Final Night 7's hex-tile
+  tabletop geometry (sparse low-poly miniatures, white pillar figures, voxel props) in the mood of his references,
+  sent with four of his pictures. The Unreal table screenshots go first once they're captured: that is a data change in
+  `references.geometry`.
+- **The style config** gains `house_style_original` (his verbatim text, for him to choose), per-kind `style` and
+  `references` overrides, `references: {geometry, mood, mood_per_request, note}` (files in `data/style_refs/`, checked
+  at startup), `avoid` as one sentence ("No words or letters in the picture, no gore, no real people."), and
+  `subject_rewrites`. Style `version` is `"2"`.
+- **Generation:** with references on a gpt-image model, each image is a `POST /images/edits` call carrying the
+  reference images. The reference set is part of the image key, so no collectible-style picture is reused. The prompt
+  version is `fn7-media/3`.
+- **Identity caching:** a demigod's sheet now depends only on its name (`fn7-visual/2`), and its portrait and diorama
+  prompts carry only its identity (the diorama no longer names its home region). So each demigod, and each of its two
+  hands (a player's two demigods, now with images of their own), is one image ever. The server prewarms the built-in AI
+  roster at startup.
+- **Queue:** portraits and dioramas start first, then statues, then the rest, then moment cards. Concurrency default
+  is 6.
+- **Spend:** an edits call costs about $0.023–0.030 with `gpt-image-1-mini` medium (the per-image price plus the
+  input images, about 1,130 tokens each). Images stay off until the client displays them; nothing was generated for
+  this change.
+

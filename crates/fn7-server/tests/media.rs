@@ -237,7 +237,7 @@ async fn storyboard_and_media_queries_through_the_server_wrapper() {
     // The style is recorded in the match's ruleset.
     let records = fn7_server::replay::read_records(&dir.join("rec").join("s1.jsonl")).unwrap();
     let rs = records.iter().find(|l| l["type"] == "ruleset" && l["body"]["media_style"].is_object()).expect("ruleset with media_style");
-    assert_eq!(rs["body"]["media_style"]["version"], "1");
+    assert_eq!(rs["body"]["media_style"]["version"], "2");
     assert_eq!(rs["body"]["media_style"]["hash"], media.style().hash.as_str());
 
     // The storyboard: every shot has an image object; moments reuse their moment card's image; the champion's is its
@@ -313,4 +313,53 @@ async fn media_queries_are_rate_limited_and_budgeted() {
     let off = MediaPlugin::new(FinalNight7Plugin::new(), Media::off());
     let v = ask(&off, None, &places[0]).unwrap();
     assert_eq!((v["image"]["status"].as_str(), v["reason"].as_str()), (Some("off"), Some("images are off")));
+}
+
+/// Prewarm queues every built-in AI demigod's portrait and diorama (plus extra names) once; a later process finds them
+/// cached; matches with different seeds then get those exact images, ready at once.
+#[tokio::test(flavor = "multi_thread")]
+async fn prewarm_caches_the_roster_and_every_match_reuses_it() {
+    use fn7_server::media::{prewarm, prewarm_names, Prewarm};
+    let roster = fn7_plugin::phases::AI_NAMES;
+    let names = prewarm_names(|k| (k == "FN7_MEDIA_PREWARM_NAMES").then(|| "Chris, benito ,VEX,".to_string()));
+    assert_eq!(names.len(), roster.len() + 2, "the roster plus Chris and Benito (Vex is already in it): {names:?}");
+    assert!(prewarm_names(|k| (k == "FN7_MEDIA_PREWARM").then(|| "off".to_string())).is_empty());
+    let dir = temp_dir("prewarm");
+    let media = mock_media(&dir);
+    // Per name: its portrait and diorama, and both of its hands' (the player's two demigods).
+    assert_eq!(prewarm(&media, &names), Prewarm { queued: 6 * names.len(), cached: 0, refused: 0 });
+    assert!(media.wait_idle(Duration::from_secs(10)).await);
+    // Images off: nothing.
+    assert_eq!(prewarm(&Media::off(), &names), Prewarm::default());
+    // The next server process on the same cache: all cached, nothing queued.
+    let media2 = mock_media(&dir);
+    assert_eq!(prewarm(&media2, &names), Prewarm { queued: 0, cached: 6 * names.len(), refused: 0 });
+    let mut hashes: Vec<std::collections::BTreeMap<String, (String, String)>> = vec![];
+    for seed in [1u64, 777] {
+        let p = MediaPlugin::new(FinalNight7Plugin::new(), media2.clone());
+        let settings = p.validate_settings(&json!({ "seed": seed, "players": 4, "beats_total": 6, "clusters": 40 })).unwrap();
+        let s = p.on_match_start(&seats(), &settings, &Failing).await.unwrap();
+        let v = p.public_view(&s);
+        // The seat view's hands (the player's two demigods) carry their own images too.
+        let me = p.seat_view(&s, 0);
+        let hands = me["hands"].as_array().unwrap();
+        assert_eq!(hands.len(), 2);
+        for h in hands {
+            assert_eq!(h["portrait_image"]["kind"], "portrait", "{h}");
+            assert_eq!(h["diorama_image"]["kind"], "diorama", "{h}");
+            assert!(h["visual"]["sheet_hash"].is_string());
+        }
+        let mut m = std::collections::BTreeMap::new();
+        for d in v["demigods"].as_array().unwrap() {
+            let name = d["name"].as_str().unwrap().to_string();
+            if roster.contains(&name.as_str()) {
+                assert_eq!(d["portrait_image"]["status"], "ready", "{name}'s portrait is prewarmed");
+                assert_eq!(d["diorama_image"]["status"], "ready", "{name}'s diorama is prewarmed");
+            }
+            m.insert(name, (d["portrait_image"]["hash"].as_str().unwrap().into(), d["diorama_image"]["hash"].as_str().unwrap().into()));
+        }
+        hashes.push(m);
+    }
+    assert_eq!(hashes[0].len(), 4);
+    assert_eq!(hashes[0], hashes[1], "the same demigods are the same images in matches with different seeds");
 }
