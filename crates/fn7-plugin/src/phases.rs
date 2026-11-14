@@ -15,7 +15,8 @@ use crate::settings::Settings;
 use crate::world::*;
 use crate::SYNTHETIC_SEAT;
 
-const AI_NAMES: &[&str] = &[
+/// The built-in AI demigods' names, in the order empty seats take them (fn7-server prewarms their images).
+pub const AI_NAMES: &[&str] = &[
     "Vex", "Mara", "Oko", "Lune", "Sable", "Quill", "Rook", "Juno",
 ];
 
@@ -136,7 +137,8 @@ pub fn round_start(w: &mut World, round: u32, pantheon: &Arc<Pantheon>) -> Round
     let time = pantheon.id_of("time").unwrap_or(GodId(0));
     let outside = fn7_society::shrink_arena(w);
     let center = w.places[w.meta.arena.ix()].center;
-    let progress = round as f32 / w.meta.beats_total.max(1) as f32;
+    // The damage ramps on the circle's own schedule (`arena_close_beats`), not on the Final Night's beat.
+    let progress = fn7_society::arena_progress(w, round) as f32;
     let mut caught = vec![];
     let mut props = vec![];
     for r in outside {

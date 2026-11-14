@@ -14,13 +14,15 @@
 //!   the core and never reach the plugin. Held orders arrive at the next resolve with `windowed: true`, `window_id`,
 //!   `received_at_ms` and `seq`.
 //! - **Penalty**, settled here at resolve (hooks are read-only) from the core's `RoundContext.windows_closed` (theatre
-//!   faa7220): Time takes one bolt (every other demigod gains 2) and writes a debt
+//!   faa7220): Time takes one bolt (a toll: since rules 0.6.0 no rival gains from it) and writes a debt
 //!   `0.5 × (1 + seconds open / 10) × (1 + 0.5 × the initiator's slows in the last 20 beats)`, doubled when the bolt
 //!   can't be paid; Entropy rises by `0.5 + seconds / 30`. Seconds open run from the window's `info.opened_ms` to its
 //!   `closed_ms` (an Enter), or to its deadline when it timed out, even with nobody submitting: the opener pays for
 //!   the full slow. Pressing Enter early is cheap, and it cuts off rivals.
 //! - **Orders without a window** (Compose submissions: core bots, the plugin's AI, clients that skip `action.begin`)
-//!   are an instant Enter: a zero-second slow, billed the same way.
+//!   are an instant order: the same bolt and Entropy as a zero-second slow, but a flat debt of `instant_order_debt`
+//!   (default 0.5; no repeat or seconds factor; doubled when the bolt can't be paid). They still count as slows for a
+//!   later window's repeat factor.
 //!
 //! Everything a bill reads comes from the resolve's inputs (actions and `RoundContext`), which the core records in the
 //! `resolve_round` hook, so a replay is byte-identical with no plugin memory to feed back. Who engaged a window and who
@@ -37,7 +39,7 @@ use crate::merge;
 use crate::settings::Settings;
 use crate::world::event;
 
-/// Base of Time's slow debt (damage points), before seconds and repeats.
+/// Base of Time's slow debt for a real window (damage points), before seconds and repeats.
 pub const SLOW_DEBT_BASE: f32 = 0.5;
 /// Slows within this many beats count as repeats.
 pub const SLOW_REPEAT_BEATS: u32 = 20;
@@ -143,7 +145,7 @@ pub fn process(
                 out.windowed.insert(s.demigod);
             }
         }
-        let bill = bill(w, &mut props, time, d, ms_open, beat, st);
+        let bill = bill(w, &mut props, time, d, Some(ms_open), beat, st);
         let how_s = match cw.reason.as_str() {
             "submitted" => "enter",
             "deadline" => "timeout",
@@ -187,7 +189,8 @@ pub fn process(
         );
     }
 
-    // Orders without a window (Compose): an instant Enter, billed as a zero-second slow. One bill per demigod.
+    // Orders without a window (Compose): an instant order, billed Time's flat `instant_order_debt`. One bill per
+    // demigod.
     let mut billed: BTreeSet<DemigodId> = BTreeSet::new();
     let mut compose: Vec<&Sub> = subs.iter().filter(|s| s.window_id.is_none() && s.orders).collect();
     compose.sort_by_key(|s| (!s.ai, s.seq, s.demigod.0));
@@ -198,7 +201,7 @@ pub fn process(
         let d = s.demigod;
         let recent = recent_slows(w, d, beat);
         w.demigods[d.ix()].slows.push(beat);
-        let bill = bill(w, &mut props, time, d, 0, beat, st);
+        let bill = bill(w, &mut props, time, d, None, beat, st);
         event(
             "slow_started",
             Some(Ref::Demigod(d).to_string()),
@@ -237,9 +240,18 @@ struct Bill {
     paid: bool,
 }
 
-/// Time's bill for `ms_open` milliseconds of slowed time: a bolt (if there is one), a debt, Entropy.
-fn bill(w: &World, props: &mut Vec<Proposal>, time: GodId, d: DemigodId, ms_open: u64, beat: u32, st: &Settings) -> Bill {
-    let secs = ms_open as f32 / 1000.0;
+/// Time's bill for a window open `ms_open` milliseconds (`None`: an instant order, no window): a bolt (if there is
+/// one; a toll, so no rival gains from it), a debt, Entropy.
+fn bill(
+    w: &World,
+    props: &mut Vec<Proposal>,
+    time: GodId,
+    d: DemigodId,
+    ms_open: Option<u64>,
+    beat: u32,
+    st: &Settings,
+) -> Bill {
+    let secs = ms_open.unwrap_or(0) as f32 / 1000.0;
     let dg = &w.demigods[d.ix()];
     let alive = dg.alive;
     // This slow is already in `slows`; repeats are the others in the window.
@@ -253,12 +265,17 @@ fn bill(w: &World, props: &mut Vec<Proposal>, time: GodId, d: DemigodId, ms_open
                 who: d,
                 delta: -1,
                 to: Some(time),
+                toll: true,
             },
             format!("{name} pays Time a bolt to slow the world down"),
             d,
         ));
     }
-    let debt = SLOW_DEBT_BASE * (1.0 + secs / 10.0) * (1.0 + 0.5 * recent as f32) * if paid { 1.0 } else { 2.0 };
+    let base = match ms_open {
+        Some(_) => SLOW_DEBT_BASE * (1.0 + secs / 10.0) * (1.0 + 0.5 * recent as f32),
+        None => st.instant_order_debt,
+    };
+    let debt = base * if paid { 1.0 } else { 2.0 };
     let debt = (debt.min(10.0) * 100.0).round() / 100.0;
     let entropy = ((SLOW_ENTROPY + secs / 30.0) * 100.0).round() / 100.0;
     if alive {

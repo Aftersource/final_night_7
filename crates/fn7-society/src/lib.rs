@@ -34,7 +34,7 @@ pub use mention::{
     PLACE_ONLY_SCORE,
 };
 pub use rules::{
-    arena_radius_at, capture_rewind, ARENA_EASE, drift, due_debts, shrink_arena, spread, ARENA_END_FRACTION,
+    arena_close_beats, arena_progress, arena_radius_at, capture_rewind, setting_f64, ARENA_EASE, drift, due_debts, shrink_arena, spread, ARENA_END_FRACTION,
     DRIFT_WINDOW, FOLLOW_JOIN, FOLLOW_LEAVE, SPREAD_DECAY, SPREAD_HORIZON,
 };
 pub use setup::{find_city, setup, CITIES_PER_REGION, CITY_KM, PLANET_END_RADIUS_KM, PLANET_START_MARGIN_KM};

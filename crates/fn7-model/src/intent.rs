@@ -242,13 +242,16 @@ pub enum Effect {
         cost: u32,
         damage: f32,
     },
-    /// Bolts paid (`delta` < 0: to `to`, a god, or for slowing time; every other live demigod gains 2 per bolt) or
-    /// granted (`delta` > 0, by Entropy). Either way Entropy rises.
+    /// Bolts paid (`delta` < 0: to `to`, a god, or for slowing time; every other live demigod gains 2 per bolt,
+    /// except for a `toll`) or granted (`delta` > 0, by Entropy). Either way Entropy rises.
     Bolts {
         who: DemigodId,
         delta: i32,
         #[serde(default)]
         to: Option<GodId>,
+        /// Time's toll for an order or a slow window (rules 0.6.0): no gift to rivals. Absent = false.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        toll: bool,
     },
     /// Entropy rises (or, by Time's cooling, falls); clamped to 0..=ENTROPY_MAX; reaching the max is heat death.
     Entropy { delta: f32 },

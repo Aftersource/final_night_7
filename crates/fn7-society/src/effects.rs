@@ -876,7 +876,7 @@ fn effect(w: &mut World, p: &Proposal, beat: u32, row: &mut LedgerRow) -> Result
             if have < *cost {
                 return Err(format!("{by} has {have} bolts, the power costs {cost}"));
             }
-            spend_bolts(w, *by, *cost, beat);
+            spend_bolts(w, *by, *cost, beat, true);
             if let Some(t) = target {
                 need(w, *t)?;
                 if is_alive(w, *t) {
@@ -901,7 +901,7 @@ fn effect(w: &mut World, p: &Proposal, beat: u32, row: &mut LedgerRow) -> Result
             row.at = Some(*at);
             row.place = Some(place_at(w, *at));
         }
-        Effect::Bolts { who, delta, to } => {
+        Effect::Bolts { who, delta, to, toll } => {
             need(w, Ref::Demigod(*who))?;
             if let Some(g) = to {
                 need(w, Ref::God(*g))?;
@@ -912,7 +912,7 @@ fn effect(w: &mut World, p: &Proposal, beat: u32, row: &mut LedgerRow) -> Result
                 if have < n {
                     return Err(format!("{who} has {have} bolts, not {n}"));
                 }
-                spend_bolts(w, *who, n, beat);
+                spend_bolts(w, *who, n, beat, !*toll);
             } else if *delta > 0 {
                 let d = &mut w.demigods[who.ix()];
                 d.bolts = (d.bolts + *delta as u32).min(MAX_BOLTS);
@@ -1046,11 +1046,14 @@ pub const MAX_BOLTS: u32 = 99;
 /// Most stacks of one world mod.
 pub const MOD_MAX_STACKS: u32 = 5;
 
-/// `who` pays `n` bolts: every other live demigod gains [`BOLT_GIFT`] each, Entropy rises. Assumes validated.
-fn spend_bolts(w: &mut World, who: DemigodId, n: u32, beat: u32) {
+/// `who` pays `n` bolts: every other live demigod gains [`BOLT_GIFT`] each (unless `gift` is false: Time's toll for
+/// an order or a slow window), Entropy rises either way. Assumes validated.
+fn spend_bolts(w: &mut World, who: DemigodId, n: u32, beat: u32, gift: bool) {
     w.demigods[who.ix()].bolts -= n;
-    for d in w.demigods.iter_mut().filter(|d| d.alive && d.id != who) {
-        d.bolts = (d.bolts + BOLT_GIFT * n).min(MAX_BOLTS);
+    if gift {
+        for d in w.demigods.iter_mut().filter(|d| d.alive && d.id != who) {
+            d.bolts = (d.bolts + BOLT_GIFT * n).min(MAX_BOLTS);
+        }
     }
     raise_entropy(w, n as f32 * ENTROPY_PER_BOLT, beat);
 }

@@ -795,7 +795,9 @@ fn volunteer_hosts(w: &mut World, cx: &mut Ctx) {
             let near = w.demigods.get(d.ix()).is_some_and(|x| distance_km(x.pos, at) <= HOST_NEAR_KM.min(w.meta.arena_radius_km * 0.3));
             ((k.mood.devotion + k.mood.anger + k.need.safety) / 3.0 + 0.5 * get(&k.allegiance, d), near)
         };
-        let p = 0.01 + 0.1 * (fervor - 0.5).max(0.0) + if unarmed && near { FIRST_HOST_P } else { 0.0 };
+        // The room's `army_first_host_scale` (rules 0.6.0; absent = 1) softens how early demigods face hosts.
+        let first_p = FIRST_HOST_P * crate::rules::setting_f64(w, "army_first_host_scale", 1.0) as f32;
+        let p = 0.01 + 0.1 * (fervor - 0.5).max(0.0) + if unarmed && near { first_p } else { 0.0 };
         if cx.roll("host", c.0 as u64) >= p {
             continue;
         }
@@ -1486,6 +1488,8 @@ fn suppress_mobs(w: &mut World, cx: &mut Ctx, ids: &[ClusterId]) {
 
 /// An army reaching a rival demigod (its target, or any within [`STRIKE_KM`]) storms them: a damage proposal.
 fn strike(w: &mut World, cx: &mut Ctx, id: ClusterId, struck: &mut Vec<DemigodId>) {
+    // The room's `army_strike_scale` (rules 0.6.0; absent = 1).
+    let scale = crate::rules::setting_f64(w, "army_strike_scale", 1.0) as f32;
     let c = &w.clusters[id.ix()];
     let a = c.army.as_ref().expect("army");
     for d in w.demigods.iter().filter(|d| d.alive && (a.rogue || d.id != a.demigod)) {
@@ -1499,7 +1503,7 @@ fn strike(w: &mut World, cx: &mut Ctx, id: ClusterId, struck: &mut Vec<DemigodId
         }
         let comp = alive(w, a.general).and_then(|g| life(w, g)).map(|l| l.competence).unwrap_or(0.4);
         // A demigod is not easily killed by mortals: a big, well-led army takes a point or two a beat.
-        let amount = ((0.5 + c.size as f32 / 40_000.0) * (0.6 + 0.6 * comp)).min(2.0);
+        let amount = ((0.5 + c.size as f32 / 40_000.0) * (0.6 + 0.6 * comp)).min(2.0) * scale;
         let gname = alive(w, a.general).map(|g| format!(" under {}", w.characters[g.ix()].name)).unwrap_or_default();
         cx.out.proposals.push(Proposal {
             source: Source::Rules,

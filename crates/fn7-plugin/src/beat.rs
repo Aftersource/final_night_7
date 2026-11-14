@@ -1313,6 +1313,7 @@ pub async fn resolve(
             overused: vec![],
             eliminated: eliminated_names.clone(),
             world: world_lines,
+            accident_scale: st.accident_scale,
         }));
     }
     clock.lap(Stage::Route);
@@ -1364,7 +1365,7 @@ pub async fn resolve(
                         props.push(god_prop(
                             &ruling,
                             &ctx.intent,
-                            Effect::Bolts { who: d, delta: -(ctx.cost as i32), to: Some(ruling.god) },
+                            Effect::Bolts { who: d, delta: -(ctx.cost as i32), to: Some(ruling.god), toll: false },
                             format!("{} pays {} {} bolts", w.demigods[d.ix()].name, ctx.def.name, ctx.cost),
                         ));
                     }
@@ -1372,7 +1373,7 @@ pub async fn resolve(
                         props.push(god_prop(
                             &ruling,
                             &ctx.intent,
-                            Effect::Bolts { who: d, delta: ENTROPY_GIFT as i32, to: Some(ruling.god) },
+                            Effect::Bolts { who: d, delta: ENTROPY_GIFT as i32, to: Some(ruling.god), toll: false },
                             format!("Entropy showers {} with fresh bolts", w.demigods[d.ix()].name),
                         ));
                     }

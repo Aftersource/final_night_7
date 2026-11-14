@@ -790,7 +790,7 @@ async fn slow_windows_bill_time_from_real_seconds() {
     assert!(!serde_json::to_string(per3).unwrap().contains("\"dropped\""), "no payload names the dropped");
     assert!(w3.slow.is_none());
     assert_eq!(w3.demigods[0].bolts, 2, "Time took a bolt");
-    assert_eq!(w3.demigods[1].bolts, 5, "every other demigod gained two");
+    assert_eq!(w3.demigods[1].bolts, 3, "Time's bolt is a toll: no rival gains from it (rules 0.6.0)");
     let words = |d: usize| w3.demigods[d].words_spoken;
     assert!(words(0) > 0 && words(1) > 0 && words(2) == 0, "{} {} {}", words(0), words(1), words(2));
     // Time's debt for 8 seconds (opened_ms to the core's closed_ms), no repeats: 0.5 × (1 + 0.8) = 0.9.
@@ -803,10 +803,51 @@ async fn slow_windows_bill_time_from_real_seconds() {
     assert_eq!(pub4["slow"][0]["how"], "timeout");
     assert_eq!(pub4["slow"][0]["after_ms"], 30_000);
     assert!((time_debt(w4, 1, 4) - 2.0).abs() < 1e-4, "{}", time_debt(w4, 1, 4));
-    // Beat 5: Cyra's orders without a window: an instant Enter (0.5).
+    // Beat 5: Cyra's orders without a window: an instant order (the flat instant_order_debt, 0.5).
     let (_, pub5, _, w5) = &seen[4];
     assert_eq!(pub5["slow"][0]["event"], "instant", "{}", pub5["slow"]);
     assert!((time_debt(w5, 2, 5) - 0.5).abs() < 1e-4);
+}
+
+/// Rules 0.6.0 (R1, R3): an instant order (no window) costs Time's flat `instant_order_debt`, with no repeat factor,
+/// doubled when the bolt can't be paid; the bolt is a toll, so no rival gains from it (Entropy still rises).
+#[tokio::test(flavor = "multi_thread")]
+async fn instant_orders_pay_a_flat_toll() {
+    let p = FinalNight7Plugin::new();
+    let script = |seat: Seat, round: u32| -> Option<Action> {
+        Some(match (round, seat) {
+            (1..=4, 0) => act(0, json!({"left": "go to the market"})),
+            _ => act(seat, json!({})),
+        })
+    };
+    let none = |_: u32| -> (Vec<Action>, RoundContext) { (vec![], RoundContext::default()) };
+    for (extra, debt) in [(json!({}), 0.5f32), (json!({"instant_order_debt": 0.3}), 0.3), (json!({"start_bolts": 0}), 0.5)] {
+        let mut settings = json!({"seed": 3, "beats_total": 30, "clusters": 40, "players": 3, "llm": false});
+        for (k, v) in extra.as_object().unwrap() {
+            settings[k] = v.clone();
+        }
+        let start = settings.get("start_bolts").and_then(Value::as_u64).unwrap_or(3) as u32;
+        let mut seen = vec![];
+        crate::driver::run_match_with(&p, &humans(3), &settings, &Failing, Some(4), &script, &none,
+            |_: &BeatReport, s: &Value| {
+                seen.push(load(s));
+                true
+            })
+        .await
+        .unwrap();
+        for (i, w) in seen.iter().enumerate() {
+            let beat = i as u32 + 1;
+            // The same bill every beat, however many slows came before (no repeat factor); doubled once the bolts run
+            // out (3 to start: beat 4 is unpaid).
+            let want = if start as usize > i { debt } else { 2.0 * debt };
+            assert!((time_debt(w, 0, beat) - want).abs() < 1e-4, "{extra} beat {beat}: {}", time_debt(w, 0, beat));
+            assert_eq!(w.demigods[0].slows.len(), i + 1);
+            // Ash's tolls never reach the rivals.
+            assert_eq!((w.demigods[1].bolts, w.demigods[2].bolts), (start, start), "{extra} beat {beat}");
+        }
+        assert_eq!(seen[3].demigods[0].bolts, start.saturating_sub(4), "{extra}: one bolt a beat while there is one");
+        assert!(seen[3].meta.entropy > 0.0);
+    }
 }
 
 /// Death's revive: a seat reported eliminated comes back (`Committed.revived`) once its demigod lives again.
@@ -906,9 +947,10 @@ async fn casts_pay_gift_ramify_and_geotag() {
     assert!(c2[0]["fizzled"].as_str().unwrap().contains("needs 1"), "{}", c2[0]);
     assert_eq!(c2[1]["by"], "Brix");
     assert!(c2[1].get("fizzled").is_none());
-    // Brix: 10 + 2 (Ash's bolt to Time for typing) - 4 (meteor) + 2 per bolt Ash's hands paid Nature.
+    // Brix: 10 - 4 (meteor) + 2 per bolt Ash's hands paid Nature (an invocation still gifts); Ash's bolt to Time for
+    // typing is a toll and gifts nothing.
     let ash_paid: u32 = w2.rulings.iter().filter(|r| r.beat == 2 && r.invoker == Ref::Demigod(DemigodId(0))).map(|r| r.bolts).sum();
-    assert_eq!(w2.demigods[1].bolts, 10 + 2 - 4 + 2 * ash_paid);
+    assert_eq!(w2.demigods[1].bolts, 10 - 4 + 2 * ash_paid);
     // Validation (read-only, against the last commit): unknown powers, overspend, casts carrying orders.
     let st = world::save(w2);
     assert!(p.validate_action(&st, 0, "", &json!({"cast": {"power": "nuke", "target": "dg:1"}}), SubmitKind::Instant).is_err());
@@ -930,6 +972,48 @@ async fn casts_pay_gift_ramify_and_geotag() {
     assert!(streak["icon"].is_string() && streak["at"].is_array() && streak["region"].is_string(), "{streak}");
     assert_eq!(streak["target"], "dg:1");
     assert_eq!(load(&rich).demigods[0].bolts, 9);
+}
+
+/// "Everyone casting everything ends the world in about 30 seconds" (BALANCE_REPORT_1 §8b, re-checked after rules
+/// 0.6.0's R3, which takes the gift off Time's toll but not off casts): four seats casting at the client's maximum rate
+/// (2 a second, burst 4: 28 casts in the first 12 s beat, 24 after) at `entropy_scale` 1 reach heat death at the 2nd or
+/// 3rd resolve (24–36 s at `flow_ms` 12000), never the 1st, with the mixed palette or with only the 1-bolt powers.
+#[tokio::test(flavor = "multi_thread")]
+async fn frantic_casting_ends_the_world_in_about_30_seconds() {
+    let p = FinalNight7Plugin::new();
+    let palette: Vec<String> = crate::powers().powers.iter().map(|x| x.slug.clone()).collect();
+    let cheap: Vec<String> = crate::powers().powers.iter().filter(|x| x.cost == 1).map(|x| x.slug.clone()).collect();
+    assert!(palette.len() >= 10 && !cheap.is_empty());
+    for (label, powers) in [("mixed", &palette), ("cheapest", &cheap)] {
+        let settings = json!({"seed": 6, "beats_total": 30, "clusters": 40, "players": 4, "llm": false,
+                              "flow_ms": 12000, "entropy_scale": 1.0});
+        let script = |seat: Seat, _: u32| -> Option<Action> { Some(act(seat, json!({}))) };
+        let extras = |round: u32| -> (Vec<Action>, RoundContext) {
+            let per_seat = if round == 1 { 28 } else { 24 };
+            let mut v = vec![];
+            for i in 0..per_seat {
+                for seat in 0..4u8 {
+                    let k = (i * 4 + seat as usize + round as usize) % powers.len();
+                    let seq = (round as u64) * 1000 + (i * 4) as u64 + seat as u64;
+                    // Open ocean, so nobody is hurt and every seat keeps casting.
+                    v.push(instant(seat, seq, json!({"cast": {"power": powers[k], "target": [-30.0, 0.0]}})));
+                }
+            }
+            (v, RoundContext::default())
+        };
+        let mut entropy = vec![];
+        let (last, _) = crate::driver::run_match_with(&p, &humans(4), &settings, &Failing, Some(6), &script, &extras,
+            |_: &BeatReport, s: &Value| {
+                entropy.push(load(s).meta.entropy);
+                true
+            })
+        .await
+        .unwrap();
+        let w = load(&last);
+        let hd = w.meta.heat_death.unwrap_or_else(|| panic!("{label}: no heat death; Entropy by resolve {entropy:?}"));
+        eprintln!("    {label}: heat death at resolve {hd}; Entropy by resolve {entropy:?}");
+        assert!((2..=3).contains(&hd), "{label}: heat death at resolve {hd} ({entropy:?}), expected the 2nd or 3rd");
+    }
 }
 
 /// The planet: regions with cities, demigods in different regions, influence shares per region summing to ≤ 1, and

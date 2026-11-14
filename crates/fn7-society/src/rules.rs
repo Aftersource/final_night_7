@@ -236,8 +236,27 @@ pub fn due_debts(w: &World, beat: u32) -> Vec<LedgerId> {
         .collect()
 }
 
-/// Safe radius at `beat`: linear from the arena's starting radius to `meta.arena_end_radius_km` at `beats_total`
-/// (schema-1 states without it: `ARENA_END_FRACTION` of the start).
+/// A number from the room settings (`meta.settings`), or `default` when it is absent (states recorded before it existed,
+/// worlds built without the plugin).
+pub fn setting_f64(w: &World, key: &str, default: f64) -> f64 {
+    w.meta.settings.get(key).and_then(serde_json::Value::as_f64).unwrap_or(default)
+}
+
+/// The beat Time's circle reaches its end radius (`meta.arena_end_radius_km`): the room's `arena_close_beats` (rules
+/// 0.6.0), its own schedule, independent of the Final Night's `beats_total` (a circle scheduled past the Final Night is
+/// still closing when it falls); absent, `beats_total` (the old schedule).
+pub fn arena_close_beats(w: &World) -> u32 {
+    let close = setting_f64(w, "arena_close_beats", w.meta.beats_total.max(1) as f64);
+    close.clamp(1.0, u32::MAX as f64) as u32
+}
+
+/// How far Time's circle has closed at `beat`, 0..=1 (beat ÷ [`arena_close_beats`]).
+pub fn arena_progress(w: &World, beat: u32) -> f64 {
+    (beat as f64 / arena_close_beats(w) as f64).clamp(0.0, 1.0)
+}
+
+/// Safe radius at `beat`: from the arena's starting radius to `meta.arena_end_radius_km` at [`arena_close_beats`]
+/// (schema-1 states without it: `ARENA_END_FRACTION` of the start), on an ease-out curve; it holds there after.
 pub fn arena_radius_at(w: &World, beat: u32) -> f64 {
     let start = w
         .places
@@ -249,9 +268,9 @@ pub fn arena_radius_at(w: &World, beat: u32) -> f64 {
     } else {
         start * ARENA_END_FRACTION
     };
-    let t = (beat as f64 / w.meta.beats_total.max(1) as f64).clamp(0.0, 1.0);
-    // Ease-out: Time's circle closes fastest early (a third of the way by a quarter of the match), then tightens
-    // slowly toward the Final Night.
+    let t = arena_progress(w, beat);
+    // Ease-out: Time's circle closes fastest early (a third of the way by a quarter of its schedule), then tightens
+    // slowly toward its Final Night radius.
     start + (end - start) * (1.0 - (1.0 - t).powf(ARENA_EASE))
 }
 

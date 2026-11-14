@@ -229,6 +229,7 @@ fn resolver_ctx() -> ResolverCtx {
         world: vec![],
         overused: vec![],
         eliminated: vec![],
+        accident_scale: 1.0,
     }
 }
 

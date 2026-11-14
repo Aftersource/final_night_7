@@ -168,7 +168,7 @@ pub fn society_intent(w: &World, i: &Intent) -> Option<SocietyAct> {
             let mut props = vec![];
             if paid {
                 props.push(mk(
-                    Effect::Bolts { who: d, delta: -1, to: None },
+                    Effect::Bolts { who: d, delta: -1, to: None, toll: false },
                     format!("{dname} spends a bolt on bribes"),
                     vec![Ref::Demigod(d)],
                     0,

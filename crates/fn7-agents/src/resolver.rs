@@ -11,7 +11,8 @@ use crate::common::*;
 
 pub const STEP: &str = "resolver";
 
-/// The rules fallback's chance of a Final Destination accident on the actor of a non-attack act: 1 in this.
+/// The rules fallback's chance of a Final Destination accident on the actor of a non-attack act: 1 in this, times the
+/// room's `accident_scale` ([`ResolverCtx::accident_scale`]).
 pub const ACCIDENT_ODDS: u64 = 20;
 
 /// One ordinary act to resolve here.
@@ -43,6 +44,8 @@ pub struct ResolverCtx {
     pub eliminated: Vec<String>,
     /// How wacky the world is (the Entropy line) and the lasting world mods here, one line each.
     pub world: Vec<String>,
+    /// Multiplier on the rules fallback's accident chance (the room's `accident_scale`; 1 = 1 in [`ACCIDENT_ODDS`]).
+    pub accident_scale: f32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -633,7 +636,7 @@ pub fn fallback(ctx: &ResolverCtx) -> ResolverOut {
         ));
         if class != ActClass::Attack {
             let mut rng = Rng::derive(ctx.beat as u64, &[ctx.place.0 as u64, i.id.0 as u64]);
-            if rng.below(ACCIDENT_ODDS) == 0 {
+            if rng.f64() < ctx.accident_scale as f64 / ACCIDENT_ODDS as f64 {
                 let text = format!(
                     "a Final Destination moment: a loose sign, a wet floor and {who} meet at speed"
                 );

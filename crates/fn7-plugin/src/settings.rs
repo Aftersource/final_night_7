@@ -39,8 +39,22 @@ pub struct Settings {
     pub llm: bool,
     /// Consequence's bill multiplier (`fn7_society::debt_for` × this), per demigod per beat.
     pub debt_scale: f32,
-    /// Beats until Consequence's bill for a beat falls due.
+    /// Beats until a bill falls due (Consequence's per-act bill and Time's bill for orders).
     pub debt_due_beats: u32,
+    /// Time's flat debt for orders sent without a slow window (an instant order: bots, the built-in AI, Compose
+    /// submits that skip `action.begin`): no repeat factor, no seconds factor; doubled when the bolt can't be paid.
+    /// Real slow windows keep the full formula.
+    pub instant_order_debt: f32,
+    /// Time's circle reaches its end radius (1,500 km on the planet) on this beat, and its damage ramps on the same
+    /// schedule: its own clock, independent of `beats_total` (a circle scheduled past the Final Night is still closing
+    /// when it falls). The Final Night itself still falls on `beats_total`, at heat death, or with nobody standing.
+    pub arena_close_beats: u32,
+    /// Multiplier on the rules fallback's Final Destination accident chance (1 in 20 per non-attack act at 1.0).
+    pub accident_scale: f32,
+    /// Multiplier on the damage an army does when it storms a demigod.
+    pub army_strike_scale: f32,
+    /// Multiplier on the extra chance that a crowd near an unarmed demigod raises their first volunteer host.
+    pub army_first_host_scale: f32,
     /// Live memory items per owner before old ones fold into a summary.
     pub memory_per_owner: u32,
     /// LLM folds per beat (the rest fold by rules).
@@ -67,7 +81,7 @@ impl Default for Settings {
             city: None,
             players: 4,
             arena: ArenaKind::Planet,
-            beats_total: 100,
+            beats_total: DEFAULT_BEATS_TOTAL,
             beat_ms: 3000,
             flow_ms: 3000,
             slow_ms: 30_000,
@@ -78,7 +92,12 @@ impl Default for Settings {
             mind_timeout_ms: 6000,
             llm: true,
             debt_scale: 0.04,
-            debt_due_beats: 6,
+            debt_due_beats: DEFAULT_DEBT_DUE_BEATS,
+            instant_order_debt: 0.5,
+            arena_close_beats: DEFAULT_ARENA_CLOSE_BEATS,
+            accident_scale: DEFAULT_KILLER_SCALE,
+            army_strike_scale: DEFAULT_KILLER_SCALE,
+            army_first_host_scale: DEFAULT_KILLER_SCALE,
             memory_per_owner: 40,
             llm_folds_per_beat: 2,
             max_intents_per_hand: 6,
@@ -90,6 +109,17 @@ impl Default for Settings {
         }
     }
 }
+
+/// Balance defaults (docs/BALANCE_REPORT_2.md): the Final Night's beat, Time's circle, bills falling due, and the
+/// non-debt killers' multiplier (accidents, army strikes, first hosts).
+pub const DEFAULT_BEATS_TOTAL: u32 = 60;
+pub const DEFAULT_ARENA_CLOSE_BEATS: u32 = 160;
+pub const DEFAULT_DEBT_DUE_BEATS: u32 = 50;
+pub const DEFAULT_KILLER_SCALE: f32 = 0.82;
+
+/// The f32 settings, echoed back at f32 precision.
+const F32_KEYS: &[&str] =
+    &["debt_scale", "entropy_scale", "instant_order_debt", "accident_scale", "army_strike_scale", "army_first_host_scale"];
 
 /// The shortest decimal that reads back as `x` (so `0.04f32` is `0.04`, not `0.03999999910593033`).
 fn f32_decimal(x: f32) -> f64 {
@@ -168,6 +198,11 @@ impl Settings {
             llm: boolean("llm", d.llm)?,
             debt_scale: num("debt_scale", d.debt_scale, 0.0, 10.0)?,
             debt_due_beats: int("debt_due_beats", d.debt_due_beats, 1, 100)?,
+            instant_order_debt: num("instant_order_debt", d.instant_order_debt, 0.0, 10.0)?,
+            arena_close_beats: int("arena_close_beats", d.arena_close_beats, 1, 1000)?,
+            accident_scale: num("accident_scale", d.accident_scale, 0.0, 10.0)?,
+            army_strike_scale: num("army_strike_scale", d.army_strike_scale, 0.0, 10.0)?,
+            army_first_host_scale: num("army_first_host_scale", d.army_first_host_scale, 0.0, 10.0)?,
             memory_per_owner: int("memory_per_owner", d.memory_per_owner, 4, 1000)?,
             llm_folds_per_beat: int("llm_folds_per_beat", d.llm_folds_per_beat, 0, 32)?,
             max_intents_per_hand: int("max_intents_per_hand", d.max_intents_per_hand, 1, 12)?,
@@ -182,8 +217,11 @@ impl Settings {
             _ => Map::new(),
         };
         // f32 settings echo back at f32 precision (0.04, not 0.03999999910593033); reading it back gives the same f32.
-        out.insert("debt_scale".into(), f32_decimal(s.debt_scale).into());
-        out.insert("entropy_scale".into(), f32_decimal(s.entropy_scale).into());
+        for k in F32_KEYS {
+            if let Some(x) = out.get(*k).and_then(Value::as_f64) {
+                out.insert((*k).into(), f32_decimal(x as f32).into());
+            }
+        }
         if s.seed.is_none() {
             out.remove("seed");
         }
@@ -207,6 +245,20 @@ impl Settings {
         if s.beats_total == 0 {
             s.beats_total = d.beats_total;
         }
+        // Settings recorded before rules 0.6.0 have no circle schedule or killer multipliers: the old rules (the circle
+        // closes on `beats_total`, multipliers 1), which is also what `fn7-society` reads when a key is absent.
+        if v.get("arena_close_beats").is_none() {
+            s.arena_close_beats = s.beats_total;
+        }
+        for (k, x) in [
+            ("accident_scale", &mut s.accident_scale),
+            ("army_strike_scale", &mut s.army_strike_scale),
+            ("army_first_host_scale", &mut s.army_first_host_scale),
+        ] {
+            if v.get(k).is_none() {
+                *x = 1.0;
+            }
+        }
         // Settings recorded before flow/slow (schema 2) had only `beat_ms`.
         if v.get("flow_ms").is_none() {
             s.flow_ms = s.beat_ms.max(500);
@@ -226,7 +278,16 @@ mod tests {
     #[test]
     fn defaults_aliases_and_errors() {
         let v = Settings::validate(&Value::Null).unwrap();
-        assert_eq!(v["beats_total"], 100);
+        assert_eq!(v["beats_total"], DEFAULT_BEATS_TOTAL);
+        // Rules 0.6.0's balance settings, echoed at f32 precision.
+        assert_eq!(v["instant_order_debt"].to_string(), "0.5");
+        assert_eq!(v["accident_scale"].to_string(), "0.82");
+        assert_eq!((v["arena_close_beats"].as_u64(), v["debt_due_beats"].as_u64()), (Some(160), Some(50)));
+        assert!(Settings::validate(&json!({"army_strike_scale": -1})).is_err());
+        assert!(Settings::validate(&json!({"arena_close_beats": 0})).is_err());
+        // Settings recorded before 0.6.0 read back as the old rules for the circle and the killers.
+        let old = Settings::from_value(&json!({"beats_total": 30, "flow_ms": 3000}));
+        assert_eq!((old.arena_close_beats, old.army_strike_scale, old.accident_scale), (30, 1.0, 1.0));
         assert_eq!(v["compose_seconds"], 3.0);
         assert_eq!(v["arena"], "planet");
         assert_eq!((v["flow_ms"].as_u64(), v["slow_ms"].as_u64()), (Some(3000), Some(30000)));
