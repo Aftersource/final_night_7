@@ -750,6 +750,10 @@ pub(crate) fn demigod_public(w: &World, d: &Demigod) -> Value {
     if crate::wills::on(w) {
         crate::wills::demigod_fields(w, d, &mut v);
     }
+    // Gear looks (schema 11): its loadout and the image identity it shows now.
+    if crate::look::on(w) {
+        v["look"] = crate::look::look_json(w, d);
+    }
     if d.alive {
         v["pos"] = json!(d.pos);
         v["cell"] = people_cell(d.pos).into();
@@ -1028,6 +1032,10 @@ pub(crate) fn pile_with(w: &World, d: &Demigod, me: &[Ref], acts: usize, paid: f
                 v["state"] = json!(e.state);
                 v["image_prompt"] = json!(e.image_prompt);
             }
+            // Gear looks: the pile shows the pictures the match granted (the same keys as in play).
+            if crate::look::on(w) {
+                crate::look::art_fields(w, &crate::look::book(w), i, &mut v);
+            }
             v
         }).collect::<Vec<_>>(),
         "summons": summons.iter().map(|i| json!({ "item": Ref::Item(i.id), "name": i.name })).collect::<Vec<_>>(),
@@ -1128,6 +1136,10 @@ fn summary_players(w: &World, sum: &mut Summary) {
                 v["items"] = json!(crate::items::items_of(w, d.id));
                 v["portrait_prompt"] = crate::payload::portrait_prompt(w, d).into();
                 v["diorama_prompt"] = crate::payload::diorama_prompt(w, d).into();
+                if crate::look::on(w) {
+                    v["look"] = crate::look::look_json(w, d);
+                    v["looks"] = crate::look::history_json(w, d.id).into();
+                }
                 v
             }).collect::<Vec<_>>(),
         }));

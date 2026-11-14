@@ -36,6 +36,9 @@ pub const PANEL_SCHEMA: u32 = 9;
 /// The schema "wills that matter" (rules 0.9.0) switches on at (with the room setting `wills_enabled`).
 pub const WILLS_SCHEMA: u32 = 10;
 
+/// The schema gear looks switch on at (with the room setting `looks_enabled`): loadouts, `look` records, item art.
+pub const LOOK_SCHEMA: u32 = 11;
+
 /// Scars kept per demigod (the newest).
 pub const SCARS_KEPT: usize = 12;
 
@@ -374,6 +377,11 @@ pub struct Dm {
     /// nothing serialized, so states without it stay byte-identical.
     #[serde(default, skip_serializing_if = "Value::is_null")]
     pub wills: Value,
+    /// Schema 11 (gear looks, room setting `looks_enabled`): per demigod, the loadout it holds and the image identity
+    /// it shows (the `look` record), and the item art granted this match. The plugin owns the shape
+    /// (`fn7-plugin::look::LookBook`); empty (`null`) = nothing serialized, so states without it stay byte-identical.
+    #[serde(default, skip_serializing_if = "Value::is_null")]
+    pub looks: Value,
     /// Schema 8 (exact resume): what the last resolve was handed, and the beat's clocks. Absent before the first one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mark: Option<Mark>,

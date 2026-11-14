@@ -2028,6 +2028,9 @@ pub async fn resolve(
         crate::wills::quests::step(w, beat, pantheon, &st);
         crate::wills::arms::upkeep(w, beat, pantheon, &st);
     }
+    // Gear looks (schema 11): each demigod's loadout is noted; a human player's demigod whose loadout changed takes
+    // a new look (`look.changed`), and notable items are granted their pictures.
+    let look_changes = crate::look::step(w, beat, &st);
     clock.lap(Stage::Merge);
 
     // ---- (5) consequence: memories, rumor spread, mood drift, memory budget --------------------------------------
@@ -2271,6 +2274,19 @@ pub async fn resolve(
         if !duels.open.is_empty() {
             public["duels_open"] = duels.open.clone().into();
         }
+    }
+    // Gear looks: this beat's `look.changed` events in full (`looks[]`; the same objects replace the DM's short
+    // entries in `dm_events[]`).
+    if st.looks_enabled {
+        let looks = crate::look::events_json(w, beat, &look_changes);
+        if let Some(ev) = public["dm_events"].as_array_mut() {
+            for e in ev.iter_mut().filter(|e| e["event"] == "look.changed") {
+                if let Some(full) = looks.iter().find(|l| l["memory"] == e["memory"]) {
+                    *e = full.clone();
+                }
+            }
+        }
+        public["looks"] = looks.into();
     }
     // Rules 0.9.0: the public one-liners of this beat's wills, the curses' public faces and the public quests.
     if st.wills_enabled {

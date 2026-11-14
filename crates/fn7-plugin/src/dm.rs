@@ -852,6 +852,7 @@ fn stories_step(w: &mut World, beat: u32, s: &Start) {
 pub fn story_json(w: &World, d: DemigodId) -> Value {
     let me = Ref::Demigod(d);
     let wills = crate::wills::on(w);
+    let art = crate::look::on(w).then(|| crate::look::book(w));
     let items: Vec<Value> = w
         .items
         .iter()
@@ -868,6 +869,12 @@ pub fn story_json(w: &World, d: DemigodId) -> Value {
                     v["power"] = json!(a.power);
                     v["does"] = crate::wills::arms::describe(w, &a, false).into();
                 }
+            }
+            // Gear looks: a peg whose item has a picture says so (`name`, `tier`, `image_prompt`).
+            if let Some(b) = &art {
+                v["name"] = i.name.clone().into();
+                v["tier"] = json!(i.ext.tier);
+                crate::look::art_fields(w, b, i, &mut v);
             }
             v
         })
@@ -1491,6 +1498,8 @@ fn loot_pickups(w: &mut World, beat: u32, s: &Start, st: &Settings) {
 
 /// Loot on the board, flattened per item: `[{ref, icon, cell, since_beat, pile, at}]`, optionally under one place.
 pub fn loot_under(w: &World, p: Option<PlaceId>) -> Vec<Value> {
+    let art = crate::look::on(w).then(|| crate::look::book(w));
+    let art = &art;
     w.dm.loot
         .iter()
         .filter(|l| l.taken_beat.is_none())
@@ -1498,8 +1507,14 @@ pub fn loot_under(w: &World, p: Option<PlaceId>) -> Vec<Value> {
         .flat_map(|l| {
             l.items.iter().filter_map(move |i| {
                 let it = w.items.get(i.ix())?;
-                Some(json!({ "ref": Ref::Item(*i), "icon": icon_of(it.ext.kind, &it.name), "cell": l.cell,
-                             "since_beat": l.since_beat, "pile": l.id, "at": l.at }))
+                let mut v = json!({ "ref": Ref::Item(*i), "icon": icon_of(it.ext.kind, &it.name), "cell": l.cell,
+                                    "since_beat": l.since_beat, "pile": l.id, "at": l.at });
+                if let Some(b) = art {
+                    v["name"] = it.name.clone().into();
+                    v["tier"] = json!(it.ext.tier);
+                    crate::look::art_fields(w, b, it, &mut v);
+                }
+                Some(v)
             })
         })
         .collect()

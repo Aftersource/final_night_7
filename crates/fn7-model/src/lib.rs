@@ -57,7 +57,13 @@ use serde::{Deserialize, Serialize};
 ///
 /// Schema 9 (rules 0.8.2): duel panels (a bout's `scene`, `panels`, `cycle`; `fields.duel_tick`). Rules that changed
 /// read [`World::panel_rules`], so schema-4..8 recordings replay exactly.
-pub const STATE_SCHEMA: u32 = 10;
+///
+/// Schema 10 (rules 0.9.0): "wills that matter" ([`dm::Dm::wills`]); read [`World::wills_rules`].
+///
+/// Schema 11 (gear looks): the loadout each demigod carries and the image identity it shows ([`dm::Dm::looks`]: the
+/// `look` records and the item art granted this match), `look.changed` in the DM's memory, item art by descriptor.
+/// Rules that changed read [`World::look_rules`], so schema-4..10 recordings replay exactly.
+pub const STATE_SCHEMA: u32 = 11;
 
 /// Match-wide settings and clocks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -407,6 +413,10 @@ impl World {
     /// Schema 10 rules may be on (rules 0.9.0, "wills that matter"; the room setting `wills_enabled` decides).
     pub fn wills_rules(&self) -> bool {
         self.meta.schema >= dm::WILLS_SCHEMA
+    }
+    /// Schema 11 rules may be on (gear looks; the room setting `looks_enabled` decides).
+    pub fn look_rules(&self) -> bool {
+        self.meta.schema >= dm::LOOK_SCHEMA
     }
     /// A seat's demigods, in id order (Left then Right in schema 5).
     pub fn bodies_of_seat(&self, seat: u8) -> impl Iterator<Item = &Demigod> {

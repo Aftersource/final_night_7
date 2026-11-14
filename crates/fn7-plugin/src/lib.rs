@@ -29,6 +29,7 @@ pub mod godtier;
 pub mod flow;
 pub mod hotspots;
 pub mod items;
+pub mod look;
 pub mod occupancy;
 pub mod panel;
 pub mod merge;
@@ -975,3 +976,5 @@ mod resume_tests;
 mod panel_tests;
 #[cfg(test)]
 mod typing_tests;
+#[cfg(test)]
+mod look_tests;
