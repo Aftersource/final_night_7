@@ -476,3 +476,20 @@ Engineering:
 - The window is 30 s maximum (slow_ms 30000), with hidden engagement, the cut, and the client countdown.
 - Portrait plus diorama on every demigod.
 - Calibration target: all players casting at the maximum rate (instant casts, 2/s, burst 4 per seat) reaches heat death in about 30 s of real time. Tested in the balance study and given a regression test.
+
+## 2026-11-14: session log (state at compact)
+- **STABLE = playtest-3** (final_night_7 3fa3f6b; engine 2d3a43d; rules 0.5.0). Live with
+  `FN7_MEDIA_STYLE=runs/lan/media_style.json` (the committed style, pinned so working-tree edits can't break startup),
+  `THEATRE_RECORD=full`, `THEATRE_ADMIN_TOKEN`, `FN7_IMAGES=mock`. Tags: playtest-1, 2, 3.
+- **Shared match played:** room DYL5GN, match 0f8ba721. Chris on the Mac and Benito on Windows, 2 AI demigods,
+  21 beats. Both humans fell to Consequence's debt collection; champion Vex (AI).
+- **Images:** the pipeline is verified through the public URL (manifest, house-style prompts, downloads), but the
+  images are placeholder SVGs. Real generation needs Chris's OpenAI key (runs/lan/openai.env) plus a budget.
+- **In progress:** mid-match join (`on_seat_takeover`; the engine has [ midmatch join ], which FN7 doesn't compile
+  against until this lands), controller/connected/seat on demigods, and the diorama image kind (playtest-4). After
+  that, a doc-drift cleanup (the list is in PROJECT_GUIDE §11.3).
+- **Awaiting decisions:** Benito's balance package (default+ / chaos / slow burn) and R1–R4 (BALANCE_REPORT_1.md); Chris's
+  OpenAI key and budget.
+- **Unreal client:** final_night_7_unreal d4508ef. The Mac verifier builds it after the lobby session (Play 8).
+- **Read first next session:** docs/PROJECT_GUIDE.md, BUILDLOG.md, docs/PLAYBOOK.md (Plays 4, 8, 9), docs/ENGINE_SYNC.md,
+  docs/BALANCE_REPORT_1.md.
