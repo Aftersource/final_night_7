@@ -131,7 +131,7 @@ fn push_img(
     if let Some(h) = hash_of(img) {
         if !images.iter().any(|i| i.hash == h) {
             let kind = img["kind"].as_str().unwrap_or(kind).to_string();
-            images.push(ImageSeen { hash: h, kind, caption, subject, subject_name });
+            images.push(ImageSeen { hash: h, kind, caption, subject, subject_name, ..Default::default() });
         }
     }
 }
@@ -306,13 +306,16 @@ pub struct IdentitySeen {
 }
 
 /// An image made for a player in one match.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct ImageSeen {
     pub hash: String,
     pub kind: String,
     pub caption: String,
     pub subject: Option<String>,
     pub subject_name: Option<String>,
+    /// Gear looks: the beat it became the demigod's look, and `{loadout_hash, loadout: [names]}`.
+    pub beat: Option<u32>,
+    pub detail: Option<Value>,
 }
 
 /// Most deeds kept per player per match.
@@ -432,6 +435,25 @@ pub fn slices(m: &MatchInput, include_bots: bool) -> Vec<PlayerSlice> {
             }
             push_img(&mut images, &d["portrait_image"], "portrait", format!("{name}, portrait"), r.clone(), Some(name.clone()));
             push_img(&mut images, &d["diorama_image"], "diorama", format!("{name}, diorama"), r.clone(), Some(name.clone()));
+            // Gear looks: every gear look it wore this match (the summary's timeline), with its beat and loadout.
+            for look in d["looks"].as_array().into_iter().flatten() {
+                let gear: Vec<String> = look["items"].as_array().map(|a| a.iter().filter_map(s).collect()).unwrap_or_default();
+                let detail = serde_json::json!({ "loadout_hash": look["image_loadout_hash"], "loadout": gear });
+                for (key, kind) in [("portrait_image", "portrait"), ("diorama_image", "diorama")] {
+                    let Some(h) = hash_of(&look[key]).filter(|_| look[key]["status"] != "off") else { continue };
+                    if !images.iter().any(|i| i.hash == h) {
+                        images.push(ImageSeen {
+                            hash: h,
+                            kind: kind.into(),
+                            caption: format!("{name}, {kind} with {}", if gear.is_empty() { "gear".to_string() } else { gear.join(", ") }),
+                            subject: r.clone(),
+                            subject_name: Some(name.clone()),
+                            beat: look["since_beat"].as_u64().map(|b| b as u32),
+                            detail: Some(detail.clone()),
+                        });
+                    }
+                }
+            }
             if !name.is_empty() {
                 identities.push(IdentitySeen {
                     name,
@@ -472,7 +494,7 @@ pub fn slices(m: &MatchInput, include_bots: bool) -> Vec<PlayerSlice> {
                 let iname = s(&it["name"]).unwrap_or_default();
                 if let Some(h) = &image_hash {
                     if !images.iter().any(|i| &i.hash == h) {
-                        images.push(ImageSeen { hash: h.clone(), kind: "item".into(), caption: iname.clone(), subject: Some(r.clone()), subject_name: Some(iname.clone()) });
+                        images.push(ImageSeen { hash: h.clone(), kind: "item".into(), caption: iname.clone(), subject: Some(r.clone()), subject_name: Some(iname.clone()), ..Default::default() });
                     }
                 }
                 items.push(NotableItem {

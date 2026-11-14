@@ -537,6 +537,13 @@
       "minimum": 0,
       "type": "number"
     },
+    "item_art_per_match": {
+      "default": 12,
+      "description": "Gear looks: item pictures granted per match (notable items a human player's demigod holds, or lying in a loot pile); lesser and later items keep their icon.",
+      "maximum": 200,
+      "minimum": 0,
+      "type": "integer"
+    },
     "llm": {
       "default": true,
       "description": "false = never call the LLM (every mind uses its rules fallback).",
@@ -548,6 +555,39 @@
       "maximum": 32,
       "minimum": 0,
       "type": "integer"
+    },
+    "look_debounce_beats": {
+      "default": 3,
+      "description": "Gear looks: beats between two new gear images of one demigod (the newest loadout wins when the wait ends).",
+      "maximum": 100,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "look_extra_items": {
+      "default": 2,
+      "description": "Gear looks: major items a loadout lists beyond the best item per slot (relic tier and up, god-blessed, or the first item of a new kind).",
+      "maximum": 6,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "look_images_per_demigod": {
+      "default": 4,
+      "description": "Gear looks: new gear images (a portrait and a diorama each) one human player's demigod may get per match; beyond it the loadout still updates and the picture stays.",
+      "maximum": 20,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "look_items_shown": {
+      "default": 3,
+      "description": "Gear looks: items a gear portrait or diorama shows at most (the loadout's first ones).",
+      "maximum": 5,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "looks_enabled": {
+      "default": true,
+      "description": "Gear looks (the feature gate; needs state schema 11): each demigod's loadout (its best item per slot plus its other major items) is tracked, a human player's demigod gets a new portrait and diorama WITH its gear at each major acquisition, and notable items get item art. Settings recorded before it lack it and read back false (old recordings replay unchanged).",
+      "type": "boolean"
     },
     "manifest_calls_per_beat": {
       "default": 2,

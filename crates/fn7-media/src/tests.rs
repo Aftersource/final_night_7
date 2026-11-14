@@ -538,3 +538,171 @@ async fn the_queue_starts_portraits_before_queued_event_images() {
     let order = gen.started.lock().unwrap().clone();
     assert_eq!(order, ["e0", "p1", "d1", "p2", "s1", "i1", "e1", "e2", "e3"], "by priority, FIFO within one");
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Gear looks: a picture drawn on a base image, the pending swap, the cache across matches
+// ---------------------------------------------------------------------------------------------------------------------
+
+/// Records every request (its key and the reference images sent with it).
+struct Spy {
+    made: Mutex<Vec<(String, Vec<String>)>>,
+    delay: Duration,
+}
+
+#[async_trait::async_trait]
+impl ImageGenerator for Spy {
+    fn provider(&self) -> &'static str {
+        "mock"
+    }
+    fn label(&self) -> String {
+        "mock".into()
+    }
+    fn price_usd(&self, _: ImageKind, _: &str) -> Option<f64> {
+        Some(0.0)
+    }
+    async fn generate(&self, req: &GenRequest) -> anyhow::Result<Generated> {
+        tokio::time::sleep(self.delay).await;
+        self.made.lock().unwrap().push((req.key.clone(), req.refs.iter().map(|r| r.name.clone()).collect()));
+        Ok(Generated { bytes: format!("<svg>{}</svg>", req.key).into_bytes(), ext: "svg", cost_usd: 0.0, model: "spy".into() })
+    }
+}
+
+fn spy(delay_ms: u64) -> Arc<Spy> {
+    Arc::new(Spy { made: Mutex::new(vec![]), delay: Duration::from_millis(delay_ms) })
+}
+
+const BASE_P: &str = "Chris's Left Hand, a demigod: wiry and long-limbed, in violet and jet black";
+const BASE_D: &str = "Chris's Left Hand, a demigod: wiry and long-limbed; as a tiny geometric miniature figure";
+
+/// A public demigod with a `look` as the plugin sends it.
+fn demigod_with_look(loadout: &str, gear: Option<&str>, fallback: &[&str]) -> Value {
+    let subj = |g: &str, base: &str| format!("{base}; newly geared: {g}; the same face as before");
+    json!({ "ref": "dg:0", "name": "Chris's Left Hand", "player": "Chris", "controller": "human",
+            "portrait_prompt": BASE_P, "image_kind": "portrait", "diorama_prompt": BASE_D,
+            "look": {
+                "loadout": [ { "slot": "weapon", "item": "it:3", "name": "Butterfly Wing Blade", "icon": "sword", "tier": "relic" } ],
+                "loadout_hash": loadout, "image_loadout_hash": loadout, "since_beat": 4, "gear": gear.is_some(),
+                "base_portrait": BASE_P, "base_diorama": BASE_D,
+                "portrait_subject": gear.map(|g| subj(g, BASE_P)), "diorama_subject": gear.map(|g| subj(g, BASE_D)),
+                "fallback": fallback.iter().map(|g| json!({ "loadout_hash": "old", "portrait_subject": subj(g, BASE_P), "diorama_subject": subj(g, BASE_D) })).collect::<Vec<_>>(),
+            } })
+}
+
+#[tokio::test]
+async fn a_gear_look_is_drawn_on_its_base_and_swaps_in_when_ready() {
+    let dir = temp_dir();
+    let gen = spy(40);
+    let media = Media::start(cfg(&dir, 0.0, 0.0), Some(gen.clone() as Arc<dyn ImageGenerator>));
+    // No gear: the look's images are the base identity images.
+    let mut v = demigod_with_look("", None, &[]);
+    let (_, seen) = media.annotate_seen(&mut v, Some("m1"));
+    assert_eq!(v["look"]["portrait_image"]["hash"], v["portrait_image"]["hash"]);
+    assert_eq!(v["look"]["diorama_image"]["hash"], v["diorama_image"]["hash"]);
+    assert!(v["look"].get("pending").is_none() && v["look"].get("base_portrait").is_none() && v["look"].get("fallback").is_none(), "{}", v["look"]);
+    assert_eq!((seen.len(), seen[0].demigod.as_deref(), seen[0].player.as_deref(), seen[0].portrait.is_none()), (1, Some("dg:0"), Some("Chris"), true));
+    assert!(media.wait_idle(Duration::from_secs(5)).await);
+    let (base_p, base_d) = (v["portrait_image"]["hash"].as_str().unwrap().to_string(), v["diorama_image"]["hash"].as_str().unwrap().to_string());
+    assert_eq!(gen.made.lock().unwrap().len(), 2);
+
+    // A major acquisition: the gear images are asked for; until they exist the payload keeps the base images and
+    // names the new ones as pending.
+    let mut v = demigod_with_look("h1", Some("gripped in the right hand, a blade"), &[]);
+    let (_, seen) = media.annotate_seen(&mut v, Some("m1"));
+    let l = &v["look"];
+    assert_eq!((l["portrait_image"]["hash"].as_str(), l["portrait_image"]["status"].as_str()), (Some(base_p.as_str()), Some("ready")));
+    assert_eq!(l["diorama_image"]["hash"], base_d.as_str());
+    let (gear_p, gear_d) = (l["pending"]["portrait_image"]["hash"].as_str().unwrap().to_string(), l["pending"]["diorama_image"]["hash"].as_str().unwrap().to_string());
+    assert_eq!((l["pending"]["portrait_image"]["status"].as_str(), l["pending"]["loadout_hash"].as_str()), (Some("pending"), Some("h1")));
+    assert!(gear_p != base_p && gear_d != base_d && gear_p != gear_d);
+    assert!(l["pending"]["portrait_image"]["prompt"].as_str().unwrap().ends_with(style::DEFAULT_BASE_NOTE), "the base note closes the prompt");
+    assert_eq!(v["portrait_image"]["hash"], base_p.as_str(), "the identity image stays for older clients");
+    assert_eq!((seen[0].loadout_hash.as_str(), seen[0].since_beat, seen[0].loadout.clone()), ("h1", Some(4), vec!["Butterfly Wing Blade".to_string()]));
+    assert_eq!(seen[0].portrait.as_ref().map(|p| p.hash.clone()), Some(gear_p.clone()));
+    // Asking again while it renders changes nothing and queues nothing more.
+    let mut again = demigod_with_look("h1", Some("gripped in the right hand, a blade"), &[]);
+    media.annotate_seen(&mut again, Some("m1"));
+    assert_eq!(again, v);
+    assert!(media.wait_idle(Duration::from_secs(5)).await);
+    // Ready: the same payload now shows the gear images and nothing is pending.
+    let mut v2 = demigod_with_look("h1", Some("gripped in the right hand, a blade"), &[]);
+    media.annotate_seen(&mut v2, Some("m1"));
+    assert_eq!((v2["look"]["portrait_image"]["hash"].as_str(), v2["look"]["portrait_image"]["status"].as_str()), (Some(gear_p.as_str()), Some("ready")));
+    assert_eq!(v2["look"]["diorama_image"]["hash"], gear_d.as_str());
+    assert!(v2["look"].get("pending").is_none());
+    // Each gear picture was generated once, with its own base as the FIRST reference image.
+    let made = gen.made.lock().unwrap().clone();
+    assert_eq!(made.len(), 4);
+    let refs_of = |k: &str| made.iter().find(|m| m.0 == k).unwrap().1.clone();
+    assert_eq!(refs_of(&gear_p)[0], format!("base/{base_p}.svg"));
+    assert_eq!(refs_of(&gear_d)[0], format!("base/{base_d}.svg"));
+    assert_eq!(refs_of(&gear_p).len(), 1 + refs_of(&base_p).len(), "the style's references follow the base");
+
+    // The next acquisition: while it renders, the PREVIOUS gear look stands in (not the bare base).
+    let mut v3 = demigod_with_look("h2", Some("gripped in the right hand, a blade; strapped over the chest, plate armour"), &["gripped in the right hand, a blade"]);
+    media.annotate_seen(&mut v3, Some("m1"));
+    assert_eq!(v3["look"]["portrait_image"]["hash"], gear_p.as_str());
+    assert_eq!(v3["look"]["pending"]["loadout_hash"], "h2");
+    assert!(media.wait_idle(Duration::from_secs(5)).await);
+    assert_eq!(gen.made.lock().unwrap().len(), 6);
+
+    // Another process, another match, the same cache directory (a later match, or a replay through the server):
+    // every look resolves to the same files and nothing is generated.
+    let gen2 = spy(0);
+    let later = Media::start(cfg(&dir, 0.0, 0.0), Some(gen2.clone() as Arc<dyn ImageGenerator>));
+    for (h, g, fb) in [("h1", Some("gripped in the right hand, a blade"), vec![]),
+                       ("h2", Some("gripped in the right hand, a blade; strapped over the chest, plate armour"), vec!["gripped in the right hand, a blade"]),
+                       ("", None, vec![])] {
+        let mut x = demigod_with_look(h, g, &fb);
+        later.annotate_seen(&mut x, Some("m2"));
+        assert_eq!(x["look"]["portrait_image"]["status"], "ready", "{h}");
+        assert_eq!(x["look"]["diorama_image"]["status"], "ready");
+        assert!(x["look"].get("pending").is_none());
+        if h == "h1" {
+            assert_eq!(x["look"]["portrait_image"]["hash"], gear_p.as_str(), "the same key in any match");
+        }
+    }
+    assert!(later.wait_idle(Duration::from_secs(5)).await);
+    assert!(gen2.made.lock().unwrap().is_empty(), "nothing is generated twice");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn a_look_changed_event_is_annotated_like_a_look_and_the_key_names_its_base() {
+    let dir = temp_dir();
+    let media = Media::start(cfg(&dir, 0.0, 0.0), Some(spy(30) as Arc<dyn ImageGenerator>));
+    let look = demigod_with_look("h1", Some("gripped in the right hand, a blade"), &[])["look"].clone();
+    let mut ev = look.clone();
+    ev["event"] = "look.changed".into();
+    ev["demigod"] = "dg:0".into();
+    ev["name"] = "Chris's Left Hand".into();
+    ev["player"] = "Chris".into();
+    ev["gained"] = json!({ "item": "it:3", "name": "Butterfly Wing Blade", "icon": "sword", "tier": "relic", "image_prompt": "a blade of butterfly-wing", "image_kind": "item" });
+    let raw = ev.clone();
+    let mut payload = json!({ "dm_events": [ev] });
+    let (_, seen) = media.annotate_seen(&mut payload, Some("m1"));
+    let e = &payload["dm_events"][0];
+    assert_eq!(e["pending"]["portrait_image"]["status"], "pending");
+    assert_eq!(e["gained"]["image"]["kind"], "item", "the gained item's picture rides along: {e}");
+    assert_eq!((seen.len(), seen[0].demigod.as_deref(), seen[0].event.as_ref()), (1, Some("dg:0"), Some(&raw)));
+    // The key: the same subject on another base is another image; the same on the same base is the same image.
+    let base = media.prompt(ImageKind::Portrait, BASE_P).unwrap();
+    let other = media.prompt(ImageKind::Portrait, "Vex, a demigod").unwrap();
+    let a = media.prompt_on(ImageKind::Portrait, "a subject", &base).unwrap();
+    assert_eq!(media.key_for(&a), media.key_for(&media.prompt_on(ImageKind::Portrait, "a subject", &base).unwrap()));
+    assert_ne!(media.key_for(&a), media.key_for(&media.prompt_on(ImageKind::Portrait, "a subject", &other).unwrap()));
+    assert_ne!(media.key_for(&a), media.key_for(&media.prompt(ImageKind::Portrait, "a subject").unwrap()));
+    assert_eq!(a.base.as_deref(), Some(media.key_for(&base).as_str()));
+    assert_eq!(a.ref_count(), a.refs.len() + 1);
+    // An item picture's key is its subject's: the same descriptor is one image.
+    let i = |s: &str| media.key_for(&media.prompt(ImageKind::Item, s).unwrap());
+    assert_eq!(i("a blade of beaten gold: a demigod's weapon, ornate, glowing steadily"), i("a blade of beaten gold: a demigod's weapon, ornate, glowing steadily"));
+    assert_ne!(i("a blade of beaten gold: a demigod's weapon, ornate, glowing steadily"), i("a blade of beaten gold: a demigod's weapon, plain and battered"));
+    assert!(media.wait_idle(Duration::from_secs(5)).await);
+    // A gear picture whose base was refused is not generated (and is retried by a later match).
+    let poor = Media::start(cfg(&temp_dir(), 0.0, 0.0), Some(Arc::new(MockGenerator { price_usd: 1.0, ..Default::default() }) as Arc<dyn ImageGenerator>));
+    let mut x = demigod_with_look("h1", Some("gripped in the right hand, a blade"), &[]);
+    poor.annotate_seen(&mut x, Some("m1"));
+    assert_eq!(x["look"]["portrait_image"]["status"], "off");
+    assert!(x["look"].get("pending").is_none(), "nothing will come: nothing is pending");
+    let _ = std::fs::remove_dir_all(dir);
+}

@@ -498,6 +498,54 @@
       ],
       "type": "object"
     },
+    "ImageObject": {
+      "description": "An image the media server attached (only when the server has images on; see docs/MEDIA.md). Fetch `url` once `status` is `ready` (watch GET /media/index for `hash`); `off` = none will come, show a placeholder.",
+      "properties": {
+        "hash": {
+          "description": "Content key (sha256 hex): cache by it forever.",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "portrait",
+            "item",
+            "event",
+            "statue",
+            "place",
+            "army",
+            "diorama"
+          ],
+          "type": "string"
+        },
+        "prompt": {
+          "description": "The full prompt sent to the image model (house style; no engine ids).",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "ready",
+            "off"
+          ],
+          "type": "string"
+        },
+        "url": {
+          "description": "`/media/<hash>.<ext>` once ready, relative to the server's HTTP origin.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "hash",
+        "kind",
+        "status",
+        "url",
+        "prompt"
+      ],
+      "type": "object"
+    },
     "Level": {
       "description": "A level of the hierarchy.",
       "enum": [
@@ -523,6 +571,10 @@
     "LootToken": {
       "description": "Rules 0.8.0: an item token lying on a hex.",
       "properties": {
+        "art": {
+          "description": "",
+          "type": "string"
+        },
         "at": {
           "$ref": "#/$defs/LonLat"
         },
@@ -532,6 +584,20 @@
         },
         "icon": {
           "description": "",
+          "type": "string"
+        },
+        "image": {
+          "$ref": "#/$defs/ImageObject"
+        },
+        "image_kind": {
+          "const": "item"
+        },
+        "image_prompt": {
+          "description": "State schema 11: a relic-tier or blessed item on the ground has a picture.",
+          "type": "string"
+        },
+        "name": {
+          "description": "State schema 11.",
           "type": "string"
         },
         "pile": {
@@ -546,6 +612,10 @@
           "description": "",
           "minimum": 0,
           "type": "integer"
+        },
+        "tier": {
+          "description": "State schema 11.",
+          "type": "string"
         }
       },
       "required": [

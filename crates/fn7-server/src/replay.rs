@@ -49,15 +49,23 @@ pub struct Report {
 }
 
 /// `v` without the image objects the media wrapper adds (`image`, `statue_image`, `portrait_image`, `diorama_image`): a summary recorded
-/// by a server with images on compares equal to its replay through the bare plugin.
+/// by a server with images on compares equal to its replay through the bare plugin. A look (an object with
+/// `image_loadout_hash`) also loses the inputs the wrapper consumes (`base_portrait`, `base_diorama`,
+/// `portrait_subject`, `diorama_subject`, `fallback`) and its `pending`.
 pub fn strip_media(v: &Value) -> Value {
     match v {
-        Value::Object(o) => Value::Object(
-            o.iter()
-                .filter(|(k, _)| !matches!(k.as_str(), "image" | "statue_image" | "portrait_image" | "diorama_image"))
-                .map(|(k, x)| (k.clone(), strip_media(x)))
-                .collect(),
-        ),
+        Value::Object(o) => {
+            let look = o.contains_key("image_loadout_hash");
+            Value::Object(
+                o.iter()
+                    .filter(|(k, _)| !matches!(k.as_str(), "image" | "statue_image" | "portrait_image" | "diorama_image"))
+                    .filter(|(k, _)| {
+                        !(look && matches!(k.as_str(), "base_portrait" | "base_diorama" | "portrait_subject" | "diorama_subject" | "fallback" | "pending"))
+                    })
+                    .map(|(k, x)| (k.clone(), strip_media(x)))
+                    .collect(),
+            )
+        }
         Value::Array(a) => Value::Array(a.iter().map(strip_media).collect()),
         x => x.clone(),
     }

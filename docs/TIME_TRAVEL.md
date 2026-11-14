@@ -2,8 +2,8 @@
 
 Everything that lets a match be redrawn at the exact present (a client reconnects, a viewer joins, the server
 restarts) or at any past moment (state at a round, a fork, a replay). One place, exact. State **schema 8** ("exact
-resume") is the first with all of it, **schema 9** (rules 0.8.2) adds the duel panels; older states keep their
-shapes and replay unchanged.
+resume") is the first with all of it, **schema 9** (rules 0.8.2) adds the duel panels, **schema 11** the looks (which
+picture each demigod shows); older states keep their shapes and replay unchanged.
 
 Code: `crates/fn7-plugin/src/present.rs` (the journal, the present, the side inputs), `duel.rs` (the bout), `panel.rs` (the scene and the panels; tests `panel_tests.rs`),
 `crates/fn7-server/src/replay.rs` (replay verification). Tests: `fn7-plugin/src/resume_tests.rs`,
@@ -32,13 +32,44 @@ One JSON value, opaque to the core (`fn7_model::World`; tables in docs/DATA_MODE
 
 | Field | Meaning |
 |---|---|
-| `meta.schema` | 9 for a match started by this server. Rules read it; 4..7 states behave as recorded |
+| `meta.schema` | 11 for a match started by this server. Rules read it; 4..10 states behave as recorded |
 | `meta.seed` | every die and every seeded pick derives from it and a query string, never from wall time |
 | `meta.beat` | the beat (= the Theatre round). Set at the beat's Start |
 | `demigods`, `ledger`, `intents`, ... | the board |
 | `dm.memory[]` | the DM's place × time memory: every decision with its beat, hex and `query`. `duel.lock` and `duel.end` entries are the permanent record of a duel (`<duel_id>:lock`, `<duel_id>:end`), every d20 is `dice.rolled` |
 | `dm.duels[]` | the duels under way: one **bout** each (below) |
 | `dm.mark` | schema 8: `{at_ms, seq, resolved_ms, round_ms}` (below) |
+| `dm.looks` | schema 11: each demigod's loadout and the image identity it shows; the item art granted (below) |
+
+### The look (`dm.looks`, `fn7_plugin::look::LookBook`; schema 11)
+
+Which picture a demigod shows is part of the state, so every snapshot, replay, fork and `present` shows the image that
+was current at THAT beat. Written only at the end of a beat (`look::step`, rules only: no clock, no image service).
+
+| Field | Meaning |
+|---|---|
+| `looks[]` | one record per demigod that ever held a loadout, in id order |
+| `looks[].demigod` | the demigod |
+| `looks[].held` | the hash of the loadout it holds now (`""`: nothing notable); kept for every demigod, the AI's too |
+| `looks[].loadout` | the hash of the loadout its IMAGES show (`""`: the base identity images). A human's only |
+| `looks[].since_beat` | the beat its images became these |
+| `looks[].gear[]` | the pieces its images show: `{role, kind, material, tier, stem, blessing, name}` (the prompt is written from these and the demigod's name, never from items that may since have changed hands) |
+| `looks[].portrait`, `.diorama` | sha256 of its portrait subject and its diorama subject (the image identity; `""`: base) |
+| `looks[].lines[]` | every line of the pictured loadout (what a later loadout is compared with to say what was gained) |
+| `looks[].made[]`, `.made_beat` | the gear pictures made for it this match (the cap) and the beat of the newest (the debounce) |
+| `looks[].past[]` | its earlier looks, oldest first (the newest 8): `{loadout, since_beat, until_beat, gear[]}` |
+| `art[]` | the item pictures granted this match (art keys, in the order granted) |
+
+- **The image identity is the subject, not a media key.** A media key also depends on the generator and the style's
+  reference files, which the plugin never sees. The same subject under the same generator and style is the same key,
+  so a replayed, forked or scrubbed match resolves to the same cached files and generates nothing; under another
+  model or style it is another (correct) key, as for every other image.
+- **Every view derives the look from the state it is shown:** `public_state.demigods[].look`, the seat view, the
+  admin's state at a round, a fork's first snapshot, `match.ended.summary.players[].demigods[].look` and `.looks[]`
+  (the whole timeline). `look.changed` is a `dm.memory` entry (`look:<demigod>:<beat>`).
+- **Pending is the server's, not the state's.** While a new image renders, the media layer shows the previous look's
+  image and marks the new one `pending`. A snapshot shown later finds the image on disk and shows it at once.
+- Gated on `meta.schema >= 11` and the room setting `looks_enabled`: older states have no `dm.looks` and no `look`.
 
 ### The bout (`dm.duels[]`, `fn7_plugin::duel::Bout`)
 
@@ -184,7 +215,8 @@ pauses are the `duel_clock` events. The test asserts the rebuilt list equals the
 4. **A duel's clock counts only time the room was running.** A pause moves `deadline_ms` and is listed in `pauses`.
 5. **Replays are exact.** A match that was killed and resumed, paused, joined mid-match or forked replays with 0
    differences: the two side inputs are recorded and fed back.
-6. **Older recordings replay unchanged.** Everything above is gated on `meta.schema >= 8`, the panels on `>= 9`.
+6. **Older recordings replay unchanged.** Everything above is gated on `meta.schema >= 8`, the panels on `>= 9`,
+   the looks on `>= 11`.
 7. **Ids stay unique across restarts.** The core's `seq` restarts at 1 with the process; a challenge whose
    `duel:s<seq>:<a>:<b>` already names a duel of the match gets `seq + 1000000` (repeated until free). Duel input is
    ordered by `(received_at_ms, seq)`.

@@ -28,6 +28,10 @@ pub fn settings(w: &World) -> Settings {
     if !s.rules_0_8_1 || !w.wills_rules() {
         s.wills_enabled = false;
     }
+    // Gear looks need a schema-11 state (an older state never tracks loadouts, whatever its settings say).
+    if !w.look_rules() {
+        s.looks_enabled = false;
+    }
     s
 }
 

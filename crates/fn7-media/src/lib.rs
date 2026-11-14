@@ -41,6 +41,7 @@ pub use cache::{MediaCache, Sidecar};
 pub use generator::{
     GenRequest, Generated, ImageGenerator, MockGenerator, OpenAiConfig, OpenAiImages,
 };
+pub use annotate::LookSeen;
 pub use prompt::{ImageKind, ImagePrompt, PROMPT_VERSION};
 pub use style::{EventSelection, KindStyle, MediaStyle, RefImage, References, RefsSpec};
 
@@ -407,6 +408,27 @@ impl Media {
         ImagePrompt::styled(self.style(), kind, subject)
     }
 
+    /// A prompt drawn ON `base` (a demigod's gear portrait on its base portrait): `subject` in this service's style,
+    /// with `base`'s image as the first reference and the style's `base_note`. Ask for `base` first
+    /// ([`Media::request`]); the picture is generated once the base exists.
+    pub fn prompt_on(&self, kind: ImageKind, subject: &str, base: &ImagePrompt) -> Option<ImagePrompt> {
+        let key = self.key_for(base);
+        self.prompt(kind, subject).map(|p| p.on_base(&key, &self.style().base_note))
+    }
+
+    /// Where an image stands without asking for it: `None` when this process never queued it and it is not on disk.
+    pub fn peek(&self, prompt: &ImagePrompt) -> Option<ImageRef> {
+        let key = self.key_for(prompt);
+        {
+            let st = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(e) = st.entries.get(&key) {
+                return Some(self.image_ref(e));
+            }
+        }
+        let side = self.inner.cache.lookup(&key)?;
+        Some(ImageRef { url: Some(self.url(&key, &side.ext)), hash: key, kind: prompt.kind, status: "ready", prompt: prompt.text.clone() })
+    }
+
     /// The image key of a prompt under the current generator: sha256 of `PROMPT_VERSION`, the generator label, the size
     /// and the prompt text, as 64 hex chars.
     pub fn key_for(&self, prompt: &ImagePrompt) -> String {
@@ -484,7 +506,7 @@ impl Media {
         }
         // Budget, caps, queue.
         let cfg = &self.inner.cfg;
-        let price = gen.price_for(prompt.kind, &prompt.size, prompt.refs.len());
+        let price = gen.price_for(prompt.kind, &prompt.size, prompt.ref_count());
         let spend = st.matches.entry(m.clone()).or_default();
         let refusal = match price {
             None => Some("unknown price for this model: set FN7_IMAGE_PRICE_USD".to_string()),
@@ -567,7 +589,7 @@ impl Media {
             None => (
                 "media_request",
                 json!({ "hash": key, "kind": prompt.kind, "provider": gen.provider(), "model": self.inner.label, "price_usd": price, "prompt": prompt.text,
-                        "refs": prompt.refs.iter().map(|r| r.file_name()).collect::<Vec<_>>() }),
+                        "refs": prompt.refs.iter().map(|r| r.file_name()).collect::<Vec<_>>(), "base": prompt.base }),
             ),
         };
         theatre_trace::event(kind, None, data);
@@ -700,8 +722,8 @@ impl Media {
     }
 }
 
-/// sha256(`PROMPT_VERSION` \n label \n size \n prompt text [\n ref:<sha256 of each reference image, in order>]),
-/// hex. The prompt text carries the kind's house style and reference note; the reference hashes pin the exact files.
+/// sha256(`PROMPT_VERSION` \n label \n size \n prompt text [\n ref:<sha256 of each reference image, in order>]
+/// [\n base:<the base image's key>]), hex. The prompt text carries the kind's house style and reference note; the reference hashes pin the exact files.
 pub fn image_key(label: &str, prompt: &ImagePrompt) -> String {
     let mut h = Sha256::new();
     h.update(PROMPT_VERSION.as_bytes());
@@ -714,6 +736,10 @@ pub fn image_key(label: &str, prompt: &ImagePrompt) -> String {
     for r in &prompt.refs {
         h.update(b"\nref:");
         h.update(r.sha256.as_bytes());
+    }
+    if let Some(b) = &prompt.base {
+        h.update(b"\nbase:");
+        h.update(b.as_bytes());
     }
     hex::encode(h.finalize())
 }
@@ -770,19 +796,58 @@ async fn worker(inner: Weak<Inner>, mut rx: mpsc::Receiver<Job>) {
     }
 }
 
+/// How long a picture waits for its base image.
+const BASE_WAIT: Duration = Duration::from_secs(300);
+
+/// The base image `key` as a reference: its cached file and content hash. Waits while the base is still pending;
+/// fails when it was refused or failed, was never asked for, or does not arrive in time.
+async fn base_ref(inner: &Arc<Inner>, key: &str) -> anyhow::Result<style::RefImage> {
+    let t0 = Instant::now();
+    loop {
+        if let Some(side) = inner.cache.lookup(key) {
+            let path = inner.cache.image_path(key, &side.ext);
+            let bytes = tokio::fs::read(&path).await?;
+            return Ok(style::RefImage { name: format!("base/{key}.{}", side.ext), path, sha256: hex::encode(Sha256::digest(&bytes)) });
+        }
+        let status = {
+            let st = inner.state.lock().unwrap_or_else(|e| e.into_inner());
+            st.entries.get(key).map(|e| e.status)
+        };
+        match status {
+            Some(Status::Pending) if t0.elapsed() < BASE_WAIT => tokio::time::sleep(Duration::from_millis(50)).await,
+            Some(Status::Pending) => anyhow::bail!("the base image {key} did not arrive in time"),
+            // Ready just now: read it on the next turn.
+            Some(Status::Ready) if t0.elapsed() < BASE_WAIT => tokio::task::yield_now().await,
+            Some(s) => anyhow::bail!("the base image {key} is {s:?}"),
+            None => anyhow::bail!("the base image {key} was never asked for"),
+        }
+    }
+}
+
 async fn run_job(inner: Arc<Inner>, job: Job) {
     let Some(gen) = inner.gen.clone() else {
         return;
     };
-    let req = GenRequest {
-        key: job.key.clone(),
-        kind: job.prompt.kind,
-        prompt: job.prompt.text.clone(),
-        size: job.prompt.size.clone(),
-        refs: job.prompt.refs.clone(),
+    // A picture drawn on a base image waits for the base (asked for first, so ahead of it in the queue) and sends it
+    // as the first reference.
+    let base = match &job.prompt.base {
+        Some(b) => base_ref(&inner, b).await.map(Some),
+        None => Ok(None),
     };
     let t0 = Instant::now();
-    let res = gen.generate(&req).await;
+    let res = match base {
+        Err(e) => Err(e),
+        Ok(base) => {
+            let req = GenRequest {
+                key: job.key.clone(),
+                kind: job.prompt.kind,
+                prompt: job.prompt.text.clone(),
+                size: job.prompt.size.clone(),
+                refs: base.into_iter().chain(job.prompt.refs.iter().cloned()).collect(),
+            };
+            gen.generate(&req).await
+        }
+    };
     let latency_ms = t0.elapsed().as_secs_f64() * 1000.0;
     let stored = res.and_then(|g| {
         let side = Sidecar {

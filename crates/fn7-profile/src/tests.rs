@@ -292,12 +292,34 @@ fn descriptions_claims_and_images() {
         subject_name: None,
         match_id: Some("m9".into()),
         at: Some(10),
+        ..Default::default()
     };
     s.add_image("chris", &img).unwrap();
     s.add_image("chris", &img).unwrap();
     let lib = s.library("chris", 0, None, Some("item")).unwrap();
     assert_eq!((lib.total, lib.items[0].matches.len()), (1, 1));
-    assert!(matches!(s.add_image("chris", &NewImage { hash: "../etc".into(), ..img }), Err(ProfileError::Invalid(_))));
+    assert!(matches!(s.add_image("chris", &NewImage { hash: "../etc".into(), ..img.clone() }), Err(ProfileError::Invalid(_))));
+    // Gear looks: a gear portrait says in which match, at which beat and with what loadout it was the look; a
+    // later sighting of the same image in the same match keeps the first beat.
+    let gear = NewImage {
+        hash: "feed01".into(),
+        kind: "portrait".into(),
+        caption: "Chris's Left Hand, portrait with Butterfly Wing Blade".into(),
+        subject: Some("dg:0".into()),
+        subject_name: Some("Chris's Left Hand".into()),
+        match_id: Some("m9".into()),
+        at: Some(20),
+        beat: Some(7),
+        detail: Some(serde_json::json!({ "loadout_hash": "abc", "loadout": ["Butterfly Wing Blade"] })),
+    };
+    s.add_image("chris", &gear).unwrap();
+    s.add_image("chris", &NewImage { beat: Some(9), at: Some(30), ..gear.clone() }).unwrap();
+    s.add_image("chris", &NewImage { match_id: Some("m10".into()), beat: Some(3), at: Some(40), ..gear.clone() }).unwrap();
+    let lib = s.library("chris", 0, None, Some("portrait")).unwrap();
+    let g = lib.items.iter().find(|i| i.hash == "feed01").unwrap();
+    assert_eq!(g.looks, vec![serde_json::json!({ "match_id": "m9", "beat": 7, "loadout_hash": "abc", "loadout": ["Butterfly Wing Blade"] }),
+                             serde_json::json!({ "match_id": "m10", "beat": 3, "loadout_hash": "abc", "loadout": ["Butterfly Wing Blade"] })]);
+    assert!(s.library("chris", 0, None, Some("item")).unwrap().items[0].looks.is_empty());
 }
 
 #[test]

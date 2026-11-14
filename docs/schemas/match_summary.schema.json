@@ -126,6 +126,10 @@
     "Manifestation": {
       "description": "Rules 0.7.0: one manifestation attempt (made or not).",
       "properties": {
+        "art": {
+          "description": "State schema 11: the made item's picture key (with image_prompt).",
+          "type": "string"
+        },
         "at": {
           "anyOf": [
             {
@@ -295,8 +299,7 @@
         "at",
         "region",
         "public",
-        "image_prompt",
-        "image_kind"
+        "image_prompt"
       ],
       "type": "object"
     },
@@ -570,6 +573,10 @@
             "items": {
               "description": "",
               "properties": {
+                "art": {
+                  "description": "State schema 11: the item picture's key.",
+                  "type": "string"
+                },
                 "count": {
                   "description": "",
                   "type": "number"
@@ -579,6 +586,9 @@
                 },
                 "image": {
                   "$ref": "#/$defs/ImageObject"
+                },
+                "image_kind": {
+                  "const": "item"
                 },
                 "image_prompt": {
                   "type": [

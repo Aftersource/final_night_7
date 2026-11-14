@@ -62,6 +62,16 @@ fn array(items: Value, desc: &str) -> Value {
     json!({ "type": "array", "items": items, "description": desc })
 }
 /// An object with every listed property required (in this order) plus optional ones.
+/// The picture fields of an item with item art (state schema 11).
+fn art_fields() -> Vec<(&'static str, Value)> {
+    vec![
+        ("image_prompt", string("State schema 11: the item picture's subject (only an item granted a picture has it).")),
+        ("image_kind", json!({ "const": "item" })),
+        ("art", string("The picture's key (its normalized descriptor's hash).")),
+        ("image", r("ImageObject")),
+    ]
+}
+
 fn object(desc: &str, req: &[(&str, Value)], opt: &[(&str, Value)]) -> Value {
     let mut props = Map::new();
     for (k, v) in req.iter().chain(opt.iter()) {
@@ -805,6 +815,12 @@ fn settings_schema() -> Value {
     p("quest_expire_beats", i(0, 1000, json!(24), "Rules 0.9.0: beats a heal's or an arming's quest stays open (0 = until done); a curse's counter-quest lives as long as its curse, a raising's until the Final Night."));
     p("quest_spark_step", i(0, 50, json!(2), "Rules 0.9.0: sparks a quest's offering step asks for (times the quest's difficulty)."));
     p("wills_ai_chance", f(0.0, 1.0, 0.25, "Rules 0.9.0: how readily the built-in AI uses wills (heals when hurt, arms itself, pleads for its fallen sibling, curses a rival, pursues its quests); 0 = never."));
+    p("looks_enabled", json!({ "type": "boolean", "default": true, "description": "Gear looks (the feature gate; needs state schema 11): each demigod's loadout (its best item per slot plus its other major items) is tracked, a human player's demigod gets a new portrait and diorama WITH its gear at each major acquisition, and notable items get item art. Settings recorded before it lack it and read back false (old recordings replay unchanged)." }));
+    p("look_extra_items", i(0, 6, json!(2), "Gear looks: major items a loadout lists beyond the best item per slot (relic tier and up, god-blessed, or the first item of a new kind)."));
+    p("look_items_shown", i(1, 5, json!(3), "Gear looks: items a gear portrait or diorama shows at most (the loadout's first ones)."));
+    p("look_images_per_demigod", i(0, 20, json!(4), "Gear looks: new gear images (a portrait and a diorama each) one human player's demigod may get per match; beyond it the loadout still updates and the picture stays."));
+    p("look_debounce_beats", i(0, 100, json!(3), "Gear looks: beats between two new gear images of one demigod (the newest loadout wins when the wait ends)."));
+    p("item_art_per_match", i(0, 200, json!(12), "Gear looks: item pictures granted per match (notable items a human player's demigod holds, or lying in a loot pile); lesser and later items keep their icon."));
     p("challenge_enabled", json!({ "type": "boolean", "default": true, "description": "Rules 0.8.1: challenge mode (fields.challenge / fields.duel, and the built-in AI's challenges). Settings recorded before 0.8.1 read it as false." }));
     p("rules_0_8_1", json!({ "type": "boolean", "default": true, "description": "Rules 0.8.1 marker (always true when validated by a 0.8.1+ server; absent in older recordings)." }));
     p("challenge_min_km", f(0.0, 20000.0, 120.0, "Rules 0.8.1: a challenge always reaches this far (km), at any zoom."));
@@ -1190,7 +1206,8 @@ fn outcome_public() -> Value {
             ("duels", array(r("ChallengeEnd"), "Rules 0.8.1: the duels that ended this beat (absent when none).")),
             ("duels_open", array(r("ChallengeOpen"), "Rules 0.8.1: duels still under way (absent when none).")),
             ("summons", array(r("DmEvent"), "Rules 0.8.0: the `summoned` events of this beat (also in dm_events): {demigod, from {pos, cell}, to {pos, cell}, deed, health_lost}.")),
-            ("dm_events", array(r("DmEvent"), "Rules 0.8.0: the DM's public decisions this beat (at most 40): settlements growing, encounters, loot, roads, shrines, scars, the time of day.")),
+            ("dm_events", array(r("DmEvent"), "Rules 0.8.0: the DM's public decisions this beat (at most 40): settlements growing, encounters, loot, roads, shrines, scars, the time of day. State schema 11: a `look.changed` here is the full LookChanged object.")),
+            ("looks", array(r("LookChanged"), "State schema 11 (gear looks): this beat's `look.changed` events (never cut by the dm_events cap). With images on, the server also puts here, once, each earlier event whose images have arrived since (`ready: true`); round.started and round.brief publics may carry such a `looks` list too.")),
             ("time_of_day", r("TimeOfDay")),
             ("time_of_day_phase", r("DayPhase")),
             ("wills", array(r("WillLine"), "Rules 0.9.0: public one-liners of this beat's wills (raisings, curses landing; never who cursed).")),
@@ -1252,6 +1269,7 @@ fn public_view() -> Value {
         ]
     });
     demigod["properties"]["curses"] = json!({ "type": "array", "items": { "$ref": "#/$defs/Curse" }, "description": "Rules 0.9.0: the curse marks on its piece (public faces: never the owner)." });
+    demigod["properties"]["look"] = json!({ "$ref": "#/$defs/Look", "description": "Gear looks (state schema 11): its loadout and the images to show for it now." });
     demigod["properties"]["raised"] = json!({ "type": "integer", "minimum": 1, "description": "Rules 0.9.0: how often Death raised it this match (absent when never)." });
     object(
         "`round.committed.public_state` and `match.snapshot.public_state`: the public view after each commit.",
@@ -1328,6 +1346,7 @@ fn match_summary() -> Value {
         ],
         &[("kind", json!({ "type": "string" })), ("icon", json!({ "type": "string" })), ("tier", json!({ "type": "string" })),
           ("count", num("")), ("unit", string("")), ("state", json!({ "type": "string" })), ("image_prompt", json!({ "type": ["string", "null"] })),
+          ("image_kind", json!({ "const": "item" })), ("art", string("State schema 11: the item picture's key.")),
           ("image", r("ImageObject"))],
     );
     let summon = object("", &[("item", r("Ref")), ("name", string(""))], &[]);
@@ -1450,6 +1469,43 @@ fn v08_defs() -> Map<String, Value> {
             ("beat", int("")),
         ],
         &[],
+    ));
+    let look_item = object(
+        "One line of a loadout.",
+        &[("slot", e(&["weapon", "armor", "charm", "extra"], "The slot it fills (the best item of that slot), or `extra`: another major item (relic tier and up, god-blessed, or the first of its kind).")),
+          ("item", r("Ref")), ("name", string("")), ("icon", e(fn7_model::manifest::ICONS, "")), ("tier", string("")), ("kind", string("")),
+          ("material", nullable(string("Gear only."))), ("blessed_by", nullable(string("The god whose blessing it carries.")))],
+        &art_fields(),
+    );
+    let look_inputs: Vec<(&str, Value)> = vec![
+        ("portrait_image", r("ImageObject")), ("diorama_image", r("ImageObject")),
+        ("pending", object("Images on, while a new gear image renders: the image(s) on the way. Show `portrait_image` / `diorama_image` (the previous look) and swap when these are ready (GET /media/index, or the `ready` event).",
+                           &[("loadout_hash", string("The loadout they show."))], &[("portrait_image", r("ImageObject")), ("diorama_image", r("ImageObject"))])),
+        ("base_portrait", string("Server input (images off only): the identity portrait subject.")), ("base_diorama", string("Server input (images off only).")),
+        ("portrait_subject", nullable(string("Server input (images off only): the gear portrait subject, null for the base look."))),
+        ("diorama_subject", nullable(string("Server input (images off only)."))),
+        ("fallback", array(json!({ "type": "object", "additionalProperties": true }), "Server input (images off only): earlier gear looks, newest first.")),
+    ];
+    d.insert("Look".into(), object(
+        "Gear looks (state schema 11): a demigod's loadout and the images to show for it NOW. `portrait_image` / `diorama_image` (images on) are the ones to draw: the gear images of the loadout `image_loadout_hash` once they exist, until then the previous look's (or the base identity images), with `pending`. Only a human player's demigod gets gear images; the built-in AI's keep the base ones (`gear: false`) whatever their loadout.",
+        &[("loadout", array(look_item.clone(), "Its notable gear now, in a stable order: weapon, armor, charm, then extras.")),
+          ("loadout_hash", string("sha256 of the loadout's normalized item descriptors (never item ids): the same gear is the same hash in every match. \"\" = nothing notable.")),
+          ("image_loadout_hash", string("The loadout its images show (\"\" = the base identity images). Differs from loadout_hash while a new picture is debounced or the per-match cap is reached.")),
+          ("since_beat", int("The beat its images became these (0: never changed).")),
+          ("gear", boolean("Its images show gear.")),
+          ("looks_made", int("Gear pictures made for it this match.")), ("looks_cap", int("The setting look_images_per_demigod."))],
+        &look_inputs,
+    ));
+    d.insert("LookChanged".into(), object(
+        "Gear looks (state schema 11): a human player's demigod's loadout changed (a major acquisition, or a loss). Flash `gained` (\"NEW: Butterfly Wing Blade\") and swap the card to `portrait_image` / `diorama_image` (now, or when `pending` resolves).",
+        &[("event", json!({ "const": "look.changed" })), ("demigod", r("Ref")), ("name", string("")), ("player", string("")), ("beat", int("")),
+          ("loadout", array(look_item, "")), ("loadout_hash", string("")), ("image_loadout_hash", string("")), ("since_beat", int("")), ("gear", boolean("")),
+          ("gained", nullable(object("The best item newly in the loadout (null: something was lost, or only the picture caught up).",
+                                     &[("item", r("Ref")), ("name", string("")), ("icon", string("")), ("tier", string("")), ("kind", string(""))], &art_fields()))),
+          ("image_change", boolean("Its images change with this event (false: debounced or capped, see `kept`).")),
+          ("kept", nullable(e(&["debounced", "capped"], "Why the images stayed."))),
+          ("text", string("One line.")), ("memory", int("The DM memory entry.")), ("at", r("LonLat"))],
+        &look_inputs.iter().cloned().chain([("ready", boolean("Images on: this is the second sending of an event whose images were pending; they exist now."))]).collect::<Vec<_>>(),
     ));
     d.insert("DmEvent".into(), json!({
         "type": "object", "additionalProperties": true,
@@ -1686,7 +1742,7 @@ fn v08_defs() -> Map<String, Value> {
         "Rules 0.8.0: what a demigod's piece carries.",
         &[
             ("followers", int("Its Following's headcount.")),
-            ("items", array(object("", &[("ref", r("Ref")), ("icon", string(""))], &wills::peg_fields()), "Items it holds now (pegs). Rules 0.9.0: gear pegs say what they do.")),
+            ("items", array(object("", &[("ref", r("Ref")), ("icon", string(""))], &wills::peg_fields().into_iter().chain(art_fields()).collect::<Vec<_>>()), "Items it holds now (pegs). Rules 0.9.0: gear pegs say what they do. State schema 11: every peg has `name` and `tier`, and one with a picture has `image_prompt` / `image`.")),
             ("wardrobe", object("Its outfit.", &[
                 ("stage", json!({ "type": "integer", "minimum": 0, "maximum": 4 })),
                 ("name", e(&["plain", "marked", "adorned", "regalia", "mythic"], "")),
@@ -1716,7 +1772,9 @@ fn v08_defs() -> Map<String, Value> {
     d.insert("LootToken".into(), object(
         "Rules 0.8.0: an item token lying on a hex.",
         &[("ref", r("Ref")), ("icon", string("")), ("cell", string("")), ("since_beat", int("")), ("pile", int("")), ("at", r("LonLat"))],
-        &[],
+        &[("name", string("State schema 11.")), ("tier", string("State schema 11.")),
+          ("image_prompt", string("State schema 11: a relic-tier or blessed item on the ground has a picture.")), ("image_kind", json!({ "const": "item" })),
+          ("art", string("")), ("image", r("ImageObject"))],
     ));
     d.insert("Road".into(), object(
         "Rules 0.8.0: a road worn in between two settlements.",
@@ -1779,10 +1837,11 @@ fn v07_defs() -> Map<String, Value> {
             ("manifestation", json!({ "type": ["string", "null"], "description": "`mf:<n>`, the attempt that made it." })),
             ("at", nullable(r("LonLat"))),
             ("banner", json!({ "anyOf": [{ "type": "null" }, object("A host's banner.", &[("device", string("")), ("colors", array(json!({"type": "string"}), ""))], &[("motto", string(""))])] })),
-            ("image_prompt", string("The item image subject (`image_kind` item).")),
-            ("image_kind", json!({ "const": "item" })),
         ],
-        &[("image", r("ImageObject")), ("origin", string("game.item only.")), ("created_by", json!({})), ("holders", array(r("Ref"), "")),
+        &[("image_prompt", string("The item image subject (`image_kind` item). State schema 11: only an item granted a picture has it (a notable item a human player's demigod holds or that lies in a loot pile, within item_art_per_match); every other item shows its `icon`.")),
+          ("image_kind", json!({ "const": "item" })),
+          ("art", string("State schema 11: the item picture's key (sha256 of its normalized descriptor: kind, material, tier, name stem, blessing): the same key is the same picture in every match.")),
+          ("image", r("ImageObject")), ("origin", string("game.item only.")), ("created_by", json!({})), ("holders", array(r("Ref"), "")),
           ("history", array(json!({ "type": "object", "additionalProperties": true }), "Custody: {beat, state, holder?, by?, row?, count?}.")),
           ("rows", array(r("Ref"), "game.item only: the attempt's ledger rows.")),
           ("manifestation_detail", json!({}))].into_iter().chain(wills::item_fields()).collect::<Vec<_>>(),
@@ -1797,9 +1856,10 @@ fn v07_defs() -> Map<String, Value> {
             ("item", json!({ "anyOf": [{ "$ref": "#/$defs/Ref" }, { "type": "null" }] })),
             ("name", json!({ "type": ["string", "null"] })), ("at", nullable(r("LonLat"))),
             ("region", json!({ "type": ["string", "null"] })), ("public", boolean("")),
-            ("image_prompt", json!({ "type": ["string", "null"] })), ("image_kind", json!({ "const": "item" })),
+            ("image_prompt", json!({ "type": ["string", "null"] })),
         ],
-        &[("verdict", json!({ "type": "object", "additionalProperties": true, "description": "Your own only: outcome, tier, odds {success, twist, partial, backfire, terms}, roll, cost {required, bolts, extra, missing, debt}, god, favor, entropy, reasons, flavor." })),
+        &[("image_kind", json!({ "const": "item" })), ("art", string("State schema 11: the made item's picture key (with image_prompt).")),
+          ("verdict", json!({ "type": "object", "additionalProperties": true, "description": "Your own only: outcome, tier, odds {success, twist, partial, backfire, terms}, roll, cost {required, bolts, extra, missing, debt}, god, favor, entropy, reasons, flavor." })),
           ("request", json!({ "type": "object", "additionalProperties": true, "description": "Your own only: kind, count, magnitude." })),
           ("image", r("ImageObject"))],
     ));

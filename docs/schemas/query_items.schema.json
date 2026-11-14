@@ -51,6 +51,10 @@
     "Item": {
       "description": "Rules 0.7.0: an item (a manifested thing, or one an older path made).",
       "properties": {
+        "art": {
+          "description": "State schema 11: the item picture's key (sha256 of its normalized descriptor: kind, material, tier, name stem, blessing): the same key is the same picture in every match.",
+          "type": "string"
+        },
         "at": {
           "anyOf": [
             {
@@ -173,7 +177,7 @@
           "const": "item"
         },
         "image_prompt": {
-          "description": "The item image subject (`image_kind` item).",
+          "description": "The item image subject (`image_kind` item). State schema 11: only an item granted a picture has it (a notable item a human player's demigod holds or that lies in a loot pile, within item_art_per_match); every other item shows its `icon`.",
           "type": "string"
         },
         "kind": {
@@ -289,9 +293,7 @@
         "created_beat",
         "manifestation",
         "at",
-        "banner",
-        "image_prompt",
-        "image_kind"
+        "banner"
       ],
       "type": "object"
     },

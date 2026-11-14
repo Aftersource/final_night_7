@@ -392,7 +392,11 @@ pub fn kinds_in(w: &World, b: &Book, seat: u8, text: &str) -> Vec<Kind> {
                              "gear up", "suit up", "rearm"]);
     let give_gear = gear && any(&t, &["get", "gets", "give", "gives", "given", "grant", "grants", "hand", "wield", "wields", "carry", "carries", "bear", "bears", "armed with", "with"]);
     let crowd_arming = any(&t, &["crowd", "locals", "people", "workers", "army", "armies", "soldiers", "troops", "militia", "mob", "villagers", "citizens"]);
-    let arm = (arm_word || give_gear) && !any(&t, MAKING) && speaks_of_own && !crowd_arming && !names_rival;
+    // State schema 11 (the recorded live case: "my demigods need crazy powerful equipment! do that!" armed nobody):
+    // kit words are an arming too, and so is needing or wanting a piece of gear.
+    let kit = w.look_rules() && any(&t, &["equipment", "gear", "armament", "armaments", "weaponry", "arsenal"]);
+    let want_gear = w.look_rules() && gear && any(&t, &["need", "needs", "want", "wants", "deserve", "deserves"]);
+    let arm = (arm_word || give_gear || kit || want_gear) && !any(&t, MAKING) && speaks_of_own && !crowd_arming && !names_rival;
     if arm && !ask {
         out.push(Kind::Arm);
     }

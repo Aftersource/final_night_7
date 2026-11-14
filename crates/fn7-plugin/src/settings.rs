@@ -216,6 +216,18 @@ pub struct Settings {
     pub quest_spark_step: u32,
     /// Rules 0.9.0: how readily the built-in AI uses wills (heals when hurt, arms itself, pleads for its fallen sibling, curses a rival, pursues its quests); 0 = never.
     pub wills_ai_chance: f32,
+    /// Gear looks (state schema 11; the feature gate): each demigod's loadout (its best item per slot plus its other major items) is tracked, a human player's demigod gets a new portrait and diorama WITH its gear at each major acquisition, and notable items get item art. Settings recorded before it lack it and read back `false` (old recordings replay unchanged).
+    pub looks_enabled: bool,
+    /// Gear looks: major items a loadout lists beyond the best item per slot (relic tier and up, god-blessed, or the first item of a new kind).
+    pub look_extra_items: u32,
+    /// Gear looks: items a gear portrait or diorama shows at most (the loadout's first ones).
+    pub look_items_shown: u32,
+    /// Gear looks: new gear images (a portrait and a diorama each) one human player's demigod may get per match; beyond it the loadout still updates and the picture stays.
+    pub look_images_per_demigod: u32,
+    /// Gear looks: beats between two new gear images of one demigod (the newest loadout wins when the wait ends).
+    pub look_debounce_beats: u32,
+    /// Gear looks: item pictures granted per match (notable items a human player's demigod holds, or lying in a loot pile); lesser and later items keep their icon.
+    pub item_art_per_match: u32,
     /// Rules 0.8.1, challenge mode: a demigod may challenge a rival in reach to a typed duel (`fields.challenge`), and
     /// the built-in AI now and then does. Settings recorded before 0.8.1 lack it and read back `false` (old recordings
     /// replay unchanged).
@@ -358,6 +370,12 @@ impl Default for Settings {
             quest_expire_beats: 24,
             quest_spark_step: 2,
             wills_ai_chance: 0.25,
+            looks_enabled: true,
+            look_extra_items: 2,
+            look_items_shown: 3,
+            look_images_per_demigod: 4,
+            look_debounce_beats: 3,
+            item_art_per_match: 12,
             challenge_enabled: true,
             rules_0_8_1: true,
             challenge_min_km: 120.0,
@@ -560,6 +578,12 @@ impl Settings {
             quest_expire_beats: int("quest_expire_beats", d.quest_expire_beats, 0, 1000)?,
             quest_spark_step: int("quest_spark_step", d.quest_spark_step, 0, 50)?,
             wills_ai_chance: num("wills_ai_chance", d.wills_ai_chance, 0.0, 1.0)?,
+            looks_enabled: boolean("looks_enabled", d.looks_enabled)?,
+            look_extra_items: int("look_extra_items", d.look_extra_items, 0, 6)?,
+            look_items_shown: int("look_items_shown", d.look_items_shown, 1, 5)?,
+            look_images_per_demigod: int("look_images_per_demigod", d.look_images_per_demigod, 0, 20)?,
+            look_debounce_beats: int("look_debounce_beats", d.look_debounce_beats, 0, 100)?,
+            item_art_per_match: int("item_art_per_match", d.item_art_per_match, 0, 200)?,
             challenge_enabled: boolean("challenge_enabled", d.challenge_enabled)?,
             rules_0_8_1: true,
             challenge_min_km: num("challenge_min_km", d.challenge_min_km, 0.0, 20000.0)?,
@@ -637,6 +661,10 @@ impl Settings {
         // replays byte for byte.
         if v.get("wills_enabled").is_none() {
             s.wills_enabled = false;
+        }
+        // Gear looks (schema 11): settings recorded before them have no `looks_enabled`: off.
+        if v.get("looks_enabled").is_none() {
+            s.looks_enabled = false;
         }
         // Settings recorded before flow/slow (schema 2) had only `beat_ms`.
         if v.get("flow_ms").is_none() {

@@ -360,6 +360,11 @@ pub fn item_json(w: &World, it: &Item) -> Value {
     if crate::wills::on(w) {
         crate::wills::arms::item_fields(w, it, &mut v);
     }
+    // Gear looks (schema 11): only an item granted a picture carries `image_prompt` (the descriptor's subject, so the
+    // same item is the same picture everywhere); the rest keep their `icon`.
+    if crate::look::on(w) {
+        crate::look::art_fields(w, &crate::look::book(w), it, &mut v);
+    }
     v
 }
 
@@ -378,6 +383,14 @@ pub fn manifest_json(w: &World, m: &Manifestation, full: bool) -> Value {
         "region": m.at.map(|p| crate::payload::region_name(w, p)), "public": m.public,
         "image_prompt": item.and_then(|i| i.ext.image_prompt.clone()), "image_kind": "item",
     });
+    if crate::look::on(w) {
+        match item {
+            Some(it) => crate::look::art_fields(w, &crate::look::book(w), it, &mut v),
+            None => {
+                v["image_prompt"] = Value::Null;
+            }
+        }
+    }
     if full {
         v["verdict"] = json!(m.verdict);
         v["request"] = json!({ "kind": m.request.kind, "count": m.request.count.round(), "magnitude": m.request.magnitude });

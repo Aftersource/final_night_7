@@ -245,6 +245,9 @@ pub struct MediaStyle {
     /// Per-kind reference sets (`kinds.<k>.references`).
     pub kind_references: BTreeMap<ImageKind, References>,
     pub event_selection: EventSelection,
+    /// Appended to a prompt drawn on a base image (gear portraits and dioramas; `base_note`, default
+    /// [`DEFAULT_BASE_NOTE`]).
+    pub base_note: String,
     /// sha256 (hex) of the parsed JSON.
     pub hash: String,
     /// Where it came from: a path, or `builtin`.
@@ -275,7 +278,12 @@ struct Raw {
     #[serde(default)]
     references: Option<RefsSpec>,
     event_selection: EventSelection,
+    #[serde(default)]
+    base_note: Option<String>,
 }
+
+/// What a prompt drawn on a base image says about it when the style file has no `base_note`.
+pub const DEFAULT_BASE_NOTE: &str = "The first reference image is this same character: keep its face, build, clothes, colours and pose family exactly as they are there and add only the gear described; the other reference images set the art style.";
 
 /// The most reference images one request may carry (OpenAI's edits endpoint takes up to 16).
 pub const MAX_REFS_PER_REQUEST: usize = 16;
@@ -484,6 +492,11 @@ impl MediaStyle {
             kind_styles,
             kind_references,
             event_selection: sel,
+            base_note: match raw.base_note.map(|s| s.trim().to_string()) {
+                Some(s) if s.is_empty() => return Err(err("base_note is empty".into())),
+                Some(s) => s,
+                None => DEFAULT_BASE_NOTE.to_string(),
+            },
             hash,
             source: source.into(),
             body,
