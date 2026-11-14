@@ -709,6 +709,8 @@ pub(crate) fn demigod_public(w: &World, d: &Demigod) -> Value {
                         "diorama_prompt": crate::payload::diorama_prompt(w, d), "diorama_image_kind": "diorama",
                         "visual": crate::visual::demigod(w, d).to_json() });
     crate::table::add_table_fields(w, d, &mut v);
+    // Accounts: the character a signed-in player wrote for this demigod (absent otherwise).
+    crate::persona::add_fields(d, &mut v);
     if w.two_bodies() {
         v["sparks"] = d.sparks.into();
         v["side"] = json!(d.side);

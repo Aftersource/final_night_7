@@ -54,8 +54,6 @@ pub fn add_table_fields(w: &World, d: &Demigod, v: &mut Value) {
     if let (Some(o), Value::Object(t)) = (v.as_object_mut(), table_fields(w, d)) {
         o.extend(t);
     }
-    // Accounts: the character a signed-in player wrote for this demigod (absent otherwise).
-    crate::persona::add_fields(d, v);
 }
 
 /// Rules 0.8.0: a taken-over bot seat's demigods are renamed `"<name>'s Left Hand"` / `"<name>'s Right Hand"` (a name

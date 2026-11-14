@@ -123,8 +123,9 @@ pub fn clean_name(raw: &str) -> String {
     s.chars().take(MAX_NAME).collect::<String>().trim_end().to_string()
 }
 
-/// The persona fields a public demigod object carries (`persona: {personality?, style?, creed?, pronouns?}`), merged in
-/// only when the player wrote something: every other demigod object is unchanged.
+/// The persona a public demigod object carries (`persona: {personality?, style?, creed?, pronouns?}`; the public
+/// view's `demigods[]`, so `round.committed`, `match.snapshot`, `game.globe` and `game.region`), merged in only when
+/// the player wrote something: every other demigod object is unchanged.
 pub fn add_fields(d: &Demigod, v: &mut Value) {
     if let (Some(o), Some(p)) = (v.as_object_mut(), d.persona.as_ref().filter(|p| !p.is_empty())) {
         o.insert("persona".into(), json!(p));
