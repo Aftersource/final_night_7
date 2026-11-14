@@ -1126,3 +1126,28 @@ Engineering:
 - The panel data model is `duel_lab/duel.json`: play_ms, input_ms (shorter), caption, shot, per-fighter clip segments with hex moves and paths (dash, leap, flip, knock), contacts, flip, hp.
 - Not built yet: the server producing these panels live from the players' lines, and parkour off the props (wall runs, vaults).
 - The Unreal duel stage waits until Chris approves the lab. The client gets a challenge confirm modal (teleport beside the rival first, with the expected loss) and an onyx lobby tablet.
+
+## 2026-11-14: physics and scenes from memory, exact resume, accounts, wills that matter (verbatim)
+
+> That was excellent, thank you. If the environment parts (pillars, desks, couches, and so on) are built from the LLM's scenario and backstory using the hierarchical renderer system, it must support time travel and everything must be precise. Within that, make a tiny physics engine that calculates surface positions ahead of time, traces contacts, and computes center of mass and the weight structure of materials such as stone and wood. Does that make sense? This is the most fun part.
+
+> What backend technology will stream and supply the frontend with the paced demos? Let's get the package properly defined. The game system needs to be solid: if the computer crashes or the player quits, they should return to the exact moment of present action, even during a challenge. Get the entire time-travel data structure defined and make sure it is solid.
+
+> The backend is fully your responsibility, so everything needs to be completed. Yes, that is the intent. Make sure Benito's system has everything loaded and has synced events to the server you run.
+
+> Eventually the Unreal side will need to handle login and player settings: login and logout, OAuth such as Google sign-in, user settings, and billing. Once logged in, players should be able to set up the basic personalities of their demigods through text, followed by an LLM pass on our side that checks the text against game rules and rephrases it only if it violates content guidelines; otherwise the player's wording is kept as written. This needs to be fully completed as well, since there is a new login and join flow.
+
+> Healing and arming the player's units with god powers does not produce any notable effects. Why is the will not translating into major changes? Players should be able to revive other demigods; even if their demigods were wiped, a player should be able to attempt to resurrect them unless the other player cast a no-resurrect effect. Mystic quest and wings-of-a-butterfly effects should counter a curse, and so on.
+
+> In the will, the Enter key should only enter the will and should not insert a newline.
+
+> Less vivid marbling is needed. Yes, it should be nearly black, with no yellow border.
+
+> Healing and arming currently do nothing.
+
+Engineering (in progress, each on its own branch until tested):
+- duel_lab: scenes authored from the place's memory, materials with mass and strength, a baked deterministic rigid-body engine, IK with traced contacts, parkour paths, exact scrubbing.
+- backend/exact-resume: reconnect, crash, replay and fork audited mid-duel; docs/TIME_TRAVEL.md; then the paced panel stream (duel.scene, duel.panel).
+- backend/accounts: guest and Google sign-in, sessions, settings, demigod personalities with one moderation pass (verbatim unless it breaks the content rules), billing as a stub.
+- backend/quests: wills that always do something visible; healing and arming with real effects; resurrection pleas; seals and curses; mystic counter-quests.
+- Unreal main: all eight of Benito's features merged (built green on Windows and the Mac; visuals to be verified live), Enter sends the will, the onyx lobby tablet.
