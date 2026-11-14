@@ -60,12 +60,22 @@ From the exact-resume audit (2026-11-14; docs/TIME_TRAVEL.md §8 has what each o
    flushes only on `Record::Flush` and at `run_end`: a kill loses the buffered tail (under 8 KiB) and the reopened
    file continues on the torn line. Asked: flush after each record (or at least after each `event` and `hook`), and
    write a newline first when appending to a file that does not end with one.
-3. **A timer / hold-window callback.** A plugin runs only on actions and beats. Asked:
-   `PhaseControl.wake_in_ms: Option<u64>` (returnable from `on_instant`, `on_action_begin`, and a new sync hook
-   `on_timer(&self, state, round, now_ms, key) -> PhaseControl`), which calls `on_timer` once at that time on the
-   room actor, in the match's recording context, recorded as a sync hook with `now_ms` in its input; its
-   `PhaseControl.public` goes out as a `phase.event`. With the room-wide **hold** asked for in 0.8.1 (no beats
-   resolve while a hold is open) this is one facility: a hold window with a tick. It replaces `fields.duel_tick`.
+3. **A timer / hold-window callback** (this replaces `fields.duel_tick`). A plugin runs only on actions and
+   beats, so FN7's duel panels (rules 0.8.2) advance when a duellist's client sends a tick at each input close. The
+   exact facility asked for:
+   - `PhaseControl.wake_at_ms: Option<i64>` (epoch ms; clamped to now + 1 ms ..= now + 10 min), accepted from
+     `on_instant`, `on_action_begin` and from the new hook itself; one pending wake per `key`
+     (`PhaseControl.wake_key: Option<String>`, FN7 would use the duel id), a later one for the same key replaces it.
+   - `fn on_timer(&self, state: &Value, round: u32, key: &str, now_ms: i64) -> PhaseControl` (sync, read-only, on
+     the room actor like `on_instant`, in the match's recording context, recorded as a sync hook with `key` and
+     `now_ms` in its input). Its `PhaseControl.public` goes out as a `phase.event`.
+   - The firing is delivered to the next resolve as an `Action`-like entry (`timer: true`, `key`, `received_at_ms`,
+     `seq`), so the authoritative state sees the same stamp the live hook saw. (Today the tick IS an instant action,
+     which gives exactly this.)
+   - Pending wakes are persisted with the room and cancelled when the match ends.
+   With the room-wide **hold** asked for in 0.8.1 (no beats resolve and phase timers stand still while a hold is
+   open, `PhaseControl.hold: Option<{deadline_in_ms, participants}>`), this is one facility: a hold window with a
+   timer. FN7 flips `duel::ENGINE_HOLDS` and drops the tick when it lands.
 4. **Time and pauses in the hooks.** Asked: `on_round_start` gets `now_ms` and `paused_ms` (how long the room stood
    still before this round: a pause with nobody connected, a restore, a fork), recorded with the hook's input. FN7
    measures both itself today and records them as a `duel_clock` event that its replay feeds back.

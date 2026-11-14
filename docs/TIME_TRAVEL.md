@@ -2,9 +2,10 @@
 
 Everything that lets a match be redrawn at the exact present (a client reconnects, a viewer joins, the server
 restarts) or at any past moment (state at a round, a fork, a replay). One place, exact. State **schema 8** ("exact
-resume") is the first with all of it; older states keep their shapes and replay unchanged.
+resume") is the first with all of it, **schema 9** (rules 0.8.2) adds the duel panels; older states keep their
+shapes and replay unchanged.
 
-Code: `crates/fn7-plugin/src/present.rs` (the journal, the present, the side inputs), `duel.rs` (the bout),
+Code: `crates/fn7-plugin/src/present.rs` (the journal, the present, the side inputs), `duel.rs` (the bout), `panel.rs` (the scene and the panels; tests `panel_tests.rs`),
 `crates/fn7-server/src/replay.rs` (replay verification). Tests: `fn7-plugin/src/resume_tests.rs`,
 `fn7-server/tests/exact_resume.rs` (the real server: reconnect, viewer, `kill -9`, fork), `fn7-server/tests/recording.rs`
 (`duels_summons_a_will_and_a_join_replay_with_zero_differences`).
@@ -31,7 +32,7 @@ One JSON value, opaque to the core (`fn7_model::World`; tables in docs/DATA_MODE
 
 | Field | Meaning |
 |---|---|
-| `meta.schema` | 8 for a match started by this server. Rules read it; 4..7 states behave as recorded |
+| `meta.schema` | 9 for a match started by this server. Rules read it; 4..7 states behave as recorded |
 | `meta.seed` | every die and every seeded pick derives from it and a query string, never from wall time |
 | `meta.beat` | the beat (= the Theatre round). Set at the beat's Start |
 | `demigods`, `ledger`, `intents`, ... | the board |
@@ -51,9 +52,18 @@ One JSON value, opaque to the core (`fn7_model::World`; tables in docs/DATA_MODE
 | `blows[]` | **schema 8:** every blow event so far, in order, exactly as it was shown (`duel.blow`: die, modifiers, damage, hp, flavor, `anim`, `choreo`, its `counter`), with `at_ms` and `seq` |
 | `full` | schema 8 marker: this bout keeps `blows` |
 | `pauses[]` | schema 8: `[from_ms, to_ms]` spans its clock stood still; `duel.deadline_ms` already includes them |
+| `scene` | schema 9: the duel's stage (`duel.scene`), built once at the lock from the seed and the hex |
+| `panels[]` | schema 9: every panel so far (`duel.panel`), exactly as sent |
+| `cycle` | schema 9: where the panel cycle stands: `closes_ms` (the newest panel's input close), `next_ms` (when the next panel starts), `fed` (blows already staged), `pos` (both fighters' hexes), `hp`, `range`, `initiative`, `done` |
 
 A bout is a pure function of its lock and the ordered blows: `Bout::step(world, settings, side, text, at_ms, seq)`.
 The d20 of blow `n` is seeded by `meta.seed` and `"<duel_id>:<n>"`. Timing reads only the stamps.
+
+**Panels** are a pure function of the bout's blows and the stamps that closed each window
+(`panel::advance(bout, now_ms, tick)`): a duel line, a `fields.duel_tick` (journaled and recorded like any instant
+action) or a resolve's newest stamp. A panel's content depends only on the blows stamped before its close, never
+on when it was computed. So the live view, the resolve, a restart's recovery, a replay and a fork all hold the same
+`panels[]`; a paused room moves `cycle.closes_ms` / `next_ms` with the deadline.
 
 ### The mark (`dm.mark`)
 
@@ -65,7 +75,7 @@ The d20 of blow `n` is seeded by `meta.seed` and `"<duel_id>:<n>"`. Timing reads
 
 ## 3. The journal (layer 2)
 
-One entry per accepted instant action (`on_instant`): cast, summoning, god power, challenge, duel line.
+One entry per accepted instant action (`on_instant`): cast, summoning, god power, challenge, duel line, duel tick.
 
 ```json
 { "boot": 1234, "beat": 4, "seat": 0, "text": "", "fields": { "duel": { "duel_id": "duel:s7:0:2", "text": "..." } },
@@ -115,7 +125,9 @@ object.
 ```
 
 - `events`: the public event of every pending entry, in arrival order. Everything since the last resolve.
-- `duels`: every open duel in full. `blows` is the whole timeline: the state's, then the pending ones.
+- `duels`: every open duel in full. `blows` is the whole timeline: the state's, then the pending ones. Schema 9:
+  `scene` and `panels` (every panel so far). The panel playing now is the last with `starts_at_ms <= server_time_ms`;
+  seek to `server_time_ms - starts_at_ms` in it.
 - **Seeking:** a blow's offset in the duel is `at_ms - started_ms` minus the `pauses` before it; the offset to play from
   now is `clock.elapsed_ms`. `server_time_ms` is the server's clock when the view was built (compare with `sys.pong`).
 - `paused_since_ms`: the room stands still since then (nobody connected, or restored and not started): the clocks in
@@ -172,7 +184,7 @@ pauses are the `duel_clock` events. The test asserts the rebuilt list equals the
 4. **A duel's clock counts only time the room was running.** A pause moves `deadline_ms` and is listed in `pauses`.
 5. **Replays are exact.** A match that was killed and resumed, paused, joined mid-match or forked replays with 0
    differences: the two side inputs are recorded and fed back.
-6. **Older recordings replay unchanged.** Everything above is gated on `meta.schema >= 8`.
+6. **Older recordings replay unchanged.** Everything above is gated on `meta.schema >= 8`, the panels on `>= 9`.
 7. **Ids stay unique across restarts.** The core's `seq` restarts at 1 with the process; a challenge whose
    `duel:s<seq>:<a>:<b>` already names a duel of the match gets `seq + 1000000` (repeated until free). Duel input is
    ordered by `(received_at_ms, seq)`.
