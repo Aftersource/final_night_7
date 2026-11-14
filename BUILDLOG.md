@@ -831,3 +831,32 @@ Engineering (Mac kit):
 - The pouch is big and ornate and holds the power hexes. Clicking it bursts them out onto the right side of the board; clicking again draws them back in.
 - The WILL scroll keeps its foil only while rolled up.
 - Unreal main 87ac743 builds green both normally and with unity off.
+
+## 2026-11-14: relay rule, standing power hexes, zoom to the cast, the animation contract, the RTX horizon (relayed by the Mac session, spelling fixed)
+
+> When instructions are given, relay them to the Final Night 7 Dropship main session as stated.
+> Relay them exactly as written, so they can be recorded without spelling errors in the primary build.
+
+> The tiles on the edge of the board should be rotated up at a 50 to 60 degree
+> angle, so the player can clearly make out and pull that power onto the board. When the power flashes, the view should zoom
+> to that area. Then sync with main to make it very clear how to get the
+> animations and gameplay backend to send the needed info. The project will be entering the Nvidia RTX stage
+> where Mega Geometry can be used well. Main has Benito's info on precise geolocation and
+> heightmaps, etc. That would be used with ray tracing and voxels overlaid on the ground map from any perspective.
+> The result should look genuinely polished. Streaming a couple hundred MB to everyone for one map should be feasible.
+> with near-real-time, Archon-like combat driven by chat.
+
+> Tell the other session that it needs to respect the design.
+
+> Stop putting these in tmp folders. Use a /production_assets/beta folder or similar, so they are not wasted.
+
+> Updates are not being shown and there is no interaction. Show what is happening.
+
+Engineering:
+- The power hexes stand up at 55° facing the camera, and a drop zooms the board to the strike (regions for a mega, villages for a mini).
+- Next: a written ANIMATION + GAMEPLAY DATA CONTRACT (the client lists every event it needs to animate; the backend sends exactly that).
+- Horizon (stretch):
+  - RTX / megageometry: real heightmaps and geolocation, ray tracing, voxels overlaid perfectly on the ground map
+  - a couple hundred MB streamed per map
+  - real-time-ish Archon-like chat combat
+- Renders go to production_assets/beta, never tmp.
