@@ -211,6 +211,24 @@ Lists that grow come back paged: `{items, next_cursor, total}`; pass `next_curso
 current state; ask again after `round.committed` for the new beat. Each query takes about a millisecond on the
 server, but it runs on the room's loop, so poll at the beat rate, not in a tight loop.
 
+### 5.2 Profiles, match history and the image library (persist across matches)
+A player's profile is keyed by their **display name** (normalized: "CHRIS", " chris " and "Ｃｈｒｉｓ" are one
+profile). There are no accounts, so anyone typing the same name shares it. The server writes one history row per
+human seat at every match end and adds the player's demigod portraits, dioramas, statues and moment cards to their
+library. Full shapes: CLIENT_API.md "Profiles, history and library".
+- **HTTP, any time (no room needed):** `GET /api/profiles/<name>`, `/api/profiles/<name>/history?page=0&per_page=20`,
+  `/api/profiles/<name>/library?kind=portrait`. Percent-encode the name. Through ngrok keep `?key=`. `404` = no
+  profile yet (they haven't finished or started a match on this server).
+- **In a room:** `game.profile`, `game.history`, `game.library` with `{name?, page?, per_page?, kind?}`. Without
+  `name` they answer for your own seat. Same JSON as HTTP.
+- **Images:** a library entry is a media `hash`. Look it up in `GET /media/index` (`{hash, url}`) or fetch
+  `/media/<hash>.<ext>`.
+- **Time travel:** each history row has `time_travel` with the match id and the admin scrub and fork paths (§11.2).
+  They need the admin token, so they're for host builds only.
+- **Editing:** `PUT /api/profiles/<name>/description {text, secret?}`. `POST /api/profiles/<name>/claim {secret}`
+  locks the description to a secret (6+ characters). Nothing private is ever served: no `player_id`, no resume token,
+  no secret.
+
 ## 6. Developing without the server
 - **Fixtures:** `examples/*.json` are real frames. Feed them into your router in order (§4) to build UI offline.
 - **Your own recordings:** run `fn7_client.mjs --log frames.jsonl` once, then replay that JSONL into your client with

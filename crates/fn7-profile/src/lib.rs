@@ -761,6 +761,81 @@ impl ProfileStore {
             None => Ok(None),
         }
     }
+
+    /// Matches stored (any outcome). 0 = an empty store (the server backfills it at startup).
+    pub fn match_count(&self) -> Result<u32> {
+        Ok(self.lock().query_row("SELECT COUNT(*) FROM matches", [], |r| r.get(0))?)
+    }
+
+    /// The match is stored as `ended` (a backfill can skip its recording).
+    pub fn is_ended(&self, match_id: &str) -> Result<bool> {
+        Ok(self
+            .lock()
+            .query_row("SELECT 1 FROM matches WHERE match_id = ?1 AND outcome = 'ended'", [match_id], |_| Ok(()))
+            .optional()?
+            .is_some())
+    }
+
+    /// Backfill from every `*.jsonl` in `dir` (oldest file name first), streaming each one ([`ingest::read_recording`]).
+    /// With `skip_ended`, a file whose name (`<match_id>.jsonl`) is already stored as `ended` is not even opened. A
+    /// file that fails to read is counted in `errors` and skipped; it never stops the backfill. Read-only on `dir`.
+    pub fn backfill_dir(&self, dir: &Path, skip_ended: bool) -> anyhow::Result<BackfillReport> {
+        let t0 = std::time::Instant::now();
+        let mut files: Vec<PathBuf> = std::fs::read_dir(dir)?
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.is_file() && p.extension().is_some_and(|x| x == "jsonl"))
+            .collect();
+        files.sort();
+        let mut rep = BackfillReport {
+            files: files.len() as u32,
+            ..Default::default()
+        };
+        for f in &files {
+            if skip_ended {
+                let stem = f.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+                if self.is_ended(&stem)? {
+                    rep.known += 1;
+                    continue;
+                }
+            }
+            match ingest::read_recording(f) {
+                Ok((Some(m), st)) => {
+                    rep.bytes += st.bytes;
+                    match self.record_match(&m) {
+                        Ok(r) if r.skipped => rep.known += 1,
+                        Ok(_) if m.ended() => rep.ended += 1,
+                        Ok(_) => rep.unfinished += 1,
+                        Err(_) => rep.errors += 1,
+                    }
+                }
+                Ok((None, st)) => {
+                    rep.bytes += st.bytes;
+                    rep.other += 1;
+                }
+                Err(_) => rep.errors += 1,
+            }
+        }
+        rep.millis = t0.elapsed().as_millis() as u64;
+        Ok(rep)
+    }
+}
+
+/// What [`ProfileStore::backfill_dir`] did.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct BackfillReport {
+    /// `*.jsonl` files in the directory.
+    pub files: u32,
+    pub ended: u32,
+    pub unfinished: u32,
+    /// Already stored as ended (skipped).
+    pub known: u32,
+    /// Not a Final Night 7 recording (no `run_start`, or another game).
+    pub other: u32,
+    /// Failed to read or record (skipped).
+    pub errors: u32,
+    /// Bytes streamed.
+    pub bytes: u64,
+    pub millis: u64,
 }
 
 fn paged<T>(items: Vec<T>, page: u32, per: u32, total: u32) -> Page<T> {

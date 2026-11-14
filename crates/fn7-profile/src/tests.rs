@@ -385,6 +385,28 @@ fn recordings_stream_into_inputs() {
     assert!(none.is_none());
 }
 
+#[test]
+fn backfill_dir_streams_skips_and_upgrades() {
+    let dir = std::env::temp_dir().join(format!("fn7-profile-backfill-{}-{}", std::process::id(), now_ms()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("rec1.jsonl"), recording(false)).unwrap();
+    std::fs::write(dir.join("junk.jsonl"), "{\"type\":\"frame\"}\n").unwrap();
+    std::fs::write(dir.join("notes.txt"), "ignored").unwrap();
+    let s = ProfileStore::open_in_memory().unwrap();
+    assert_eq!(s.match_count().unwrap(), 0);
+    let r = s.backfill_dir(&dir, true).unwrap();
+    assert_eq!((r.files, r.ended, r.unfinished, r.other, r.errors), (2, 0, 1, 1, 0));
+    assert!(!s.is_ended("rec1").unwrap());
+    // The match ends later: the next backfill upgrades it; the one after skips it unopened.
+    std::fs::write(dir.join("rec1.jsonl"), recording(true)).unwrap();
+    assert_eq!(s.backfill_dir(&dir, true).unwrap().ended, 1);
+    assert!(s.is_ended("rec1").unwrap());
+    let r = s.backfill_dir(&dir, true).unwrap();
+    assert_eq!((r.known, r.ended), (1, 0));
+    assert_eq!(s.match_count().unwrap(), 1);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 /// The checked-in example frame (docs/examples/match.ended.json) goes through the live path.
 #[test]
 fn live_path_from_the_example_frame() {

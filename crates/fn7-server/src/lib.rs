@@ -7,6 +7,7 @@
 pub mod anthropic;
 pub mod llm;
 pub mod media;
+pub mod profile;
 pub mod record;
 pub mod replay;
 pub mod simapi;

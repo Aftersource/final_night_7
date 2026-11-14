@@ -718,6 +718,9 @@ Unknown args are ignored, including the ngrok gate's `?key=`.
 | `standings` | yes | none | Every demigod ranked now |
 | `piles_final` | yes | none | The end-of-match piles; an error until the match is over |
 | `media` | yes (public refs) | `kind` (`portrait` / `place` / `event` / `army`), `ref` | An image of that thing, by reference: an image object at once (pending, then ready via the manifest) |
+| `profile` | yes | `name?` (default: your seat's name) | A player's persistent profile (see "Profiles, history and library") |
+| `history` | yes | `name?`, `page?` (0), `per_page?` (20, ≤ 100) | A page of their matches, newest first |
+| `library` | yes | `name?`, `page?`, `per_page?`, `kind?` | A page of their images, most recently seen first |
 
 ### `game.globe`
 
@@ -964,6 +967,111 @@ GET /api/rooms/66X6KM/query/media?kind=event&ref=lg:88
   cached images don't count.
 - Without the media server (a bare plugin, e.g. `fn7-sim`), the reply carries `image_prompt` and `image_kind` instead
   of `image`.
+
+### Profiles, history and library (`game.profile`, `game.history`, `game.library`, `/api/profiles`)
+
+A player's **profile** lasts across matches (design: [`DEMIGODS_AND_ITEMS.md`](DEMIGODS_AND_ITEMS.md) §7–§10). It
+holds their demigods' fixed looks, their match history, a description and an image library.
+- **Key: the display name, normalized.** NFKC, invisible characters dropped, whitespace collapsed, lowercased, at
+  most 40 characters. So "CHRIS", " chris " and "Ｃｈｒｉｓ" are one profile. There are no accounts: anyone who
+  plays as "Chris" writes into Chris's history. `lookalikes` lists other profiles whose names look the same ("Chr1s"),
+  so a client can warn.
+- **Written by the server.** At every match end there's one history row per human seat (bots and AI demigods get
+  none). Their library gets the images every seat saw: their demigods' portraits and dioramas, their statue, their
+  items' images and every storyboard shot showing their demigod. A `game.media` portrait or diorama of one of their
+  demigods joins the library as soon as it's ready. Recordings from before the server had a store are backfilled at
+  startup. A match the server never finished (it stopped mid-match) is in the history as `outcome: "unfinished"`.
+- **Nothing private.** Only the public end-of-match summary and public state go in. There's no `player_id`, resume
+  token or claim secret in any answer.
+
+**Queries** (public, so they work for spectators and over `GET /api/rooms/{code}/query/<name>`; like every query
+they need a room that has had a match):
+
+| Query | Args | Answer |
+|---|---|---|
+| `game.profile` | `name?` | `Profile`. `bad_request` `not_found: …` if the name has no profile yet |
+| `game.history` | `name?`, `page?` (0-based, 0), `per_page?` (20, ≤ 100) | `Page<MatchRecord>`, newest first |
+| `game.library` | `name?`, `page?`, `per_page?`, `kind?` (`portrait`, `diorama`, `statue`, `event`, `item`, `army`, `place`) | `Page<LibraryImage>`, most recently seen first |
+
+Without `name` the answer is for the asking seat's own display name. Without a seat (HTTP), `name` is required.
+
+**HTTP routes** (no room needed; the same JSON as the queries):
+
+| Route | Answer |
+|---|---|
+| `GET /api/profiles/{name}` | `Profile` (404 if none) |
+| `GET /api/profiles/{name}/history?page=0&per_page=20` | `Page<MatchRecord>` (404 if no profile) |
+| `GET /api/profiles/{name}/library?page=0&per_page=20&kind=portrait` | `Page<LibraryImage>` (404 if no profile) |
+| `PUT /api/profiles/{name}/description` `{ "text": "…", "secret"?: "…" }` | `Profile` (at most 600 characters). 403 `claimed` if the profile is claimed and the secret is wrong |
+| `POST /api/profiles/{name}/claim` `{ "secret": "…", "old_secret"?: "…" }` | 204. First come, first served. At least 6 characters, stored salted and hashed. Changing it needs `old_secret` |
+
+- Percent-encode the name as a path segment. The server normalizes it.
+- Errors are `{ "error": "bad_name" | "not_found" | "claimed" | "invalid" | "store", "detail": "…" }`.
+- Responses carry `Cache-Control: no-store` and `Access-Control-Allow-Origin: *`.
+- Through ngrok keep `?key=`. When the host sets `FN7_PROFILE_KEY`, the routes also require `?key=<that>` (403
+  otherwise), so the LAN port is gated too.
+- A claim protects the description only. It doesn't stop anyone from *playing* under the name.
+
+`GET /api/profiles/Chris` (from the real LAN recordings, backfilled):
+```json
+{ "key": "chris", "display_name": "Chris",
+  "description": { "user": "", "auto": "7 matches as Chris (2 finished, 5 unfinished). Champion 1 time." },
+  "claimed": false, "created_at": 1794656935083, "updated_at": 1794661678993,
+  "totals": { "matches": 7, "finished": 2, "unfinished": 5, "champion": 1, "best_placement": 1, "avg_placement": 2.5,
+              "falls": 1, "images": 10 },
+  "demigods": [ { "name": "Chris", "name_key": "chris", "sheet_hash": "83230f74…",
+                  "traits": { "build": "towering and broad-shouldered", "colors": ["lime", "ivory"], "emblem": "a cracked moon",
+                              "face": "freckles and a crooked smirk", "outfit": "ornate plate armor over a hoodie",
+                              "prop": "a war banner on a broken spear" },
+                  "portrait_hash": "7fd52678…", "diorama_hash": "0a75c532…",
+                  "first_match": "0f8ba721-…", "last_match": "3c6a34a1-…", "matches": 6 } ] }
+```
+`totals` may also carry `nemesis` (the cause that took them at least twice). `lookalikes` appears only when there are
+any. From schema 5 each demigod also has `hand` (`left`/`right`).
+
+`GET /api/profiles/Chris/history?per_page=1` (one row; `next` is the next page):
+```json
+{ "items": [ {
+    "match_id": "0f8ba721-589f-4f08-8a2f-1dadb9ea9d01", "room_code": "DYL5GN",
+    "started_at": 1794656601651, "ended_at": 1794656935083, "outcome": "ended", "rounds": 21, "beats_total": 30,
+    "rules_version": "0.5.0", "seat": 0, "display_name": "Chris", "champion": false, "placement": 4, "field": 4,
+    "champions": ["Vex"], "title": "FINAL NIGHT 7: Vex Stands, Everyone Else Gets Collected",
+    "eliminated_beat": 17, "cause": "a debt collected by Consequence",
+    "demigods": [ { "ref": "dg:0", "name": "Chris", "alive": false, "eliminated_beat": 17,
+                    "cause": "a debt collected by Consequence", "rank": 4 } ],
+    "items": [], "deeds": [],
+    "stats": { "acts": 8, "bolts": 62, "debt_paid": 5.44, "memorized_people": 0, "rulings": 1, "slows": 4,
+               "subagents": 0, "words": 9 },
+    "eliminations": [ { "demigod": "dg:0", "name": "Chris", "beat": 17, "cause": "a debt collected by Consequence", "own": true },
+                      { "demigod": "dg:3", "name": "Mara", "beat": 20, "cause": "a debt collected by Consequence", "own": false },
+                      { "demigod": "dg:1", "name": "Benito", "beat": 21, "cause": "a debt collected by Consequence", "own": false } ],
+    "time_travel": { "match_id": "0f8ba721-589f-4f08-8a2f-1dadb9ea9d01", "rounds": 21,
+                     "recording": "0f8ba721-589f-4f08-8a2f-1dadb9ea9d01.jsonl",
+                     "timeline": "/admin/matches/0f8ba721-589f-4f08-8a2f-1dadb9ea9d01/timeline",
+                     "state": "/admin/matches/0f8ba721-589f-4f08-8a2f-1dadb9ea9d01/state?after_round={n}&view=public",
+                     "fork": "/admin/fork" } } ],
+  "page": 0, "per_page": 1, "total": 7, "next": 1 }
+```
+- `placement` is 1 for the champion's rank. It's absent for an unfinished match, along with `field`, `champions` and
+  `title`.
+- `items` are the end-of-match pile's items: `{ref, name, origin?, kind?, tier?, count?, state?, image_hash?}`.
+- `deeds` are storyboard moments that showed their demigod: `{beat, caption, row?, image_hash?}`.
+- `time_travel` gives the core's admin paths for this match id. Replace `{n}` with a round to scrub. `POST
+  /admin/fork {"match_id", "after_round"}` continues it in a new room. Both need the admin token
+  (AGENT_GUIDE.md §11.2), so they're for host builds only. A forked match carries `forked_from`.
+
+`GET /api/profiles/Chris/library?per_page=2`:
+```json
+{ "items": [ { "hash": "0a75c53217a0dec06f764ff53d5fc8a5e7df410de1338e1981281e19ba1f89bf", "kind": "diorama",
+               "caption": "Chris, diorama", "subject": "dg:0", "subject_name": "Chris",
+               "matches": ["3c6a34a1-56bd-4bf2-99f8-906ec5d80f8d"], "first_seen": 1794660144579, "last_seen": 1794660144579 },
+             { "hash": "70e14da8ef20ccdd89494f297e5ed078ac0ee4ec3c5e6512bd6775f652e9c5ab", "kind": "portrait",
+               "caption": "Chris, portrait", "subject": "dg:0", "subject_name": "Chris",
+               "matches": ["3c6a34a1-56bd-4bf2-99f8-906ec5d80f8d"], "first_seen": 1794660144579, "last_seen": 1794660144579 } ],
+  "page": 0, "per_page": 2, "total": 10, "next": 1 }
+```
+To show an image, find its `hash` in `GET /media/index` (`{hash, url}`) or fetch `/media/<hash>.<ext>`. A hash from
+an older build may no longer be on disk.
 
 ## Hidden information
 

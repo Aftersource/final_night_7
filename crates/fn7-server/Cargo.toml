@@ -17,6 +17,7 @@ path = "src/bin/sim.rs"
 fn7-plugin.workspace = true
 fn7-model.workspace = true
 fn7-media.workspace = true
+fn7-profile = { path = "../fn7-profile" }
 theatre-plugin-api.workspace = true
 theatre-llm.workspace = true
 theatre-server.workspace = true

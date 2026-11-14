@@ -12,21 +12,38 @@
 //! budgets, and answers `{kind, ref, name, image, reason?, visual?}` at once (enqueue only; the picture arrives via the
 //! manifest). A rate-limited request is a query error; a refused one (budget, images off) is an image with status
 //! `off` and its `reason`.
+//!
+//! **Profiles** (`with_profiles`, see [`crate::profile`]): the wrapper also answers `game.profile`, `game.history` and
+//! `game.library` from the persistent store (the plugin never sees them), writes the match's history rows in
+//! `summarize` (after annotation, so image hashes are present), and adds a player's demigod portraits and dioramas
+//! asked for through `game.media` to their library once ready.
+
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use fn7_media::{ImageKind, Media};
 use fn7_plugin::payload::{diorama_prompt_for, hand_names, portrait_prompt_for};
+use fn7_profile::NewImage;
 use serde_json::Value;
 use theatre_plugin_api::*;
+
+use crate::profile::{self, Profiles};
 
 pub struct MediaPlugin<P> {
     inner: P,
     media: Media,
+    profiles: Option<Arc<Profiles>>,
 }
 
 impl<P: GamePlugin> MediaPlugin<P> {
     pub fn new(inner: P, media: Media) -> Self {
-        Self { inner, media }
+        Self { inner, media, profiles: None }
+    }
+
+    /// Answer the profile queries, record history at match end and register library images (see the module doc).
+    pub fn with_profiles(mut self, profiles: Arc<Profiles>) -> Self {
+        self.profiles = Some(profiles);
+        self
     }
 
     fn run() -> Option<String> {
@@ -39,7 +56,7 @@ impl<P: GamePlugin> MediaPlugin<P> {
     }
 
     /// `game.media`: the plugin's `{kind, ref, name, image_prompt, image_kind}` → `{kind, ref, name, image, reason?}`.
-    fn media_reply(&self, mut v: Value, seat: Option<Seat>) -> Result<Value, String> {
+    fn media_reply(&self, state: &Value, mut v: Value, seat: Option<Seat>) -> Result<Value, String> {
         let subject = v["image_prompt"].as_str().unwrap_or_default().to_string();
         let kind = v["image_kind"]
             .as_str()
@@ -49,6 +66,7 @@ impl<P: GamePlugin> MediaPlugin<P> {
         let who = seat.map(|s| format!("seat:{s}")).unwrap_or_else(|| "public".into());
         let run = Self::run();
         let (img, reason) = self.media.request_by_ref(&prompt, run.as_deref(), &who)?;
+        self.register(state, &v, kind, &img.hash, run.as_deref());
         if let Some(o) = v.as_object_mut() {
             o.remove("image_prompt");
             o.remove("image_kind");
@@ -58,6 +76,27 @@ impl<P: GamePlugin> MediaPlugin<P> {
             }
         }
         Ok(v)
+    }
+
+    /// A portrait or diorama of a player's demigod goes into that player's library once it is ready.
+    fn register(&self, state: &Value, v: &Value, kind: ImageKind, hash: &str, run: Option<&str>) {
+        let Some(profiles) = &self.profiles else { return };
+        if !matches!(kind, ImageKind::Portrait | ImageKind::Diorama) {
+            return;
+        }
+        let Some(r) = v["ref"].as_str() else { return };
+        let Some((player, subject)) = profile::owner_of_ref(state, r) else { return };
+        let kind = if kind == ImageKind::Portrait { "portrait" } else { "diorama" };
+        let img = NewImage {
+            hash: hash.to_string(),
+            kind: kind.into(),
+            caption: format!("{subject}, {kind}"),
+            subject: Some(r.to_string()),
+            subject_name: Some(subject),
+            match_id: run.map(str::to_string),
+            at: None,
+        };
+        profiles.register_when_ready(&self.media, player, img);
     }
 
     fn mark_seats(&self, public: &mut Value, per_seat: &mut [(Seat, Value)]) {
@@ -77,12 +116,20 @@ impl<P: GamePlugin> GamePlugin for MediaPlugin<P> {
         self.inner.validate_settings(settings)
     }
     fn queries(&self) -> Vec<QuerySpec> {
-        self.inner.queries()
+        let mut q = self.inner.queries();
+        if self.profiles.is_some() {
+            q.retain(|s| !profile::QUERIES.contains(&s.name.as_str()));
+            q.extend(Profiles::queries());
+        }
+        q
     }
     fn query(&self, state: &Value, seat: Option<Seat>, name: &str, args: &Value) -> Result<Value, String> {
+        if let Some(p) = self.profiles.as_ref().filter(|_| profile::QUERIES.contains(&name)) {
+            return p.answer(state, seat, name, args);
+        }
         let mut v = self.inner.query(state, seat, name, args)?;
         if name == "media" {
-            return self.media_reply(v, seat);
+            return self.media_reply(state, v, seat);
         }
         self.mark(&mut v);
         Ok(v)
@@ -210,6 +257,20 @@ impl<P: GamePlugin> GamePlugin for MediaPlugin<P> {
     async fn summarize(&self, state: &Value, llm: &dyn LlmProvider) -> anyhow::Result<Summary> {
         let mut s = self.inner.summarize(state, llm).await?;
         self.mark(&mut s.summary);
+        if let Some(p) = self.profiles.clone() {
+            // History rows (profile store). Never fails the match.
+            let run = Self::run();
+            let seats = profile::seats_from_state(state);
+            let public = self.public_view(state);
+            let summary = s.summary.clone();
+            let id = run.clone();
+            match tokio::task::spawn_blocking(move || p.record_match_end(id, seats, summary, public)).await {
+                Ok(Ok(r)) => tracing::info!(match_id = %r.match_id, players = ?r.players, images = r.images,
+                                            "profiles: match recorded"),
+                Ok(Err(e)) => tracing::warn!(match_id = ?run, error = %e, "profiles: could not record the match"),
+                Err(e) => tracing::warn!(match_id = ?run, error = %e, "profiles: record task failed"),
+            }
+        }
         Ok(s)
     }
 }

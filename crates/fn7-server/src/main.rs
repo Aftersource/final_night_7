@@ -5,6 +5,11 @@
 //! call from a recording instead. Recording is the core's (theatre P1): `THEATRE_RECORD=off|events|full` (use `full`)
 //! writes `<THEATRE_RECORD_DIR>/<match_id>.jsonl`; the admin API (`THEATRE_ADMIN_TOKEN`) reads and forks those.
 //! Images: `FN7_IMAGES` (off by default) and the `/media` routes, see `docs/MEDIA.md`.
+//! Profiles (`fn7-profile`, docs/DEMIGODS_AND_ITEMS.md §7–§9): the store at `FN7_PROFILE_DB`, else
+//! `<THEATRE_DATA_DIR>/fn7/profiles.sqlite`; the `/api/profiles` routes (`FN7_PROFILE_KEY` gates them); the
+//! `game.profile`/`game.history`/`game.library` queries; history rows at every match end. At startup an empty store
+//! (or `FN7_PROFILE_BACKFILL=1`) is backfilled in the background from `FN7_PROFILE_BACKFILL_DIR`, else the recordings
+//! directory (`THEATRE_RECORD_DIR`); recordings are only read.
 
 use std::sync::Arc;
 
@@ -48,15 +53,36 @@ async fn main() -> anyhow::Result<()> {
                            "media prewarm: {} queued, {} already cached", w.queued, w.cached);
         }
     }
+    // Profiles: open (and migrate) the store before the plugin, so its queries are in the core's manifest.
+    let env = |k: &str| std::env::var(k).ok();
+    let (store, db) = fn7_server::profile::open(&cfg.data_dir, env)?;
+    let profiles = fn7_server::profile::Profiles::new(store.clone());
+    tracing::info!(db = %db.display(), matches = store.match_count().unwrap_or(0), "profiles");
     // The core records every match (THEATRE_RECORD / THEATRE_RECORD_DIR) and runs every hook in the match's trace
     // context, so the plugin's events, LLM calls and the images' media_* events land in its run.
     let plugin: Arc<dyn GamePlugin> =
         Arc::new(fn7_server::media::MediaPlugin::new(
             FinalNight7Plugin::new().with_media_style(media.style().ruleset_json()),
             media.clone(),
-        ));
+        ).with_profiles(profiles.clone()));
     let app = AppState::new(cfg.clone(), plugin, built.llm);
     restore(&app);
+    // The match-end rows read the core's recording of the match (flushed first) for the room code, seats and falls.
+    let record_dir = app.recorder.as_ref().map(|r| r.dir.clone()).or_else(|| cfg.record_dir.clone());
+    if let Some(r) = &app.recorder {
+        profiles.attach_recordings(r.dir.clone(), Some(r.sink.clone()));
+    }
+    // Backfill (empty store or FN7_PROFILE_BACKFILL=1): streaming, off the runtime, never blocks startup.
+    let backfill_dir = env("FN7_PROFILE_BACKFILL_DIR").filter(|d| !d.trim().is_empty()).map(Into::into).or(record_dir);
+    if let Some(dir) = backfill_dir.filter(|_| fn7_server::profile::should_backfill(&store, env)) {
+        let store = store.clone();
+        tokio::task::spawn_blocking(move || match fn7_server::profile::backfill(&store, &dir) {
+            Ok(r) => tracing::info!(dir = %dir.display(), files = r.files, ended = r.ended, unfinished = r.unfinished,
+                                    known = r.known, other = r.other, errors = r.errors, mb = r.bytes / 1_000_000,
+                                    ms = r.millis, "profiles: backfill done"),
+            Err(e) => tracing::warn!(dir = %dir.display(), error = %e, "profiles: backfill failed"),
+        });
+    }
     // The simulator API (/sim/*, admin token; see simapi.rs): its matches run on their own threads, never on rooms'.
     let sim = fn7_server::simapi::SimConfig::from_env(
         &cfg,
@@ -66,9 +92,12 @@ async fn main() -> anyhow::Result<()> {
 
     let listener = TcpListener::bind(cfg.bind).await?;
     tracing::info!(addr = %listener.local_addr()?, game = fn7_plugin::PLUGIN_ID, rules = fn7_plugin::RULES_VERSION,
-                   "final night 7 listening (ws at /ws, images at /media, simulator at /sim)");
-    // The engine's own serve, with the /media and /sim routes merged in (engine route extension, theatre 330896e).
-    let extra = fn7_media::http::router(media).merge(fn7_server::simapi::router(sim));
+                   "final night 7 listening (ws at /ws, images at /media, simulator at /sim, profiles at /api/profiles)");
+    // The engine's own serve, with the /media, /sim and /api/profiles routes merged in (engine route extension,
+    // theatre 330896e).
+    let extra = fn7_media::http::router(media)
+        .merge(fn7_server::simapi::router(sim))
+        .merge(fn7_profile::http::router(store, fn7_profile::http::HttpConfig::from_env(env)));
     theatre_server::serve_with(listener, app, extra, async {
         let _ = tokio::signal::ctrl_c().await;
     })

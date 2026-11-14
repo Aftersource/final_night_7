@@ -354,18 +354,26 @@ startup catch-up and a manual backfill can all run over the same match safely.
 
 ## 8. Match end: history and library
 
-**Live path** (after wiring): in the server wrapper's `summarize`, after the media layer has annotated the summary (so
-image hashes are present):
+**Live path** (wired, `fn7-server/src/profile.rs`, called from `MediaPlugin::summarize`): after the media layer has
+annotated the summary (so image hashes are present):
 1. The match id is `theatre_trace::current().map(|c| c.run)`: hooks run in the match's trace context, and the run id
-   is the match id.
-2. `MatchInput::from_match_ended(seats, &json!({"match_id": id, "summary": s.summary}), now)`, with seats from
-   `World.seats` (schema 5 adds `display_name` and `profile`).
-3. Add `public_state: Some(public_view(state))` so portraits, dioramas and sheets are captured.
-4. `store.record_match(&input)` on a `spawn_blocking`. A store error is logged and never fails the match.
+   is the core's match id (what `/admin/matches/{id}` and `/admin/fork` take). With recording off there's no run, so
+   the row gets a `local-<uuid>` id and no time travel.
+2. The core's recorder is flushed and the match's own recording (`<THEATRE_RECORD_DIR>/<id>.jsonl`, no `run_end` yet)
+   is streamed through `ingest::read_recording`. That gives the room code, start time, rules version, `run_start`
+   seats and every `elimination`.
+3. Overlaid on that: the hook's summary, `ended_at = now`, and `public_state = public_view(state)` (annotated, so
+   portraits, dioramas and sheets are captured). Without a recording: `MatchInput::from_match_ended` with seats from
+   `World.seats` (name = schema-5 `display_name`, else the seat's demigod's name).
+4. `store.record_match(&input)` on a `spawn_blocking`, awaited, so the row exists before `match.ended` goes out. A
+   store error is logged and never fails the match.
 
-**Catch-up** (covers recording off, crashes and restarts): at server start, and every 10 minutes, ingest every
-`<THEATRE_RECORD_DIR>/*.jsonl` whose match id isn't stored as `ended` (one `SELECT` per file name; unchanged files are
-skipped by mtime). This is the same code path as the backfill.
+**Backfill at startup** (wired): when the store has no matches, or `FN7_PROFILE_BACKFILL=1` (`0` = never), the server
+runs `ProfileStore::backfill_dir` in the background over `FN7_PROFILE_BACKFILL_DIR`, else the recordings directory.
+It ingests every `*.jsonl` whose match id isn't stored as `ended` (one `SELECT` per file name; ended ones aren't
+opened). Recordings are only read. 40 real LAN recordings (642 MB) took 416 ms in a debug build. A periodic catch-up
+(every 10 minutes, for matches cut off by a crash) is not wired yet. `FN7_PROFILE_BACKFILL=1` at the next start covers
+it.
 
 **What lands in the library** (only images that exist as hashes in what clients were sent, so nothing new is ever
 generated for the library):
@@ -378,10 +386,12 @@ generated for the library):
 Captions come from the shot caption or "<name>, portrait" / "<name>'s statue, <title> (<room>)". Images are fetched by
 hash through the existing `GET /media/index` (`{hash, url}`) and `GET /media/<hash>.<ext>`.
 
-**Media registering images directly** (optional, after wiring): when `Media::request_by_ref` makes a portrait or
-diorama for a `dg:`/`hd:` ref, the wrapper calls `store.add_image(profile, NewImage{hash, kind, caption, subject,
-match_id})`. The store dedupes per (player, hash, match), so it doesn't matter whether that or the match-end pass gets
-there first.
+**Media registering images directly** (wired): when `game.media` asks for a portrait or diorama of a `dg:`/`hd:` ref
+owned by a human seat, the wrapper adds it to that player's library (`NewImage{hash, kind, caption "<name>,
+portrait", subject, match_id}`) once the media layer marks it ready. A cached image goes in at once, a pending one via
+a watcher that polls `Media::entry` (up to 15 minutes), and a refused or failed one never. `fn7-media` has no
+ready-callback, and none was added. AI demigods and bots belong to nobody. The store dedupes per (player, hash,
+match), so it doesn't matter whether that or the match-end pass gets there first.
 
 **"CACHE THEM."** A demigod's portrait and diorama are identity-only prompts (already true), so one cached image per
 name for as long as the style holds. The library shows how often that failed historically: six different portrait
@@ -392,7 +402,8 @@ versions rarely.
 
 ## 9. HTTP
 
-Built in `fn7_profile::http::router(store, HttpConfig)`, to be merged into the server's router like `/media` and `/sim`.
+Built in `fn7_profile::http::router(store, HttpConfig)` and merged into the server's router beside `/media` and
+`/sim` (`serve_with`). Client-facing reference: CLIENT_API.md "Profiles, history and library".
 
 | Route | Answer |
 |---|---|
@@ -490,7 +501,7 @@ differences (`fn7-sim --replay`).
 18. Tests: replay determinism with manifests; a 100M horde end to end (rules only, no LLM); schema-4 recordings still
     load and replay.
 
-**fn7-server**
+**fn7-server** (19 and 20 are done, see §8. The startup backfill makes step 24 automatic. 21 isn't done)
 19. `Cargo.toml`: depend on `fn7-profile`. `main.rs`: `let profiles = Arc::new(ProfileStore::open(&default_path(&cfg.data_dir,
     env))?)`; merge `fn7_profile::http::router(profiles.clone(), HttpConfig::from_env(env))` into `extra`; spawn the
     catch-up task (§8) over `app.recorder` dir.
