@@ -30,10 +30,12 @@ pub mod flow;
 pub mod hotspots;
 pub mod items;
 pub mod occupancy;
+pub mod panel;
 pub mod merge;
 pub mod payload;
 pub mod persona;
 pub mod phases;
+pub mod present;
 pub mod queries;
 pub mod settings;
 pub mod society;
@@ -47,14 +49,14 @@ pub use settings::Settings;
 
 pub const PLUGIN_ID: &str = "final_night_7";
 /// Bump on any change to rules, prompts or how outcomes are computed.
-pub const RULES_VERSION: &str = "0.8.1";
+pub const RULES_VERSION: &str = "0.8.2";
 pub const RULES_LABEL: &str = "planet edition on Theatre v2.2: flow beats that never wait; text entry = Time's slow \
 windows (core action windows, Enter cut-off, penalty from real seconds open); casts = instant bolts with a public streak, \
 Entropy's yes and ramifications; Death's revive returns a seat to play; armies, world mods, Entropy to heat death; \
 Final Night leaves exactly one player; two demigods per player (Left and Right hands, each its own body and health); \
 the item engine judges manifestations; no two demigods share a people-level hex unless engaged; the Dungeon Master's \
 rulebook: a place x time memory, visible d20s, growing settlements, story pieces, map encounters, loot, day and night, \
-roads, shrines, fault lines for megas, summoning and god-tier powers; challenge mode: typed duels decided by the dice";
+roads, shrines, fault lines for megas, summoning and god-tier powers; challenge mode: typed duels decided by the dice; exact resume and duel panels";
 /// The compiled-in power palette (`data/powers.json`).
 pub fn powers() -> &'static fn7_pantheon::Powers {
     static P: std::sync::OnceLock<fn7_pantheon::Powers> = std::sync::OnceLock::new();
@@ -105,6 +107,8 @@ pub const MECHANICS: &[&str] = &[
     "Summoning (rules 0.8.0): an instant fields.summon {demigod (one of yours), target ([lon, lat] or a hex key)}, any phase, when summon_enabled and not within summon_cooldown_beats (1) of the last; it lands at the next resolve, this beat: a rules Move row (the occupancy rule nudges it), its hands' travel this beat void and its standing orders ended. A visible d20 (summon:<beat>:<demigod>, no modifier, DC round(20p) + 1 with p = clamp(0.25 + 0.6 health/max, 0, 0.95)) decides a mishap costing round(0.2 x health) clamped 1..2 (x summon_loss_scale; none below 2.5 health). The summon mind (LLM, else seeded rules parts) tells the transit deed: a tale in its story and memory entries at both places (summon.departed, summoned: the public event {demigod, from {pos, cell}, to {pos, cell}, deed, health_lost}). Rules 0.8.1: the damage check comes before the teleport: the mishap d20 (query summon:<beat>:<demigod>:<lon>,<lat>) and health_lost are decided at the accept from the committed state and shown in the instant summoning push; the resolve recomputes them from the beat's starting health (the same values).",
     "God-tier powers (rules 0.8.0): one signature power per god (god_time, god_nature, god_consequence, god_death, god_chance, god_memory, god_entropy; tier god in the palette), cast as fields.cast {power, tier: god, target}: god_power_cost (3) bolts at the next resolve, every other player with a demigod standing gains god_power_gift (1) bolt, Entropy + entropy_per_mega. It becomes an invocation (magnitude 8) routed to that god's mind (verdict, price, precedence; its bolt price already paid); unless refused, its signature lands as the god's proposals: Time rewinds a unit 2 beats (or slows rival demigods within 1,500 km a beat), Nature 1.2 damage to rivals within 400 km, Consequence collects the target rival's biggest open debt, Death raises a fallen target or strikes a standing one for 3, Chance a seeded coin per demigod within 600 km (heal 1.5 or 1.5 damage), Memory resets every crowd's allegiance in the region, Entropy +15.",
     "Challenge mode (rules 0.8.1, state schema 7 and room setting challenge_enabled; older states never duel): an instant fields.challenge {demigod (yours, standing), target (a rival's, standing), level} locks both demigods in a duel when they stand within max(challenge_min_km (120), the touching-cards distance at the client's level: challenge_contact_km_regions 600 (also a missing or unknown level), _villages 15, _houses 0.15, _people 0.015) km (the level also frames the fight) and neither is already in a duel (and the challenger's last challenge is duel_cooldown_beats (1) back); refusals not_yours, fallen, bad_target, too_far:<distance km>:<allowed km>, busy, cooldown; no consent. on_instant shows challenge.lock {duel_id = duel:s<seq>:<a>:<b> (the challenge action's seq; the AI's duel:<beat>:<a>:<b>), a, b (demigod, name, health, portrait/diorama), at, focus {at, lat, lon, cell, level}, ends ko_or_deadline, ends_beat, deadline_ms, world beating}. Each typed line (fields.duel {duel_id, text <= 120}) is a blow resolved at once by rules (no LLM): a d20 seeded by the match seed and <duel_id>:<n> + modifier (wit of the line -3..+4: action verbs, body parts, items held, terrain and place words, the opponent's story and scars, minus repetition, echoes, short lines and gibberish; +1 hale (duel hp >= 7) / -1 hurt (<= 3); half the wardrobe stage + 1 with any item; +1 a quick follow-up within duel_followup_ms (1500); +1 on home turf; the formal model's situation) vs DC 10 (+1 at night, + half the opponent's wardrobe stage); damage 0 on a fail, 1 (+1 beating the DC by 5, +1 wit >= 3) on a success, 4 on a natural 20, shaped by the interaction matrix, x duel_damage_scale; a blow within duel_min_gap_ms (500) of the same side's last is a penalty (no die, 0.5 to its author). Against an AI, or a human who hasn't blown for duel_counter_ms (3000), each blow carries the opponent's automatic counter (wit capped +2). A duel ends at a knockout or its deadline (duel_deadline_ms, 30 s). The engine has no room-wide hold yet, so the world keeps beating: the duel is kept in the state (World.dm.duels) across resolves, each resolve applying the damage so far, the dice (dice[], reason a duel) and the invokes' bolts (round.outcome.public.duels_open[] challenge.open), the duellists locked in place; it ends at the first resolve after its deadline stamp or at beat ends_beat (lock beat + ceil(duel_deadline_ms / flow_ms) - 1), or at once when a duellist falls elsewhere or both are built-in AIs (fought automatically for duel_auto_rounds (2) exchanges if nobody typed). Every resolve recomputes the duels deterministically from the state and the ordered actions (a per-room live cache only numbers and displays blows). At the end: a knockout eliminates by the usual rules, the loser's loot drops on the duel's hex (everything at a knockout; else a DC 11 keep-hold roll when beaten by 1+), duel.lock and duel.end are remembered at the hex, both get a tale, and round.outcome.public.duels[] carries challenge.end {duel_id, reason ko|deadline|fallen|auto, winner, loser, ko, damage {a, b}, blows, typed, deed, log}, the deed one line from the duel mind (LLM when a human fought, else seeded rules parts). The built-in AI challenges its nearest rival with chance duel_ai_chance (0.02) per beat, decided at the round's start (round.started.public.challenges): within 120 km directly, else within duel_ai_reach_km (2000) after summoning itself next to it (a leap: the summoning's mishap d20 and health loss apply). The formal model (DM_RULEBOOK 21, \"the flips\"): range (far/mid/close/grapple), initiative and stances (neutral, guarding, committed, off_balance, airborne, downed) carry between blows; each line has a move class by rules (strike, heavy, guard, parry, feint, evade, close, retreat, grapple, throw, invoke (a bolt, any range), command (needs an army), taunt), gated by range, bolts and armies; the d20 adds initiative +2, the stances and openings; the interaction matrix decides what a success means (a parried strike leaves the attacker off balance and flips the initiative; a heavy breaks guards and parries but commits its user; a feint wastes a set defence and flips; an evade beats a heavy; grapple at close, throw from a grapple); every strike carries choreo {range and initiative before/after, flip, result, each figure's move class, timed poses from a fixed 30-pose vocabulary, contact, stance after, contacts[], camera, 600-1400 ms}. Rules decide; an LLM only phrases the deed.",
+    "Exact resume (state schema 8; docs/TIME_TRAVEL.md): an open duel keeps every blow so far in the state (dm.duels[].blows, with each blow's receive stamp and seq); every resolve stamps the delivery mark (dm.mark: the newest instant action it was handed, its newest receive stamp); challenge and duel input is ordered by (received_at_ms, seq); a player's duel id that already names a duel of the match steps by 1000000. The plugin journals every accepted instant action (memory; on the server also a file) and shows the present (public_state.present, game.present: the server's clock, the events since the last resolve, every open duel in full) by applying the pending ones to the state with the resolve's own function. On the server each Start reads the clock (dm.mark.round_ms; an AI's challenge takes it as its lock stamp, so it has a deadline) and the pause since the last Commit, the last stamp before a restart, or the fork: a pause of 2 s or more moves every open duel's deadline and is listed in its pauses (round.started.public.duel_clock); the first resolve after a restart is handed the journaled instant actions the dead process never delivered, in arrival order, before the batch's own. Both side inputs are recorded (events duel_clock, journal_recovered) and fed back on replay.",
+    "Duel panels (rules 0.8.2, state schema 9; crate panel, client design duel_lab/): panels present the blows, they decide nothing (every typed line is still a 0.8.1 blow resolved at once). At the lock the bout gets its scene (duel.scene: a rules fallback seeded by the match seed and the duel's hex: 6-10 objects of known kinds (pillar, wall, crate, table, boulder, rock, tree, log, jar, brazier, altar, chest, bones, cairn) picked by the place's words, the settlement's level, night, a shrine or loot on the hex and the DM's newest memories of it; each with hex position, primitive parts, material and the paths it affords) and panel 0 (starts at the lock's stamp, 2600 ms). A panel plays play_ms (2400 idle, 600 + 1000 per staged strike up to 3: 2400-3600); its input closes 700 ms before it ends; the blows stamped up to that close make the next panel, which starts when this one ends: per strike a run-in to the range the matrix left, the class's clip, the defender's reaction by the matrix's result (stagger, knock, block, parry, an evasion over, under or off a scene object that affords it), a contact on the foe (or the scenery on a miss); a fighter with no strike in the window circles (holding the initiative, when nobody struck) or guards; caption = the decisive blow's flavor line; hp, range, initiative after. A knockout's panel is followed at once by the outro; so is the first slot at or past the deadline. The cycle advances on stamps only: a duel line or a fields.duel_tick {duel_id} from a duellist (instant; up to 150 ms early closes the window at the tick; refusals panels_off, no_duel, not_yours) closes every window its stamp has passed, each resolve does the same with its batch's newest stamp, and a duel a resolve ends plays out to its outro (challenge.end.panels). A pause moves the schedule with the deadline.",
     "Healing, routing and no vanishing intents (rules 0.8.1, the match 79fd73bf and f18d76a3 fixes; gated on state schema 7): a heal (heal, restore, mend, cure...) is routed to Nature (Death when a target has fallen), ruled on with its normal price, and unless refused heals each target 1 + magnitude/4 (1-3, half when twisted; Death raises the fallen); rival demigods are dropped from a heal unless the order names them, and \"me\" / \"my demigods\" / \"all my demigods\" (or no demigod named) mean the player's own; the hand's prompt marks the player's own demigods (yours). A god-routed intent naming no god in the match goes to Entropy (a visible ruling), never silently to the world. A fallen player's orders (all their demigods down) are never dropped: a plea to come back (revive, come back, back to life, raise, resurrect...) becomes an invocation of Death (verb revive, magnitude 6, by their first demigod, for all their fallen demigods) ruled like any other (Death's price; without the bolts Death twists or refuses), any other order is refused; either way the player's round.private carries wills[] {text, routed_to, verdict, speech, reason}.",
     "Match ends at beats_total or when at most one player stands. Standings and the champion are per player (each demigod's state shown); every demigod gets a pile, a portrait prompt, a diorama prompt and an amiibo statue prompt.",
 ];
@@ -251,6 +255,10 @@ pub struct FinalNight7Plugin {
     pantheon: Arc<Pantheon>,
     /// Rules 0.8.1: the duels shown live this beat (display only; the resolve recomputes them; see [`duel`]).
     live: duel::LiveCache,
+    /// Schema 8 (exact resume): the accepted instant actions of each match since its last resolve ([`present`]).
+    journal: present::Journal,
+    /// The side inputs of a recorded match (replay verification), instead of the journal and the clock.
+    feed: Option<present::Feed>,
     /// The server's media style config (`{version, hash, source, body}`), recorded in every match's ruleset as
     /// `media_style` (the plugin never reads it otherwise; images are the server's).
     media_style: Option<Value>,
@@ -261,6 +269,8 @@ impl Default for FinalNight7Plugin {
         Self {
             pantheon: Arc::new(fn7_pantheon::load()),
             live: Default::default(),
+            journal: Default::default(),
+            feed: None,
             media_style: None,
         }
     }
@@ -269,6 +279,20 @@ impl Default for FinalNight7Plugin {
 impl FinalNight7Plugin {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// The server's mode: every accepted instant action is appended to `<dir>/<match>.jsonl` and read back after a
+    /// restart (the undelivered ones are handed to the first resolve), and each beat's Start reads the server's clock
+    /// (pauses stop open duels' clocks). Both are recorded as events so a replay reproduces them ([`present`]).
+    pub fn with_journal(mut self, dir: impl Into<std::path::PathBuf>) -> Self {
+        self.journal = present::Journal::durable(dir.into());
+        self
+    }
+
+    /// Replay verification: take the side inputs (`duel_clock`, `journal_recovered`) from a recording.
+    pub fn with_feed(mut self, feed: present::Feed) -> Self {
+        self.feed = Some(feed);
+        self
     }
 
     pub fn pantheon(&self) -> &Arc<Pantheon> {
@@ -473,15 +497,110 @@ impl FinalNight7Plugin {
         ctx: &RoundContext,
         llm: Option<&dyn LlmProvider>,
     ) -> RoundOutcome {
+        // Schema 8: the instant actions an earlier boot of the server accepted and never delivered come first (a
+        // recorded side input: `journal_recovered`).
+        let merged;
+        let actions = if w.resume_rules() {
+            let recovered = match &self.feed {
+                Some(f) => f.recovered.get(&round).cloned().unwrap_or_default(),
+                None => self.journal.recovered(w, actions),
+            };
+            if !recovered.is_empty() {
+                world::event("journal_recovered", None, json!({ "beat": round, "actions": recovered }));
+            }
+            merged = present::merge(actions, recovered);
+            &merged[..]
+        } else {
+            actions
+        };
         let (turns, subs, wills) = Self::turns(w, round, actions);
-        let duels = duel::acts_of(actions);
+        let duels = duel::acts_of(actions, w.resume_rules());
         let out = beat::resolve(w, round, turns, &subs, &duels, &wills, &ctx.windows_closed, llm, &self.pantheon).await;
+        if w.resume_rules() {
+            // The delivery mark: the newest instant action this state contains, and the resolve's clock.
+            let mut m = w.dm.mark.unwrap_or_default();
+            if let Some((at_ms, seq)) = duels.newest.filter(|n| *n > (m.at_ms, m.seq)) {
+                (m.at_ms, m.seq) = (at_ms, seq);
+            }
+            m.resolved_ms = duels.now_ms.max(m.resolved_ms);
+            w.dm.mark = Some(m);
+            self.journal.seen(w);
+        }
         RoundOutcome {
             public: out.public,
             per_seat: out.per_seat,
             choices: vec![],
             state: world::save(w),
         }
+    }
+
+    /// The public event an accepted instant action makes at once (`on_instant`).
+    fn instant_event(&self, w: &World, seat: Seat, action: &Action) -> Option<Value> {
+        let s = world::seat_state(w, seat)?;
+        let i = actions::parse(&action.text, &action.fields).ok()?;
+        // Rules 0.8.1: a challenge locks two demigods in (`challenge.lock`); a duel line is a blow (`duel.blow`).
+        if i.is_duel() {
+            return if w.resume_rules() { duel::on_instant_now(&self.journal, w, seat, action, &i) } else { duel::on_instant(&self.live, w, seat, action, &i) };
+        }
+        // Rules 0.8.0: a summoning or a god-tier power is shown at once too (the client flashes; it lands at the
+        // next resolve).
+        if i.casts.is_empty() && w.dm_rules() && (!i.summons.is_empty() || !i.god_powers.is_empty()) {
+            let lead = w.lead_of_seat(s.seat).unwrap_or(s.demigod);
+            let first = i.summons.first();
+            let v = json!({
+                "event": if i.summons.is_empty() { "god_power" } else { "summoning" },
+                // The client's contract: {demigod, from, to, by_seat} of the (first) summoning.
+                "demigod": first.map(|x| Ref::Demigod(x.demigod)),
+                "from": first.and_then(|x| w.demigods.get(x.demigod.ix())).map(|d| d.pos),
+                "to": first.map(|x| x.target),
+                "by": w.demigods[lead.ix()].player_name(), "by_ref": Ref::Demigod(lead), "by_seat": seat,
+                "summons": i.summons.iter().map(|x| json!({ "demigod": Ref::Demigod(x.demigod), "to": x.target,
+                    "cell": x.cell.clone().unwrap_or_else(|| people_cell(x.target)) })).collect::<Vec<_>>(),
+                "god_powers": i.god_powers.iter().map(|g| json!({ "power": format!("god_{}", g.god), "tier": "god" })).collect::<Vec<_>>(),
+                "seq": action.seq, "received_at_ms": action.received_at_ms,
+            });
+            let mut v = v;
+            // Rules 0.8.1: the damage check comes before the teleport: the mishap d20 and the health it costs are
+            // decided now (the resolve applies exactly these), and the summoning is noted for challenge mode (a
+            // challenge right after it fights from the destination, at the reduced health).
+            let st = world::settings(w);
+            if st.rules_0_8_1 {
+                let mut noted = vec![];
+                for (k, x) in i.summons.iter().enumerate() {
+                    let health = w.demigods.get(x.demigod.ix()).map(|d| d.health).unwrap_or(0.0);
+                    let (_, roll, lost) = summon::mishap(w, w.meta.beat, x, health, &st);
+                    let lost = (lost as f64 * 10.0).round() / 10.0;
+                    let cue = json!({ "roll": roll.roll, "modifier": roll.modifier, "total": roll.total,
+                                      "target_dc": roll.target_dc, "verdict": roll.verdict, "health_lost": lost });
+                    if k == 0 {
+                        if let (Some(o), Value::Object(c)) = (v.as_object_mut(), cue.clone()) {
+                            o.extend(c);
+                        }
+                    }
+                    if let Some(o) = v["summons"][k].as_object_mut() {
+                        if let Value::Object(c) = cue {
+                            o.extend(c);
+                        }
+                    }
+                    if summon::check(w, s.seat, x, w.meta.beat + 1, &st).is_ok() {
+                        noted.push(duel::Moved { demigod: x.demigod, to: x.target, lost: lost as f32 });
+                    }
+                }
+                if !w.resume_rules() {
+                    duel::note_summons(&self.live, w, noted);
+                }
+            }
+            world::event("summon_streak", Some(Ref::Demigod(lead).to_string()), v.clone());
+            return Some(v);
+        }
+        if i.casts.is_empty() {
+            return None;
+        }
+        let mut v = casts::streak(w, w.lead_of_seat(s.seat).unwrap_or(s.demigod), seat, &i.casts)?;
+        v["seq"] = action.seq.into();
+        v["received_at_ms"] = action.received_at_ms.into();
+        world::event("cast_streak", Some(Ref::Demigod(s.demigod).to_string()), v.clone());
+        Some(v)
     }
 }
 
@@ -527,6 +646,11 @@ impl GamePlugin for FinalNight7Plugin {
     }
 
     fn query(&self, state: &Value, seat: Option<Seat>, name: &str, args: &Value) -> Result<Value, String> {
+        if name == "present" {
+            // The one query that needs the plugin's journal (and the whole state: ask it on (re)connect, don't poll it).
+            let w = world::load(state).map_err(|e| e.to_string())?;
+            return Ok(if w.resume_rules() { self.journal.present(&w) } else { Value::Null });
+        }
         queries::query(&self.pantheon, state, seat, name, args)
     }
 
@@ -543,6 +667,7 @@ impl GamePlugin for FinalNight7Plugin {
             body["media_style"] = m.clone();
         }
         theatre_trace::ruleset(PLUGIN_ID, RULES_VERSION, RULES_LABEL, body);
+        self.journal.seen(&w);
         Ok(world::save(&w))
     }
 
@@ -555,7 +680,25 @@ impl GamePlugin for FinalNight7Plugin {
         let mut w = world::load(state)?;
         let mut rs = phases::round_start(&mut w, round, &self.pantheon);
         // Rules 0.8.1: the built-in AI's challenges this beat, announced so a human can fight back.
-        let locks = duel::round_start(&self.live, &w);
+        // Schema 8: the beat's clock and the pause before it (side inputs, recorded as `duel_clock`).
+        if w.resume_rules() {
+            let clock = match &self.feed {
+                Some(f) => f.clocks.get(&round).copied(),
+                None => self.journal.round_start(&w),
+            };
+            if let Some(c) = clock {
+                world::event("duel_clock", None, serde_json::to_value(c).unwrap_or(Value::Null));
+                let v = present::apply_clock(&mut w, &c);
+                if c.pause.is_some() {
+                    rs.public["duel_clock"] = v;
+                }
+                rs.state = world::save(&w);
+            }
+        }
+        if w.resume_rules() {
+            self.journal.seen(&w);
+        }
+        let locks = if w.resume_rules() { duel::round_start_now(&self.journal, &w) } else { duel::round_start(&self.live, &w) };
         if !locks.is_empty() {
             rs.public["challenges"] = locks.into();
         }
@@ -600,7 +743,7 @@ impl GamePlugin for FinalNight7Plugin {
             if kind != SubmitKind::Instant {
                 return Err("a challenge or a duel line is an instant action".into());
             }
-            return duel::validate(&self.live, &w, seat, &i);
+            return if w.resume_rules() { duel::validate_now(&self.journal, &w, seat, &i) } else { duel::validate(&self.live, &w, seat, &i) };
         }
         if kind == SubmitKind::Instant && i.has_orders() {
             // Enforced on arrival (the core replies accepted:false); resolve keeps a safety net (`orders_ignored`).
@@ -659,71 +802,14 @@ impl GamePlugin for FinalNight7Plugin {
 
     fn on_instant(&self, state: &Value, seat: Seat, action: &Action) -> Option<Value> {
         let w = world::load(state).ok()?;
-        let s = world::seat_state(&w, seat)?;
-        let i = actions::parse(&action.text, &action.fields).ok()?;
-        // Rules 0.8.1: a challenge locks two demigods in (`challenge.lock`); a duel line is a blow (`duel.blow`).
-        if i.is_duel() {
-            return duel::on_instant(&self.live, &w, seat, action, &i);
+        let v = self.instant_event(&w, seat, action);
+        // Schema 8: every accepted instant action is journaled with its stamps and its public event, so the present
+        // can be redrawn (a reconnect) and survives a restart.
+        if w.resume_rules() {
+            self.journal.note(&w, seat, action, v.as_ref());
         }
-        // Rules 0.8.0: a summoning or a god-tier power is shown at once too (the client flashes; it lands at the
-        // next resolve).
-        if i.casts.is_empty() && w.dm_rules() && (!i.summons.is_empty() || !i.god_powers.is_empty()) {
-            let lead = w.lead_of_seat(s.seat).unwrap_or(s.demigod);
-            let first = i.summons.first();
-            let v = json!({
-                "event": if i.summons.is_empty() { "god_power" } else { "summoning" },
-                // The client's contract: {demigod, from, to, by_seat} of the (first) summoning.
-                "demigod": first.map(|x| Ref::Demigod(x.demigod)),
-                "from": first.and_then(|x| w.demigods.get(x.demigod.ix())).map(|d| d.pos),
-                "to": first.map(|x| x.target),
-                "by": w.demigods[lead.ix()].player_name(), "by_ref": Ref::Demigod(lead), "by_seat": seat,
-                "summons": i.summons.iter().map(|x| json!({ "demigod": Ref::Demigod(x.demigod), "to": x.target,
-                    "cell": x.cell.clone().unwrap_or_else(|| people_cell(x.target)) })).collect::<Vec<_>>(),
-                "god_powers": i.god_powers.iter().map(|g| json!({ "power": format!("god_{}", g.god), "tier": "god" })).collect::<Vec<_>>(),
-                "seq": action.seq, "received_at_ms": action.received_at_ms,
-            });
-            let mut v = v;
-            // Rules 0.8.1: the damage check comes before the teleport: the mishap d20 and the health it costs are
-            // decided now (the resolve applies exactly these), and the summoning is noted for challenge mode (a
-            // challenge right after it fights from the destination, at the reduced health).
-            let st = world::settings(&w);
-            if st.rules_0_8_1 {
-                let mut noted = vec![];
-                for (k, x) in i.summons.iter().enumerate() {
-                    let health = w.demigods.get(x.demigod.ix()).map(|d| d.health).unwrap_or(0.0);
-                    let (_, roll, lost) = summon::mishap(&w, w.meta.beat, x, health, &st);
-                    let lost = (lost as f64 * 10.0).round() / 10.0;
-                    let cue = json!({ "roll": roll.roll, "modifier": roll.modifier, "total": roll.total,
-                                      "target_dc": roll.target_dc, "verdict": roll.verdict, "health_lost": lost });
-                    if k == 0 {
-                        if let (Some(o), Value::Object(c)) = (v.as_object_mut(), cue.clone()) {
-                            o.extend(c);
-                        }
-                    }
-                    if let Some(o) = v["summons"][k].as_object_mut() {
-                        if let Value::Object(c) = cue {
-                            o.extend(c);
-                        }
-                    }
-                    if summon::check(&w, s.seat, x, w.meta.beat + 1, &st).is_ok() {
-                        noted.push(duel::Moved { demigod: x.demigod, to: x.target, lost: lost as f32 });
-                    }
-                }
-                duel::note_summons(&self.live, &w, noted);
-            }
-            world::event("summon_streak", Some(Ref::Demigod(lead).to_string()), v.clone());
-            return Some(v);
-        }
-        if i.casts.is_empty() {
-            return None;
-        }
-        let mut v = casts::streak(&w, w.lead_of_seat(s.seat).unwrap_or(s.demigod), seat, &i.casts)?;
-        v["seq"] = action.seq.into();
-        v["received_at_ms"] = action.received_at_ms.into();
-        world::event("cast_streak", Some(Ref::Demigod(s.demigod).to_string()), v.clone());
-        Some(v)
+        v
     }
-
     /// A human starts playing `takeover.seat` mid-match ([`table::seat_takeover`]): a bot's seat keeps its demigod; a
     /// new seat takes over the healthiest live built-in AI demigod; with none alive, `None` (the joiner spectates).
     fn on_seat_takeover(&self, state: &Value, takeover: &SeatTakeover) -> Option<Value> {
@@ -793,7 +879,12 @@ impl GamePlugin for FinalNight7Plugin {
         _llm: &dyn LlmProvider,
     ) -> anyhow::Result<Committed> {
         let mut w = world::load(state)?;
-        Ok(phases::commit(&mut w, round, &self.pantheon))
+        let c = phases::commit(&mut w, round, &self.pantheon);
+        if w.resume_rules() {
+            // The room may pause after this Commit (nobody connected): the next Start measures it.
+            self.journal.committed(&w);
+        }
+        Ok(c)
     }
 
     fn is_match_over(&self, state: &Value, round: u32) -> bool {
@@ -804,7 +895,17 @@ impl GamePlugin for FinalNight7Plugin {
 
     fn public_view(&self, state: &Value) -> Value {
         world::load(state)
-            .map(|w| phases::public_view(&w))
+            .map(|w| {
+                let mut v = phases::public_view(&w);
+                // Which rules this match runs on (a client reads it here or in `server.hello.api.rules_version`).
+                v["rules"] = json!({ "version": w.meta.rules_version, "state_schema": w.meta.schema, "server": RULES_VERSION });
+                // Schema 8 (exact resume): the present moment (the server's clock, the public events since the last
+                // resolve, every open duel in full), so a `match.snapshot` redraws it.
+                if w.resume_rules() {
+                    v["present"] = self.journal.present(&w);
+                }
+                v
+            })
             .unwrap_or(Value::Null)
     }
 
@@ -816,6 +917,9 @@ impl GamePlugin for FinalNight7Plugin {
 
     async fn summarize(&self, state: &Value, llm: &dyn LlmProvider) -> anyhow::Result<Summary> {
         let w = world::load(state)?;
+        if w.resume_rules() {
+            self.journal.finished(&w);
+        }
         let llm = Self::llm(&w, llm);
         Ok(phases::summarize(&w, llm).await)
     }
@@ -835,3 +939,7 @@ mod two_bodies_tests;
 mod dm_tests;
 #[cfg(test)]
 mod duel_tests;
+#[cfg(test)]
+mod resume_tests;
+#[cfg(test)]
+mod panel_tests;

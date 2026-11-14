@@ -63,6 +63,20 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(db = %db.display(), matches = store.match_count().unwrap_or(0), "profiles");
     // The core records every match (THEATRE_RECORD / THEATRE_RECORD_DIR) and runs every hook in the match's trace
     // context, so the plugin's events, LLM calls and the images' media_* events land in its run.
+    // Exact resume (docs/TIME_TRAVEL.md): the plugin journals every accepted instant action under
+    // `FN7_JOURNAL_DIR` (default `<THEATRE_DATA_DIR>/fn7/journal`) so a restart loses none of them; `FN7_JOURNAL=off`
+    // keeps it in memory only.
+    let game = FinalNight7Plugin::new().with_media_style(media.style().ruleset_json());
+    let journal_off = env("FN7_JOURNAL").is_some_and(|v| matches!(v.trim(), "off" | "0" | "false"));
+    let game = if journal_off {
+        tracing::info!("journal: off (memory only)");
+        game
+    } else {
+        let dir = env("FN7_JOURNAL_DIR").filter(|d| !d.trim().is_empty()).map(std::path::PathBuf::from)
+            .unwrap_or_else(|| cfg.data_dir.join("fn7").join("journal"));
+        tracing::info!(dir = %dir.display(), "journal");
+        game.with_journal(dir)
+    };
     // Accounts (docs/ACCOUNTS.md): sessions, settings, demigod personalities (moderated by the LLM when there is one,
     // never by a replayed one), Google sign-in when FN7_GOOGLE_* and FN7_PUBLIC_URL are set.
     let moderator = (built.label != "none" && cfg.replay_from.is_none()).then(|| built.llm.clone());
@@ -72,7 +86,7 @@ async fn main() -> anyhow::Result<()> {
     let plugin: Arc<dyn GamePlugin> =
         Arc::new(fn7_server::media::MediaPlugin::new(
             fn7_server::accounts::plugin::AccountsPlugin::new(
-                FinalNight7Plugin::new().with_media_style(media.style().ruleset_json()),
+                game,
                 accounts.clone(),
             ),
             media.clone(),

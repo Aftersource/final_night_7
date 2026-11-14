@@ -40,5 +40,6 @@ serde.workspace = true
 ring = "0.17"
 
 [dev-dependencies]
+tokio-tungstenite.workspace = true
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"

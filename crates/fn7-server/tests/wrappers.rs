@@ -284,7 +284,7 @@ fn final_night_7_declares_its_queries_through_the_media_wrapper() {
     let names: Vec<String> = p.queries().into_iter().map(|q| q.name).collect();
     assert_eq!(
         names,
-        ["globe", "region", "node", "person", "army", "events", "me", "powers", "gods", "standings", "media", "items", "item", "memory",
+        ["globe", "region", "node", "person", "army", "events", "me", "powers", "gods", "standings", "present", "media", "items", "item", "memory",
          "encounters", "piles_final"]
     );
     assert!(p.query(&json!({}), None, "powers", &json!({})).unwrap()["powers"].is_array());

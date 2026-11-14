@@ -101,6 +101,9 @@ pub struct Input {
     pub challenge: Option<ChallengeOrder>,
     /// Rules 0.8.1: a duel line (an instant action that travels alone).
     pub blow: Option<BlowOrder>,
+    /// Rules 0.8.2: `fields.duel_tick {duel_id}`: a duellist's client says the panel's input window closed (an instant
+    /// action that travels alone; it only moves the panel cycle on, see [`crate::panel`]).
+    pub tick: Option<String>,
 }
 
 impl Input {
@@ -111,7 +114,7 @@ impl Input {
 
     /// Does it carry a challenge or a duel line (rules 0.8.1)?
     pub fn is_duel(&self) -> bool {
-        self.challenge.is_some() || self.blow.is_some()
+        self.challenge.is_some() || self.blow.is_some() || self.tick.is_some()
     }
 }
 
@@ -405,8 +408,13 @@ pub fn parse(text: &str, fields: &Value) -> Result<Input, String> {
     i.summons = summon_of(fields)?;
     i.challenge = challenge_of(fields)?;
     i.blow = blow_of(fields)?;
+    i.tick = match fields.get("duel_tick").filter(|v| !v.is_null()) {
+        Some(v) => Some(v.get("duel_id").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).ok_or("no_duel")?
+                        .chars().take(64).collect()),
+        None => None,
+    };
     if i.is_duel()
-        && (i.challenge.is_some() && i.blow.is_some()
+        && (i.challenge.is_some() as u8 + i.blow.is_some() as u8 + i.tick.is_some() as u8 > 1
             || !i.casts.is_empty()
             || !i.summons.is_empty()
             || !i.god_powers.is_empty()

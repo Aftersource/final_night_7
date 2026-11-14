@@ -23,7 +23,7 @@ fn act(seat: Seat, fields: Value) -> Action {
 #[test]
 fn every_player_has_two_full_demigods() {
     let w = testkit::world(4, 3);
-    assert_eq!((w.meta.schema, w.demigods.len(), w.player_seats().len()), (7, 8, 4));
+    assert_eq!((w.meta.schema, w.demigods.len(), w.player_seats().len()), (9, 8, 4));
     for seat in w.player_seats() {
         let ds: Vec<&Demigod> = w.bodies_of_seat(seat).collect();
         assert_eq!(ds.len(), 2);

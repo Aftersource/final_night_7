@@ -417,6 +417,25 @@
         }
       ]
     },
+    "duel_tick": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "description": "Rules 0.8.2 (instant; travels alone): a duellist's client says the current panel's input window closed, so the next panel is computed now. Refusals: panels_off, no_duel, not_yours.",
+          "properties": {
+            "duel_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "duel_id"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "left": {
       "description": "What you say to your left hand this beat (<= 2000 chars). Empty = that hand does nothing (no LLM call). Newlines separate commands.",
       "maxLength": 2000,
