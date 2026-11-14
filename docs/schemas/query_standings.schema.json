@@ -102,10 +102,27 @@
                 "description": "Bolts held (public).",
                 "minimum": 0,
                 "type": "integer"
+              },
+              "connected": {
+                "description": "As in the PublicView's demigods: true for AI, null for a human (see room.updated seats).",
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "controller": {
+                "description": "As in the PublicView's demigods.",
+                "enum": [
+                  "human",
+                  "ai"
+                ],
+                "type": "string"
               }
             },
             "required": [
-              "bolts"
+              "bolts",
+              "controller",
+              "connected"
             ],
             "type": "object"
           }

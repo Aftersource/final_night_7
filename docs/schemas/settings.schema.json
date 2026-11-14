@@ -2,8 +2,13 @@
   "$id": "settings.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": true,
-  "description": "Room settings (`room.create.settings`, `room.settings.settings`; all optional) and, once validated, `match.started.rules` / `Room.settings`. Integers may be sent as whole floats (3.0). Unknown keys are dropped silently. Validated `rules` always contain every key except seed/city (when unset), rounds and choose_seconds (when unset).",
+  "description": "Room settings (`room.create.settings`, `room.settings.settings`; all optional) and, once validated, `match.started.rules` / `Room.settings`. Integers may be sent as whole floats (3.0). Unknown keys are dropped silently. Validated `rules` always contain every key except seed/city/allow_midmatch_join (when unset), rounds and choose_seconds (when unset).",
   "properties": {
+    "allow_midmatch_join": {
+      "default": false,
+      "description": "The core's room flag: humans may join a running match, taking over a bot's seat (its demigod) or a new seat (a live built-in AI demigod, the healthiest; none left: they spectate) from the next round. Copied through only if set.",
+      "type": "boolean"
+    },
     "arena": {
       "default": "planet",
       "description": "planet: the whole Earth (regions → cities; `city` = where the Final Night converges). city: one real city (districts → sites).",

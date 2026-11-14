@@ -322,7 +322,8 @@
             "event",
             "statue",
             "place",
-            "army"
+            "army",
+            "diorama"
           ],
           "type": "string"
         },
@@ -1151,6 +1152,36 @@
               "null"
             ]
           },
+          "connected": {
+            "description": "true for an AI-controlled demigod (always there); null for a human one: the game never sees presence, so read room.updated seats[seat].connected.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "controller": {
+            "description": "human: a Theatre seat whose player is human plays it (as the game knows: from match start and mid-match takeovers); ai: a Theatre bot seat or the built-in AI. Flips to human when a joiner takes it over. A human who leaves mid-match stays human here until someone takes the seat over: room.updated seats[].is_bot is the live truth.",
+            "enum": [
+              "human",
+              "ai"
+            ],
+            "type": "string"
+          },
+          "diorama_image": {
+            "$ref": "#/$defs/ImageObject",
+            "description": "Its diorama, the table minifig (images on only; kind diorama)."
+          },
+          "diorama_image_kind": {
+            "description": "The kind of diorama_prompt.",
+            "enum": [
+              "diorama"
+            ],
+            "type": "string"
+          },
+          "diorama_prompt": {
+            "description": "An image prompt for its diorama: the demigod as a collectible minifig on a small base themed on its home region (where it started) with its signature prop (subject only, from its visual sheet; stable all match).",
+            "type": "string"
+          },
           "eliminated_beat": {
             "description": "Eliminated only.",
             "minimum": 0,
@@ -1160,6 +1191,7 @@
             ]
           },
           "image_kind": {
+            "description": "The kind of portrait_prompt.",
             "enum": [
               "portrait"
             ],
@@ -1192,7 +1224,7 @@
             "type": "string"
           },
           "seat": {
-            "description": "The Theatre seat; null for the built-in AI's demigods.",
+            "description": "The Theatre seat; null for the built-in AI's demigods. A mid-match joiner's new seat takes over a built-in AI demigod, whose seat becomes that seat.",
             "minimum": 0,
             "type": [
               "integer",

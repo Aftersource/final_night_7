@@ -462,6 +462,27 @@ Engineering:
 - Client: silhouettes and auras around the table, and minifigs on the table in front of each player.
 - Engine: mid-match join requested (seat takeover).
 
+Engineering (server side built, on Theatre `9d98b98` mid-match join; uncommitted for the backend):
+- Mid-match join (`on_seat_takeover`, `fn7-plugin/src/table.rs`), with room setting `allow_midmatch_join: true`:
+  - A taken-over bot seat keeps its demigod, which turns human.
+  - A new seat takes over the live built-in AI demigod with the most health (then the lowest id).
+  - If no built-in AI demigod is alive, the joiner spectates (`None`).
+  - Each join is a `seat_takeover` / `seat_takeover_spectator` event.
+  - `MediaPlugin` forwards the hook. `Recorded` records it the way the core does (hook record plus an `on_seat_takeover` snapshot).
+  - `replay::verify` replays it. The sim driver has `run_match_joins`.
+- Table data on every public demigod (PublicView, globe, region, standings):
+  - `controller: human|ai` and `seat`.
+  - `connected`: true for AI, null for humans (the game never sees presence; clients read `room.updated`).
+- Dioramas:
+  - New image kind `diorama` (style framing: a square minifig on a home-region base).
+  - Each demigod has `diorama_prompt` and `diorama_image_kind`, built from its sheet and `Demigod.home` (fixed at setup).
+  - The media layer attaches `diorama_image`. `game.media {kind: "diorama", ref: "dg:N"}` also works.
+- The reference client no longer crashes on the null private payloads a joiner gets before their first beat.
+- Verified on a private server (:8097, mock images, no LLM):
+  - Three clients joined mid-match: two took over the AI demigods and the third spectated.
+  - A fourth took over a Theatre bot's seat, was refused with `wrong_phase` while joining, and had its orders accepted in its join beat.
+  - Both recordings replay with 0 differences.
+
 ## 2026-11-14: the core loop, restated
 
 > The game keeps running once started; a player can join at any time,

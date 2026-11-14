@@ -21,9 +21,11 @@ a budget.
 
 ## 2. What exists today (playtest-1)
 - **Image objects in payloads.** Next to every `image_prompt` / `portrait_prompt` / `statue_prompt`, the server adds
-  `{hash, kind: portrait|item|event|statue, status: pending|ready|off, url|null, prompt}`. The places this happens:
+  `{hash, kind: portrait|item|event|statue|place|army|diorama, status: pending|ready|off, url|null, prompt}`. The places this happens:
   - big events: casts, eliminations, magnitude ≥ 8
   - demigod portraits in the public view, stable for the whole match
+  - demigod dioramas in the public view (`diorama_prompt` → `diorama_image`): the minifig on a home-region base, for
+    the table in front of each seat, stable for the whole match
   - end-of-match statues in `match.ended.summary.piles[]`
 - **Manifest.** `GET /media/index?since=<cursor>&key=<KEY>` → `{enabled, mode, cursor, items:[{hash, kind, status, url, ...}]}`.
   Poll it and pass back `cursor`.
@@ -65,7 +67,8 @@ when the moment has passed. Images never block the beat.
   "kinds": { "portrait": {"framing": "waist-up, three-quarter view, dramatic rim light", "size": "1024x1024"},
              "event":    {"framing": "wide cinematic, seen from high above", "size": "1536x1024"},
              "statue":   {"framing": "amiibo-style figure on a round base atop a pile of its items", "size": "1024x1024"},
-             "place":    {"framing": "establishing shot", "size": "1536x1024"} },
+             "place":    {"framing": "establishing shot", "size": "1536x1024"},
+             "diorama":  {"framing": "the demigod as a collectible minifig standing on a small square themed diorama base that reflects its home region and shows off its signature prop, …", "size": "1024x1024"}, … },
   "avoid": ["text", "logos", "real people's likenesses", "gore close-ups"],
   "event_selection": { "min_magnitude": 8, "always": ["cast", "elimination", "general_appointed", "mutiny"], "max_per_match": 12 } }
 ```

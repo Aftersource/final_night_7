@@ -172,7 +172,8 @@
             "event",
             "statue",
             "place",
-            "army"
+            "army",
+            "diorama"
           ],
           "type": "string"
         },

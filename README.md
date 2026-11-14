@@ -137,6 +137,7 @@ Room settings (`validate_settings` fills defaults; one Theatre round = one beat;
 | `max_memorize_per_beat` | 6 | 0–64 | People memorized from player mentions per beat |
 | `max_witnesses` | 4 | 1–64 | Witnesses recorded per act (targets and actor first) |
 | `compose_seconds`, `choose_seconds`, `resolve_timeout_s` | `flow_ms/1000`, core, 60 | core | The core's timers, copied through (`util::copy_timer_settings`) |
+| `allow_midmatch_join` | false | bool | The core's room flag, copied through (`util::copy_timer_settings`): humans may join a running match; `on_seat_takeover` binds a taken-over bot seat to its demigod or a new seat to the healthiest live built-in AI demigod (none left: spectator). `docs/CLIENT_API.md` "Joining mid-match" |
 
 **Actions** (two separate paths; `docs/CLIENT_API.md` has the full contract). *Text entry*, the God of Time
 interaction, on the Theatre's action windows (engine v2.2): `action.begin` opens a slow-time window (`on_action_begin`;
@@ -152,7 +153,7 @@ bolt), Entropy's yes, and a ramifications call per region.
 **Engine boundary.** The plugin uses only the Theatre's public `GamePlugin` API (`theatre_plugin_api`): settings
 validation (including `compose_seconds` via `util::copy_timer_settings`), the round hooks, `validate_action`,
 `default_action`, `bot_action`, `resolve_round` with the actions the core delivers, `commit_round`, the views and
-`summarize`, the real-time hooks (`on_action_begin` opens Time's slow windows with the core's exact `next_window_id`,
+`summarize`, `on_seat_takeover` (mid-match join, `fn7-plugin/src/table.rs`), the real-time hooks (`on_action_begin` opens Time's slow windows with the core's exact `next_window_id`,
 `on_instant` pushes cast streaks, `validate_action` sees the `SubmitKind` and refuses orders in instant actions;
 `Committed.revived` / `RoundStart.revived` return a revived seat to play), and `queries()` / `query()` (the `game.*` queries:
 globe, region, node, person, army, events, me, powers, gods, standings, piles_final; docs/CLIENT_API.md "Game

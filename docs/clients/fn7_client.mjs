@@ -19,7 +19,9 @@
 //  - Casts (god powers, any time): "b: <target>" throws a lightning bolt; "c: <power> <target>" casts a power from the
 //    palette (round.brief.public.powers). Each is an instant action (instant: true); everyone sees its streak at once
 //    (phase.event). A target is a ref (dg:2), "lon,lat", or a name. Casts never carry orders.
-//  "z: region" / "z: character ch:12" -> zoom.  The host types "/start" in the lobby once everyone is ready.
+//  "z: region" / "z: character ch:12" -> zoom.
+//  Mid-match join (room setting allow_midmatch_join): --join CODE during a match; you play from the next beat
+//  (seat.joined). Until then your private payloads are null.  The host types "/start" in the lobby once everyone is ready.
 
 import fs from "node:fs";
 import readline from "node:readline";
@@ -152,13 +154,15 @@ ws.onmessage = (ev) => {
     case "round.started": say(`\n=== beat ${d.round}  arena ${r1(d.public.arena_radius_km)} km  alive ${d.public.alive}${d.private?.outside_arena ? "  YOU ARE OUTSIDE THE ARENA" : ""}`); break;
     case "round.brief":
       st.view = d.private; st.arena = d.public.arena; st.powers = d.public.powers ?? [];
+      // No private view: a mid-match joiner before their first beat (seat status "joining"), or one with no demigod.
+      if (!st.view) { say("   (no demigod of yours this beat: joining or spectating)"); break; }
       say(`you: health ${r1(st.view.you.health)}  bolts ${st.view.you.bolts}  debt ${r1(st.view.you.debt_open)}  zoom ${st.view.zoom}  entropy ${r1(d.public.entropy?.value)} (${d.public.entropy?.key})`);
       break;
     case "phase.changed":
       st.inCompose = d.phase === "compose";
       if (d.phase === "compose") {
         st.round = d.round; st.deadline = d.deadline ?? 0;
-        if (AUTO) {
+        if (AUTO && st.view) {
           // Text entry every third beat (a Time interaction: begin, write, Enter), a bolt now and then.
           const c = autoCast();
           if (c) cast("lightning", c);
@@ -202,6 +206,7 @@ ws.onmessage = (ev) => {
       break;
     }
     case "round.private":
+      if (!d.private) break; // joining / no demigod
       d.private.hands.forEach((h, i) => {
         if (h.said) say(`   ${i ? "right" : "left"}: ${h.said}`);
         h.subagents.forEach((a) => say(`     ${a.kind} ${a.name} (${a.agent}${a.body ? `, body ${a.body}` : ""}): ${a.line}`));
@@ -212,6 +217,7 @@ ws.onmessage = (ev) => {
       break;
     case "round.private_state": st.view = d.state; break;
     case "seat.eliminated": say(d.seat === st.seat ? `you fell: ${d.reason} (spectating)` : `   seat ${d.seat} fell: ${d.reason}`); break;
+    case "seat.joined": say(d.seat === st.seat ? `YOU JOIN at beat ${d.round} (seat ${d.seat}${d.new_seat ? ", new seat" : ", took over a bot"})` : `   ${d.display_name} joins at beat ${d.round} (seat ${d.seat})`); break;
     case "seat.revived": say(d.seat === st.seat ? `YOU ARE BACK: ${d.reason}` : `   seat ${d.seat} is back: ${d.reason}`); break;
     case "match.ended":
       if (d.summary.last_caption) say(`>> [beat ${d.summary.last_caption.beat}] ${d.summary.last_caption.caption}`);

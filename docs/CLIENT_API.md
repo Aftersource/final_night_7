@@ -52,6 +52,7 @@ is always `[]`, so the Choose phase is always skipped. This is one real beat as 
 match start):
 
 ```
+     S→C seat.joined         { seat, display_name, round, new_seat }   (a mid-match joiner plays from this round; then room.updated)
   5  S→C phase.changed       { round: 1, phase: "start" }
  10  S→C round.started       { round, public: RoundStartedPublic, private: RoundStartedPrivate }
      S→C seat.eliminated     { seat, round, reason }        (only if someone fell at Start; then room.updated)
@@ -128,11 +129,12 @@ On reconnect (`auth.resume`), `match.snapshot` carries the same objects: `public
   name), `focus` is always an Entity object or null, a subagent is always a `SubagentLine` object, and `news` is always
   newest first with at most one line per ledger row.
 - **Image prompts.** `portrait_prompt` (each demigod in the PublicView, stable all match, with `image_kind:
-  "portrait"`), `image_prompt` (every public world event, with `image_kind: "event"`; and every storyboard shot) and
+  "portrait"`), `diorama_prompt` (each demigod too: its table minifig, stable all match, with `diorama_image_kind:
+  "diorama"`), `image_prompt` (every public world event, with `image_kind: "event"`; and every storyboard shot) and
   `statue_prompt` (the end-of-match piles, with `image_kind: "statue"`) describe the subject only; the media server
   renders them (see [`MEDIA.md`](MEDIA.md)). With images on, an **image object** `{hash, kind, status, url, prompt}`
-  sits beside them (`portrait_image`, `image`, `statue_image`); only events the media style selects get one (moment
-  cards).
+  sits beside them (`portrait_image`, `diorama_image`, `image`, `statue_image`); only events the media style selects
+  get one (moment cards).
 - **Visual sheets.** Every demigod (PublicView, `game.globe`, `game.region`) and every person (`game.person`,
   `game.media`) carries `visual: {sheet_hash, traits: {build, face, outfit, colors: [a, b], prop, emblem}}`: picked
   from the match seed and the character's id and name, the same at every beat and in every replay. Every image of the
@@ -366,8 +368,25 @@ numbers themselves mean little. `public_state` is the **PublicView**:
   "caption": "…", "caption_beat": 1 }   // the latest caption written, and which beat it describes (null before any)
 ```
 `demigods` lists every demigod in id order, including the built-in AI's (`seat: null`), each with `bolts` (public),
-`portrait_prompt`, `image_kind: "portrait"`, `visual` (its visual sheet) and, with images on, `portrait_image`. A live demigod has `pos`, `place` and `region`; a dead one has
-`eliminated_beat` and `cause` instead. Health never appears here. The planet edition adds:
+`portrait_prompt`, `image_kind: "portrait"`, `diorama_prompt`, `diorama_image_kind: "diorama"`, `visual` (its visual
+sheet), the table fields below and, with images on, `portrait_image` and `diorama_image`. A live demigod has `pos`,
+`place` and `region`; a dead one has `eliminated_beat` and `cause` instead. Health never appears here.
+
+**The table** (on every demigod in the PublicView, `game.globe`, `game.region` and every row of `game.standings`):
+
+| Field | Type | Meaning |
+|---|---|---|
+| `seat` | number \| null | The Theatre seat that plays it; `null` for a built-in AI demigod. A mid-match joiner's new seat takes over a built-in AI demigod, whose `seat` becomes that seat. |
+| `controller` | `"human"` \| `"ai"` | `human`: a seat whose player is human plays it. `ai`: a Theatre bot seat or the built-in AI. Flips to `human` when a joiner takes it over (see [Joining mid-match](#joining-mid-match)). |
+| `connected` | bool \| null | `true` for an AI-controlled demigod (always there). `null` for a human one: the game never sees presence, so combine with `room.updated` `seats[seat].connected`. |
+
+Draw the table from these plus `room.updated`: a seat's aura is human or AI from `controller` (or, live, from
+`seats[].is_bot`: a human who **leaves** mid-match is replaced by a core bot, which the game isn't told, so
+`controller` stays `"human"` until someone takes the seat over), dimmed when `seats[seat].connected` is false.
+`diorama_image` is the demigod's minifig on a little base themed on its home region (where it started) with its
+signature prop: the piece to stand on the table in front of its seat. `portrait_image` is its portrait card.
+
+The planet edition adds:
 
 | Field | Meaning |
 |---|---|
@@ -454,6 +473,7 @@ false}` with the reason; the game sees how each submit arrived since theatre faa
 | S→C `action.received { round, accepted, reason?, instant: true }` | you | `accepted: false` with the validation message (e.g. not enough bolts) when refused. |
 | S→C `phase.event { round, phase, public: Streak }` | everyone | The cast's streak, at once: `{ event: "streak", by, by_ref, by_seat, casts: [...], seq, received_at_ms, power, power_name, icon, cost, at, region, region_ref, place, target, target_name }` (the top-level fields repeat the first cast). |
 | S→C `seat.revived { seat, round, reason }` | everyone | An eliminated seat is back in play (then `room.updated` shows it `active`). |
+| S→C `seat.joined { seat, display_name, round, new_seat }` | everyone | A mid-match joiner plays `seat` from `round` (room setting `allow_midmatch_join`; see [Joining mid-match](#joining-mid-match)); then `room.updated`. |
 
 `match.snapshot` (on resume) carries `window` (`{ window_id, by_seat, deadline }` or null) and `you.window_submitted`.
 Windows don't survive a server restart.
@@ -598,10 +618,11 @@ readable `bad_request`. **Unknown keys are dropped silently.**
 | `max_witnesses` | int | 4 | 1–64 | Witnesses recorded per act |
 | `compose_seconds` | number | `flow_ms / 1000` | (0, 600] | The core's Compose timer (fixed for the room). If you set it explicitly, it no longer follows `flow_ms`. |
 | `resolve_timeout_s` | number | 60 | (0, 1800] | The core's resolve timeout |
+| `allow_midmatch_join` | bool | false | | The core's room flag: humans may join a running match ([Joining mid-match](#joining-mid-match)). Echoed in `rules` only when set. |
 | `choose_seconds` | number | (core) | (0, 600] | Unused: there is no Choose phase |
 
 For a playtest, set `beats_total` and `flow_ms` (or `beat_ms`) and leave `compose_seconds` unset. The server's `rules` then contain
-every key above except `rounds`, plus `seed`, `city` and `choose_seconds` only when you set them.
+every key above except `rounds`, plus `seed`, `city`, `choose_seconds` and `allow_midmatch_join` only when you set them.
 
 ## Timing and phases
 
@@ -874,7 +895,7 @@ GET /api/rooms/66X6KM/query/standings
 ```json
 { "beat": 7, "beats_total": 14, "alive": 4, "over": false,
   "standings": [ { "rank": 1, "demigod": "dg:1", "name": "Vex", "seat": null, "alive": true, "eliminated_beat": null,
-                   "cause": null, "score": 1030001.0, "bolts": 18 }, … ] }
+                   "cause": null, "score": 1030001.0, "bolts": 18, "controller": "ai", "connected": true }, … ] }
 ```
 Ordered: alive first, then whoever fell last, then `score` (the `round.committed` formula), then id. Health never
 decides the order, because health is hidden. `over` is true once the match has ended. At the end the order can
@@ -914,6 +935,7 @@ GET /api/rooms/66X6KM/query/media?kind=event&ref=lg:88
 | `kind` | `ref` | Draws |
 |---|---|---|
 | `portrait` | `dg:` or `ch:` | The character from its visual sheet (a demigod's is the same image as its `portrait_image`) |
+| `diorama` | `dg:` | The demigod's table minifig on its home-region base (the same image as its `diorama_image`) |
 | `place` | `pl:` | The region, city or arena |
 | `event` | `lg:` | That ledger row (the same image as its moment card, if it has one) |
 | `army` | `cl:` of an army | The host under its demigod's colors and emblem |
@@ -949,6 +971,39 @@ You **know** a ledger row if any of the following did it, witnessed it, was told
 your hands, one of your subagents, or a body you possess. You also know a row once news of it reaches your
 **Following** (a group), spreading one hop per beat along group overlaps. If Memory erased the row from you, you no
 longer know it. Rivals' health is never sent to you. You can only guess it from the news and the captions.
+
+## Joining mid-match
+
+A room created with `allow_midmatch_join: true` (see [Room settings](#room-settings-roomcreate--settings---roomsettings-returned-as-matchstartedrules))
+lets humans join while the match runs; humans can also leave at any time. Without it, `room.join` during a match is
+`wrong_phase`.
+
+1. **`room.join { code }`** during the match. The core seats the joiner on a **bot's seat** if there is one (a Theatre
+   bot, e.g. a seat whose human left), else on a **new seat** (`room_full` if the room has `max_players` seats). The
+   reply is `room.snapshot`, then a `match.snapshot` (the PublicView, scores, phase) so the client can draw the table at
+   once. Everyone else gets `room.updated`.
+2. **Until the next round boundary** the seat shows `status: "joining"` in `room.updated` `seats[]`. A taken-over bot
+   keeps playing it meanwhile; the joiner's `action.submit` / `action.begin` / `choice.submit` get `wrong_phase` ("you
+   join the match at the next round"). They already receive every public message; their private payloads
+   (`round.started.private`, `round.brief.private`, `round.private.private`, `round.private_state.state`) are `null`
+   until they have a demigod, so guard for it.
+3. **At the boundary** (before the next beat's Start) the game binds the seat to a demigod:
+   - a taken-over **bot seat** keeps its demigod, now `controller: "human"`;
+   - a **new seat** takes over one of the **built-in AI demigods** still alive, the one with the most health (then the
+     lowest id): its `seat` changes from `null` to the new seat and its `controller` to `"human"`;
+   - if no built-in AI demigod is alive, the joiner gets **no demigod and spectates**: their seat is `active` to the
+     core, but no demigod has their `seat`, their `round.brief.private` / `round.private_state` are null and their orders
+     are accepted and ignored. (Show the spectator view when no `demigods[].seat` equals yours.)
+4. Everyone gets **`seat.joined { seat, display_name, round, new_seat }`**, then `room.updated` with the seat `active`
+   (`is_bot: false`, the joiner's name). **The joiner acts from `round`**: that beat's `round.started` /
+   `round.brief.private` are theirs, and their orders steer the demigod's hands from that beat's Compose.
+5. The new `controller`/`seat` show in the next `round.committed.public_state` (and at once in `game.globe` /
+   `game.standings`).
+
+Leaving: an active player who leaves (or whose resume token expires) is replaced by a core bot for the rest of the
+match (`room.updated` `is_bot: true`); another human may then take that seat over (step 1). A joiner who leaves before
+their first beat gives the seat back to its bot (or, for a new seat, leaves it empty with status `left`). If every
+human disconnects, the match pauses at the next round.
 
 ## Elimination and spectating
 

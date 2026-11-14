@@ -1,6 +1,7 @@
 # Images (`fn7-media`)
 
-The server turns image prompts in payloads into pictures: **portraits** (demigods, memorized characters), **items**,
+The server turns image prompts in payloads into pictures: **portraits** (demigods, memorized characters), demigod
+**dioramas** (each demigod as a collectible minifig on a small base themed on its home region: the table piece), **items**,
 **events** (moment cards: the public events the style selects; god rulings), end-of-match **statues**, and, on request
 by reference (`game.media`), **places** and **armies**. Every character has a stable **visual sheet**, so the same
 person looks the same in every picture, and every match ends with a **storyboard** (the final-cut animatic). Generation runs in the background and never
@@ -20,6 +21,7 @@ Wherever a payload object has an image prompt, the server puts an image object b
 | `image_prompt` | `image` | `image_kind` if present, else inferred |
 | `statue_prompt` (in `match.ended.summary.piles[]`) | `statue_image` | `statue` |
 | `portrait_prompt` | `portrait_image` | `portrait` |
+| `diorama_prompt` (every demigod in the PublicView, `game.globe`, `game.region`) | `diorama_image` | `diorama` |
 
 Moment cards: an event object (in `events[]`, with a numeric `magnitude` and a `kind`) gets its `image` only if the style
 config's `event_selection` picks it (below). Storyboard shots (`match.ended.summary.storyboard[]`) get theirs always.
@@ -27,7 +29,7 @@ config's `event_selection` picks it (below). Storyboard shots (`match.ended.summ
 ```json
 "statue_image": {
   "hash": "3f9c…64 hex…",
-  "kind": "statue",                 // "portrait" | "item" | "event" | "statue" | "place" | "army"
+  "kind": "statue",                 // "portrait" | "item" | "event" | "statue" | "place" | "army" | "diorama"
   "status": "pending",              // "pending" | "ready" | "off"
   "url": null,                      // "/media/<hash>.<ext>" once ready
   "prompt": "Amiibo-style figure on a round base atop a pile of its items: the demigod Rook (…), … Style: collectible-figure game illustration, …. Avoid: text, logos, …."
@@ -94,7 +96,8 @@ Benito's lever (docs/SHARED_MEDIA_SPEC.md §4). The server loads `FN7_MEDIA_STYL
              "statue":   {"framing": "amiibo-style figure on a round base atop a pile of its items", "size": "1024x1024"},
              "place":    {"framing": "establishing shot", "size": "1536x1024"},
              "army":     {"framing": "wide cinematic, a marching host seen from a low angle, banners raised", "size": "1536x1024"},
-             "item":     {"framing": "a single item shown alone like a loot icon, centered, three-quarter view, plain background", "size": "1024x1024"} },
+             "item":     {"framing": "a single item shown alone like a loot icon, centered, three-quarter view, plain background", "size": "1024x1024"},
+             "diorama":  {"framing": "the demigod as a collectible minifig standing on a small square themed diorama base that reflects its home region and shows off its signature prop, three-quarter view from slightly above, centered, square", "size": "1024x1024"} },
   "avoid": ["text", "logos", "real people's likenesses", "gore close-ups"],
   "event_selection": { "min_magnitude": 8, "always": ["cast", "elimination", "general_appointed", "mutiny"], "max_per_match": 12 } }
 ```
@@ -126,9 +129,17 @@ storyboard moments) name who is in them with their sheets ("…; starring Vex (w
 carrying …, with the emblem of a broken crown)"); statues carry the sheet; an army's banners use its demigod's colors
 and emblem. A demigod's `portrait_image`, its `game.media` portrait and its storyboard close-up are one image.
 
+**Dioramas.** Every demigod also carries `diorama_prompt` (with `diorama_image_kind: "diorama"`; its `image_kind`
+stays `"portrait"`, the kind of `portrait_prompt`): its name and sheet as a collectible minifig standing on a small
+square diorama base themed on its **home region** (the region, or city district, it started in: `Demigod.home`, fixed
+at setup) with its signature **prop** built into the scene and its two colors as trim. Nothing in it changes during a
+match, so it is one image per demigod (`diorama_image`, square, transparent background where the model supports it),
+the same as `game.media {kind: "diorama", ref: "dg:N"}`. States from before `home` existed get a generic "home turf"
+base. The style config's `kinds.diorama` sets its framing and size.
+
 ## Images by reference: `game.media`
 
-`game.media {kind: "portrait"|"place"|"event"|"army", ref}` (WebSocket for a seat; `GET
+`game.media {kind: "portrait"|"diorama"|"place"|"event"|"army", ref}` (`diorama`: a `dg:` ref only) (WebSocket for a seat; `GET
 /api/rooms/{code}/query/media?kind=…&ref=…` for public refs) answers at once with `{kind, ref, name, image, reason?,
 visual?}`. The server writes the prompt from the state (a client never sends one), checks visibility (a seat sees public
 things, its own people, people in its view and events it knows; HTTP sees public refs only), applies the per-seat rate
@@ -230,7 +241,7 @@ replaced by its length. Image bytes never go into SQLite; the `path` points at t
 
 ## For the plugin
 
-Put `image_prompt: "<subject>"` (and optionally `image_kind: "portrait" | "item" | "event" | "statue"`) on any
+Put `image_prompt: "<subject>"` (and optionally `image_kind: "portrait" | "item" | "event" | "statue" | "diorama"`) on any
 payload object that deserves a picture. Write only the subject (who, what, where; plain names, no refs); the server
 adds the framing and house style and scrubs any `xx:N` ids. Without `image_kind` the kind is inferred: `statue` in
 `piles`/`statues`, `portrait` under a key containing "portrait" or on an object with a `dg:`/`ch:` `ref`, `demigod` or
@@ -241,6 +252,6 @@ way out and never touches the state.
 Rust API (`crates/fn7-media`): `MediaStyle` (`style.rs`), `ImagePrompt::{styled, from_subject, restyle, portrait, item,
 event, statue}`, `Media::{prompt, request, request_with, request_by_ref, annotate, manifest, style, wait_idle}`,
 `ImageGenerator` (`MockGenerator`, `OpenAiImages`), `fn7_media::http::router`. Plugin side (`crates/fn7-plugin`):
-`visual.rs` (sheets), `payload::{event_subject, portrait_prompt, person_portrait_prompt, place_prompt, army_prompt}`,
+`visual.rs` (sheets), `payload::{event_subject, portrait_prompt, diorama_prompt, person_portrait_prompt, place_prompt, army_prompt}`,
 `phases::storyboard`, the `media` query (`queries.rs`). Server side: `fn7-server/src/media.rs` (`MediaPlugin`: payload
 annotation and `game.media` replies) and `FinalNight7Plugin::with_media_style` (the ruleset record).
