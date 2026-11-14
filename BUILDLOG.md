@@ -461,3 +461,18 @@ Engineering:
   added. Real images need Chris's OpenAI key and budget.
 - Client: silhouettes and auras around the table, and minifigs on the table in front of each player.
 - Engine: mid-match join requested (seat takeover).
+
+## 2026-11-14: the core loop, restated
+
+> The game keeps running once started; a player can join at any time,
+> the god of entropy favors superpowers, but if all players use all superpowers, the world is destroyed in about 30 seconds of
+> frantic clicking. Demigods are prominent on screen with both portrait and diorama, and the god of time shows who stopped
+> typing, and everyone else has until that player presses enter (30 seconds maximum, with a countdown timer). They can
+> get away with changing strategies without indicating.
+
+Engineering:
+- The world never waits.
+- Mid-match join: the engine is done; the plugin part is in progress.
+- The window is 30 s maximum (slow_ms 30000), with hidden engagement, the cut, and the client countdown.
+- Portrait plus diorama on every demigod.
+- Calibration target: all players casting at the maximum rate (instant casts, 2/s, burst 4 per seat) reaches heat death in about 30 s of real time. Tested in the balance study and given a regression test.
