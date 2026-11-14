@@ -53,6 +53,17 @@
                 "integer",
                 "null"
               ]
+            },
+            "skin": {
+              "description": "Its mannequin's skin. From the name: FNV-1a 32 of the name's UTF-8 bytes with ASCII A-Z lower-cased, mod 5 in this order; unless it holds a thing a god granted (dragonscale) or a thing of gold (gold). Absent from servers before this field: compute it from the name.",
+              "enum": [
+                "wood",
+                "obsidian",
+                "gold",
+                "dragonscale",
+                "butterfly"
+              ],
+              "type": "string"
             }
           },
           "required": [
@@ -139,6 +150,17 @@
                 "integer",
                 "null"
               ]
+            },
+            "skin": {
+              "description": "Its mannequin's skin. From the name: FNV-1a 32 of the name's UTF-8 bytes with ASCII A-Z lower-cased, mod 5 in this order; unless it holds a thing a god granted (dragonscale) or a thing of gold (gold). Absent from servers before this field: compute it from the name.",
+              "enum": [
+                "wood",
+                "obsidian",
+                "gold",
+                "dragonscale",
+                "butterfly"
+              ],
+              "type": "string"
             }
           },
           "required": [

@@ -53,6 +53,17 @@
                 "integer",
                 "null"
               ]
+            },
+            "skin": {
+              "description": "Its mannequin's skin. From the name: FNV-1a 32 of the name's UTF-8 bytes with ASCII A-Z lower-cased, mod 5 in this order; unless it holds a thing a god granted (dragonscale) or a thing of gold (gold). Absent from servers before this field: compute it from the name.",
+              "enum": [
+                "wood",
+                "obsidian",
+                "gold",
+                "dragonscale",
+                "butterfly"
+              ],
+              "type": "string"
             }
           },
           "required": [
@@ -139,6 +150,17 @@
                 "integer",
                 "null"
               ]
+            },
+            "skin": {
+              "description": "Its mannequin's skin. From the name: FNV-1a 32 of the name's UTF-8 bytes with ASCII A-Z lower-cased, mod 5 in this order; unless it holds a thing a god granted (dragonscale) or a thing of gold (gold). Absent from servers before this field: compute it from the name.",
+              "enum": [
+                "wood",
+                "obsidian",
+                "gold",
+                "dragonscale",
+                "butterfly"
+              ],
+              "type": "string"
             }
           },
           "required": [
@@ -2463,6 +2485,60 @@
       ],
       "type": "object"
     },
+    "DuelTyping": {
+      "description": "`duel.typing`: a duellist is typing (the relay of its `fields.duel_keys`). Ephemeral: shown once, stored nowhere, never in `present.events`. Mask the line as `len` stars with `tail` as its newest characters.",
+      "properties": {
+        "at_ms": {
+          "description": "The server's receive stamp (epoch ms).",
+          "type": "integer"
+        },
+        "by": {
+          "description": "The side typing (a = the challenger).",
+          "enum": [
+            "a",
+            "b"
+          ],
+          "type": "string"
+        },
+        "demigod": {
+          "$ref": "#/$defs/Ref"
+        },
+        "duel_id": {
+          "description": "",
+          "type": "string"
+        },
+        "event": {
+          "const": "duel.typing"
+        },
+        "len": {
+          "description": "Characters in its line now; 0: cleared.",
+          "maximum": 120,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "seq": {
+          "description": "The action's room-wide arrival number.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tail": {
+          "description": "The newest characters since its last message (may be empty).",
+          "maxLength": 4,
+          "type": "string"
+        }
+      },
+      "required": [
+        "event",
+        "duel_id",
+        "by",
+        "demigod",
+        "len",
+        "tail",
+        "at_ms",
+        "seq"
+      ],
+      "type": "object"
+    },
     "LonLat": {
       "description": "[longitude, latitude] in degrees (WGS84). Note the order: longitude first.",
       "items": {
@@ -2956,6 +3032,9 @@
     },
     {
       "$ref": "#/$defs/DuelPanel"
+    },
+    {
+      "$ref": "#/$defs/DuelTyping"
     }
   ],
   "title": "phase.event public",
