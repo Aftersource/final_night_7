@@ -132,6 +132,7 @@ fn hand_ctx(utterance: &str) -> HandCtx {
         final_wish: false,
         own: vec![],
         rules_081: false,
+        wills: false,
     }
 }
 

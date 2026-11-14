@@ -347,7 +347,7 @@ pub fn sync_hosts(w: &mut World, beat: u32) {
 /// manifestation, at, banner, image_prompt, image_kind}` (counts rounded to integers).
 pub fn item_json(w: &World, it: &Item) -> Value {
     let e = &it.ext;
-    json!({
+    let mut v = json!({
         "ref": Ref::Item(it.id), "name": it.name, "description": it.description,
         "kind": e.kind, "icon": icon_of(e.kind, &it.name), "tier": e.tier, "count": e.count.round(), "unit": e.unit,
         "state": e.state, "holder": it.holders.last(), "holder_name": it.holders.last().map(|h| w.name_of(*h)),
@@ -355,7 +355,12 @@ pub fn item_json(w: &World, it: &Item) -> Value {
         "manifestation": e.manifestation.map(|m| m.to_string()), "at": e.at, "banner": e.banner,
         "image_prompt": e.image_prompt.clone().unwrap_or_else(|| format!("{}: {}", it.name, it.description)),
         "image_kind": "item",
-    })
+    });
+    // Rules 0.9.0: what the item DOES (`slot`, `material`, `mods`, `power`, `blessed_by`, `does`), for gear.
+    if crate::wills::on(w) {
+        crate::wills::arms::item_fields(w, it, &mut v);
+    }
+    v
 }
 
 /// A manifestation for a payload. `full` (the maker's own seat) adds the verdict's odds, roll, cost and reasons.

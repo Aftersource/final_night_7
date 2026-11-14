@@ -51,7 +51,7 @@ fn block<T>(f: impl std::future::Future<Output = T>) -> T {
 #[test]
 fn a_new_match_is_schema_7_and_rules_0_8_1() {
     let w = testkit::world(4, 3);
-    assert_eq!((w.meta.schema, w.dm_rules(), w.challenge_rules(), RULES_VERSION), (7, true, true, "0.8.1"));
+    assert_eq!((w.meta.schema, w.dm_rules(), w.challenge_rules(), RULES_VERSION), (7, true, true, "0.9.0"));
     assert!(w.dm.is_empty(), "the DM's memory starts empty");
 }
 

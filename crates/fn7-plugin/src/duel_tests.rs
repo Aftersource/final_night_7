@@ -607,7 +607,8 @@ impl LlmProvider for HandSays {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_recorded_heal_everyone_reaches_nature_and_heals_your_own_two() {
     const RECORDED: &str = r#"{"intents":[{"arg":"","how":"","magnitude":5,"route":"god","targets":["P1","P3","P4","P5","P2"],"verb":"heal"}],"said":"Healing all my demigods now."}"#;
-    let t = table(35, json!({ "llm": true }));
+    // Pinned to the 0.8.1 rules (0.9.0 resolves heals by rules and dice: `wills::tests`).
+    let t = table(35, json!({ "llm": true, "wills_enabled": false }));
     let mut w = world::load(&t.state).unwrap();
     let mine: Vec<DemigodId> = w.bodies_of_seat(0).map(|d| d.id).collect();
     for d in w.demigods.iter_mut() {
@@ -648,7 +649,8 @@ async fn the_recorded_heal_everyone_reaches_nature_and_heals_your_own_two() {
 /// a fallen player is refused with the reason.
 #[test]
 fn a_fallen_players_will_gets_a_ruling_with_the_reason() {
-    let t = table(36, json!({}));
+    // Pinned to the 0.8.1 rules (0.9.0: Death's price list, seals and quests: `wills::tests`).
+    let t = table(36, json!({ "wills_enabled": false }));
     let mut w = world::load(&t.state).unwrap();
     let mine: Vec<DemigodId> = w.bodies_of_seat(0).map(|d| d.id).collect();
     for d in &mine {

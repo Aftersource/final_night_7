@@ -693,6 +693,12 @@ fn with_dm(w: &World, mut v: Value) -> Value {
     if w.dm_rules() {
         v["shrines"] = crate::dm::shrines_under(w, None).into();
         crate::dm::add_time_of_day(&mut v, w.meta.beat, &settings(w));
+        // Rules 0.9.0: the curses' public faces and the public quests.
+        if crate::wills::on(w) {
+            let book = crate::wills::public_json(w);
+            v["curses"] = book["curses"].clone();
+            v["quests"] = book["quests"].clone();
+        }
         crate::payload::tidy(&mut v);
     }
     v
@@ -718,6 +724,10 @@ pub(crate) fn demigod_public(w: &World, d: &Demigod) -> Value {
     }
     if w.dm_rules() {
         v["story"] = crate::dm::story_json(w, d.id);
+    }
+    // Rules 0.9.0: the curse marks on its piece (public faces), and how often it was raised.
+    if crate::wills::on(w) {
+        crate::wills::demigod_fields(w, d, &mut v);
     }
     if d.alive {
         v["pos"] = json!(d.pos);
@@ -853,6 +863,14 @@ pub fn seat_view(w: &World, seat: Seat) -> Value {
     if w.two_bodies() {
         v["demigods"] = w.bodies_of_seat(s.seat).map(|x| demigod_private(w, x)).collect();
         v["my_items"] = mine.iter().flat_map(|x| crate::items::items_of(w, *x)).collect();
+    }
+    // Rules 0.9.0: the seat's quests (steps with done flags), the curses on its demigods and the ones it cast (with
+    // their counters), its boons and its raisings.
+    if crate::wills::on(w) {
+        let book = crate::wills::seat_json(w, s.seat);
+        for k in ["quests", "curses", "boons", "raises"] {
+            v[k] = book[k].clone();
+        }
     }
     tidied(v)
 }

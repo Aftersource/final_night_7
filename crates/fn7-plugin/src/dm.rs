@@ -322,12 +322,16 @@ pub fn act_reason(verb: &str) -> &'static str {
 /// Wish). Recorded and shown. `None` for acts whose actor is not a demigod's.
 pub fn resolver_dice(w: &mut World, beat: u32, acts: &[fn7_agents::resolver::ActLine]) -> Vec<Option<DiceRoll>> {
     let wish = crate::beat::is_final_wish(w, beat);
+    // Rules 0.9.0: gear, boons and hexes join the modifier (strikes use the weapon, journeys the fleet gear, other
+    // deeds the charm).
+    let wills = crate::wills::on(w).then(|| crate::world::settings(w));
     acts.iter()
         .map(|a| {
             let d = a.intent.demigod;
             let pos = fn7_society::geo::pos_of(w, a.actor).or_else(|| w.demigods.get(d.ix()).map(|x| x.pos))?;
             let dc = 8 + a.intent.magnitude.min(10) as i32 / 2;
-            let m = demigod_modifier(w, d) + if wish { 2 } else { 0 };
+            let gear = wills.as_ref().map(|st| crate::wills::arms::act_mod(w, d, &a.intent.verb, beat, st)).unwrap_or(0);
+            let m = demigod_modifier(w, d) + if wish { 2 } else { 0 } + gear;
             let q = format!("act:{}", a.intent.id.0);
             Some(d20(w, beat, &q, Ref::Demigod(d), m, dc, act_reason(&a.intent.verb), pos))
         })
@@ -847,11 +851,26 @@ fn stories_step(w: &mut World, beat: u32, s: &Start) {
 /// A demigod's story piece: `{followers, items: [{ref, icon}], wardrobe: {stage, name, condition}, scars: [...]}`.
 pub fn story_json(w: &World, d: DemigodId) -> Value {
     let me = Ref::Demigod(d);
+    let wills = crate::wills::on(w);
     let items: Vec<Value> = w
         .items
         .iter()
         .filter(|i| i.holders.last() == Some(&me) && i.ext.state != ItemState::Destroyed)
-        .map(|i| json!({ "ref": Ref::Item(i.id), "icon": icon_of(i.ext.kind, &i.name) }))
+        .map(|i| {
+            let mut v = json!({ "ref": Ref::Item(i.id), "icon": icon_of(i.ext.kind, &i.name) });
+            // Rules 0.9.0: a gear peg says what it is and does (public: gear is worn on the piece).
+            if wills {
+                if let Some(a) = crate::wills::arms::arm_of(w, i, None) {
+                    v["name"] = i.name.clone().into();
+                    v["slot"] = a.slot.into();
+                    v["tier"] = json!(a.tier);
+                    v["mods"] = json!(a.mods);
+                    v["power"] = json!(a.power);
+                    v["does"] = crate::wills::arms::describe(w, &a, false).into();
+                }
+            }
+            v
+        })
         .collect();
     let s = w.dm.story(d);
     let stage = s.map(|s| s.wardrobe).unwrap_or(0);

@@ -616,7 +616,12 @@ pub fn army_intent(w: &World, i: &Intent, beat: u32) -> Vec<Proposal> {
 /// [`STANDING_PER_HAND`] per hand).
 fn set_standing_orders(w: &mut World, from: usize, beat: u32) {
     let mut fresh: BTreeMap<(DemigodId, Hand), Vec<StandingOrder>> = BTreeMap::new();
+    // Rules 0.9.0: a will (heal, arm, raise, curse...) is resolved once, never repeated as a standing order.
+    let will_st = crate::wills::on(w).then(|| settings(w));
     for i in &w.intents[from..] {
+        if will_st.as_ref().is_some_and(|st| crate::wills::is_will(w, i, st)) {
+            continue;
+        }
         let Some(hand) = (match w.agents.get(i.agent.ix()).map(|a| a.kind) {
             Some(AgentKind::Hand { hand, .. }) => Some(hand),
             _ => None,
@@ -778,7 +783,7 @@ impl Clock {
     }
 }
 
-fn record_mut(w: &mut World, beat: u32) -> &mut BeatRecord {
+pub(crate) fn record_mut(w: &mut World, beat: u32) -> &mut BeatRecord {
     if w.beats.last().is_none_or(|b| b.beat != beat) {
         w.beats.push(new_record(beat));
     }
@@ -1072,6 +1077,7 @@ pub async fn resolve(
                 final_wish: is_final_wish(w, beat),
                 own: if st.rules_0_8_1 { w.bodies_of_seat(dg.seat).map(|x| x.id).collect() } else { vec![] },
                 rules_081: st.rules_0_8_1,
+                wills: st.wills_enabled,
             }));
         }
     }
@@ -1135,13 +1141,20 @@ pub async fn resolve(
         continue_standing_orders(w, beat, &spoke);
     }
     // Rules 0.8.1: fallen players' wills (a plea to Death, ruled on like any invocation; else a refusal with why).
-    let will_notes = fallen_wills(w, beat, wills, pantheon);
+    // Rules 0.9.0 ("wills that matter"): every will splits into its parts (heal, bless, arm, raise, curse, ask, offer,
+    // gather), each resolved by rules and dice with its own visible ruling, before the ordinary route; the fallen
+    // players' pleas too (0.8.1 states keep `fallen_wills`).
+    let will_notes = if st.wills_enabled { vec![] } else { fallen_wills(w, beat, wills, pantheon) };
+    let mut wills_out = crate::wills::resolve(w, beat, route_from, &hand_text, wills, pantheon, &st);
     clock.lap(Stage::Intake);
 
     // ---- (2) mentions → refs (memorizing people as they are addressed) -------------------------------------------
     let mut flavor_calls: Vec<MindCall> = vec![];
     let mut memorized_budget = st.max_memorize_per_beat as usize;
     for ii in route_from..w.intents.len() {
+        if wills_out.handled.contains(&w.intents[ii].id) {
+            continue;
+        }
         for ti in 0..w.intents[ii].targets.len() {
             let Target::Mention(m) = w.intents[ii].targets[ti].clone() else {
                 continue;
@@ -1223,6 +1236,9 @@ pub async fn resolve(
     let mut spent: BTreeMap<u8, u32> = BTreeMap::new();
     for ii in route_from..w.intents.len() {
         let intent = w.intents[ii].clone();
+        if wills_out.handled.contains(&intent.id) {
+            continue;
+        }
         let d = intent.demigod;
         let hand = intent.agent;
         let world_act = |w: &World, v: &mut BTreeMap<PlaceId, Vec<ActLine>>| {
@@ -1649,6 +1665,8 @@ pub async fn resolve(
 
     // ---- (4b) merge -----------------------------------------------------------------------------------------------
     let mut props: Vec<Proposal> = std::mem::take(&mut w.pending);
+    // Rules 0.9.0: what the wills decided (heals, arms, debts, curses' rows), merged with everything else.
+    props.append(&mut wills_out.props);
     let mut llm_refs: Vec<Ref> = vec![];
     let mut finished: Vec<(AgentId, String)> = vec![];
     let mut step_said: BTreeMap<AgentId, String> = BTreeMap::new();
@@ -1982,6 +2000,10 @@ pub async fn resolve(
         crate::items::sync_hosts(w, beat);
         crate::occupancy::enforce(w, beat, row_start, &pos_at_start);
     }
+    // Rules 0.9.0: Last Stand gear keeps its bearer standing (before the DM's step drops a fallen demigod's loot).
+    if st.wills_enabled {
+        crate::wills::arms::last_stand(w, beat, &alive_at_start, pantheon, &st);
+    }
     // Rules 0.8.0: the Dungeon Master's step (encounters, shrines, loot, story pieces, settlements, roads).
     if w.dm_rules() {
         let start = crate::dm::Start {
@@ -1995,6 +2017,12 @@ pub async fn resolve(
             memory_start,
         };
         crate::dm::step(w, beat, &start, pantheon, &st);
+    }
+    // Rules 0.9.0: mystic quests progress from what actually happened this beat (and finished ones apply their
+    // effect), curses fade, gear regenerates.
+    if st.wills_enabled {
+        crate::wills::quests::step(w, beat, pantheon, &st);
+        crate::wills::arms::upkeep(w, beat, pantheon, &st);
     }
     clock.lap(Stage::Merge);
 
@@ -2150,6 +2178,31 @@ pub async fn resolve(
         if !mine.is_empty() {
             v["wills"] = mine.into();
         }
+        // Rules 0.9.0: every will's answer (per part and per target), the seat's quests, curses and boons, its
+        // demigods' gear, and the quest and curse events only it may see.
+        if st.wills_enabled {
+            let told = wills_out.wills_json(w, beat, *seat);
+            if !told.is_empty() {
+                v["wills"] = told.into();
+            }
+            let book = crate::wills::seat_json(w, *seat);
+            for k in ["quests", "curses", "boons", "raises"] {
+                v[k] = book[k].clone();
+            }
+            v["will_events"] = crate::wills::private_events(w, memory_start, *seat).into();
+            if let Some(ds) = v["demigods"].as_array_mut() {
+                for x in ds.iter_mut() {
+                    let Some(d) = x["ref"].as_str().and_then(|r| r.parse::<Ref>().ok()).and_then(|r| match r {
+                        Ref::Demigod(d) => Some(d),
+                        _ => None,
+                    }) else {
+                        continue;
+                    };
+                    x["items"] = crate::items::items_of(w, d).into();
+                    x["curses"] = book["curses"].as_array().map(|c| c.iter().filter(|c| c["target"] == x["ref"] && c["broken_beat"].is_null()).cloned().collect::<Vec<_>>()).unwrap_or_default().into();
+                }
+            }
+        }
     }
     let (prev_beat, prev) = match previous {
         Some((b, n)) => (Some(b), n),
@@ -2214,6 +2267,13 @@ pub async fn resolve(
         if !duels.open.is_empty() {
             public["duels_open"] = duels.open.clone().into();
         }
+    }
+    // Rules 0.9.0: the public one-liners of this beat's wills, the curses' public faces and the public quests.
+    if st.wills_enabled {
+        let book = crate::wills::public_json(w);
+        public["wills"] = std::mem::take(&mut wills_out.public).into();
+        public["curses"] = book["curses"].clone();
+        public["quests"] = book["quests"].clone();
     }
     clock.lap(Stage::Broadcast);
 
