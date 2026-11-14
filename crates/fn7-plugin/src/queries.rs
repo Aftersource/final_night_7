@@ -462,7 +462,7 @@ fn regions_with_hotspots(w: &World, state: &Value) -> Vec<Value> {
 fn globe(state: &Value, a: &Args) -> Result<Value, String> {
     let w = world(
         state,
-        &[T::Places, T::Clusters, T::Characters, T::Demigods, T::Gods, T::Mods, T::Seats, T::Items, T::Mobs, T::Battles, T::DmLite],
+        &[T::Places, T::Clusters, T::Characters, T::Demigods, T::Gods, T::Mods, T::Seats, T::Items, T::Manifests, T::Mobs, T::Battles, T::DmLite],
     )?;
     let events = event_page(&w, state, a.uint("since")?, a.limit(30, 200)?, None);
     let mut v = json!({
@@ -511,7 +511,7 @@ fn crowds_under(w: &World, p: PlaceId) -> Vec<&Cluster> {
 fn region(state: &Value, a: &Args) -> Result<Value, String> {
     let w = world(
         state,
-        &[T::Places, T::Nodes, T::Clusters, T::Characters, T::Cells, T::Mobs, T::Demigods, T::Gods, T::Mods, T::Seats, T::Items, T::Battles, T::DmLite],
+        &[T::Places, T::Nodes, T::Clusters, T::Characters, T::Cells, T::Mobs, T::Demigods, T::Gods, T::Mods, T::Seats, T::Items, T::Manifests, T::Battles, T::DmLite],
     )?;
     let p = region_ref(&w, a.need_ref("ref")?)?;
     let hotspot = crate::hotspots::hotspots(&w, &recent_rows(&w, state)).get(&p).map(|h| h.to_json());
@@ -586,7 +586,7 @@ fn powers(pantheon: &Pantheon, state: &Value) -> Result<Value, String> {
 }
 
 fn memory(state: &Value, a: &Args) -> Result<Value, String> {
-    let mut w = world(state, &[T::Places, T::DmLite, T::Nodes, T::Items, T::Demigods])?;
+    let mut w = world(state, &[T::Places, T::DmLite, T::Nodes, T::Items, T::Manifests, T::Demigods])?;
     let place = match a.get("place") {
         Some(Value::String(s)) => s.trim().to_string(),
         Some(_) => return Err("`place` must be a string: a hex cell key, a `pl:` ref or \"world\"".into()),
@@ -632,7 +632,7 @@ fn memory(state: &Value, a: &Args) -> Result<Value, String> {
 }
 
 fn encounters(state: &Value, a: &Args) -> Result<Value, String> {
-    let w = world(state, &[T::Places, T::DmLite, T::Items, T::Demigods])?;
+    let w = world(state, &[T::Places, T::DmLite, T::Items, T::Manifests, T::Demigods])?;
     let region = match a.r#ref("region")? {
         None => None,
         Some(r) => Some(region_ref(&w, r)?),
@@ -645,11 +645,11 @@ fn encounters(state: &Value, a: &Args) -> Result<Value, String> {
 
 fn node(state: &Value, a: &Args) -> Result<Value, String> {
     if let Some(Value::String(key)) = a.get("cell") {
-        let mut w = world(state, &[T::Places, T::Nodes, T::Demigods, T::Items, T::DmLite])?;
+        let mut w = world(state, &[T::Places, T::Nodes, T::Demigods, T::Items, T::Manifests, T::DmLite])?;
         hex_memory(&mut w, state, key.trim());
         return cell_node(&w, key.trim());
     }
-    let w = world(state, &[T::Places, T::Nodes, T::Clusters, T::Characters, T::Cells, T::Mobs, T::Demigods, T::Gods, T::DmLite, T::Items])?;
+    let w = world(state, &[T::Places, T::Nodes, T::Clusters, T::Characters, T::Cells, T::Mobs, T::Demigods, T::Gods, T::DmLite, T::Items, T::Manifests])?;
     let r = a.need_ref("ref")?;
     let cursor = a.uint("cursor")?.unwrap_or(0);
     let limit = a.limit(20, 100)?;
@@ -902,7 +902,7 @@ fn item_visible(w: &World, it: &Item, me: Option<DemigodId>) -> bool {
 }
 
 fn items(state: &Value, seat: Option<Seat>, a: &Args) -> Result<Value, String> {
-    let w = world(state, &[T::Places, T::Demigods, T::Items, T::Seats, T::Characters, T::Clusters])?;
+    let w = world(state, &[T::Places, T::Demigods, T::Items, T::Manifests, T::Seats, T::Characters, T::Clusters])?;
     let me = asker(&w, seat);
     let holder = a.r#ref("holder")?;
     let state_f = a.get("state").and_then(Value::as_str).map(str::to_string);
@@ -927,7 +927,7 @@ fn items(state: &Value, seat: Option<Seat>, a: &Args) -> Result<Value, String> {
 }
 
 fn item(state: &Value, seat: Option<Seat>, a: &Args) -> Result<Value, String> {
-    let w = world(state, &[T::Places, T::Demigods, T::Items, T::Seats, T::Characters, T::Clusters])?;
+    let w = world(state, &[T::Places, T::Demigods, T::Items, T::Manifests, T::Seats, T::Characters, T::Clusters])?;
     let id = match a.need_ref("ref")? {
         Ref::Item(i) if i.ix() < w.items.len() => i,
         Ref::Item(i) => return Err(format!("no such item {i}")),
@@ -953,7 +953,7 @@ fn item(state: &Value, seat: Option<Seat>, a: &Args) -> Result<Value, String> {
 }
 
 fn piles_final(state: &Value) -> Result<Value, String> {
-    let w = world(state, &[T::Places, T::Characters, T::Demigods, T::Items, T::Agents, T::Rulings])?;
+    let w = world(state, &[T::Places, T::Characters, T::Demigods, T::Items, T::Manifests, T::Agents, T::Rulings])?;
     if !crate::phases::match_over(&w, w.meta.beat) {
         return Err(format!(
             "piles_final: the match is not over (beat {} of {})",

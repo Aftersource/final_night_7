@@ -383,7 +383,7 @@ fn item_art_is_keyed_by_the_descriptor_capped_and_only_for_what_a_human_sees() {
     t.give(bot, ItemKind::Weapon, Tier::Wonder, "Obsidian Spear", None); // the AI's: no picture
     t.give(a, ItemKind::Weapon, Tier::Trinket, "Struck Oak Club", None); // the human's first weapon: a picture
     t.give(a2, ItemKind::Weapon, Tier::Trinket, "Gold Knife", None); // the player's second weapon, a trinket: its icon
-    t.give(a, ItemKind::Armor, Tier::Relic, "Moonsteel Plate", None); // relic: a picture
+    t.give(a, ItemKind::Armor, Tier::Relic, "Moonsteel Plate", Some("memory")); // relic, blessed: a picture
     t.beat("");
     let w = t.w();
     let b = look::book(&w);
@@ -406,8 +406,13 @@ fn item_art_is_keyed_by_the_descriptor_capped_and_only_for_what_a_human_sees() {
     assert!(pegs.iter().all(|p| p["image_prompt"].is_string() && p["name"].is_string()), "{pegs:?}");
     let sv = t.p.seat_view(&t.state, 0);
     assert_eq!(sv["my_items"].as_array().unwrap().iter().filter(|i| i["image_prompt"].is_string()).count(), 2);
-    // The same descriptor is the same picture for whoever holds it later (the AI too: it costs nothing).
-    t.give(bot, ItemKind::Armor, Tier::Relic, "Moonsteel Plate", None);
+    // The queries (partial worlds) agree with the views: the same look and the same pictures.
+    let globe = t.p.query(&t.state, None, "globe", &json!({})).unwrap();
+    assert_eq!(globe["demigods"][0]["look"], pv["demigods"][0]["look"]);
+    let region = t.p.query(&t.state, Some(0), "items", &json!({})).unwrap();
+    assert!(region.to_string().contains("\"art\""), "game.items shows the pictures too");
+        // The same descriptor is the same picture for whoever holds it later (the AI too: it costs nothing).
+    t.give(bot, ItemKind::Armor, Tier::Relic, "Moonsteel Plate", Some("memory"));
     let w = t.w();
     let plates: Vec<Value> = w.items.iter().filter(|i| i.name == "Moonsteel Plate").map(|i| crate::items::item_json(&w, i)).collect();
     assert_eq!(plates.len(), 2);
@@ -472,4 +477,29 @@ fn example_subjects() {
     println!("PORTRAIT SUBJECT: {}\n\nDIORAMA SUBJECT: {}\n\nITEM SUBJECT: {}", l["portrait_subject"].as_str().unwrap(), l["diorama_subject"].as_str().unwrap(), look::item_subject(&blade));
     assert!(l["portrait_subject"].as_str().unwrap().len() < 1200, "within the media layer's subject limit");
     assert!(l["diorama_subject"].as_str().unwrap().len() < 1200);
+}
+
+/// The recorded live case (match 1ccfab63, rules 0.8.2): "my demigods need crazy powerful equipment! do that! and heal
+/// more!" gave one trinket by a god's whim; under rules 0.9.0 it armed nobody (no arming word). From schema 11 it is an
+/// arming: both demigods get gear and a look. A schema-10 state reads it as before.
+#[test]
+fn the_designers_own_words_arm_their_demigods() {
+    let text = "my demigods need crazy powerful equipment! do that! and heal more!";
+    let mut t = table(77, json!({}));
+    t.edit(|w| {
+        let d = mine(w, 0)[0];
+        w.set_bolts(d, 6);
+    });
+    let w = t.w();
+    assert!(crate::wills::kinds_in(&w, &crate::wills::book(&w), 0, text).contains(&crate::wills::Kind::Arm));
+    assert!(crate::wills::kinds_in(&w, &crate::wills::book(&w), 0, "my guys need swords").contains(&crate::wills::Kind::Arm));
+    assert!(!crate::wills::kinds_in(&w, &crate::wills::book(&w), 0, "the crowd needs equipment").contains(&crate::wills::Kind::Arm));
+    let mut old = w.clone();
+    old.meta.schema = 10;
+    assert!(!crate::wills::kinds_in(&old, &crate::wills::book(&old), 0, text).contains(&crate::wills::Kind::Arm), "0.9.0 states replay as recorded");
+    let o = t.beat(text);
+    let w = t.w();
+    let held: Vec<&Item> = w.items.iter().filter(|i| matches!(i.holders.last(), Some(Ref::Demigod(d)) if w.demigods[d.ix()].seat == 0)).collect();
+    assert_eq!(held.len(), 2, "gear for both demigods: {:?}", w.items.iter().map(|i| &i.name).collect::<Vec<_>>());
+    assert_eq!(changes(&o).len(), 2, "and both looks change");
 }

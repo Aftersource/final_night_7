@@ -118,8 +118,22 @@ pub fn stem_of(name: &str) -> String {
 pub fn gear_of(w: &World, it: &Item) -> Gear {
     let slot = arms::slot_of(it.ext.kind);
     let material = if slot.is_some() { arms::material_of(w.meta.seed, &it.name).0.to_string() } else { String::new() };
-    let blessing = arms::blessed_by(w, it).map(|g| w.name_of(Ref::God(g)).to_lowercase()).unwrap_or_default();
+    let blessing = arms::blessed_by(w, it).map(|g| god_slug(w, g)).unwrap_or_default();
     Gear { kind: it.ext.kind, material, tier: it.ext.tier, stem: stem_of(&it.name), blessing, name: it.name.clone() }
+}
+
+/// A god as a descriptor's blessing: its name in the state, lowercased (the built-in seven: `time`, `nature`, ...);
+/// in a query's partial world without the god table, the compiled-in pantheon's.
+fn god_slug(w: &World, g: GodId) -> String {
+    static BUILTIN: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    match w.gods.get(g.ix()) {
+        Some(_) => w.name_of(Ref::God(g)).to_lowercase(),
+        None => BUILTIN
+            .get_or_init(|| fn7_pantheon::load().gods.iter().map(|x| x.name.to_lowercase()).collect())
+            .get(g.ix())
+            .cloned()
+            .unwrap_or_else(|| "a god".into()),
+    }
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -696,7 +710,11 @@ fn entry_json(w: &World, b: &LookBook, e: &Entry) -> Value {
         "slot": e.role, "item": Ref::Item(it.id), "name": it.name, "icon": icon_of(it.ext.kind, &it.name),
         "tier": it.ext.tier, "kind": it.ext.kind,
         "material": (!e.gear.material.is_empty()).then(|| e.gear.material.clone()),
-        "blessed_by": arms::blessed_by(w, it).map(|g| w.name_of(Ref::God(g))),
+        "blessed_by": arms::blessed_by(w, it).map(|g| {
+            let s = god_slug(w, g);
+            let mut c = s.chars();
+            c.next().map(|f| f.to_uppercase().chain(c).collect::<String>()).unwrap_or(s)
+        }),
     });
     art_fields(w, b, it, &mut v);
     v

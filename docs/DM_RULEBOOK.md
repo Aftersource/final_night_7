@@ -911,6 +911,9 @@ what its kind, tier, material and blessing say**. Nothing is stored for that but
 - **What:** the gear the words name (a weapon, armour or a charm: "rocket launchers" is a weapon, the Rocket
   Launcher), else the slot the demigod lacks (weapon, then armour, then a charm), in a seeded material.
 - **Tier asked:** by magnitude: 0-3 trinket, 4-6 artifact, 7+ relic ("legendary", "fully", "god powers" read as 8).
+- **State schema 11:** kit words ("equipment", "gear", "armaments", "weaponry", "arsenal") and needing or wanting a
+  piece of gear ("my guys need swords") are an arming too. The recorded "my demigods need crazy powerful equipment! do
+  that!" armed nobody under schema 10, which replays as recorded.
 - **Price per demigod:** trinket free, artifact `arm_price_artifact` (2) sparks, relic `arm_price_relic` (5). What
   can't be paid is lent (23.2); past the cap the tier comes down to what was paid, and the answer says what the tier
   asked for costs.
