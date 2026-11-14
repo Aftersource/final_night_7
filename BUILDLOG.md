@@ -1184,3 +1184,30 @@ Engineering (branch backend/gear-portraits; state schema 11, rules 0.9.0; mock i
 - The profile library records each gear portrait and diorama with its match, beat and loadout (store migration 3).
 - Docs: MEDIA.md "Looks", CLIENT_API.md "Gear looks", TIME_TRAVEL.md "The look". Tests: `look_tests.rs`, `fn7-media` tests, `fn7-server/tests/looks.rs` (in process and the real server on a private port; a match recorded by the deployed 0.9.0 binary replays with 0 differences).
 - **Not done:** real images (Chris's budget decision), the Unreal side (the client's list is in CLIENT_API.md), encounters that humans' demigods actually reach, hands that seek gear on their own.
+
+## 2026-11-14: gear you can see, heroic figures, every asset in SQL (verbatim)
+
+> Demigods are never picking up items, or when they do, their portraits and dioramas are not updated. Benito should be able to use Meshy to make non-mannequin models, with the mannequin animating according to the style if he likes. Whenever the work is done, make sure challenge mode is fully ready, and so on for that part. Is everything ready? Where is the equipment the demigods pick up? Make portraits of major acquisitions for the user's characters, but not the AI's, so it feels like the player is gaining more and more items, with proper prompt crafting and caching for items, so the time travel looks right, and so on.
+
+> Tell it to restart.
+
+> The designer uses she/her pronouns.
+
+> If Meshy is working, the primary character for each should be posed heroically instead of the simple avatars currently shown in the player's seat.
+
+> Cached, per demigod and per god.
+
+> Custom gods will be handled afterwards, likely in a separate characterization tab in the player settings where players type text to create their god avatar. This part can also be shared with Benito.
+
+> Is all of this covered by the UX API, data storage, and data structure with proper subdirectories, including all prompts used for generation, timing, and costs, all recorded in SQL pointing to the actual file?
+
+> That is fine; the caching structure is multiplied by allowing replayed games and forking, and so on.
+
+Also relayed by the Mac session, verbatim: "ah it may have reset the game since i won yeah and there was no like victory screen or lobby re-make, the latter of which is fine but it should ahbve been some victory stuff"; "the table-top side mini powers arenthilightngthe map abymore"; "sure where's the challenge thingentirely end to end readied as well, and"; "whers' teh entirety of the challenge box thing setup all of it etc, make sure u know to update dioramas after big stuff from the main dropship, etc."; "i think the whatever rotation t have interesting globe area migth e invert ed please tell make sure the raotiaon is correct if ofen spins weird make sure ur using quatnerions to avoid gimbal lock ok".
+
+Engineering (Chris is she/her; earlier notes in this log that say otherwise are wrong):
+- Server, all deployed to STABLE: rules 0.9.0 wills, curses and quests (schema 10); live duel typing (duel_keys -> duel.typing, an 8-character tail) and fighter skins; gear looks and item art (schema 11, fb93acf): a new portrait and diorama on each major gear change for human players' demigods, drawn on the demigod's own base image, cached by identity + loadout, recorded per beat for time travel.
+- Measured: over 15 matches human demigods gained 12 items against the AI's 45; the AI arms itself, humans' hands don't; 408 of 435 encounters faded unfound (they sit out of everyone's path). Open decisions: auto-arming for humans (a setting, off); move encounters onto travelled paths.
+- Meshy: heroic statues of Chris's Left Hand and Benito's Left Hand (30 credits each; 1,066 left), cached by slug with a figures.json index and provenance records (exact prompts, task ids, credits, sha256) for them and for the mannequin, skins and clips. Scripts: tools/meshy/make_statue.sh, make_figure.sh. Custom god avatars: later, a characterization tab in the player settings.
+- In progress: backend/asset-registry (one SQL registry of every generated asset: files in subfolders by kind, exact prompts, timings, costs, lineage, uses per match and beat, an API).
+- Unreal main 269d277: the victory screen, will answers in WORLD, the wiped-player card, the duel typing tray, every duel pulling every view, the globe fixes (holds its spot through resolves, spins east, turns for viewers), the mini-power highlight, duel skins. Next: the resume token on relaunch, the token-bucket fix, gear looks on the cards, statues on the seats, then the duel box, the panel player and live panels.
