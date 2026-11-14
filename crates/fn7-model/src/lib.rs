@@ -57,7 +57,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// Schema 9 (rules 0.8.2): duel panels (a bout's `scene`, `panels`, `cycle`; `fields.duel_tick`). Rules that changed
 /// read [`World::panel_rules`], so schema-4..8 recordings replay exactly.
-pub const STATE_SCHEMA: u32 = 9;
+pub const STATE_SCHEMA: u32 = 10;
 
 /// Match-wide settings and clocks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -403,6 +403,10 @@ impl World {
     /// Schema 9 rules are on (rules 0.8.2): a duel plays as panels.
     pub fn panel_rules(&self) -> bool {
         self.meta.schema >= dm::PANEL_SCHEMA
+    }
+    /// Schema 10 rules may be on (rules 0.9.0, "wills that matter"; the room setting `wills_enabled` decides).
+    pub fn wills_rules(&self) -> bool {
+        self.meta.schema >= dm::WILLS_SCHEMA
     }
     /// A seat's demigods, in id order (Left then Right in schema 5).
     pub fn bodies_of_seat(&self, seat: u8) -> impl Iterator<Item = &Demigod> {

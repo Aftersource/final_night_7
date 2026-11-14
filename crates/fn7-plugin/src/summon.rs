@@ -35,6 +35,10 @@ pub fn check(w: &World, seat: u8, x: &SummonOrder, beat: u32, st: &Settings) -> 
     if !d.alive {
         return Err("fallen".into());
     }
+    // Rules 0.9.0: a bound demigod can't be summoned (`bound:<its counter-quest>`).
+    if let Some(why) = crate::wills::curses::bound(w, d.id) {
+        return Err(why);
+    }
     if let Some(last) = w.dm.story(d.id).and_then(|s| s.last_summon) {
         if beat < last + st.summon_cooldown_beats.max(1) {
             return Err("cooldown".into());

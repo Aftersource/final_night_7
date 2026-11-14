@@ -133,6 +133,7 @@ fn hand_ctx(utterance: &str) -> HandCtx {
         final_wish: false,
         own: vec![],
         rules_081: false,
+        wills: false,
     }
 }
 
@@ -1458,4 +1459,17 @@ mod moderation {
         assert_eq!(j.verdict, Verdict::Ok);
         assert_eq!(j.r#final, sheet());
     }
+}
+
+/// Rules 0.9.0: the hand is told to split a will into its parts only in matches with "wills that matter" (older
+/// recordings keep their prompt, request for request).
+#[test]
+fn the_hand_prompt_asks_for_a_wills_parts_only_when_the_rules_are_on() {
+    let mut ctx = hand_ctx("heal and arm my demigods");
+    let old = hand::system_prompt(&ctx);
+    assert!(!old.contains("A WILL splits into its parts"));
+    ctx.wills = true;
+    let new = hand::system_prompt(&ctx);
+    assert!(new.contains(hand::WILLS_RULE) && new.contains("\"Heal and arm my demigods\" is two intents"));
+    assert_eq!(new.replace(&format!("{}\n", hand::WILLS_RULE), ""), old, "nothing else changes");
 }

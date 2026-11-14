@@ -315,6 +315,13 @@ pub struct Fighter {
     pub army: bool,
     /// Its player's bolts at the lock (an invoke costs one, paid at the resolve).
     pub bolts: u32,
+    /// Rules 0.9.0: the duel bonus of its gear (`wills::arms`), on top of "any item +1". 0 (absent) before.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub arms: i32,
+}
+
+fn is_zero_i32(x: &i32) -> bool {
+    *x == 0
 }
 
 fn fighter(w: &World, d: DemigodId, region: PlaceId, moved: &[Moved]) -> Fighter {
@@ -350,6 +357,7 @@ fn fighter(w: &World, d: DemigodId, region: PlaceId, moved: &[Moved]) -> Fighter
             .unwrap_or(false)
             || story.is_some_and(|s| s.followers >= 100),
         bolts: x.bolts,
+        arms: crate::wills::arms::duel_bonus(w, d),
     }
 }
 
@@ -780,7 +788,7 @@ impl Bout {
         } else {
             0
         };
-        let gear = me.wardrobe as i32 / 2 + me.has_items as i32;
+        let gear = me.wardrobe as i32 / 2 + me.has_items as i32 + me.arms;
         let follow = followup as i32;
         let home = me.home as i32;
         // The formal model: the line's move class, gated by range, bolts and armies; the situation's modifier.

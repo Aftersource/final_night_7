@@ -682,6 +682,14 @@ pub fn bot_lines(w: &World, d: DemigodId, beat: u32) -> Input {
     } else {
         (String::new(), String::new())
     };
+    // Rules 0.9.0: now and then the built-in AI makes a will of its own (heals when hurt, arms itself, pleads for its
+    // fallen sibling, curses a rival, pursues its quest): its own seeded stream, drawn only when the rules are on.
+    let will = if crate::wills::on(w) && !wish { crate::wills::ai_line(w, d, beat, &crate::world::settings(w)) } else { None };
+    let speak = speak || will.is_some();
+    let (left, right) = match will {
+        Some(l) => (left, l),
+        None => (left, right),
+    };
     let mut casts = vec![];
     if w.two_bodies() {
         // Rules 0.7.0: minis often (a spark), megas sometimes (a bolt, and only with a bolt to spare for Time: the AI

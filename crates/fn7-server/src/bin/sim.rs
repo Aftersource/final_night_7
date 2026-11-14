@@ -341,6 +341,30 @@ async fn main() -> anyhow::Result<()> {
             w.alive_demigods().next().map(|d| d.seat as i64).unwrap_or(-1),
             w.meta.beat,
         );
+        // Rules 0.9.0: wills that matter.
+        if fn7_plugin::wills::on(&w) {
+            let b = fn7_plugin::wills::book(&w);
+            let rolls = |part: &str| dm.memory.iter().filter(|e| e.kind == "dice.rolled" && e.query.as_deref().is_some_and(|q| q.starts_with("will:") && q.contains(part))).count();
+            let gear = w.items.iter().filter(|i| fn7_plugin::wills::arms::arm_of(&w, i, None).is_some()).count();
+            println!(
+                "wills: {} heals, {} blessings, {} armings, {} curses rolled; gear held {}; raises {}; curses {} cast / {} countered / {} faded; \
+                 quests {} given / {} done / {} lapsed / {} open; item powers spent {}",
+                rolls(":heal:"),
+                rolls(":bless:"),
+                rolls(":arm:"),
+                rolls(":curse:"),
+                gear,
+                b.raises.len(),
+                b.curses.len(),
+                b.curses.iter().filter(|c| c.broken_how == "countered").count(),
+                b.curses.iter().filter(|c| c.broken_how == "faded").count(),
+                b.quests.len(),
+                b.quests.iter().filter(|q| q.done_beat.is_some()).count(),
+                b.quests.iter().filter(|q| q.failed.is_some()).count(),
+                b.quests.iter().filter(|q| q.open()).count(),
+                b.used.len(),
+            );
+        }
     }
     society_report(&w, &soc_ms, a.examples);
     if let Some(r) = recorder {

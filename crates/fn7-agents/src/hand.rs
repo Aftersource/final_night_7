@@ -67,7 +67,18 @@ pub struct HandCtx {
     /// Rules 0.8.1 routing: heals go to Nature (Death for the fallen); a god route naming no god goes to Entropy
     /// (never silently to the world). False for older matches (their recordings replay).
     pub rules_081: bool,
+    /// Rules 0.9.0 ("wills that matter"): the prompt asks for one intent per part of a will (heal, bless, arm, revive,
+    /// curse, ask, offer). False for older matches (their recordings replay request for request).
+    pub wills: bool,
 }
+
+/// Rules 0.9.0: the hand's rule for wills (in its system prompt when `HandCtx::wills`).
+pub const WILLS_RULE: &str = "- A WILL splits into its parts, one intent per part, each with its own targets: healing \
+(verb \"heal\"), blessing (\"bless\"), arming or equipping your own demigods (\"arm\"; how = the gear named, if any), \
+raising a fallen demigod (\"revive\"), cursing a rival (\"curse\"; how = wither, silence, bind or hex) or sealing a \
+grave against resurrection (\"seal\"), asking what a quest or a curse needs (\"ask\"), offering sparks to a quest \
+(\"offer\"), gathering a quest's ingredient (\"gather\"). \"Heal and arm my demigods\" is two intents (heal; arm), each \
+targeting both of the player's own demigods. Route them world.";
 
 /// Rules 0.8.1: a healing act (heal, restore, mend, cure, ...).
 pub fn is_heal(verb: &str, span: &str) -> bool {
@@ -174,9 +185,10 @@ the general's (or the army's) label first, then what it should go after (a place
 bribing or buying off people (generals, captains, ringleaders) are world acts targeting them.\n\
 - magnitude: 0 trivial, 3 a shove, 5 a real fight or a speech to a crowd, 8 a killing blow or a miracle, 10 world-shaking.\n\
 - Be terse: never repeat the player's words; how is at most 4 words (or \"\"); said is at most 8 words.\n\
-- {labels}\n\
+{wills}- {labels}\n\
 - {untrusted}\n\n\
 The pantheon (divine acts go to these gods):\n{gods}",
+        wills = if ctx.wills { format!("{WILLS_RULE}\n") } else { String::new() },
         side = side(ctx.hand),
         persona = line(&ctx.persona, 300),
         player = player_persona_block(ctx.player.as_ref()),

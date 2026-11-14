@@ -93,6 +93,13 @@
             }
           ]
         },
+        "blessed_by": {
+          "description": "Rules 0.9.0: the god whose blessing it carries (a tier up, and that god's signature).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "count": {
           "description": "Soldiers, vessels, creatures or copies (rounded; f64 range: 100,000,000 is fine).",
           "type": "number"
@@ -105,6 +112,10 @@
         "created_by": {},
         "description": {
           "description": "",
+          "type": "string"
+        },
+        "does": {
+          "description": "Rules 0.9.0: one line saying what it does (\"+2 to strikes, +0.5 damage, +1 in duels; Smite: ...\").",
           "type": "string"
         },
         "history": {
@@ -189,6 +200,13 @@
           ]
         },
         "manifestation_detail": {},
+        "material": {
+          "description": "Rules 0.9.0: what it is made of (the damage type its armour resists; some add to journeys).",
+          "type": "string"
+        },
+        "mods": {
+          "$ref": "#/$defs/ItemMods"
+        },
         "name": {
           "description": "",
           "type": "string"
@@ -196,6 +214,16 @@
         "origin": {
           "description": "game.item only.",
           "type": "string"
+        },
+        "power": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ItemPower"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "ref": {
           "$ref": "#/$defs/Ref"
@@ -206,6 +234,15 @@
             "$ref": "#/$defs/Ref"
           },
           "type": "array"
+        },
+        "slot": {
+          "description": "Rules 0.9.0: the slot this gear fills (a demigod fights with its best item per slot).",
+          "enum": [
+            "weapon",
+            "armor",
+            "charm"
+          ],
+          "type": "string"
         },
         "state": {
           "description": "",
@@ -255,6 +292,82 @@
         "banner",
         "image_prompt",
         "image_kind"
+      ],
+      "type": "object"
+    },
+    "ItemMods": {
+      "description": "Rules 0.9.0: what a piece of gear adds (zeroes are left out). Totals are capped per demigod: +3 on a d20, +1.5 damage, 1.5 guard, 0.4 regen, +3 in duels.",
+      "properties": {
+        "damage": {
+          "description": "Damage added to each strike it lands on another body.",
+          "type": "number"
+        },
+        "deed": {
+          "description": "d20 modifier on its other deeds (parleys, makings, its own wills).",
+          "type": "integer"
+        },
+        "duel": {
+          "description": "Added to its duel blows' d20 (challenge mode's gear term).",
+          "type": "integer"
+        },
+        "guard": {
+          "description": "Damage turned aside from each hit it takes (never more than half the hit).",
+          "type": "number"
+        },
+        "journey": {
+          "description": "d20 modifier on its journeys.",
+          "type": "integer"
+        },
+        "regen": {
+          "description": "Health regained each beat, below its maximum.",
+          "type": "number"
+        },
+        "resist": {
+          "description": "A damage type halved: fire, storm, curse, lightning, cold, water, poison, blade or fall.",
+          "type": "string"
+        },
+        "strike": {
+          "description": "d20 modifier on its bearer's strikes (attacks and threats).",
+          "type": "integer"
+        },
+        "thorns": {
+          "description": "Damage a demigod takes for striking its bearer.",
+          "type": "number"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "ItemPower": {
+      "description": "Rules 0.9.0: a once-per-match power (relic tier and up, or Death's blessing).",
+      "properties": {
+        "id": {
+          "description": "",
+          "enum": [
+            "smite",
+            "last_stand",
+            "second_wind"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "description": "",
+          "type": "string"
+        },
+        "text": {
+          "description": "What it does and when.",
+          "type": "string"
+        },
+        "used": {
+          "description": "Spent.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "text",
+        "used"
       ],
       "type": "object"
     },

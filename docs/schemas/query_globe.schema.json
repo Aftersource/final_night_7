@@ -148,6 +148,138 @@
       ],
       "type": "object"
     },
+    "Curse": {
+      "description": "Rules 0.9.0: a seal or curse. The public face is the mark on its target; `owner`, `owner_name`, `yours`, `on_you`, `paid_sparks` and `quest` are only for the bearer's and the owner's seats.",
+      "properties": {
+        "broken_beat": {
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "broken_how": {
+          "description": "",
+          "enum": [
+            "",
+            "countered",
+            "faded"
+          ],
+          "type": "string"
+        },
+        "cast_beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "counter": {
+          "description": "Always \"a mystic quest\": every curse has one.",
+          "type": "string"
+        },
+        "does": {
+          "description": "What it does, in plain words.",
+          "type": "string"
+        },
+        "god": {
+          "description": "The god whose god-tier variant it is.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "god_tier": {
+          "description": "",
+          "type": "boolean"
+        },
+        "kind": {
+          "description": "seal: no resurrection; wither: no healing; silence: wills cost double; bind: can't be summoned; hex: minus its strength on d20s.",
+          "enum": [
+            "seal",
+            "wither",
+            "silence",
+            "bind",
+            "hex"
+          ],
+          "type": "string"
+        },
+        "on_you": {
+          "description": "It lies on one of your demigods.",
+          "type": "boolean"
+        },
+        "owner": {
+          "$ref": "#/$defs/Ref"
+        },
+        "owner_name": {
+          "description": "",
+          "type": "string"
+        },
+        "paid_sparks": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "quest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Quest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ref": {
+          "description": "`cu:<n>`.",
+          "type": "string"
+        },
+        "strength": {
+          "description": "1 weak .. 3 god-tier: its counter-quest's length, a hex's bite.",
+          "maximum": 3,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "target": {
+          "$ref": "#/$defs/Ref"
+        },
+        "target_name": {
+          "description": "",
+          "type": "string"
+        },
+        "title": {
+          "description": "What the table calls it.",
+          "type": "string"
+        },
+        "until_beat": {
+          "description": "The last beat it holds; null = until countered.",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "yours": {
+          "description": "You cast it.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ref",
+        "kind",
+        "title",
+        "does",
+        "target",
+        "target_name",
+        "strength",
+        "cast_beat",
+        "until_beat",
+        "god_tier",
+        "god",
+        "counter",
+        "broken_beat",
+        "broken_how"
+      ],
+      "type": "object"
+    },
     "DayPhase": {
       "description": "Rules 0.8.0: the phase of the game day.",
       "enum": [
@@ -428,6 +560,13 @@
             }
           ]
         },
+        "blessed_by": {
+          "description": "Rules 0.9.0: the god whose blessing it carries (a tier up, and that god's signature).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "count": {
           "description": "Soldiers, vessels, creatures or copies (rounded; f64 range: 100,000,000 is fine).",
           "type": "number"
@@ -440,6 +579,10 @@
         "created_by": {},
         "description": {
           "description": "",
+          "type": "string"
+        },
+        "does": {
+          "description": "Rules 0.9.0: one line saying what it does (\"+2 to strikes, +0.5 damage, +1 in duels; Smite: ...\").",
           "type": "string"
         },
         "history": {
@@ -524,6 +667,13 @@
           ]
         },
         "manifestation_detail": {},
+        "material": {
+          "description": "Rules 0.9.0: what it is made of (the damage type its armour resists; some add to journeys).",
+          "type": "string"
+        },
+        "mods": {
+          "$ref": "#/$defs/ItemMods"
+        },
         "name": {
           "description": "",
           "type": "string"
@@ -531,6 +681,16 @@
         "origin": {
           "description": "game.item only.",
           "type": "string"
+        },
+        "power": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ItemPower"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "ref": {
           "$ref": "#/$defs/Ref"
@@ -541,6 +701,15 @@
             "$ref": "#/$defs/Ref"
           },
           "type": "array"
+        },
+        "slot": {
+          "description": "Rules 0.9.0: the slot this gear fills (a demigod fights with its best item per slot).",
+          "enum": [
+            "weapon",
+            "armor",
+            "charm"
+          ],
+          "type": "string"
         },
         "state": {
           "description": "",
@@ -590,6 +759,82 @@
         "banner",
         "image_prompt",
         "image_kind"
+      ],
+      "type": "object"
+    },
+    "ItemMods": {
+      "description": "Rules 0.9.0: what a piece of gear adds (zeroes are left out). Totals are capped per demigod: +3 on a d20, +1.5 damage, 1.5 guard, 0.4 regen, +3 in duels.",
+      "properties": {
+        "damage": {
+          "description": "Damage added to each strike it lands on another body.",
+          "type": "number"
+        },
+        "deed": {
+          "description": "d20 modifier on its other deeds (parleys, makings, its own wills).",
+          "type": "integer"
+        },
+        "duel": {
+          "description": "Added to its duel blows' d20 (challenge mode's gear term).",
+          "type": "integer"
+        },
+        "guard": {
+          "description": "Damage turned aside from each hit it takes (never more than half the hit).",
+          "type": "number"
+        },
+        "journey": {
+          "description": "d20 modifier on its journeys.",
+          "type": "integer"
+        },
+        "regen": {
+          "description": "Health regained each beat, below its maximum.",
+          "type": "number"
+        },
+        "resist": {
+          "description": "A damage type halved: fire, storm, curse, lightning, cold, water, poison, blade or fall.",
+          "type": "string"
+        },
+        "strike": {
+          "description": "d20 modifier on its bearer's strikes (attacks and threats).",
+          "type": "integer"
+        },
+        "thorns": {
+          "description": "Damage a demigod takes for striking its bearer.",
+          "type": "number"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "ItemPower": {
+      "description": "Rules 0.9.0: a once-per-match power (relic tier and up, or Death's blessing).",
+      "properties": {
+        "id": {
+          "description": "",
+          "enum": [
+            "smite",
+            "last_stand",
+            "second_wind"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "description": "",
+          "type": "string"
+        },
+        "text": {
+          "description": "What it does and when.",
+          "type": "string"
+        },
+        "used": {
+          "description": "Spent.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "text",
+        "used"
       ],
       "type": "object"
     },
@@ -892,6 +1137,248 @@
         }
       ],
       "description": "A public geotagged event (a world event plus its beat and region ref).",
+      "type": "object"
+    },
+    "Quest": {
+      "description": "Rules 0.9.0: a mystic quest: a short chain of checkable steps; when all are done its effect applies.",
+      "properties": {
+        "done_beat": {
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "expires_beat": {
+          "description": "The last beat it may be finished on (null: it stays).",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "failed": {
+          "enum": [
+            "expired",
+            "moot",
+            null
+          ],
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "failed_beat": {
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "for": {
+          "$ref": "#/$defs/Ref"
+        },
+        "for_name": {
+          "description": "The demigod it is for.",
+          "type": "string"
+        },
+        "given_beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "goal": {
+          "additionalProperties": true,
+          "description": "What finishing it does: {kind: heal, amount} | {kind: boon, bonus, beats} | {kind: temper, item, intent, tier} | {kind: arm, slot, tier, name, god} | {kind: break_curse, curse, curse_kind} | {kind: raise, years}.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "heal",
+                "boon",
+                "temper",
+                "arm",
+                "break_curse",
+                "raise"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        "god": {
+          "description": "The god whose ruling it is.",
+          "type": "string"
+        },
+        "helpers": {
+          "description": "Other seats who took it up (a plea for someone else's fallen demigod).",
+          "items": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "public": {
+          "description": "Everyone sees it (a raising, a seal's counter); else only its seat and the curse's owner.",
+          "type": "boolean"
+        },
+        "ref": {
+          "description": "`q:<n>`.",
+          "type": "string"
+        },
+        "seat": {
+          "description": "Whose quest it is (their standing demigods do the steps).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "status": {
+          "description": "",
+          "enum": [
+            "open",
+            "done",
+            "failed"
+          ],
+          "type": "string"
+        },
+        "steps": {
+          "description": "1-3 steps, in order.",
+          "items": {
+            "$ref": "#/$defs/QuestStep"
+          },
+          "type": "array"
+        },
+        "steps_done": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "text": {
+          "description": "The DM's telling, Rube Goldberg style.",
+          "type": "string"
+        },
+        "waiting": {
+          "description": "Every step is done but something holds the effect back (a seal on the one to be raised).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "ref",
+        "for",
+        "for_name",
+        "seat",
+        "helpers",
+        "goal",
+        "god",
+        "text",
+        "steps",
+        "steps_done",
+        "status",
+        "given_beat",
+        "expires_beat",
+        "done_beat",
+        "failed",
+        "failed_beat",
+        "public",
+        "waiting"
+      ],
+      "type": "object"
+    },
+    "QuestStep": {
+      "additionalProperties": true,
+      "description": "Rules 0.9.0: one checkable requirement of a mystic quest. `kind` says which, with its own fields: at {place: shrine {of} | settlement {level} | fault | coast | point {at, name}, phase?, offer?}, hold {word}, encounter, shrine, duel, sparks {n}, army {at, name, general}, vigil {phase, times, seen}.",
+      "properties": {
+        "done": {
+          "type": "boolean"
+        },
+        "done_beat": {
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "kind": {
+          "enum": [
+            "at",
+            "hold",
+            "encounter",
+            "shrine",
+            "duel",
+            "sparks",
+            "army",
+            "vigil"
+          ],
+          "type": "string"
+        },
+        "near": {
+          "description": "at: a place that satisfied the step when the quest was given (the nearest shrine or settlement of the kind, the remembered spot): where to send the demigod. Any place of the kind will do. Absent for fault lines and coasts.",
+          "properties": {
+            "at": {
+              "$ref": "#/$defs/LonLat"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "at"
+          ],
+          "type": "object"
+        },
+        "offer": {
+          "description": "at: an item whose name carries this word must be in hand there; it is burned.",
+          "type": "string"
+        },
+        "phase": {
+          "enum": [
+            "dawn",
+            "day",
+            "dusk",
+            "night"
+          ],
+          "type": "string"
+        },
+        "place": {
+          "enum": [
+            "shrine",
+            "settlement",
+            "fault",
+            "coast",
+            "point"
+          ],
+          "type": "string"
+        },
+        "progress": {
+          "description": "Why it is not done yet, as of the last check (absent when done or never checked).",
+          "type": "string"
+        },
+        "step": {
+          "description": "Its number in the chain (steps are done in order).",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "text": {
+          "description": "The requirement in plain words.",
+          "type": "string"
+        },
+        "word": {
+          "description": "hold: the word the item's name must carry.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "step",
+        "kind",
+        "text",
+        "done",
+        "done_beat"
+      ],
       "type": "object"
     },
     "Ref": {
@@ -1197,16 +1684,63 @@
           "type": "integer"
         },
         "items": {
-          "description": "Items it holds now (pegs).",
+          "description": "Items it holds now (pegs). Rules 0.9.0: gear pegs say what they do.",
           "items": {
             "description": "",
             "properties": {
+              "does": {
+                "description": "What it does, in one line.",
+                "type": "string"
+              },
               "icon": {
                 "description": "",
                 "type": "string"
               },
+              "mods": {
+                "$ref": "#/$defs/ItemMods"
+              },
+              "name": {
+                "description": "Rules 0.9.0: the gear's name.",
+                "type": "string"
+              },
+              "power": {
+                "description": "Its once-per-match power.",
+                "enum": [
+                  "smite",
+                  "last_stand",
+                  "second_wind",
+                  null
+                ],
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "ref": {
                 "$ref": "#/$defs/Ref"
+              },
+              "slot": {
+                "description": "",
+                "enum": [
+                  "weapon",
+                  "armor",
+                  "charm"
+                ],
+                "type": "string"
+              },
+              "tier": {
+                "description": "",
+                "enum": [
+                  "trinket",
+                  "artifact",
+                  "relic",
+                  "wonder",
+                  "legend",
+                  "myth",
+                  "titan",
+                  "apocalypse"
+                ],
+                "type": "string"
               }
             },
             "required": [
@@ -1782,6 +2316,13 @@
             ],
             "type": "string"
           },
+          "curses": {
+            "description": "Rules 0.9.0: the curse marks on its piece (public faces: never the owner).",
+            "items": {
+              "$ref": "#/$defs/Curse"
+            },
+            "type": "array"
+          },
           "debt_open": {
             "type": "number"
           },
@@ -1897,6 +2438,11 @@
           "pos": {
             "$ref": "#/$defs/LonLat",
             "description": "Alive only."
+          },
+          "raised": {
+            "description": "Rules 0.9.0: how often Death raised it this match (absent when never).",
+            "minimum": 1,
+            "type": "integer"
           },
           "ref": {
             "$ref": "#/$defs/Ref"

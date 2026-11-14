@@ -775,6 +775,36 @@ fn settings_schema() -> Value {
     p("summon_loss_scale", f(0.0, 10.0, 1.0, "Rules 0.8.0: multiplier on a reckless summoning's health cost."));
     p("god_power_cost", i(0, 20, json!(3), "Rules 0.8.0: bolts a god-tier power costs."));
     p("god_power_gift", i(0, 10, json!(1), "Rules 0.8.0: bolts every other player gains per god-tier power."));
+    p("wills_enabled", json!({ "type": "boolean", "default": true, "description": "Rules 0.9.0, wills that matter (the feature gate; also needs state schema 7+): a will splits into its parts, healing and blessing your own never just fail, arming makes gear with real modifiers, anyone may plead for a resurrection, seals and curses exist and every one has a mystic counter-quest. Settings recorded before 0.9.0 lack it and read back `false` (old recordings replay unchanged)." }));
+    p("will_spark_per_bolt", i(1, 20, json!(5), "Rules 0.9.0: sparks one lightning bolt breaks into when a will's price is paid from bolts (the 1:5 economy; the change stays in the purse as sparks)."));
+    p("will_own_dc", i(2, 20, json!(6), "Rules 0.9.0: the base DC of a will on your own demigods (heal, bless, arm): DC = this + magnitude/4 (an arming adds 2 per tier). A hostile act's is 8 + magnitude/2."));
+    p("will_debt_cap", f(0.0, 20.0, 3.0, "Rules 0.9.0: the open debt (health points, per demigod) beyond which the gods finance no more unpaid wills: the will becomes a mystic quest instead."));
+    p("will_debt_per_spark", f(0.0, 5.0, 0.2, "Rules 0.9.0: debt (to the ruling god) per spark of a will's price the purse could not pay."));
+    p("will_entropy_per_spark", f(0.0, 10.0, 0.25, "Rules 0.9.0: Entropy raised per spark paid for a will."));
+    p("heal_price_sparks", i(0, 20, json!(1), "Rules 0.9.0: a heal or blessing costs this + magnitude/4 sparks per target."));
+    p("heal_token", f(0.0, 5.0, 0.5, "Rules 0.9.0: the token heal of a failed heal roll (the rest waits on its mystic quest)."));
+    p("heal_scale", f(0.0, 10.0, 1.0, "Rules 0.9.0: multiplier on every will heal (1 + magnitude/4 health per target before it)."));
+    p("boon_beats", i(1, 100, json!(6), "Rules 0.9.0: beats a boon (a blessing, or a critical heal's gift) lasts."));
+    p("boon_bonus", i(0, 5, json!(1), "Rules 0.9.0: the d20 bonus a boon gives its demigod's acts."));
+    p("arm_price_artifact", i(0, 50, json!(2), "Rules 0.9.0: sparks an artifact-tier arm costs per demigod (a trinket is free)."));
+    p("arm_price_relic", i(0, 50, json!(5), "Rules 0.9.0: sparks a relic-tier arm costs per demigod."));
+    p("arm_bless_sparks", i(0, 50, json!(5), "Rules 0.9.0: sparks a god's blessing on an arming costs (per will part): the gear is a tier up and carries the god's signature."));
+    p("arms_scale", f(0.0, 5.0, 1.0, "Rules 0.9.0: multiplier on every number an item's modifiers add (strike, damage, guard, regeneration, duel); 0 = gear is decoration."));
+    p("raise_price_sparks", i(0, 100, json!(5), "Rules 0.9.0: Death's base price in sparks to raise a fallen demigod, times 1 + the times it was raised before, plus 1 per raise_stale_beats it has lain dead."));
+    p("raise_stale_beats", i(1, 1000, json!(8), "Rules 0.9.0: every this many beats a demigod has been dead adds a spark to Death's price."));
+    p("raise_cap", i(0, 50, json!(3), "Rules 0.9.0: raisings one player may be granted per match (0 = none)."));
+    p("raise_years", f(0.0, 10.0, 1.0, "Rules 0.9.0: max-health years a raised demigod loses, times 1 + the times it was raised before."));
+    p("raise_health_fraction", f(0.05, 1.0, 0.4, "Rules 0.9.0: the share of its max health a raised demigod returns with."));
+    p("curse_price_sparks", i(0, 100, json!(5), "Rules 0.9.0: sparks a curse or a seal costs (a bolt breaks into will_spark_per_bolt sparks)."));
+    p("curse_god_price_sparks", i(0, 200, json!(15), "Rules 0.9.0: sparks the god-tier variant of a curse costs (strength 3, until countered)."));
+    p("curse_beats", i(1, 1000, json!(12), "Rules 0.9.0: beats an ordinary curse lasts (a seal and a god-tier curse last until countered)."));
+    p("curse_dc", i(2, 30, json!(10), "Rules 0.9.0: the DC of casting a curse (plus half the target's wardrobe stage)."));
+    p("curse_max_per_player", i(0, 20, json!(2), "Rules 0.9.0: curses and seals one player may have standing at once."));
+    p("curse_entropy", f(0.0, 100.0, 3.0, "Rules 0.9.0: Entropy raised by a curse (a god-tier one raises entropy_per_mega)."));
+    p("quest_steps_max", i(1, 3, json!(3), "Rules 0.9.0: the most steps a mystic quest has."));
+    p("quest_expire_beats", i(0, 1000, json!(24), "Rules 0.9.0: beats a heal's or an arming's quest stays open (0 = until done); a curse's counter-quest lives as long as its curse, a raising's until the Final Night."));
+    p("quest_spark_step", i(0, 50, json!(2), "Rules 0.9.0: sparks a quest's offering step asks for (times the quest's difficulty)."));
+    p("wills_ai_chance", f(0.0, 1.0, 0.25, "Rules 0.9.0: how readily the built-in AI uses wills (heals when hurt, arms itself, pleads for its fallen sibling, curses a rival, pursues its quests); 0 = never."));
     p("challenge_enabled", json!({ "type": "boolean", "default": true, "description": "Rules 0.8.1: challenge mode (fields.challenge / fields.duel, and the built-in AI's challenges). Settings recorded before 0.8.1 read it as false." }));
     p("rules_0_8_1", json!({ "type": "boolean", "default": true, "description": "Rules 0.8.1 marker (always true when validated by a 0.8.1+ server; absent in older recordings)." }));
     p("challenge_min_km", f(0.0, 20000.0, 120.0, "Rules 0.8.1: a challenge always reaches this far (km), at any zoom."));
@@ -1098,6 +1128,8 @@ fn seat_view_body(desc: &str) -> Value {
                 "description": "Rules 0.7.0: one of your two demigods in full: the public fields plus health, max_health, debt_open, items (Item), hand (SeatHand), orders, manifests (Manifestation, with verdicts)." }),
                 "Rules 0.7.0: both of your demigods, [left, right].")),
             ("my_items", array(r("Item"), "Rules 0.7.0: every item your demigods hold.")),
+            ("quests", wills::seat_fields()[0].1.clone()), ("curses", wills::seat_fields()[1].1.clone()),
+            ("boons", wills::seat_fields()[2].1.clone()), ("raises", wills::seat_fields()[3].1.clone()),
             ("hierarchy", json!({ "type": ["object", "null"], "additionalProperties": true, "description": "The society hierarchy at your zoom (schema 4: node, path, children, crowds, cells, people, armies with chains of command, mobs, battles). Its shape is not frozen yet (the society build is in progress); read defensively." }))],
     )
 }
@@ -1151,12 +1183,15 @@ fn outcome_public() -> Value {
             ("dm_events", array(r("DmEvent"), "Rules 0.8.0: the DM's public decisions this beat (at most 40): settlements growing, encounters, loot, roads, shrines, scars, the time of day.")),
             ("time_of_day", r("TimeOfDay")),
             ("time_of_day_phase", r("DayPhase")),
+            ("wills", array(r("WillLine"), "Rules 0.9.0: public one-liners of this beat's wills (raisings, curses landing; never who cursed).")),
+            ("curses", array(r("Curse"), "Rules 0.9.0: every curse holding now (public faces).")),
+            ("quests", array(r("Quest"), "Rules 0.9.0: the open public quests (raisings, seals' counters).")),
         ],
     )
 }
 
 fn public_view() -> Value {
-    let demigod = json!({
+    let mut demigod = json!({
         "type": "object",
         "description": "A demigod as everyone sees it. Positions of live demigods are public; health is not.",
         "properties": {
@@ -1206,6 +1241,8 @@ fn public_view() -> Value {
             { "properties": { "alive": { "const": false } }, "required": ["eliminated_beat", "cause"] }
         ]
     });
+    demigod["properties"]["curses"] = json!({ "type": "array", "items": { "$ref": "#/$defs/Curse" }, "description": "Rules 0.9.0: the curse marks on its piece (public faces: never the owner)." });
+    demigod["properties"]["raised"] = json!({ "type": "integer", "minimum": 1, "description": "Rules 0.9.0: how often Death raised it this match (absent when never)." });
     object(
         "`round.committed.public_state` and `match.snapshot.public_state`: the public view after each commit.",
         &[
@@ -1229,6 +1266,8 @@ fn public_view() -> Value {
           ("players", array(r("Player"), "Rules 0.7.0: the seat list, one entry per player.")),
           ("society", json!({ "type": ["object", "null"], "additionalProperties": true, "description": "The society's public summary (schema 4). Its shape is not frozen yet (the society build is in progress); read defensively." })),
           ("shrines", array(r("Shrine"), "Rules 0.8.0: every shrine on the board.")),
+          ("curses", array(r("Curse"), "Rules 0.9.0: every curse holding now (public faces).")),
+          ("quests", array(r("Quest"), "Rules 0.9.0: the open public quests (raisings, seals' counters).")),
           ("time_of_day", r("TimeOfDay")),
           ("time_of_day_phase", r("DayPhase")),
           ("rules", object("The rules this match runs on.", &[("version", string("The match's rules version (e.g. \"0.8.1\").")),
@@ -1622,7 +1661,7 @@ fn v08_defs() -> Map<String, Value> {
         "Rules 0.8.0: what a demigod's piece carries.",
         &[
             ("followers", int("Its Following's headcount.")),
-            ("items", array(object("", &[("ref", r("Ref")), ("icon", string(""))], &[]), "Items it holds now (pegs).")),
+            ("items", array(object("", &[("ref", r("Ref")), ("icon", string(""))], &wills::peg_fields()), "Items it holds now (pegs). Rules 0.9.0: gear pegs say what they do.")),
             ("wardrobe", object("Its outfit.", &[
                 ("stage", json!({ "type": "integer", "minimum": 0, "maximum": 4 })),
                 ("name", e(&["plain", "marked", "adorned", "regalia", "mythic"], "")),
@@ -1721,7 +1760,7 @@ fn v07_defs() -> Map<String, Value> {
         &[("image", r("ImageObject")), ("origin", string("game.item only.")), ("created_by", json!({})), ("holders", array(r("Ref"), "")),
           ("history", array(json!({ "type": "object", "additionalProperties": true }), "Custody: {beat, state, holder?, by?, row?, count?}.")),
           ("rows", array(r("Ref"), "game.item only: the attempt's ledger rows.")),
-          ("manifestation_detail", json!({}))],
+          ("manifestation_detail", json!({}))].into_iter().chain(wills::item_fields()).collect::<Vec<_>>(),
     ));
     d.insert("Manifestation".into(), object(
         "Rules 0.7.0: one manifestation attempt (made or not).",
@@ -1778,18 +1817,20 @@ pub fn all() -> Vec<(&'static str, Value)> {
     pool.extend(v07_defs());
     pool.extend(v08_defs());
     pool.extend(queries::defs());
+    pool.extend(wills::defs());
     let mut round_private = pool["SeatDelta"].clone();
     if let Some(props) = round_private["properties"].as_object_mut() {
         props.insert("demigods".into(), array(object("Rules 0.7.0: one of your two demigods this beat.",
             &[("ref", r("Ref")), ("side", r("Hand")), ("name", string("")), ("health", num("")), ("max_health", num("")),
-              ("alive", boolean("")), ("pos", r("LonLat")), ("cell", json!({ "type": ["string", "null"], "description": "People-level hex key." }))], &[]),
+              ("alive", boolean("")), ("pos", r("LonLat")), ("cell", json!({ "type": ["string", "null"], "description": "People-level hex key." }))],
+            &[("items", array(r("Item"), "Rules 0.9.0: what it holds now (gear with its mods).")), ("curses", array(r("Curse"), "Rules 0.9.0: the curses holding on it."))]),
             "Rules 0.7.0: both of your demigods (`you` is your lead one: the first standing)."));
         props.insert("manifests".into(), array(r("Manifestation"), "Rules 0.7.0: your demigods' manifestations this beat, with the verdict."));
-        props.insert("wills".into(), array(object("Rules 0.8.1: what became of an order you gave while all your demigods were fallen (never silence).",
-            &[("text", string("Your order.")), ("routed_to", nullable(string("The god it went to (Death for a plea to come back)."))),
-              ("verdict", json!({ "type": "string", "enum": ["grant", "bargain", "twist", "refuse", "refused"], "description": "The god's verdict, or refused (never reached a god)." })),
-              ("speech", nullable(string("The god's words."))), ("reason", string("Why: Death's price and your purse, or why it can't be done."))], &[]),
-            "Rules 0.8.1: your fallen demigods' wills this beat (absent when none)."));
+        props.insert("wills".into(), array(r("Will"), "Rules 0.9.0: every will of yours this beat, split into its parts, each with its roll, price, result and (when it fell short) why and what would work. Rules 0.8.1: only a fallen player's wills. Absent when you willed nothing."));
+        for (k, v) in wills::seat_fields() {
+            props.insert(k.into(), v);
+        }
+        props.insert("will_events".into(), array(r("DmEvent"), "Rules 0.9.0: this beat's quest and curse events only your seat gets (quest.given, quest.step, quest.done, quest.failed of private quests): the same shapes as the public dm_events."));
     }
     round_private["description"] =
         "`round.private.private` (the `SeatDelta`): what only your seat learns from the beat that just resolved. \
@@ -2065,6 +2106,7 @@ fn check(root: &Value, s: &Value, v: &Value, path: &str, strict: bool, errs: &mu
 }
 
 mod queries;
+mod wills;
 
 #[cfg(test)]
 mod tests;

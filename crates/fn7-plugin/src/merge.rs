@@ -439,6 +439,11 @@ pub fn run(
     beat: u32,
     max_witnesses: usize,
 ) -> (Vec<Proposal>, Applied) {
+    // Rules 0.9.0: gear and curses shape what goes in (weapons add, armour turns aside, a withered body takes no
+    // healing, a sealed one no raising). A no-op unless "wills that matter" is on.
+    if crate::wills::on(w) {
+        props = crate::wills::arms::shape(w, props, beat);
+    }
     for p in props.iter_mut() {
         cap_witnesses(p, max_witnesses);
     }

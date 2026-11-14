@@ -33,6 +33,9 @@ pub const RESUME_SCHEMA: u32 = 8;
 /// The schema duel panels (rules 0.8.2) switch on at.
 pub const PANEL_SCHEMA: u32 = 9;
 
+/// The schema "wills that matter" (rules 0.9.0) switches on at (with the room setting `wills_enabled`).
+pub const WILLS_SCHEMA: u32 = 10;
+
 /// Scars kept per demigod (the newest).
 pub const SCARS_KEPT: usize = 12;
 
@@ -366,6 +369,11 @@ pub struct Dm {
     /// across beats). The plugin owns the shape (`fn7-plugin::duel::Bout`); empty = nothing serialized.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub duels: Vec<Value>,
+    /// Rules 0.9.0 ("wills that matter", room setting `wills_enabled`): the book of mystic quests, seals and curses,
+    /// raisings, boons and spent item powers. The plugin owns the shape (`fn7-plugin::wills::Book`); empty (`null`) =
+    /// nothing serialized, so states without it stay byte-identical.
+    #[serde(default, skip_serializing_if = "Value::is_null")]
+    pub wills: Value,
     /// Schema 8 (exact resume): what the last resolve was handed, and the beat's clocks. Absent before the first one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mark: Option<Mark>,

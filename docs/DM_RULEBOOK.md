@@ -1,7 +1,8 @@
 # The Dungeon Master's Rulebook
 
-*Final Night 7, rules 0.8.1, state schema 7 (challenge mode and the 0.8.1 fixes switch on at schema 7; the DM's
-rulebook features at schema 6).*
+*Final Night 7, rules 0.9.0, state schema 10 (wills that matter switch on at schema 10 with the room setting
+`wills_enabled`; duel panels at 9, exact resume at 8, challenge mode and the 0.8.1 fixes at 7, the DM's rulebook
+features at 6).*
 
 This is the rulebook the Dungeon Master follows. The DM is the server: its rules (code) and its LLM minds (the game
 master who resolves acts, the gods, the narrator). Every chapter states a rule as the DM applies it, with the numbers
@@ -38,6 +39,11 @@ LLM replay still matches request for request.
 20. God-tier powers
 21. Challenge mode: will against will
 22. Appendix: the DM's settings
+23. Wills on your own: healing, blessing, and what a will is made of
+24. Arms and their powers
+25. Resurrection
+26. Seals and curses
+27. Mystic quests
 
 ---
 
@@ -125,6 +131,7 @@ The DM rolls one d20 when:
 | A summoning's mishap check | `summon:<beat>:<demigod>` (0.8.1: `summon:<beat>:<demigod>:<lon>,<lat>`) | `round(20 × p) + 1` (chapter 19) | none |
 | A duel blow (0.8.1) | `<duel_id>:<n>` (a counter `<duel_id>:<n>:counter`) | 10, +1 at night, + half the opponent's wardrobe stage | the line's wit and the duellist's (chapter 21) |
 | A duel's loser keeps hold (0.8.1) | `<duel_id>:hold` | 11 | the demigod's |
+| A will's part for a target (0.9.0): heal, bless, arm, curse, gather | `will:<intent>:<part>:<demigod>` | own: 6 + magnitude/4 (an arming 6 + 2 per tier); a curse 10 + half the target's wardrobe | named in the answer (chapters 23, 24, 26) |
 
 The DM does not roll for things the rules settle exactly (damage from Time's circle, armies' strikes, debts, the
 survivor rule) or for gods' verdicts, god-tier ones included (a god decides; there are no odds to roll against).
@@ -695,6 +702,9 @@ human the AI challenged gets the duel's whole span to answer. A duel nobody type
 
 Every order gets a visible ruling or a refusal (the match 79fd73bf and f18d76a3 fixes, schema 7):
 
+*Rules 0.9.0 go further (chapters 23-27): heals, armings, raisings and curses are resolved by rules and dice, part by
+part, and are never a bare refusal; what follows is how a 0.8.x match (no `wills_enabled`) still behaves.*
+
 - **Heals** (heal, restore, mend, cure...) go to **Nature** even when the hand names no god (Death when a target has
   fallen): an invocation with its normal price and a real verdict; unless refused each target heals 1 + magnitude/4
   (1–3, half when twisted). "me", "my demigods", "all my demigods" are the player's own two; rivals are healed only
@@ -753,4 +763,292 @@ Room settings (validated in `crates/fn7-plugin/src/settings.rs`, listed by `GET 
 | `duel_ai_reach_km` | 2000 | 0–20000 | 21.3 |
 | `duel_auto_rounds` | 2 | 0–10 | 21.3 |
 
+The 0.9.0 ones (chapters 23-27):
+
+| Setting | Default | Range | Rule |
+|---|---|---|---|
+| `wills_enabled` | true | bool | wills that matter (the feature gate; also needs state schema 7+): a will splits into its parts, healing and blessing your own never just fail, arming makes gear with real modifiers, anyone may plead for a resurrection, seals and curses exist and every one has a mystic counter-quest. Settings recorded before 0.9.0 lack it and read back `false` (old recordings replay unchanged). |
+| `will_spark_per_bolt` | 5 | 1–20 | sparks one lightning bolt breaks into when a will's price is paid from bolts (the 1:5 economy; the change stays in the purse as sparks). |
+| `will_own_dc` | 6 | 2–20 | the base DC of a will on your own demigods (heal, bless, arm): DC = this + magnitude/4 (an arming adds 2 per tier). A hostile act's is 8 + magnitude/2. |
+| `will_debt_cap` | 3.0 | 0.0–20.0 | the open debt (health points, per demigod) beyond which the gods finance no more unpaid wills: the will becomes a mystic quest instead. |
+| `will_debt_per_spark` | 0.2 | 0.0–5.0 | debt (to the ruling god) per spark of a will's price the purse could not pay. |
+| `will_entropy_per_spark` | 0.25 | 0.0–10.0 | Entropy raised per spark paid for a will. |
+| `heal_price_sparks` | 1 | 0–20 | a heal or blessing costs this + magnitude/4 sparks per target. |
+| `heal_token` | 0.5 | 0.0–5.0 | the token heal of a failed heal roll (the rest waits on its mystic quest). |
+| `heal_scale` | 1.0 | 0.0–10.0 | multiplier on every will heal (1 + magnitude/4 health per target before it). |
+| `boon_beats` | 6 | 1–100 | beats a boon (a blessing, or a critical heal's gift) lasts. |
+| `boon_bonus` | 1 | 0–5 | the d20 bonus a boon gives its demigod's acts. |
+| `arm_price_artifact` | 2 | 0–50 | sparks an artifact-tier arm costs per demigod (a trinket is free). |
+| `arm_price_relic` | 5 | 0–50 | sparks a relic-tier arm costs per demigod. |
+| `arm_bless_sparks` | 5 | 0–50 | sparks a god's blessing on an arming costs (per will part): the gear is a tier up and carries the god's signature. |
+| `arms_scale` | 1.0 | 0.0–5.0 | multiplier on every number an item's modifiers add (strike, damage, guard, regeneration, duel); 0 = gear is decoration. |
+| `raise_price_sparks` | 5 | 0–100 | Death's base price in sparks to raise a fallen demigod, times 1 + the times it was raised before, plus 1 per raise_stale_beats it has lain dead. |
+| `raise_stale_beats` | 8 | 1–1000 | every this many beats a demigod has been dead adds a spark to Death's price. |
+| `raise_cap` | 3 | 0–50 | raisings one player may be granted per match (0 = none). |
+| `raise_years` | 1.0 | 0.0–10.0 | max-health years a raised demigod loses, times 1 + the times it was raised before. |
+| `raise_health_fraction` | 0.4 | 0.05–1.0 | the share of its max health a raised demigod returns with. |
+| `curse_price_sparks` | 5 | 0–100 | sparks a curse or a seal costs (a bolt breaks into will_spark_per_bolt sparks). |
+| `curse_god_price_sparks` | 15 | 0–200 | sparks the god-tier variant of a curse costs (strength 3, until countered). |
+| `curse_beats` | 12 | 1–1000 | beats an ordinary curse lasts (a seal and a god-tier curse last until countered). |
+| `curse_dc` | 10 | 2–30 | the DC of casting a curse (plus half the target's wardrobe stage). |
+| `curse_max_per_player` | 2 | 0–20 | curses and seals one player may have standing at once. |
+| `curse_entropy` | 3.0 | 0.0–100.0 | Entropy raised by a curse (a god-tier one raises entropy_per_mega). |
+| `quest_steps_max` | 3 | 1–3 | the most steps a mystic quest has. |
+| `quest_expire_beats` | 24 | 0–1000 | beats a heal's or an arming's quest stays open (0 = until done); a curse's counter-quest lives as long as its curse, a raising's until the Final Night. |
+| `quest_spark_step` | 2 | 0–50 | sparks a quest's offering step asks for (times the quest's difficulty). |
+| `wills_ai_chance` | 0.25 | 0.0–1.0 | how readily the built-in AI uses wills (heals when hurt, arms itself, pleads for its fallen sibling, curses a rival, pursues its quests); 0 = never. |
+
 Every other setting is in `docs/PROJECT_GUIDE.md` §3.13.
+
+---
+
+## 23. Wills on your own: healing, blessing, and what a will is made of
+
+> Healing and arming units with god powers currently gives them nothing, and the will should show why
+> translating to actual mega-changes" ... "healing and arming do nothing" (Chris, BUILDLOG "wills that matter")
+
+*Rules 0.9.0 (room setting `wills_enabled`, state schema 10; older matches keep the 0.8.x rules and replay unchanged).
+Chapters 23-27 are one design: `crates/fn7-plugin/src/wills/`.*
+
+**The live case this fixes** (match d3a3779e, beat 42). Chris, at 0 bolts, 4 sparks and 2.26 of debt, with demigods at
+3.8 and 7.1 health, willed "every one of mydemigods is fully healed and gets rocket launchers". His hand answered
+"Healing and arming both demigods now." Then: the heal went to Nature, who was told "they can't pay: refuse, or twist
+it" and refused outright; the arming went to the ordinary resolver as "a deed", rolled a 2 against DC 11, and became one
+line of narration ("only a bent bottle cap appears"); nothing was attempted for the Right Hand; and nothing told him
+why. Under this chapter the same will is four rulings (heal x 2, arm x 2), each with its die, its price, its result in
+plain words and, where it falls short, the reason and the way forward.
+
+### 23.1 A will splits into its parts
+
+A will is read for its **parts**: `heal`, `bless`, `arm`, `raise`, `curse` (or seal), `ask`, `offer`, `gather`. The
+hand mind is asked for one intent per part; the rules then read the player's words again and add any part the hand
+dropped, so the LLM path and the rules fallback agree. **Each part x each target is resolved on its own, with its own
+visible ruling**, by rules and dice, before the ordinary route (the resolver and the god minds never see it). A will
+is resolved once: it never becomes a standing order. A will's other acts ("go to Paris and heal me": the journey) go
+their usual way.
+
+"Me", "my demigods", "all", "both" mean your own two; a named demigod means that one; rivals count only when named.
+
+### 23.2 Paying: sparks, bolts, credit
+
+Prices are in **sparks**. The purse pays sparks first; then **a bolt breaks into `will_spark_per_bolt` (5) sparks**
+and the change stays in the purse. What the purse still can't pay, **the ruling god lends**: a debt of
+`will_debt_per_spark` (0.2) per spark, due in `debt_due_beats`, as long as the actor's open debt stays under
+`will_debt_cap` (3). Past the cap the gods lend no more: the effect shrinks to what was paid, or becomes a mystic
+quest (chapter 27). A curse of silence doubles every price (chapter 26). Entropy rises `will_entropy_per_spark` (0.25)
+per spark paid. Text entry is still Time's: an order without a slow window costs Time its bolt first (12.2).
+
+### 23.3 Healing your own (Nature rules it)
+
+| | |
+|---|---|
+| Price | `heal_price_sparks` (1) + magnitude/4 sparks per target |
+| DC | `will_own_dc` (6) + magnitude/4 for your own (a named rival: the hostile 8 + magnitude/2) |
+| Modifiers (each named in the answer) | half the actor's wardrobe stage; its charm (chapter 24); a boon; a hex; the god's favor (+1 at +2 or more, -1 at -2 or less); paid in full +1, on credit -1, part paid -1; the Final Wish +2 |
+| The heal | (1 + magnitude/4, 1 to 3.5) x `heal_scale` x (0.5 + 0.5 x the share paid) |
+
+| The d20 | What happens |
+|---|---|
+| natural 20 | the heal x 1.5, **and a boon**: `boon_bonus` (+1) on that demigod's d20s for `boon_beats` (6) |
+| success | the heal |
+| fail | a **partial**: `heal_token` (0.5) now, **and a mystic quest** that completes the rest |
+| natural 1 | a fizzle, **and the quest** for all of it |
+| nothing paid and nothing lent | no roll: the quest alone. Never silence. |
+
+A demigod already whole costs nothing. A withered one can't be healed: the answer says so and shows the curse's
+counter-quest.
+
+### 23.4 Blessing your own
+
+"Bless me", "empower my hands": the same price, DC and modifiers, and the effect is a **boon** (`boon_bonus` on its
+d20s for `boon_beats`; a natural 20: one more and half again as long; a fail: 2 beats and a quest for the full boon; a
+natural 1: the quest). Blessing words spoken with an arming belong to the gear (chapter 24).
+
+### 23.5 The answer
+
+Every will returns in the player's `round.private.wills[]`: the words, the gods that ruled, the gods' words
+(rules-written), a verdict (`granted`, `partial`, `refused`) and `parts[]`, one per part and target: the roll against
+the DC with every modifier named, what was paid, what happened in plain words, and when it fell short, **why** and
+**what would work** (the quest's steps, or the price). Every will is also a private `will.ruled` entry in the DM's
+memory. Acts that are public (a raising, a curse landing) add a public one-liner.
+
+**Worked example** (a real answer, from the end-to-end run). Engine: Chris's Left Hand (4.0 health) and Right Hand
+(6.8) hear "heal and arm my demigods". Heal, Left: 2 sparks paid, d20 8 + 1 (paid in full) = 9 against DC 7: healed 2.
+Arm, Left: an artifact, 2 sparks, d20 14 against DC 8: "forged a Butterfly Wing Blade (artifact): +1 to strikes, +1 to
+journeys, +0.5 damage, +1 in duels". DM (Nature, then Death, the smith's patron): "Granted: Chris's Left Hand mends,
+Chris's Right Hand mends, because a ferryman overpaid his toll in a year nobody remembers." "Granted: Chris's Left
+Hand is armed, Chris's Right Hand is armed, because the third crow of the morning landed on the right side of the
+road." Three beats later a heal rolls a natural 1: "the mending of Chris's Left Hand fizzled (a natural 1); a quest
+will complete it (+2)", why: "the ferryman kept the change", next: "Hold a thread pulled from a general's banner".
+Chris wills "gather the thread for the quest"; the quest is done that beat and the 2 health arrive.
+
+## 24. Arms and their powers
+
+Arming is the item engine (chapter 16) with teeth: gear is an item (`it:`, with its `mf:` row), and **an item does
+what its kind, tier, material and blessing say**. Nothing is stored for that but the powers already spent.
+
+### 24.1 Arming your own
+
+"Arm my demigods", "they get rocket launchers", "give us shields": gear for each of your own standing demigods.
+
+- **What:** the gear the words name (a weapon, armour or a charm: "rocket launchers" is a weapon, the Rocket
+  Launcher), else the slot the demigod lacks (weapon, then armour, then a charm), in a seeded material.
+- **Tier asked:** by magnitude: 0-3 trinket, 4-6 artifact, 7+ relic ("legendary", "fully", "god powers" read as 8).
+- **Price per demigod:** trinket free, artifact `arm_price_artifact` (2) sparks, relic `arm_price_relic` (5). What
+  can't be paid is lent (23.2); past the cap the tier comes down to what was paid, and the answer says what the tier
+  asked for costs.
+- **The d20:** DC `will_own_dc` (6) + 2 per tier (6, 8, 10). Natural 20: a tier up. Success: the tier paid for.
+  Fail: **a tier low, and a quest that tempers it** to the tier paid for. Natural 1: nothing appears, and a quest
+  that forges it.
+- **God-blessed gear:** a god named in the will ("Nature, arm my demigods"), or blessing words ("holy", "divine",
+  "god powers"), costs `arm_bless_sparks` (5) more per demigod: the gear is **a tier up** and carries **that god's
+  signature**. A **god-tier power** (chapter 20) aimed at your own standing demigod also arms it: wonder-tier gear
+  with that god's signature, once per god per demigod (Death arms its own instead of striking it).
+
+### 24.2 What gear does
+
+| Slot | trinket | artifact | relic | wonder+ | Once a match (relic+) |
+|---|---|---|---|---|---|
+| **weapon**: strike d20 / damage per landed strike / duel | +1 / 0 / 0 | +1 / +0.5 / +1 | +2 / +0.5 / +1 | +2 / +1 / +2 | **Smite**: its first strike landed on a rival demigod deals 2 more |
+| **armour**: turned aside per hit / resists / duel | 0.25 / - / 0 | 0.5 / its material's type / 0 | 0.75 / type / +1 | 1.0 / type / +1 | **Last Stand**: the first blow that would fell its bearer leaves it at 1 health |
+| **charm** (relic, artifact): other deeds' d20 / mending a beat | 0 / 0 | +1 / 0.1 | +1 / 0.15 | +2 / 0.2 | **Second Wind**: the first beat ended at 3 health or less, it heals 2 |
+
+- **Materials** (in the name, else seeded): obsidian and dragonscale (fire), butterfly-wing (storm; +1 on journeys),
+  platinum (curses: +2 to the DC of cursing its bearer), struck-oak (lightning), moonsteel (cold), whalebone (water),
+  salt-glass (poison), gold (blades), heron-feather (falls; +1 on journeys). Armour of artifact tier and up halves
+  damage of its material's type.
+- **Signatures:** Time +2 on journeys; Nature +0.2 mending a beat; Consequence thorns (0.5 back at a demigod who
+  strikes its bearer); Death Last Stand, whatever the slot; Chance +1 on every d20; Memory +1 in duels; Entropy +0.5
+  damage.
+- **Bounded:** a demigod fights with its best item per slot, and its whole kit is capped at +3 on a d20, +1.5
+  damage, 1.5 turned aside (never more than half of one hit), 0.4 mending, +3 in duels; all x `arms_scale`.
+
+### 24.3 Where the numbers are used
+
+Act d20s (chapter 2: strikes and threats use the weapon, journeys the fleet gear, other deeds the charm); every
+damage, heal and raising on its way into a merge (the weapon adds, the armour turns aside, then a resisted type
+halves; thorns bite back); the duel's gear term (21.2: "+1 with any item" plus the kit's duel bonus); the end of the
+beat (mending, Second Wind); Last Stand after the merge and the society, before the DM's step (so the gear never
+drops). Gear shows what it does in its payload (`slot`, `material`, `mods`, `power`, `blessed_by`, `does`) and on the
+piece's story pegs.
+
+**Worked example.** Engine: a relic Obsidian Spear (+2 strikes, +0.5 damage, Smite unspent) lands a strike of 2 on a
+demigod behind an artifact Gold Shield (turns aside 0.5, resists blades): 2 + 0.5 + 2 (Smite) - 0.5 = 4, halved to 2.
+The next strike, Smite spent: (2 + 0.5 - 0.5) / 2 = 1. DM: "The spear found the one seam in the shield that the
+goldsmith had closed on a Tuesday; the shield has since learned."
+
+## 25. Resurrection
+
+> "i should.. be able to revive the other demigods. a player even if their demigods were wiped should be able to try
+> to resurrect their demigods unless the other player cast a no resurrect" (Chris)
+
+Any player may plead for any fallen demigod: their own, an ally's, anyone's ("revive the other demigods": every
+fallen one, two a will, your own first). **A wiped player may plead too**: the fallen can only plead, ask about their
+quests and make offerings; any other order is refused with what they can do. (So that the plea can arrive at all, a
+wiped player is no longer reported out to the Theatre until the match ends: the core refuses every submission of a
+seat that is out.)
+
+It is **Death's ruling**, and Death keeps a price list:
+
+- **Sparks:** `raise_price_sparks` (5) x (1 + the times that demigod was raised before) + 1 per `raise_stale_beats`
+  (8) it has lain dead.
+- **Years:** `raise_years` (1) x (1 + the times raised) off its max health, for good.
+- **All of it or none:** Death takes no deposits. Paid (or lent, 23.2): it rises at once. It can't be paid: **a
+  quest** (public; difficulty 2, +1 per earlier raising, +1 for another player's demigod, at most 3; the fallen keep
+  vigils), and a demigod raised by a quest **owes Death the sparks as a debt** (5 x 0.2 = 1.0).
+- **How it returns:** at `raise_health_fraction` (0.4) of its (lowered) max health, where it fell, or at its shrine
+  if it has one. `demigod.raised`, public.
+- **Limits:** the price doubles, triples...; `raise_cap` (3) raisings per player per match; a seal (chapter 26)
+  refuses it until the seal's counter-quest is done.
+
+**Worked example** (from the end-to-end run). Engine: both of Chris's demigods fall; a rival seals the Left Hand's
+grave. Chris wills "my demigods come back to life!". Right Hand: 5 sparks paid, it "rises at 3.6/9 health (paid: 5
+sparks, 1 years of its life)". Left Hand: "can't be raised: a seal of no resurrection lies on it", next: "quest q:2:
+1. Wait for the next dusk." DM (Death): "Chris's Left Hand is sealed; Chris's Right Hand may get up. I keep a price
+list and a list of errands; choose." The dusk comes, the seal lifts (`curse.broken`), and the next plea raises the
+Left Hand for 6 sparks (one more for the beats it lay dead).
+
+## 26. Seals and curses
+
+A rival may lay a seal or a curse on a demigod. They are first-class objects in the state: an owner, a target, a
+strength (1-3), a duration or "until countered", what was paid, a public face and a private one, and **always a
+counter**.
+
+| Kind | On | What it does | God-tier through |
+|---|---|---|---|
+| `seal` ("no resurrection", "stay dead", "seal the grave of...") | a demigod, fallen or living (it bites when it falls) | NO RESURRECTION: nothing raises it, by any road | Death |
+| `wither` ("wither", "no healing", "blight") | a living demigod | no healing reaches it: wills, shrines, gear, gods | Death |
+| `silence` ("silence", "mute", "gag") | a living demigod | its player's wills cost double | Memory |
+| `bind` ("bind", "chain", "root") | a living demigod | it can't be summoned (`bound:<quest>`) | Time |
+| `hex` ("hex", "curse", "jinx") | a living demigod | minus its strength on that demigod's d20s | Chance |
+
+- **Whom:** the rival the words name; unnamed: the nearest standing rival (a seal: the newest grave). The weak words
+  (seal, bind, silence...) curse only when they name a demigod; "silence the crowd" is an ordinary order.
+- **Price:** `curse_price_sparks` (5). The **god-tier variant** (a god named, "forever", "eternal", "until
+  countered") costs `curse_god_price_sparks` (15): strength 3 and until countered. Paid whole (or lent), or not cast.
+- **The d20:** DC `curse_dc` (10) + half the target's wardrobe stage (+2 against platinum gear), with the caster's
+  modifier (2.3), boons and hexes, +2 for a god's hand. Natural 20: strength +1 and half again as long. Success:
+  strength 2 for `curse_beats` (12); a seal holds until countered. Fail: it takes, weakly: strength 1 for half the
+  time. **Natural 1: it turns on its caster.**
+- **Limits:** one of a kind on a target; `curse_max_per_player` (2) standing per player. Entropy +`curse_entropy`
+  (3); a god-tier one +`entropy_per_mega`.
+- **Faces:** everyone sees the mark on the target's piece (kind, strength, until when) and a public line ("A curse
+  of withering settles on..."), never who cast it. The bearer's seat sees the owner and the counter's steps; the
+  owner's seat sees its curse and the counter's progress.
+- **Always a counter:** the moment a curse is made, the DM gives its bearer a mystic quest (chapter 27) with as many
+  steps as the curse is strong. Done, the curse breaks (`curse.broken`, public). A seal's counter is public, and
+  whoever pleads for the sealed demigod may take it up. A curse whose time runs out fades (`curse.broken`, faded) and
+  its quest lapses.
+
+**Worked example** (from the end-to-end run). Engine: Benito wills "curse Chris's Right Hand with withering": 5
+sparks, d20 9 + 1 = 10 against DC 10: strength 2. Chris's "heal Chris's Right Hand" answers "can't be healed: a curse
+of withering lies on it", next: "1. Offer 4 sparks. 2. Stand within 150 km of a fault line by night." DM (Death):
+"4 sparks fed to the dark between two heartbeats, then your shadow laid down by night where the ground remembers
+being two grounds; only then will the curse of withering lift from Chris's Right Hand." Chris offers the sparks,
+summons a demigod to a fault line, night falls: the curse breaks.
+
+## 27. Mystic quests
+
+> "mystic quest wings of a butterfly to counter a curse" (Chris)
+
+A mystic quest is the Lens and the Engine (chapter 0) as something a player can do: the engine's answer was "not
+yet", and the quest is the absurd chain of causes that would make it "yes".
+
+- **Made by rules.** 1-3 steps, seeded by the match and the quest's number, from the tables below and the place x
+  time memory; only steps the seat can actually do (the fallen get vigils and offerings; never a place a demigod
+  already stands at, or an ingredient it already holds). Then told in one sentence, Rube Goldberg style, ending with
+  the engine's reason as near as the DM can read it (a settled fact about the place).
+- **Steps the engine verifies**, in order, each beat after the DM's step, from what actually happened:
+
+| Step | Done when |
+|---|---|
+| `at` | a standing demigod of yours stands at the place: a shrine of the one who cursed you (or one of your own), a settlement of level N or more, within 150 km of a fault line, on a coast, or a spot the DM remembers (within 150 km); with a `phase`, at dawn / day / dusk / night; with an `offer`, holding that ingredient there, and it is burned |
+| `hold` | one of yours holds an item whose name carries the ingredient's word |
+| `encounter` | one of yours wins an encounter (chapter 8) |
+| `shrine` | one of yours raises a shrine (chapter 11) |
+| `duel` | one of yours comes out of a duel alive (chapter 21; only for strength-3 quests) |
+| `sparks` | you will "offer the sparks to the quest": `quest_spark_step` (2) x its difficulty |
+| `army` | an army of yours (its general named in the telling) stands within 300 km of the place |
+| `vigil` | the hour has come N times (N > 1 only for the fallen) |
+
+- **The odd ingredients:** the wings of a butterfly that has crossed a named strait, a stone washed in platinum dust,
+  a heron's feather, salt from a dried sea, a whale-tallow candle, the ash of a twice-struck oak, a jar of dawn fog,
+  a bell without a tongue, river glass, a thread from a general's banner. Will your demigod to gather or make one
+  (a d20 against DC 6; only a natural 1 loses it), or win an encounter while a quest is waiting on one: it drops.
+- **Asking:** "what does my quest need?", "how do I break the curse?" answers with every open quest's steps and
+  progress, and every curse on your demigods.
+- **Stored and remembered:** quests live in the state; `quest.given`, `quest.step`, `quest.done` and `quest.failed`
+  go into the DM's memory at the place of the demigod they are for: public for a raising and a seal's counter, else
+  only for the seats concerned.
+- **Expire or stay:** a heal's or an arming's quest lapses after `quest_expire_beats` (24); a curse's counter lives
+  as long as its curse; a raising's until it is done (or the demigod stands again).
+- **On completion** the effect applies at once: the heal completes, the boon settles, the gear is tempered or
+  forged, the curse breaks, the demigod rises (unless a seal still holds it: then the quest waits and says so).
+- **The built-in AI** (`wills_ai_chance`, 0.25) heals when hurt, arms itself, pleads for its fallen sibling, curses
+  a near rival now and then, and pursues its quests' steps.
+
+**Worked example** (the designer's own). Engine: a hex lies on Ash's Left Hand; its counter is `hold butterfly`, then
+`at` the curser's shrine, `phase` dawn, `offer` butterfly. DM: "The wings of a butterfly that has crossed the Sunda
+Strait, burned at dawn on the shrine of the one who cursed you; only then will the hex lift." Ash wills "catch a
+butterfly and take its wings"; walks to the shrine; at noon the step says "you stand there, but it is day, not dawn";
+at the next dawn the wings burn, and everyone sees `curse.broken`.
