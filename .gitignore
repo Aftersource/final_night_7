@@ -14,3 +14,4 @@ runs/lan/
 runs/*
 !runs/.gitkeep
 docs/**/*.sqlite
+data/sessions.json

@@ -63,7 +63,7 @@ in the next release. Never change code to balance; change settings.
 **Play 5: the bridge pushes.** The bridge may push to `Aftersource/final_night_7` **only when the backend explicitly
 instructs it**, and then only what was asked:
 - on a branch `bridge/<topic>` unless told otherwise;
-- with the commit message the backend gives;
+- with a commit message in the bracket style that names what changed, short and abstract (e.g. `[ lobby join and host wait ]`): one distinct message per commit, never a reused catch-all;
 - never to `main`, never tags, never force-push.
 
 Client code lives in Benito's own repo, not ours.
