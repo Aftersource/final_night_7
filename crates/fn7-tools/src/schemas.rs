@@ -1125,6 +1125,8 @@ fn seat_view_body(desc: &str) -> Value {
                 "description": "Rules 0.7.0: one of your two demigods in full: the public fields plus health, max_health, debt_open, items (Item), hand (SeatHand), orders, manifests (Manifestation, with verdicts)." }),
                 "Rules 0.7.0: both of your demigods, [left, right].")),
             ("my_items", array(r("Item"), "Rules 0.7.0: every item your demigods hold.")),
+            ("quests", wills::seat_fields()[0].1.clone()), ("curses", wills::seat_fields()[1].1.clone()),
+            ("boons", wills::seat_fields()[2].1.clone()), ("raises", wills::seat_fields()[3].1.clone()),
             ("hierarchy", json!({ "type": ["object", "null"], "additionalProperties": true, "description": "The society hierarchy at your zoom (schema 4: node, path, children, crowds, cells, people, armies with chains of command, mobs, battles). Its shape is not frozen yet (the society build is in progress); read defensively." }))],
     )
 }
@@ -1178,6 +1180,9 @@ fn outcome_public() -> Value {
             ("dm_events", array(r("DmEvent"), "Rules 0.8.0: the DM's public decisions this beat (at most 40): settlements growing, encounters, loot, roads, shrines, scars, the time of day.")),
             ("time_of_day", r("TimeOfDay")),
             ("time_of_day_phase", r("DayPhase")),
+            ("wills", array(r("WillLine"), "Rules 0.9.0: public one-liners of this beat's wills (raisings, curses landing; never who cursed).")),
+            ("curses", array(r("Curse"), "Rules 0.9.0: every curse holding now (public faces).")),
+            ("quests", array(r("Quest"), "Rules 0.9.0: the open public quests (raisings, seals' counters).")),
         ],
     )
 }
@@ -1219,7 +1224,9 @@ fn public_view() -> Value {
             "hand": { "$ref": "#/$defs/SeatHand" },
             "orders": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
             "manifests": { "type": "array", "items": { "$ref": "#/$defs/Manifestation" } },
-            "story": { "$ref": "#/$defs/Story", "description": "Rules 0.8.0: what its piece carries (followers, items, wardrobe, scars)." }
+            "story": { "$ref": "#/$defs/Story", "description": "Rules 0.8.0: what its piece carries (followers, items, wardrobe, scars)." },
+            "curses": { "type": "array", "items": { "$ref": "#/$defs/Curse" }, "description": "Rules 0.9.0: the curse marks on its piece (public faces: never the owner)." },
+            "raised": { "type": "integer", "minimum": 1, "description": "Rules 0.9.0: how often Death raised it this match (absent when never)." }
         },
         "required": ["ref", "name", "alive", "seat"],
         "oneOf": [
@@ -1250,6 +1257,8 @@ fn public_view() -> Value {
           ("players", array(r("Player"), "Rules 0.7.0: the seat list, one entry per player.")),
           ("society", json!({ "type": ["object", "null"], "additionalProperties": true, "description": "The society's public summary (schema 4). Its shape is not frozen yet (the society build is in progress); read defensively." })),
           ("shrines", array(r("Shrine"), "Rules 0.8.0: every shrine on the board.")),
+          ("curses", array(r("Curse"), "Rules 0.9.0: every curse holding now (public faces).")),
+          ("quests", array(r("Quest"), "Rules 0.9.0: the open public quests (raisings, seals' counters).")),
           ("time_of_day", r("TimeOfDay")),
           ("time_of_day_phase", r("DayPhase"))],
     )
@@ -1543,7 +1552,7 @@ fn v08_defs() -> Map<String, Value> {
         "Rules 0.8.0: what a demigod's piece carries.",
         &[
             ("followers", int("Its Following's headcount.")),
-            ("items", array(object("", &[("ref", r("Ref")), ("icon", string(""))], &[]), "Items it holds now (pegs).")),
+            ("items", array(object("", &[("ref", r("Ref")), ("icon", string(""))], &wills::peg_fields()), "Items it holds now (pegs). Rules 0.9.0: gear pegs say what they do.")),
             ("wardrobe", object("Its outfit.", &[
                 ("stage", json!({ "type": "integer", "minimum": 0, "maximum": 4 })),
                 ("name", e(&["plain", "marked", "adorned", "regalia", "mythic"], "")),
@@ -1642,7 +1651,7 @@ fn v07_defs() -> Map<String, Value> {
         &[("image", r("ImageObject")), ("origin", string("game.item only.")), ("created_by", json!({})), ("holders", array(r("Ref"), "")),
           ("history", array(json!({ "type": "object", "additionalProperties": true }), "Custody: {beat, state, holder?, by?, row?, count?}.")),
           ("rows", array(r("Ref"), "game.item only: the attempt's ledger rows.")),
-          ("manifestation_detail", json!({}))],
+          ("manifestation_detail", json!({}))].into_iter().chain(wills::item_fields()).collect::<Vec<_>>(),
     ));
     d.insert("Manifestation".into(), object(
         "Rules 0.7.0: one manifestation attempt (made or not).",
@@ -1699,18 +1708,20 @@ pub fn all() -> Vec<(&'static str, Value)> {
     pool.extend(v07_defs());
     pool.extend(v08_defs());
     pool.extend(queries::defs());
+    pool.extend(wills::defs());
     let mut round_private = pool["SeatDelta"].clone();
     if let Some(props) = round_private["properties"].as_object_mut() {
         props.insert("demigods".into(), array(object("Rules 0.7.0: one of your two demigods this beat.",
             &[("ref", r("Ref")), ("side", r("Hand")), ("name", string("")), ("health", num("")), ("max_health", num("")),
-              ("alive", boolean("")), ("pos", r("LonLat")), ("cell", json!({ "type": ["string", "null"], "description": "People-level hex key." }))], &[]),
+              ("alive", boolean("")), ("pos", r("LonLat")), ("cell", json!({ "type": ["string", "null"], "description": "People-level hex key." }))],
+            &[("items", array(r("Item"), "Rules 0.9.0: what it holds now (gear with its mods).")), ("curses", array(r("Curse"), "Rules 0.9.0: the curses holding on it."))]),
             "Rules 0.7.0: both of your demigods (`you` is your lead one: the first standing)."));
         props.insert("manifests".into(), array(r("Manifestation"), "Rules 0.7.0: your demigods' manifestations this beat, with the verdict."));
-        props.insert("wills".into(), array(object("Rules 0.8.1: what became of an order you gave while all your demigods were fallen (never silence).",
-            &[("text", string("Your order.")), ("routed_to", nullable(string("The god it went to (Death for a plea to come back)."))),
-              ("verdict", json!({ "type": "string", "enum": ["grant", "bargain", "twist", "refuse", "refused"], "description": "The god's verdict, or refused (never reached a god)." })),
-              ("speech", nullable(string("The god's words."))), ("reason", string("Why: Death's price and your purse, or why it can't be done."))], &[]),
-            "Rules 0.8.1: your fallen demigods' wills this beat (absent when none)."));
+        props.insert("wills".into(), array(r("Will"), "Rules 0.9.0: every will of yours this beat, split into its parts, each with its roll, price, result and (when it fell short) why and what would work. Rules 0.8.1: only a fallen player's wills. Absent when you willed nothing."));
+        for (k, v) in wills::seat_fields() {
+            props.insert(k.into(), v);
+        }
+        props.insert("will_events".into(), array(r("DmEvent"), "Rules 0.9.0: this beat's quest and curse events only your seat gets (quest.given, quest.step, quest.done, quest.failed of private quests): the same shapes as the public dm_events."));
     }
     round_private["description"] =
         "`round.private.private` (the `SeatDelta`): what only your seat learns from the beat that just resolved. \
@@ -1986,6 +1997,7 @@ fn check(root: &Value, s: &Value, v: &Value, path: &str, strict: bool, errs: &mu
 }
 
 mod queries;
+mod wills;
 
 #[cfg(test)]
 mod tests;

@@ -32,6 +32,34 @@
       "minimum": 1,
       "type": "integer"
     },
+    "arm_bless_sparks": {
+      "default": 5,
+      "description": "Rules 0.9.0: sparks a god's blessing on an arming costs (per will part): the gear is a tier up and carries the god's signature.",
+      "maximum": 50,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "arm_price_artifact": {
+      "default": 2,
+      "description": "Rules 0.9.0: sparks an artifact-tier arm costs per demigod (a trinket is free).",
+      "maximum": 50,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "arm_price_relic": {
+      "default": 5,
+      "description": "Rules 0.9.0: sparks a relic-tier arm costs per demigod.",
+      "maximum": 50,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "arms_scale": {
+      "default": 1.0,
+      "description": "Rules 0.9.0: multiplier on every number an item's modifiers add (strike, damage, guard, regeneration, duel); 0 = gear is decoration.",
+      "maximum": 5.0,
+      "minimum": 0.0,
+      "type": "number"
+    },
     "army_first_host_scale": {
       "default": 0.82,
       "description": "Multiplier on the extra chance a crowd near an unarmed demigod raises their first volunteer host.",
@@ -78,6 +106,20 @@
       "default": 1,
       "description": "Rules 0.7.0: lightning bolts (the mega currency; also Time's toll and gods' prices) each player starts with. `start_bolts` is an alias.",
       "maximum": 99,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "boon_beats": {
+      "default": 6,
+      "description": "Rules 0.9.0: beats a boon (a blessing, or a critical heal's gift) lasts.",
+      "maximum": 100,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "boon_bonus": {
+      "default": 1,
+      "description": "Rules 0.9.0: the d20 bonus a boon gives its demigod's acts.",
+      "maximum": 5,
       "minimum": 0,
       "type": "integer"
     },
@@ -144,6 +186,48 @@
       "exclusiveMinimum": 0,
       "maximum": 600.0,
       "type": "number"
+    },
+    "curse_beats": {
+      "default": 12,
+      "description": "Rules 0.9.0: beats an ordinary curse lasts (a seal and a god-tier curse last until countered).",
+      "maximum": 1000,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "curse_dc": {
+      "default": 10,
+      "description": "Rules 0.9.0: the DC of casting a curse (plus half the target's wardrobe stage).",
+      "maximum": 30,
+      "minimum": 2,
+      "type": "integer"
+    },
+    "curse_entropy": {
+      "default": 3.0,
+      "description": "Rules 0.9.0: Entropy raised by a curse (a god-tier one raises entropy_per_mega).",
+      "maximum": 100.0,
+      "minimum": 0.0,
+      "type": "number"
+    },
+    "curse_god_price_sparks": {
+      "default": 15,
+      "description": "Rules 0.9.0: sparks the god-tier variant of a curse costs (strength 3, until countered).",
+      "maximum": 200,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "curse_max_per_player": {
+      "default": 2,
+      "description": "Rules 0.9.0: curses and seals one player may have standing at once.",
+      "maximum": 20,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "curse_price_sparks": {
+      "default": 5,
+      "description": "Rules 0.9.0: sparks a curse or a seal costs (a bolt breaks into will_spark_per_bolt sparks).",
+      "maximum": 100,
+      "minimum": 0,
+      "type": "integer"
     },
     "debt_due_beats": {
       "default": 50,
@@ -425,6 +509,27 @@
       "minimum": 0,
       "type": "integer"
     },
+    "heal_price_sparks": {
+      "default": 1,
+      "description": "Rules 0.9.0: a heal or blessing costs this + magnitude/4 sparks per target.",
+      "maximum": 20,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "heal_scale": {
+      "default": 1.0,
+      "description": "Rules 0.9.0: multiplier on every will heal (1 + magnitude/4 health per target before it).",
+      "maximum": 10.0,
+      "minimum": 0.0,
+      "type": "number"
+    },
+    "heal_token": {
+      "default": 0.5,
+      "description": "Rules 0.9.0: the token heal of a failed heal roll (the rest waits on its mystic quest).",
+      "maximum": 5.0,
+      "minimum": 0.0,
+      "type": "number"
+    },
     "instant_order_debt": {
       "default": 0.5,
       "description": "Time's flat debt for orders sent without a slow window (bots, the built-in AI, Compose submits that skip action.begin): no repeat or seconds factor; doubled when the bolt can't be paid. Real windows keep 0.5 × (1 + seconds/10) × (1 + 0.5 × recent slows).",
@@ -521,6 +626,62 @@
       "minimum": 1,
       "type": "integer"
     },
+    "quest_expire_beats": {
+      "default": 24,
+      "description": "Rules 0.9.0: beats a heal's or an arming's quest stays open (0 = until done); a curse's counter-quest lives as long as its curse, a raising's until the Final Night.",
+      "maximum": 1000,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "quest_spark_step": {
+      "default": 2,
+      "description": "Rules 0.9.0: sparks a quest's offering step asks for (times the quest's difficulty).",
+      "maximum": 50,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "quest_steps_max": {
+      "default": 3,
+      "description": "Rules 0.9.0: the most steps a mystic quest has.",
+      "maximum": 3,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "raise_cap": {
+      "default": 3,
+      "description": "Rules 0.9.0: raisings one player may be granted per match (0 = none).",
+      "maximum": 50,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "raise_health_fraction": {
+      "default": 0.4,
+      "description": "Rules 0.9.0: the share of its max health a raised demigod returns with.",
+      "maximum": 1.0,
+      "minimum": 0.05,
+      "type": "number"
+    },
+    "raise_price_sparks": {
+      "default": 5,
+      "description": "Rules 0.9.0: Death's base price in sparks to raise a fallen demigod, times 1 + the times it was raised before, plus 1 per raise_stale_beats it has lain dead.",
+      "maximum": 100,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "raise_stale_beats": {
+      "default": 8,
+      "description": "Rules 0.9.0: every this many beats a demigod has been dead adds a spark to Death's price.",
+      "maximum": 1000,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "raise_years": {
+      "default": 1.0,
+      "description": "Rules 0.9.0: max-health years a raised demigod loses, times 1 + the times it was raised before.",
+      "maximum": 10.0,
+      "minimum": 0.0,
+      "type": "number"
+    },
     "resolve_timeout_s": {
       "description": "The core's resolve timeout. Default 60.",
       "exclusiveMinimum": 0,
@@ -590,6 +751,53 @@
       "maximum": 10.0,
       "minimum": 0.0,
       "type": "number"
+    },
+    "will_debt_cap": {
+      "default": 3.0,
+      "description": "Rules 0.9.0: the open debt (health points, per demigod) beyond which the gods finance no more unpaid wills: the will becomes a mystic quest instead.",
+      "maximum": 20.0,
+      "minimum": 0.0,
+      "type": "number"
+    },
+    "will_debt_per_spark": {
+      "default": 0.2,
+      "description": "Rules 0.9.0: debt (to the ruling god) per spark of a will's price the purse could not pay.",
+      "maximum": 5.0,
+      "minimum": 0.0,
+      "type": "number"
+    },
+    "will_entropy_per_spark": {
+      "default": 0.25,
+      "description": "Rules 0.9.0: Entropy raised per spark paid for a will.",
+      "maximum": 10.0,
+      "minimum": 0.0,
+      "type": "number"
+    },
+    "will_own_dc": {
+      "default": 6,
+      "description": "Rules 0.9.0: the base DC of a will on your own demigods (heal, bless, arm): DC = this + magnitude/4 (an arming adds 2 per tier). A hostile act's is 8 + magnitude/2.",
+      "maximum": 20,
+      "minimum": 2,
+      "type": "integer"
+    },
+    "will_spark_per_bolt": {
+      "default": 5,
+      "description": "Rules 0.9.0: sparks one lightning bolt breaks into when a will's price is paid from bolts (the 1:5 economy; the change stays in the purse as sparks).",
+      "maximum": 20,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "wills_ai_chance": {
+      "default": 0.25,
+      "description": "Rules 0.9.0: how readily the built-in AI uses wills (heals when hurt, arms itself, pleads for its fallen sibling, curses a rival, pursues its quests); 0 = never.",
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "type": "number"
+    },
+    "wills_enabled": {
+      "default": true,
+      "description": "Rules 0.9.0, wills that matter (the feature gate; also needs state schema 7+): a will splits into its parts, healing and blessing your own never just fail, arming makes gear with real modifiers, anyone may plead for a resurrection, seals and curses exist and every one has a mystic counter-quest. Settings recorded before 0.9.0 lack it and read back `false` (old recordings replay unchanged).",
+      "type": "boolean"
     }
   },
   "title": "Final Night 7 room settings",
