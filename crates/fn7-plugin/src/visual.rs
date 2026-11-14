@@ -193,15 +193,48 @@ fn pick(r: &mut Rng, xs: &[&str]) -> String {
     r.pick(xs).copied().unwrap_or_default().to_string()
 }
 
-/// A name as an identity: trimmed, lowercased.
-pub fn identity(name: &str) -> String {
-    name.trim().to_lowercase()
+/// A demigod's name as its images know it: without a disambiguating `" (n)"` seat suffix (rules 0.8.1), so a renamed
+/// `"Chris's Left Hand (2)"` draws exactly like the prewarmed `"Chris's Left Hand"`.
+pub fn image_name(name: &str) -> &str {
+    let t = name.trim();
+    if let Some(open) = t.strip_suffix(')').and_then(|x| x.rfind(" (").map(|i| (i, x))) {
+        let (i, x) = open;
+        let digits = &x[i + 2..];
+        if !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()) {
+            return x[..i].trim_end();
+        }
+    }
+    t
 }
 
-/// A demigod's sheet from its name alone (the same in every match).
+/// A name as an identity: trimmed, lowercased, any `" (n)"` suffix dropped ([`image_name`]).
+pub fn identity(name: &str) -> String {
+    image_name(name).to_lowercase()
+}
+
+/// A demigod's sheet from its name alone (the same in every match), keyed on [`identity`] (rules 0.8.1: the
+/// stripped name).
 pub fn demigod_by_name(name: &str) -> Visual {
-    let id = identity(name);
-    let mut r = Rng::derive(0, &[0x7669_7375_616c, 1, hash_str(&id)]);
+    sheet_of_identity(&identity(name))
+}
+
+/// The sheet keyed on the name as states before schema 7 knew it (trimmed and lowercased, a `" (n)"` suffix kept), so
+/// older recordings' prompts replay unchanged.
+pub fn demigod_by_name_unstripped(name: &str) -> Visual {
+    sheet_of_identity(&name.trim().to_lowercase())
+}
+
+/// [`demigod_by_name`] in a schema-7 state, [`demigod_by_name_unstripped`] before.
+pub fn demigod_by_name_in(w: &World, name: &str) -> Visual {
+    if w.challenge_rules() {
+        demigod_by_name(name)
+    } else {
+        demigod_by_name_unstripped(name)
+    }
+}
+
+fn sheet_of_identity(id: &str) -> Visual {
+    let mut r = Rng::derive(0, &[0x7669_7375_616c, 1, hash_str(id)]);
     traits_sheet(&mut r, &format!("{SHEET_VERSION}\ndemigod:{id}"), true)
 }
 
@@ -238,8 +271,8 @@ fn traits_sheet(r: &mut Rng, head: &str, demigod: bool) -> Visual {
 }
 
 /// A demigod's sheet: from its name alone ([`demigod_by_name`]), never the seed, id or ref.
-pub fn demigod(_w: &World, d: &Demigod) -> Visual {
-    demigod_by_name(&d.name)
+pub fn demigod(w: &World, d: &Demigod) -> Visual {
+    demigod_by_name_in(w, &d.name)
 }
 
 /// A named person's sheet (seed, id, name).

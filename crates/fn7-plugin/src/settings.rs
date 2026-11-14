@@ -156,6 +156,46 @@ pub struct Settings {
     pub god_power_cost: u32,
     /// Rules 0.8.0: bolts every OTHER player gains when someone casts a god-tier power (like a mega).
     pub god_power_gift: u32,
+    /// Rules 0.8.1, challenge mode: a demigod may challenge a rival in reach to a typed duel (`fields.challenge`), and
+    /// the built-in AI now and then does. Settings recorded before 0.8.1 lack it and read back `false` (old recordings
+    /// replay unchanged).
+    pub challenge_enabled: bool,
+    /// Rules 0.8.1 marker: always `true` in settings validated by a 0.8.1+ server, absent (`false`) in recordings from
+    /// before, so 0.8.1 behaviour changes (the takeover rename fix) stay off when an older match replays.
+    pub rules_0_8_1: bool,
+    /// Rules 0.8.1: a challenge always reaches this far (km), at any zoom.
+    pub challenge_min_km: f32,
+    /// Rules 0.8.1: at the client's board `level` a challenge also reaches as far as two board cards touching there
+    /// (km): direct combat must be very straightforward to engage. The reach is max(`challenge_min_km`, this). This is
+    /// the regions level's (also for a missing or unknown level).
+    pub challenge_contact_km_regions: f32,
+    /// Rules 0.8.1: the touching-cards reach (km) of a challenge issued at the villages level.
+    pub challenge_contact_km_villages: f32,
+    /// Rules 0.8.1: the touching-cards reach (km) of a challenge issued at the houses level.
+    pub challenge_contact_km_houses: f32,
+    /// Rules 0.8.1: the touching-cards reach (km) of a challenge issued at the people level.
+    pub challenge_contact_km_people: f32,
+    /// Rules 0.8.1: beats between two challenges by the same demigod (1 = one a beat).
+    pub duel_cooldown_beats: u32,
+    /// Rules 0.8.1: multiplier on every duel blow's damage (0-3, a crit 4).
+    pub duel_damage_scale: f32,
+    /// Rules 0.8.1: the chance a built-in AI demigod with a rival in reach challenges it, per beat.
+    pub duel_ai_chance: f32,
+    /// Rules 0.8.1: a built-in AI demigod whose nearest rival is beyond regions reach but within this (km) summons
+    /// itself next to it first, then challenges (the summoning's mishap applies).
+    pub duel_ai_reach_km: f32,
+    /// Rules 0.8.1: blows each side throws automatically in a duel nobody typed in (the AI's phrase bank).
+    pub duel_auto_rounds: u32,
+    /// Rules 0.8.1: a human duellist who hasn't blown for this long (ms) is countered automatically, like an AI.
+    pub duel_counter_ms: u32,
+    /// Rules 0.8.1: a blow sooner than this (ms) after the same side's previous one is spam: a penalty verdict.
+    pub duel_min_gap_ms: u32,
+    /// Rules 0.8.1: a blow within this (ms) of the same side's previous one is a quick follow-up (+1).
+    pub duel_followup_ms: u32,
+    /// Rules 0.8.1: the longest a duel may run (ms from the lock): the engine's hold deadline ("the world holds its
+    /// breath"); without engine holds the world keeps beating, lines after it are refused, and the duel ends at the
+    /// first resolve past it (at most `ceil(duel_deadline_ms / flow_ms)` resolves from its lock).
+    pub duel_deadline_ms: u32,
 }
 
 impl Default for Settings {
@@ -228,6 +268,22 @@ impl Default for Settings {
             summon_loss_scale: 1.0,
             god_power_cost: 3,
             god_power_gift: 1,
+            challenge_enabled: true,
+            rules_0_8_1: true,
+            challenge_min_km: 120.0,
+            challenge_contact_km_regions: 600.0,
+            challenge_contact_km_villages: 15.0,
+            challenge_contact_km_houses: 0.15,
+            challenge_contact_km_people: 0.015,
+            duel_cooldown_beats: 1,
+            duel_damage_scale: 1.0,
+            duel_ai_chance: 0.02,
+            duel_ai_reach_km: 2000.0,
+            duel_auto_rounds: 2,
+            duel_counter_ms: 3000,
+            duel_min_gap_ms: 500,
+            duel_followup_ms: 1500,
+            duel_deadline_ms: 30_000,
         }
     }
 }
@@ -249,7 +305,8 @@ const F32_KEYS: &[&str] =
       "manifest_scale", "manifest_muster_scale", "entropy_per_mega", "entropy_per_mini", "dm_reach_km",
       "dm_encounter_damage_scale", "dm_road_wear", "dm_road_decay", "dm_shrine_heal", "dm_shrine_ward", "fault_near_km", "fault_far_km",
       "fault_near_magnitude", "fault_far_magnitude", "fault_near_radius", "fault_far_radius", "fault_near_damage",
-      "fault_far_damage", "summon_loss_scale"];
+      "fault_far_damage", "summon_loss_scale", "challenge_min_km", "challenge_contact_km_regions", "challenge_contact_km_villages",
+      "challenge_contact_km_houses", "challenge_contact_km_people", "duel_damage_scale", "duel_ai_chance", "duel_ai_reach_km"];
 
 /// The shortest decimal that reads back as `x` (so `0.04f32` is `0.04`, not `0.03999999910593033`).
 fn f32_decimal(x: f32) -> f64 {
@@ -382,6 +439,22 @@ impl Settings {
             summon_loss_scale: num("summon_loss_scale", d.summon_loss_scale, 0.0, 10.0)?,
             god_power_cost: int("god_power_cost", d.god_power_cost, 0, 20)?,
             god_power_gift: int("god_power_gift", d.god_power_gift, 0, 10)?,
+            challenge_enabled: boolean("challenge_enabled", d.challenge_enabled)?,
+            rules_0_8_1: true,
+            challenge_min_km: num("challenge_min_km", d.challenge_min_km, 0.0, 20000.0)?,
+            challenge_contact_km_regions: num("challenge_contact_km_regions", d.challenge_contact_km_regions, 0.0, 20000.0)?,
+            challenge_contact_km_villages: num("challenge_contact_km_villages", d.challenge_contact_km_villages, 0.0, 20000.0)?,
+            challenge_contact_km_houses: num("challenge_contact_km_houses", d.challenge_contact_km_houses, 0.0, 20000.0)?,
+            challenge_contact_km_people: num("challenge_contact_km_people", d.challenge_contact_km_people, 0.0, 20000.0)?,
+            duel_cooldown_beats: int("duel_cooldown_beats", d.duel_cooldown_beats, 1, 100)?,
+            duel_damage_scale: num("duel_damage_scale", d.duel_damage_scale, 0.0, 10.0)?,
+            duel_ai_chance: num("duel_ai_chance", d.duel_ai_chance, 0.0, 1.0)?,
+            duel_ai_reach_km: num("duel_ai_reach_km", d.duel_ai_reach_km, 0.0, 20000.0)?,
+            duel_auto_rounds: int("duel_auto_rounds", d.duel_auto_rounds, 0, 10)?,
+            duel_counter_ms: int("duel_counter_ms", d.duel_counter_ms, 0, 60_000)?,
+            duel_min_gap_ms: int("duel_min_gap_ms", d.duel_min_gap_ms, 0, 5000)?,
+            duel_followup_ms: int("duel_followup_ms", d.duel_followup_ms, 0, 10_000)?,
+            duel_deadline_ms: int("duel_deadline_ms", d.duel_deadline_ms, 1000, 600_000)?,
         };
         let s = Settings { start_bolts: s.bolt_start, ..s };
         let mut out = match serde_json::to_value(&s).map_err(|e| e.to_string())? {
@@ -430,6 +503,14 @@ impl Settings {
             if v.get(k).is_none() {
                 *x = 1.0;
             }
+        }
+        // Rules 0.8.1: settings recorded before challenge mode have no `challenge_enabled`: off, so a 0.8.0 recording
+        // (schema 6 too) replays byte for byte (the built-in AI never challenges in it).
+        if v.get("challenge_enabled").is_none() {
+            s.challenge_enabled = false;
+        }
+        if v.get("rules_0_8_1").is_none() {
+            s.rules_0_8_1 = false;
         }
         // Settings recorded before flow/slow (schema 2) had only `beat_ms`.
         if v.get("flow_ms").is_none() {
@@ -487,6 +568,13 @@ mod tests {
         assert!(Settings::validate(&json!({"seed": -1})).is_err());
         assert!(Settings::validate(&json!([1])).is_err());
         assert!(Settings::validate(&json!({"compose_seconds": 0})).is_err());
+        // Rules 0.8.1: challenge mode is on for new matches, off for settings recorded before it.
+        assert_eq!(v["challenge_enabled"], true);
+        assert!(Settings::from_value(&v).challenge_enabled);
+        assert!(!Settings::from_value(&json!({"beats_total": 30, "flow_ms": 3000})).challenge_enabled);
+        assert_eq!(Settings::validate(&Value::Null).unwrap()["challenge_contact_km_houses"].to_string(), "0.15");
+        assert_eq!(Settings::validate(&Value::Null).unwrap()["challenge_min_km"].to_string(), "120.0");
+        assert!(Settings::validate(&json!({"duel_ai_chance": 2})).is_err());
     }
 
     #[test]

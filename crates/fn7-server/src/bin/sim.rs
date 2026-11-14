@@ -331,6 +331,16 @@ async fn main() -> anyhow::Result<()> {
             kind("settlement.shrank"),
             kind("story.scar"),
         );
+        // Rules 0.8.1: challenge mode.
+        let ends: Vec<&fn7_model::dm::DmEntry> = dm.memory.iter().filter(|e| e.kind == "duel.end").collect();
+        println!(
+            "duels: {} fought, {} knockouts, {} blows, champion seat {}, last beat {}",
+            ends.len(),
+            ends.iter().filter(|e| e.data["ko"] == true).count(),
+            ends.iter().map(|e| e.data["blows"].as_u64().unwrap_or(0)).sum::<u64>(),
+            w.alive_demigods().next().map(|d| d.seat as i64).unwrap_or(-1),
+            w.meta.beat,
+        );
     }
     society_report(&w, &soc_ms, a.examples);
     if let Some(r) = recorder {

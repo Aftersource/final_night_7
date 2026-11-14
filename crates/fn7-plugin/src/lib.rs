@@ -20,7 +20,9 @@ use theatre_plugin_api::*;
 pub mod actions;
 pub mod beat;
 pub mod casts;
+pub mod choreo;
 pub mod dm;
+pub mod duel;
 pub mod driver;
 pub mod faults;
 pub mod godtier;
@@ -44,14 +46,14 @@ pub use settings::Settings;
 
 pub const PLUGIN_ID: &str = "final_night_7";
 /// Bump on any change to rules, prompts or how outcomes are computed.
-pub const RULES_VERSION: &str = "0.8.0";
+pub const RULES_VERSION: &str = "0.8.1";
 pub const RULES_LABEL: &str = "planet edition on Theatre v2.2: flow beats that never wait; text entry = Time's slow \
 windows (core action windows, Enter cut-off, penalty from real seconds open); casts = instant bolts with a public streak, \
 Entropy's yes and ramifications; Death's revive returns a seat to play; armies, world mods, Entropy to heat death; \
 Final Night leaves exactly one player; two demigods per player (Left and Right hands, each its own body and health); \
 the item engine judges manifestations; no two demigods share a people-level hex unless engaged; the Dungeon Master's \
 rulebook: a place x time memory, visible d20s, growing settlements, story pieces, map encounters, loot, day and night, \
-roads, shrines, fault lines for megas, summoning and god-tier powers";
+roads, shrines, fault lines for megas, summoning and god-tier powers; challenge mode: typed duels decided by the dice";
 /// The compiled-in power palette (`data/powers.json`).
 pub fn powers() -> &'static fn7_pantheon::Powers {
     static P: std::sync::OnceLock<fn7_pantheon::Powers> = std::sync::OnceLock::new();
@@ -86,8 +88,8 @@ pub const MECHANICS: &[&str] = &[
     "People-level occupancy (rules 0.7.0, Benito's rule): cells are the client's hex cells (cube-face gnomonic projection, R = 6,371 km, pointy-top axial, people level 3 m). After each beat's moves no two standing demigods share a people-level cell unless engaged (one acted directly on the other this beat: a fight, a seduction, a parley); otherwise the later mover is nudged to the nearest free neighbouring cell (rings 1-6, fixed order; non-movers keep their cells first, then movers by their last move row).",
     "The Final Wish (rules 0.7.0): beat 1 is the final wish: each player's orders are their final wish; both hands get max_intents_per_window acts, every act gets final_wish_magnitude more magnitude, the hand and resolver prompts frame it, the narrator calls them wishes, and every built-in AI demigod makes a wish (within its purse). Every wish costs as normal.",
     "Hotspots (rules 0.7.0): per region, the densest weighted spot of the last 5 beats (public events 1 + magnitude/3, battles 4, live mobs 2 + size/2000 up to 6, crowds in unrest 1 + 2 x anger, demigods 3) within a quarter of the region's radius (25-400 km; a city 0.3-3 km): centre = weighted mean, radius = weighted spread (at least half that), score = weight. Built-in AI demigods drift toward the nearest hotspot within reach about one beat in four when the circle isn't pressing.",
-    "Mid-match join (room setting allow_midmatch_join): at the round boundary a human taking over a bot's seat keeps its demigods, now human-controlled (rules 0.8.0: renamed \"<joiner>'s Left Hand\" / \"<joiner>'s Right Hand\", refs unchanged, hand agents too, remembered as seat.takeover); a new seat takes over the built-in AI demigod still alive with the most health (then the lowest id), whose hands follow that seat's orders from that beat; with none alive the joiner spectates (no demigod). Every demigod's public controller is human or ai.",
-    "The Dungeon Master's rulebook (rules 0.8.0, state schema 6; docs/DM_RULEBOOK.md, the single rules reference): the DM's core rules (the dice decide, the DM remembers, places nest, describe the world as the rules left it) join the resolver's and the gods' system prompts, with up to dm_memory_lines settled facts about the place, each act's d20 and the time of day; older schemas keep the old prompts. Every 0.8.0 rule is gated on schema 6.",
+    "Mid-match join (room setting allow_midmatch_join): at the round boundary a human taking over a bot's seat keeps its demigods, now human-controlled (rules 0.8.0: renamed \"<joiner>'s Left Hand\" / \"<joiner>'s Right Hand\", refs unchanged, hand agents too, remembered as seat.takeover); a new seat takes over the built-in AI demigod still alive with the most health (then the lowest id), whose hands follow that seat's orders from that beat; with none alive the joiner spectates (no demigod). Every demigod's public controller is human or ai. Rules 0.8.1: a takeover name that collides only with the SAME player's older seat (same display name) keeps the plain name (no \" (n)\" suffix; only a different player's collision is suffixed), and image identities ignore any \" (n)\" suffix so art matches the prewarmed images.",
+    "The Dungeon Master's rulebook (rules 0.8.0, state schema 6; docs/DM_RULEBOOK.md, the single rules reference): the DM's core rules (the dice decide, the DM remembers, places nest, describe the world as the rules left it) join the resolver's and the gods' system prompts, with up to dm_memory_lines settled facts about the place, each act's d20 and the time of day; older schemas keep the old prompts. Every 0.8.0 rule is gated on schema 6; every 0.8.1 rule (challenge mode, the summon's damage check at the accept, heals to Nature, fallen wills, the takeover rename fix) on schema 7.",
     "Place x time memory (rules 0.8.0): every DM decision about a place at a beat is an entry (World.dm.memory, append-only): scope cell (a people- or house-level hex) -> settlement (the nearest city/site within 1.5 x its radius, at least 15 km / 0.5 km) -> region -> world, with its ancestors, a kind, an optional query key and the result. Lookups: what was decided about P (or an ancestor or descendant) at or before beat B (game.memory). INTEGRATE: each beat's facts roll up as one memory.rollup per ancestor touched (counts by kind, up to 3 notable events, the ancestor's state). COMPARE: a query already answered keeps its answer (a different one is a memory_conflict trace event, dropped); resolver proposals are checked against their act's recorded d20 (a natural 1 lands nothing on others, a fail at most 3 damage). EXTRAPOLATE: a hex's state (people, buildings, encounters, loot, shrines, road, weather, light, its parent's changes) is carried from its last place.observed record by its parent's changes since, seeded by cell and beats; the DM records observations of hexes where demigods arrive (and daily where they stand), each seat's zoom focus and every hex it decided about.",
     "The d20 (rules 0.8.0): seeded by the match seed and the query (act:<intent>, mf:<id>, encounter:<id>, fight:<beat>:<a>:<b>), recorded once and shown as a public dice.rolled outcome event {who, die, roll, modifier, total, target_dc, verdict, reason, at, cell}. A natural 1 is crit_fail, a natural 20 crit_success, else total vs DC. Resolver acts: DC 8 + magnitude/2, modifier +1 hale (health >= 7) / -1 hurt (<= 3) + wardrobe/2 (+2 on the Final Wish); rules-fallback strikes land 0 / 0.5x / 1x / 1.5x (max 7) by verdict, talk and threats the same factors; a harmless act's accident is its confirmed natural 1 ((roll - 1) + confirm < accident_scale). Manifestations: target_dc = 21 - round(20 x tier base odds), the modifier carries the other odds terms (so success <=> face >= 21 - round(20 x odds)); the confirm draw places the outcome inside the success or failure share; a natural 20 is an untwisted success, a natural 1 fails or backfires.",
     "Day and night (rules 0.8.0): beats_per_day (8) beats a day: the first eighth dawn, day to half, dusk to five eighths, then night; light 0.5 + 0.5 sin(2 pi (beat_in_day - 1) / beats_per_day). Each phase change is remembered. round.brief.public.time_of_day {day, phase, light} and time_of_day_phase.",
@@ -99,8 +101,10 @@ pub const MECHANICS: &[&str] = &[
     "Shrines (rules 0.8.0): an order with a making verb and a shrine word, or a made structure, raises a shrine on the demigod's house-level hex (at most dm_shrines_per_demigod (3), one a beat); power by its words or seeded: spark (+1 spark every dm_shrine_spark_every (6) beats, one sooner per level above 1, min 2), heal (its player's demigods within 3 x reach heal dm_shrine_heal (0.15) x level a beat), ward (rivals within 3 x reach take dm_shrine_ward (0.1) x level); worshippers from crowds within 300 km (size x (0.001 + 0.004 devotion) x (1 + faith need), max 250k a beat) plus pilgrims (Following/1000, 5-500); level 1 below 1,000 then +1 per tenfold (max 5); abandoned shrines lose a tenth a beat. shrines [{cell, owner_seat, side, worshippers, power}] on game.region / game.node and public_state.",
     "Fault lines (rules 0.8.0, data/geo/PB2002_boundaries.json, compiled once into a 5-degree segment index): a MEGA cast's magnitude, radius and damage scale with its great-circle distance to the nearest plate boundary: within fault_near_km (150) + fault_near_magnitude (3), x fault_near_radius (1.5), x fault_near_damage (1.6); beyond fault_far_km (1500) + fault_far_magnitude (-2), x fault_far_radius (1.0), x fault_far_damage (0.6); linear in between. Minis are unaffected. The streak and the cast line carry fault_km and fault_factor.",
     "The Lens and the Engine (rules 0.8.0, the rulebook's governing principle): a place's history is a lens the DM looks through; the rules and dice are an engine that already decided and is never overruled; the DM makes the answer make mystical sense through Rube Goldberg causality. Its concise form joins the resolver's, the gods', the narrator's, the ramifications' and the summon mind's prompts (schema 6 only); the rules' encounter lines carry seeded flourishes rhyming with the region's memory.",
-    "Summoning (rules 0.8.0): an instant fields.summon {demigod (one of yours), target ([lon, lat] or a hex key)}, any phase, when summon_enabled and not within summon_cooldown_beats (1) of the last; it lands at the next resolve, this beat: a rules Move row (the occupancy rule nudges it), its hands' travel this beat void and its standing orders ended. A visible d20 (summon:<beat>:<demigod>, no modifier, DC round(20p) + 1 with p = clamp(0.25 + 0.6 health/max, 0, 0.95)) decides a mishap costing round(0.2 x health) clamped 1..2 (x summon_loss_scale; none below 2.5 health). The summon mind (LLM, else seeded rules parts) tells the transit deed: a tale in its story and memory entries at both places (summon.departed, summoned: the public event {demigod, from {pos, cell}, to {pos, cell}, deed, health_lost}).",
+    "Summoning (rules 0.8.0): an instant fields.summon {demigod (one of yours), target ([lon, lat] or a hex key)}, any phase, when summon_enabled and not within summon_cooldown_beats (1) of the last; it lands at the next resolve, this beat: a rules Move row (the occupancy rule nudges it), its hands' travel this beat void and its standing orders ended. A visible d20 (summon:<beat>:<demigod>, no modifier, DC round(20p) + 1 with p = clamp(0.25 + 0.6 health/max, 0, 0.95)) decides a mishap costing round(0.2 x health) clamped 1..2 (x summon_loss_scale; none below 2.5 health). The summon mind (LLM, else seeded rules parts) tells the transit deed: a tale in its story and memory entries at both places (summon.departed, summoned: the public event {demigod, from {pos, cell}, to {pos, cell}, deed, health_lost}). Rules 0.8.1: the damage check comes before the teleport: the mishap d20 (query summon:<beat>:<demigod>:<lon>,<lat>) and health_lost are decided at the accept from the committed state and shown in the instant summoning push; the resolve recomputes them from the beat's starting health (the same values).",
     "God-tier powers (rules 0.8.0): one signature power per god (god_time, god_nature, god_consequence, god_death, god_chance, god_memory, god_entropy; tier god in the palette), cast as fields.cast {power, tier: god, target}: god_power_cost (3) bolts at the next resolve, every other player with a demigod standing gains god_power_gift (1) bolt, Entropy + entropy_per_mega. It becomes an invocation (magnitude 8) routed to that god's mind (verdict, price, precedence; its bolt price already paid); unless refused, its signature lands as the god's proposals: Time rewinds a unit 2 beats (or slows rival demigods within 1,500 km a beat), Nature 1.2 damage to rivals within 400 km, Consequence collects the target rival's biggest open debt, Death raises a fallen target or strikes a standing one for 3, Chance a seeded coin per demigod within 600 km (heal 1.5 or 1.5 damage), Memory resets every crowd's allegiance in the region, Entropy +15.",
+    "Challenge mode (rules 0.8.1, state schema 7 and room setting challenge_enabled; older states never duel): an instant fields.challenge {demigod (yours, standing), target (a rival's, standing), level} locks both demigods in a duel when they stand within max(challenge_min_km (120), the touching-cards distance at the client's level: challenge_contact_km_regions 600 (also a missing or unknown level), _villages 15, _houses 0.15, _people 0.015) km (the level also frames the fight) and neither is already in a duel (and the challenger's last challenge is duel_cooldown_beats (1) back); refusals not_yours, fallen, bad_target, too_far:<distance km>:<allowed km>, busy, cooldown; no consent. on_instant shows challenge.lock {duel_id = duel:s<seq>:<a>:<b> (the challenge action's seq; the AI's duel:<beat>:<a>:<b>), a, b (demigod, name, health, portrait/diorama), at, focus {at, lat, lon, cell, level}, ends ko_or_deadline, ends_beat, deadline_ms, world beating}. Each typed line (fields.duel {duel_id, text <= 120}) is a blow resolved at once by rules (no LLM): a d20 seeded by the match seed and <duel_id>:<n> + modifier (wit of the line -3..+4: action verbs, body parts, items held, terrain and place words, the opponent's story and scars, minus repetition, echoes, short lines and gibberish; +1 hale (duel hp >= 7) / -1 hurt (<= 3); half the wardrobe stage + 1 with any item; +1 a quick follow-up within duel_followup_ms (1500); +1 on home turf; the formal model's situation) vs DC 10 (+1 at night, + half the opponent's wardrobe stage); damage 0 on a fail, 1 (+1 beating the DC by 5, +1 wit >= 3) on a success, 4 on a natural 20, shaped by the interaction matrix, x duel_damage_scale; a blow within duel_min_gap_ms (500) of the same side's last is a penalty (no die, 0.5 to its author). Against an AI, or a human who hasn't blown for duel_counter_ms (3000), each blow carries the opponent's automatic counter (wit capped +2). A duel ends at a knockout or its deadline (duel_deadline_ms, 30 s). The engine has no room-wide hold yet, so the world keeps beating: the duel is kept in the state (World.dm.duels) across resolves, each resolve applying the damage so far, the dice (dice[], reason a duel) and the invokes' bolts (round.outcome.public.duels_open[] challenge.open), the duellists locked in place; it ends at the first resolve after its deadline stamp or at beat ends_beat (lock beat + ceil(duel_deadline_ms / flow_ms) - 1), or at once when a duellist falls elsewhere or both are built-in AIs (fought automatically for duel_auto_rounds (2) exchanges if nobody typed). Every resolve recomputes the duels deterministically from the state and the ordered actions (a per-room live cache only numbers and displays blows). At the end: a knockout eliminates by the usual rules, the loser's loot drops on the duel's hex (everything at a knockout; else a DC 11 keep-hold roll when beaten by 1+), duel.lock and duel.end are remembered at the hex, both get a tale, and round.outcome.public.duels[] carries challenge.end {duel_id, reason ko|deadline|fallen|auto, winner, loser, ko, damage {a, b}, blows, typed, deed, log}, the deed one line from the duel mind (LLM when a human fought, else seeded rules parts). The built-in AI challenges its nearest rival with chance duel_ai_chance (0.02) per beat, decided at the round's start (round.started.public.challenges): within 120 km directly, else within duel_ai_reach_km (2000) after summoning itself next to it (a leap: the summoning's mishap d20 and health loss apply). The formal model (DM_RULEBOOK 21, \"the flips\"): range (far/mid/close/grapple), initiative and stances (neutral, guarding, committed, off_balance, airborne, downed) carry between blows; each line has a move class by rules (strike, heavy, guard, parry, feint, evade, close, retreat, grapple, throw, invoke (a bolt, any range), command (needs an army), taunt), gated by range, bolts and armies; the d20 adds initiative +2, the stances and openings; the interaction matrix decides what a success means (a parried strike leaves the attacker off balance and flips the initiative; a heavy breaks guards and parries but commits its user; a feint wastes a set defence and flips; an evade beats a heavy; grapple at close, throw from a grapple); every strike carries choreo {range and initiative before/after, flip, result, each figure's move class, timed poses from a fixed 30-pose vocabulary, contact, stance after, contacts[], camera, 600-1400 ms}. Rules decide; an LLM only phrases the deed.",
+    "Healing, routing and no vanishing intents (rules 0.8.1, the match 79fd73bf and f18d76a3 fixes; gated on state schema 7): a heal (heal, restore, mend, cure...) is routed to Nature (Death when a target has fallen), ruled on with its normal price, and unless refused heals each target 1 + magnitude/4 (1-3, half when twisted; Death raises the fallen); rival demigods are dropped from a heal unless the order names them, and \"me\" / \"my demigods\" / \"all my demigods\" (or no demigod named) mean the player's own; the hand's prompt marks the player's own demigods (yours). A god-routed intent naming no god in the match goes to Entropy (a visible ruling), never silently to the world. A fallen player's orders (all their demigods down) are never dropped: a plea to come back (revive, come back, back to life, raise, resurrect...) becomes an invocation of Death (verb revive, magnitude 6, by their first demigod, for all their fallen demigods) ruled like any other (Death's price; without the bolts Death twists or refuses), any other order is refused; either way the player's round.private carries wills[] {text, routed_to, verdict, speech, reason}.",
     "Match ends at beats_total or when at most one player stands. Standings and the champion are per player (each demigod's state shown); every demigod gets a pile, a portrait prompt, a diorama prompt and an amiibo statue prompt.",
 ];
 
@@ -137,6 +141,7 @@ pub fn ruleset_body(w: &World, pantheon: &Pantheon) -> Value {
             "dm_core (rules 0.8.0, schema 6: in the resolver's and the gods' system prompts)": fn7_agents::rulebook::DM_CORE,
             "lens (rules 0.8.0, schema 6: in the resolver's, gods', narrator's, ramify and summon prompts)": fn7_agents::rulebook::LENS,
             "summon_system (rules 0.8.0)": fn7_agents::summon::system_prompt(),
+            "duel_system (rules 0.8.1)": fn7_agents::duel::system_prompt(),
             "narrator_system": fn7_agents::narrator::system_prompt(),
             "materialize_system": fn7_agents::materialize::system_prompt(),
             "fold_system": fn7_agents::fold::system_prompt(),
@@ -173,6 +178,8 @@ fn sample_hand_prompt(w: &World, pantheon: &Pantheon) -> String {
         pantheon: Arc::new(pantheon.clone()),
         max_subagents: world::settings(w).max_subagents_per_hand as usize,
         final_wish: false,
+        own: vec![],
+        rules_081: false,
     })
 }
 
@@ -239,6 +246,8 @@ fn sample_step_prompt(kind: fn7_agents::step::StepKind) -> String {
 /// included, inside the match's trace context (theatre 1741d8f), so the plugin keeps no memory between hooks.
 pub struct FinalNight7Plugin {
     pantheon: Arc<Pantheon>,
+    /// Rules 0.8.1: the duels shown live this beat (display only; the resolve recomputes them; see [`duel`]).
+    live: duel::LiveCache,
     /// The server's media style config (`{version, hash, source, body}`), recorded in every match's ruleset as
     /// `media_style` (the plugin never reads it otherwise; images are the server's).
     media_style: Option<Value>,
@@ -248,6 +257,7 @@ impl Default for FinalNight7Plugin {
     fn default() -> Self {
         Self {
             pantheon: Arc::new(fn7_pantheon::load()),
+            live: Default::default(),
             media_style: None,
         }
     }
@@ -357,13 +367,25 @@ impl FinalNight7Plugin {
     /// The turns of a beat and every submission's arrival facts. A seat may have several actions (this round's
     /// Compose action, then windowed and instant ones in arrival order): their orders join in that order, their casts
     /// keep their `seq`. A bad action counts as silence; an instant action's orders are ignored (casts only).
-    fn turns(w: &World, round: u32, actions: &[Action]) -> (Vec<beat::Turn>, Vec<flow::Sub>) {
+    fn turns(w: &World, round: u32, actions: &[Action]) -> (Vec<beat::Turn>, Vec<flow::Sub>, Vec<beat::FallenWill>) {
         let mut out = vec![];
         let mut subs = vec![];
+        let mut wills = vec![];
+        let fixed = world::settings(w).rules_0_8_1;
         for s in &w.seats {
             // The seat's lead demigod (its first standing one; schema 4: its only one) answers for the seat's orders
             // and casts; a player is out only when every demigod of theirs has fallen.
             let Some(lead) = w.lead_of_seat(s.seat).filter(|_| w.seat_alive(s.seat)) else {
+                // Rules 0.8.1: a fallen player's WILL never vanishes: their orders get a visible ruling (a plea to
+                // Death to come back, or a refusal with the reason; `beat::FallenWill`).
+                if fixed && s.seat < SYNTHETIC_SEAT && w.bodies_of_seat(s.seat).next().is_some() {
+                    for a in actions.iter().filter(|a| a.seat == s.seat && !a.defaulted) {
+                        let Ok(i) = actions::parse(&a.text, &a.fields) else { continue };
+                        if i.has_orders() && !i.is_duel() {
+                            wills.push(beat::FallenWill { seat: s.seat, text: join(&i.left, &i.right), seq: a.seq });
+                        }
+                    }
+                }
                 continue;
             };
             let d = &w.demigods[lead.ix()];
@@ -387,6 +409,10 @@ impl FinalNight7Plugin {
                     let Ok(mut i) = actions::parse(&a.text, &a.fields) else {
                         continue;
                     };
+                    // Rules 0.8.1: challenges and duel lines are fought apart (`duel::acts_of`).
+                    if i.is_duel() {
+                        continue;
+                    }
                     if a.instant && i.has_orders() {
                         world::event(
                             "orders_ignored",
@@ -433,7 +459,7 @@ impl FinalNight7Plugin {
             };
             out.extend(beat::split_turn(w, s.seat, d.id, input));
         }
-        (out, subs)
+        (out, subs, wills)
     }
 
     async fn resolve(
@@ -444,8 +470,9 @@ impl FinalNight7Plugin {
         ctx: &RoundContext,
         llm: Option<&dyn LlmProvider>,
     ) -> RoundOutcome {
-        let (turns, subs) = Self::turns(w, round, actions);
-        let out = beat::resolve(w, round, turns, &subs, &ctx.windows_closed, llm, &self.pantheon).await;
+        let (turns, subs, wills) = Self::turns(w, round, actions);
+        let duels = duel::acts_of(actions);
+        let out = beat::resolve(w, round, turns, &subs, &duels, &wills, &ctx.windows_closed, llm, &self.pantheon).await;
         RoundOutcome {
             public: out.public,
             per_seat: out.per_seat,
@@ -523,7 +550,13 @@ impl GamePlugin for FinalNight7Plugin {
         _llm: &dyn LlmProvider,
     ) -> anyhow::Result<RoundStart> {
         let mut w = world::load(state)?;
-        Ok(phases::round_start(&mut w, round, &self.pantheon))
+        let mut rs = phases::round_start(&mut w, round, &self.pantheon);
+        // Rules 0.8.1: the built-in AI's challenges this beat, announced so a human can fight back.
+        let locks = duel::round_start(&self.live, &w);
+        if !locks.is_empty() {
+            rs.public["challenges"] = locks.into();
+        }
+        Ok(rs)
     }
 
     async fn brief(
@@ -559,6 +592,13 @@ impl GamePlugin for FinalNight7Plugin {
     ) -> Result<(), String> {
         let w = world::load(state).map_err(|e| e.to_string())?;
         let i = actions::parse(text, fields)?;
+        // Rules 0.8.1: a challenge or a duel line (instant only; checked against the live duels).
+        if i.is_duel() {
+            if kind != SubmitKind::Instant {
+                return Err("a challenge or a duel line is an instant action".into());
+            }
+            return duel::validate(&self.live, &w, seat, &i);
+        }
         if kind == SubmitKind::Instant && i.has_orders() {
             // Enforced on arrival (the core replies accepted:false); resolve keeps a safety net (`orders_ignored`).
             return Err("instant actions carry casts, not orders: send orders as text entry".into());
@@ -618,6 +658,10 @@ impl GamePlugin for FinalNight7Plugin {
         let w = world::load(state).ok()?;
         let s = world::seat_state(&w, seat)?;
         let i = actions::parse(&action.text, &action.fields).ok()?;
+        // Rules 0.8.1: a challenge locks two demigods in (`challenge.lock`); a duel line is a blow (`duel.blow`).
+        if i.is_duel() {
+            return duel::on_instant(&self.live, &w, seat, action, &i);
+        }
         // Rules 0.8.0: a summoning or a god-tier power is shown at once too (the client flashes; it lands at the
         // next resolve).
         if i.casts.is_empty() && w.dm_rules() && (!i.summons.is_empty() || !i.god_powers.is_empty()) {
@@ -635,6 +679,35 @@ impl GamePlugin for FinalNight7Plugin {
                 "god_powers": i.god_powers.iter().map(|g| json!({ "power": format!("god_{}", g.god), "tier": "god" })).collect::<Vec<_>>(),
                 "seq": action.seq, "received_at_ms": action.received_at_ms,
             });
+            let mut v = v;
+            // Rules 0.8.1: the damage check comes before the teleport: the mishap d20 and the health it costs are
+            // decided now (the resolve applies exactly these), and the summoning is noted for challenge mode (a
+            // challenge right after it fights from the destination, at the reduced health).
+            let st = world::settings(&w);
+            if st.rules_0_8_1 {
+                let mut noted = vec![];
+                for (k, x) in i.summons.iter().enumerate() {
+                    let health = w.demigods.get(x.demigod.ix()).map(|d| d.health).unwrap_or(0.0);
+                    let (_, roll, lost) = summon::mishap(&w, w.meta.beat, x, health, &st);
+                    let lost = (lost as f64 * 10.0).round() / 10.0;
+                    let cue = json!({ "roll": roll.roll, "modifier": roll.modifier, "total": roll.total,
+                                      "target_dc": roll.target_dc, "verdict": roll.verdict, "health_lost": lost });
+                    if k == 0 {
+                        if let (Some(o), Value::Object(c)) = (v.as_object_mut(), cue.clone()) {
+                            o.extend(c);
+                        }
+                    }
+                    if let Some(o) = v["summons"][k].as_object_mut() {
+                        if let Value::Object(c) = cue {
+                            o.extend(c);
+                        }
+                    }
+                    if summon::check(&w, s.seat, x, w.meta.beat + 1, &st).is_ok() {
+                        noted.push(duel::Moved { demigod: x.demigod, to: x.target, lost: lost as f32 });
+                    }
+                }
+                duel::note_summons(&self.live, &w, noted);
+            }
             world::event("summon_streak", Some(Ref::Demigod(lead).to_string()), v.clone());
             return Some(v);
         }
@@ -757,3 +830,5 @@ mod table_tests;
 mod two_bodies_tests;
 #[cfg(test)]
 mod dm_tests;
+#[cfg(test)]
+mod duel_tests;

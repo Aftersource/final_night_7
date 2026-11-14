@@ -355,6 +355,68 @@
         "null"
       ]
     },
+    "challenge": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "description": "Rules 0.8.1: challenge a rival's demigod in reach to a duel (an instant action that travels alone; forced). Refusals: not_yours, fallen, bad_target, too_far:<distance km>:<allowed km>, busy, cooldown, challenge_disabled.",
+          "properties": {
+            "demigod": {
+              "description": "One of your standing demigods.",
+              "pattern": "^dg:\\d+$",
+              "type": "string"
+            },
+            "level": {
+              "description": "The board level it was issued at (missing or unknown = regions): the reach is max(challenge_min_km 120, the touching-cards distance at this level: regions 600, villages 15, houses 0.15, people 0.015 km); it also frames the fight (the lock's cell).",
+              "enum": [
+                "regions",
+                "villages",
+                "houses",
+                "people"
+              ],
+              "type": "string"
+            },
+            "target": {
+              "description": "A rival's standing demigod.",
+              "pattern": "^dg:\\d+$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "demigod",
+            "target"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "duel": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "description": "Rules 0.8.1: one line typed in a duel, resolved at once (`duel.blow`). Refusals: no_duel, duel_over, not_yours, fallen, empty, too_long.",
+          "properties": {
+            "duel_id": {
+              "description": "From challenge.lock.",
+              "type": "string"
+            },
+            "text": {
+              "maxLength": 120,
+              "type": "string"
+            }
+          },
+          "required": [
+            "duel_id",
+            "text"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "left": {
       "description": "What you say to your left hand this beat (<= 2000 chars). Empty = that hand does nothing (no LLM call). Newlines separate commands.",
       "maxLength": 2000,

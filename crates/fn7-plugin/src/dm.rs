@@ -1373,7 +1373,8 @@ pub fn under(w: &World, p: PlaceId, region: PlaceId, settlement: Option<PlaceId>
 
 // ---- loot ---------------------------------------------------------------------------------------------------------
 
-fn held_items(w: &World, d: DemigodId) -> Vec<ItemId> {
+/// The items a demigod holds that aren't already lying in a pile (what it would drop).
+pub fn held_items(w: &World, d: DemigodId) -> Vec<ItemId> {
     let me = Ref::Demigod(d);
     w.items
         .iter()
@@ -1384,10 +1385,15 @@ fn held_items(w: &World, d: DemigodId) -> Vec<ItemId> {
 }
 
 fn drop_loot(w: &mut World, beat: u32, d: DemigodId, items: Vec<ItemId>, why: &str) {
+    let pos = w.demigods[d.ix()].pos;
+    drop_loot_at(w, beat, d, items, why, pos);
+}
+
+/// Drop `items` of `d` as a pile on the people-level hex at `pos` (rules 0.8.1: a duel's loser drops on the duel's hex).
+pub fn drop_loot_at(w: &mut World, beat: u32, d: DemigodId, items: Vec<ItemId>, why: &str, pos: LonLat) {
     if items.is_empty() {
         return;
     }
-    let pos = w.demigods[d.ix()].pos;
     let wh = locate(w, pos, HexLevel::People);
     let id = w.dm.loot.len() as u32;
     w.dm.loot.push(LootPile { id, cell: wh.cell.clone(), at: pos, region: wh.region, items: items.clone(), since_beat: beat,

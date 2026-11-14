@@ -60,6 +60,19 @@ pub struct HandCtx {
     pub max_subagents: usize,
     /// Rules 0.7.0: beat 1 is THE FINAL WISH; the player's orders are their final wish (framed in the user prompt).
     pub final_wish: bool,
+    /// Rules 0.8.1: the player's own demigods ("me", "my demigods"), marked in the prompt; empty before 0.8.1.
+    pub own: Vec<DemigodId>,
+    /// Rules 0.8.1 routing: heals go to Nature (Death for the fallen); a god route naming no god goes to Entropy
+    /// (never silently to the world). False for older matches (their recordings replay).
+    pub rules_081: bool,
+}
+
+/// Rules 0.8.1: a healing act (heal, restore, mend, cure, ...).
+pub fn is_heal(verb: &str, span: &str) -> bool {
+    const HEAL: &[&str] = &["heal", "restore", "mend", "cure", "patch up", "regenerate", "rejuvenate", "soothe"];
+    let v = verb.trim().to_lowercase();
+    let s = span.to_lowercase();
+    HEAL.iter().any(|h| v.starts_with(h)) || (v.is_empty() || v == "help") && HEAL.iter().any(|h| s.contains(h))
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -118,7 +131,7 @@ pub struct HandReply {
 // Prompt
 // ---------------------------------------------------------------------------------------------------------------------
 
-fn labels(ctx: &HandCtx) -> Labels {
+pub fn labels(ctx: &HandCtx) -> Labels {
     let mut l = Labels::new(&ctx.visible);
     for s in &ctx.subagents {
         l.add(Entity::new(
@@ -199,6 +212,16 @@ pub fn user_prompt(ctx: &HandCtx) -> String {
         table = l.render(),
         subs = if subs.is_empty() { "(none)".into() } else { subs.join("\n") },
     );
+    if ctx.rules_081 && !ctx.own.is_empty() {
+        let mine: Vec<String> = ctx.own.iter().filter_map(|d| l.label_of(Ref::Demigod(*d)).map(|x| format!("{x} (yours)"))).collect();
+        if !mine.is_empty() {
+            u.push_str(&format!(
+                "\nYour player's OWN demigods (\"me\", \"my demigods\", \"all my demigods\" mean these, never the others): {}. \
+                 Every other demigod is a rival.\n",
+                mine.join(", ")
+            ));
+        }
+    }
     if ctx.final_wish {
         u.push_str(
             "\nTHE FINAL WISH: this is the first beat of the Final Night. Your player's orders are their final wish: \
@@ -248,6 +271,12 @@ pub fn route_for(ctx: &HandCtx, l: &Labels, o: &IntentOut, span: &str) -> Route 
             by: RouteBy::Keyword,
         };
     }
+    // Rules 0.8.1: healing is Nature's (life and body; the god rules on it and its price is paid as for any god).
+    if ctx.rules_081 && is_heal(&o.verb, span) {
+        if let Some(god) = ctx.pantheon.id_of("nature") {
+            return Route::God { god, by: RouteBy::Keyword };
+        }
+    }
     match o.route {
         RouteKind::World
         | RouteKind::Spawn
@@ -268,6 +297,11 @@ pub fn route_for(ctx: &HandCtx, l: &Labels, o: &IntentOut, span: &str) -> Route 
                 .map(|god| Route::God {
                     god,
                     by: RouteBy::Llm,
+                })
+                // Rules 0.8.1: a god route naming no god in the match is Entropy's (MECHANICS: invocations of an
+                // unmade god go to Entropy), never silently a world act.
+                .or_else(|| {
+                    ctx.rules_081.then(|| ctx.pantheon.id_of("entropy")).flatten().map(|god| Route::God { god, by: RouteBy::Llm })
                 })
                 .unwrap_or(Route::World)
         }
@@ -536,6 +570,9 @@ pub fn fallback(ctx: &HandCtx) -> HandOut {
                 god,
                 by: RouteBy::Keyword,
             }
+        } else if let Some(god) = ctx.pantheon.id_of("nature").filter(|_| ctx.rules_081 && is_heal(&verb, &clause)) {
+            // Rules 0.8.1: healing is Nature's.
+            Route::God { god, by: RouteBy::Keyword }
         } else {
             Route::World
         };

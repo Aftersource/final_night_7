@@ -62,6 +62,26 @@ pub struct GodPowerOrder {
     pub seq: u64,
 }
 
+/// Rules 0.8.1, challenge mode: `fields.challenge {demigod, target, level}`: one of your demigods locks a rival's in a
+/// duel (an instant action, forced: no consent).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChallengeOrder {
+    pub demigod: DemigodId,
+    pub target: DemigodId,
+    /// The board level it was issued at: its hex size is the reach (`crate::duel::LEVELS`).
+    pub level: &'static str,
+}
+
+/// Rules 0.8.1: `fields.duel {duel_id, text}`: one typed line in a duel (resolved at once as a blow).
+#[derive(Debug, Clone, PartialEq)]
+pub struct BlowOrder {
+    pub duel_id: String,
+    pub text: String,
+}
+
+/// Longest duel line.
+pub const MAX_DUEL_CHARS: usize = 120;
+
 /// One seat's input for one beat. Two separate paths: text entry (orders to the hands: the God of Time interaction,
 /// typed in a core action window opened by `action.begin`) and casts (UX god powers, sent as instant actions). Casts
 /// never carry orders and never slow time.
@@ -77,6 +97,10 @@ pub struct Input {
     pub summons: Vec<SummonOrder>,
     /// Rules 0.8.0: god-tier powers (instant actions).
     pub god_powers: Vec<GodPowerOrder>,
+    /// Rules 0.8.1: a challenge (an instant action that travels alone).
+    pub challenge: Option<ChallengeOrder>,
+    /// Rules 0.8.1: a duel line (an instant action that travels alone).
+    pub blow: Option<BlowOrder>,
 }
 
 impl Input {
@@ -84,6 +108,41 @@ impl Input {
     pub fn has_orders(&self) -> bool {
         !self.left.trim().is_empty() || !self.right.trim().is_empty()
     }
+
+    /// Does it carry a challenge or a duel line (rules 0.8.1)?
+    pub fn is_duel(&self) -> bool {
+        self.challenge.is_some() || self.blow.is_some()
+    }
+}
+
+/// `fields.challenge {demigod: "dg:mine", target: "dg:N", level}` (rules 0.8.1). Refusal words are the client's.
+fn challenge_of(fields: &Value) -> Result<Option<ChallengeOrder>, String> {
+    let Some(v) = fields.get("challenge").filter(|v| !v.is_null()) else { return Ok(None) };
+    let o = v.as_object().ok_or("bad_target")?;
+    let dg = |k: &str| match o.get(k).and_then(Value::as_str).map(|s| s.trim().parse::<Ref>()) {
+        Some(Ok(Ref::Demigod(d))) => Some(d),
+        _ => None,
+    };
+    let demigod = dg("demigod").ok_or("not_yours")?;
+    let target = dg("target").ok_or("bad_target")?;
+    // A missing or unknown level counts as regions (the widest contact reach).
+    let level = o.get("level").and_then(Value::as_str).and_then(crate::duel::level_of).unwrap_or("regions");
+    Ok(Some(ChallengeOrder { demigod, target, level }))
+}
+
+/// `fields.duel {duel_id, text}` (rules 0.8.1).
+fn blow_of(fields: &Value) -> Result<Option<BlowOrder>, String> {
+    let Some(v) = fields.get("duel").filter(|v| !v.is_null()) else { return Ok(None) };
+    let o = v.as_object().ok_or("no_duel")?;
+    let duel_id = o.get("duel_id").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).ok_or("no_duel")?;
+    let text = o.get("text").and_then(Value::as_str).map(str::trim).unwrap_or_default();
+    if text.is_empty() {
+        return Err("empty".into());
+    }
+    if text.chars().count() > MAX_DUEL_CHARS {
+        return Err("too_long".into());
+    }
+    Ok(Some(BlowOrder { duel_id: duel_id.chars().take(64).collect(), text: text.to_string() }))
 }
 
 fn lonlat(v: &Value) -> Option<LonLat> {
@@ -344,6 +403,17 @@ pub fn parse(text: &str, fields: &Value) -> Result<Input, String> {
     i.casts = casts;
     i.god_powers = gods;
     i.summons = summon_of(fields)?;
+    i.challenge = challenge_of(fields)?;
+    i.blow = blow_of(fields)?;
+    if i.is_duel()
+        && (i.challenge.is_some() && i.blow.is_some()
+            || !i.casts.is_empty()
+            || !i.summons.is_empty()
+            || !i.god_powers.is_empty()
+            || i.has_orders())
+    {
+        return Err("a challenge or a duel line travels alone in its instant action".into());
+    }
     for (k, s) in [("left", &i.left), ("right", &i.right)] {
         if s.chars().count() > MAX_HAND_CHARS {
             return Err(format!("`{k}` is longer than {MAX_HAND_CHARS} characters"));

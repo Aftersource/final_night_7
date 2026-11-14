@@ -24,6 +24,9 @@ use crate::society::LonLat;
 /// The schema the DM's rules switch on at.
 pub const DM_SCHEMA: u32 = 6;
 
+/// The schema challenge mode and the other rules 0.8.1 changes switch on at.
+pub const CHALLENGE_SCHEMA: u32 = 7;
+
 /// Scars kept per demigod (the newest).
 pub const SCARS_KEPT: usize = 12;
 
@@ -353,6 +356,10 @@ pub struct Dm {
     pub trails: Vec<Trail>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub shrines: Vec<Shrine>,
+    /// Rules 0.8.1 (schema 7): duels still under way after a resolve (challenge mode without an engine hold lasts
+    /// across beats). The plugin owns the shape (`fn7-plugin::duel::Bout`); empty = nothing serialized.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub duels: Vec<Value>,
 }
 
 impl Dm {

@@ -775,6 +775,22 @@ fn settings_schema() -> Value {
     p("summon_loss_scale", f(0.0, 10.0, 1.0, "Rules 0.8.0: multiplier on a reckless summoning's health cost."));
     p("god_power_cost", i(0, 20, json!(3), "Rules 0.8.0: bolts a god-tier power costs."));
     p("god_power_gift", i(0, 10, json!(1), "Rules 0.8.0: bolts every other player gains per god-tier power."));
+    p("challenge_enabled", json!({ "type": "boolean", "default": true, "description": "Rules 0.8.1: challenge mode (fields.challenge / fields.duel, and the built-in AI's challenges). Settings recorded before 0.8.1 read it as false." }));
+    p("rules_0_8_1", json!({ "type": "boolean", "default": true, "description": "Rules 0.8.1 marker (always true when validated by a 0.8.1+ server; absent in older recordings)." }));
+    p("challenge_min_km", f(0.0, 20000.0, 120.0, "Rules 0.8.1: a challenge always reaches this far (km), at any zoom."));
+    p("challenge_contact_km_regions", f(0.0, 20000.0, 600.0, "Rules 0.8.1: at the regions level a challenge also reaches as far as two touching board cards (km); the reach is max(challenge_min_km, this)."));
+    p("challenge_contact_km_villages", f(0.0, 20000.0, 15.0, "Rules 0.8.1: the contact reach at the villages level (km)."));
+    p("challenge_contact_km_houses", f(0.0, 20000.0, 0.15, "Rules 0.8.1: the contact reach at the houses level (km)."));
+    p("challenge_contact_km_people", f(0.0, 20000.0, 0.015, "Rules 0.8.1: the contact reach at the people level (km)."));
+    p("duel_cooldown_beats", i(1, 100, json!(1), "Rules 0.8.1: beats between two challenges by one demigod."));
+    p("duel_damage_scale", f(0.0, 10.0, 1.0, "Rules 0.8.1: multiplier on duel blow damage."));
+    p("duel_ai_chance", f(0.0, 1.0, 0.02, "Rules 0.8.1: chance per beat that a built-in AI demigod challenges its nearest rival."));
+    p("duel_ai_reach_km", f(0.0, 20000.0, 2000.0, "Rules 0.8.1: a built-in AI demigod's rival beyond regions reach but within this summons it next to it first."));
+    p("duel_auto_rounds", i(0, 10, json!(2), "Rules 0.8.1: automatic exchanges in a duel nobody typed in."));
+    p("duel_counter_ms", i(0, 60000, json!(3000), "Rules 0.8.1: a human idle this long is countered automatically."));
+    p("duel_min_gap_ms", i(0, 5000, json!(500), "Rules 0.8.1: a blow sooner than this after the same side's last is a penalty."));
+    p("duel_followup_ms", i(0, 10000, json!(1500), "Rules 0.8.1: a blow within this of the same side's last is a quick follow-up (+1)."));
+    p("duel_deadline_ms", i(1000, 600000, json!(30000), "Rules 0.8.1: the longest a duel runs after its lock (the engine hold's deadline; without a hold the world keeps beating and the duel lasts at most ceil(duel_deadline_ms / flow_ms) resolves)."));
     p(
         "memory_per_owner",
         i(
@@ -891,6 +907,25 @@ fn action_fields_schema() -> Value {
                 },
                 "required": ["demigod", "target"]
             }] },
+            "challenge": { "anyOf": [{ "type": "null" }, {
+                "type": "object",
+                "description": "Rules 0.8.1: challenge a rival's demigod in reach to a duel (an instant action that travels alone; forced). Refusals: not_yours, fallen, bad_target, too_far:<distance km>:<allowed km>, busy, cooldown, challenge_disabled.",
+                "properties": {
+                    "demigod": { "type": "string", "pattern": "^dg:\\d+$", "description": "One of your standing demigods." },
+                    "target": { "type": "string", "pattern": "^dg:\\d+$", "description": "A rival's standing demigod." },
+                    "level": { "type": "string", "enum": ["regions", "villages", "houses", "people"], "description": "The board level it was issued at (missing or unknown = regions): the reach is max(challenge_min_km 120, the touching-cards distance at this level: regions 600, villages 15, houses 0.15, people 0.015 km); it also frames the fight (the lock's cell)." }
+                },
+                "required": ["demigod", "target"]
+            }] },
+            "duel": { "anyOf": [{ "type": "null" }, {
+                "type": "object",
+                "description": "Rules 0.8.1: one line typed in a duel, resolved at once (`duel.blow`). Refusals: no_duel, duel_over, not_yours, fallen, empty, too_long.",
+                "properties": {
+                    "duel_id": { "type": "string", "description": "From challenge.lock." },
+                    "text": { "type": "string", "maxLength": 120 }
+                },
+                "required": ["duel_id", "text"]
+            }] },
             "zoom": {
                 "description": "Optional view change, applied at the start of Resolve: a level string, or {level, focus}. \
                                 Null/empty = no change. A level without focus clears your focus.",
@@ -927,7 +962,8 @@ fn round_started_public() -> Value {
             ("eliminated", array(json!({ "type": "string" }), "Names of demigods that fell during Start.")),
             ("alive", int("Demigods still standing.")),
         ],
-        &[("players_alive", int("Rules 0.7.0: players with a demigod standing."))],
+        &[("players_alive", int("Rules 0.7.0: players with a demigod standing.")),
+          ("challenges", array(r("ChallengeLock"), "Rules 0.8.1: the built-in AI's challenges this beat (absent when none): fight back with fields.duel."))],
     )
 }
 
@@ -1106,6 +1142,8 @@ fn outcome_public() -> Value {
             ("manifests", array(r("Manifestation"), "Rules 0.7.0: public manifestations this beat (made things of tier relic or up, or legend+ attempts).")),
             ("dice", array(r("DiceRolled"), "Rules 0.8.0: every d20 the DM rolled this beat (at most 60), in order.")),
             ("god_powers", array(r("GodPowerLine"), "Rules 0.8.0: god-tier powers settled this beat (each then ruled on by its god: see `omens`).")),
+            ("duels", array(r("ChallengeEnd"), "Rules 0.8.1: the duels that ended this beat (absent when none).")),
+            ("duels_open", array(r("ChallengeOpen"), "Rules 0.8.1: duels still under way (absent when none).")),
             ("summons", array(r("DmEvent"), "Rules 0.8.0: the `summoned` events of this beat (also in dm_events): {demigod, from {pos, cell}, to {pos, cell}, deed, health_lost}.")),
             ("dm_events", array(r("DmEvent"), "Rules 0.8.0: the DM's public decisions this beat (at most 40): settlements growing, encounters, loot, roads, shrines, scars, the time of day.")),
             ("time_of_day", r("TimeOfDay")),
@@ -1367,10 +1405,107 @@ fn v08_defs() -> Map<String, Value> {
     d.insert("Summoning".into(), object(
         "Rules 0.8.0: `phase.event.public` the moment a summoning or a god-tier power is accepted (it lands at the next resolve).",
         &[("event", e(&["summoning", "god_power"], "")), ("by", string("")), ("by_ref", r("Ref")), ("by_seat", int("")),
-          ("summons", array(object("", &[("demigod", r("Ref")), ("to", r("LonLat")), ("cell", string(""))], &[]), "")),
+          ("summons", array(object("", &[("demigod", r("Ref")), ("to", r("LonLat")), ("cell", string(""))], &[("roll", int("Rules 0.8.1: the mishap d20, decided at the accept.")), ("modifier", json!({ "type": "integer" })), ("total", json!({ "type": "integer" })), ("target_dc", json!({ "type": "integer" })), ("verdict", string("")), ("health_lost", num("Rules 0.8.1: what the resolve will take."))]), "")),
           ("god_powers", array(object("", &[("power", string("")), ("tier", json!({ "const": "god" }))], &[]), "")),
           ("seq", int("")), ("received_at_ms", int(""))],
-        &[("demigod", nullable(r("Ref"))), ("from", nullable(r("LonLat"))), ("to", nullable(r("LonLat")))],
+        &[("demigod", nullable(r("Ref"))), ("from", nullable(r("LonLat"))), ("to", nullable(r("LonLat"))),
+          ("roll", int("Rules 0.8.1: the first summoning's mishap d20 (the damage check comes before the teleport).")),
+          ("modifier", json!({ "type": "integer" })), ("total", json!({ "type": "integer" })), ("target_dc", json!({ "type": "integer" })),
+          ("verdict", string("")), ("health_lost", num("Rules 0.8.1: health the resolve will take."))],
+    ));
+    let side = object(
+        "Rules 0.8.1: one duellist at the lock.",
+        &[("demigod", r("Ref")), ("name", string("")), ("player", string("")), ("seat", nullable(int("null for the built-in AI."))),
+          ("controller", json!({ "type": "string", "enum": ["human", "ai"] })), ("health", num("Health at the lock (both are shown: the duel's health bars).")),
+          ("max_health", num("")), ("portrait_prompt", string("")), ("diorama_prompt", string(""))],
+        &[("portrait_image", json!({ "type": "object" })), ("diorama_image", json!({ "type": "object" }))],
+    );
+    d.insert("ChallengeLock".into(), object(
+        "Rules 0.8.1: `phase.event.public` when a challenge is accepted (or `round.started.public.challenges[]` for the AI's): both portraits lock in.",
+        &[("event", json!({ "const": "challenge.lock" })), ("duel_id", string("duel:s<seq>:<a>:<b> (a player's challenge: its action's seq) or duel:<beat>:<a>:<b> (the AI's)")), ("a", side.clone()), ("b", side),
+          ("at", r("LonLat")), ("cell", string("The hex at `level`.")), ("level", json!({ "type": "string", "enum": ["regions", "villages", "houses", "people"] })),
+          ("focus", object("Centre the camera and spin the globe here.", &[("at", r("LonLat")), ("lat", num("")), ("lon", num("")), ("cell", string("")), ("level", string(""))], &[])),
+          ("ends", json!({ "const": "ko_or_deadline" })),
+          ("ends_beat", int("The last beat whose resolve may still carry it (the world keeps beating meanwhile).")),
+          ("deadline_ms", nullable(int("Epoch ms: lines after it are refused (null for the AI's challenges).")))
+          ,("world", json!({ "type": "string", "enum": ["beating", "held"], "description": "beating until the engine offers a hold window." })),
+          ("freeze", object("The world hold the duel requests (supported once the engine has holds).",
+                            &[("requested", boolean("")), ("supported", boolean("")), ("participants", array(int(""), "Human seats.")),
+                              ("deadline_ms", nullable(int("Epoch ms.")))], &[])),
+          ("beat", int("")), ("place", string("")), ("time_of_day", string("")), ("distance_km", num("")),
+          ("by_seat", nullable(int("The challenger's seat; null for the AI."))), ("ai", boolean("")),
+          ("leap", nullable(object("The AI challenger summoned itself next to its rival first (applied at the resolve).",
+                                   &[("demigod", r("Ref")), ("to", r("LonLat")), ("health_lost", num(""))], &[])))],
+        &[("seq", int("")), ("received_at_ms", int(""))],
+    ));
+    let moves = json!({ "type": "string", "enum": ["lunge", "slash", "parry", "dodge", "leap", "cast", "summon_army", "charge", "grapple", "taunt", "stagger", "fall", "block", "blast", "vanish", "rise"] });
+    let anim = object(
+        "Rules 0.8.1: animation cues for the figures (deterministic, from the rules).",
+        &[("a", moves.clone()), ("b", moves), ("fx", nullable(json!({ "type": "string", "enum": ["fire", "ice", "lightning", "earth", "water", "shadow", "light", "poison"] }))),
+          ("camera", json!({ "type": "string", "enum": ["wide", "close", "over_a", "over_b"] })), ("army", boolean("")),
+          ("attacker", json!({ "type": "string", "enum": ["a", "b"] }))],
+        &[],
+    );
+    let strike_req = vec![
+        ("by", r("Ref")), ("by_name", string("")), ("text", string("")), ("roll", int("1-20 (0 on a penalty).")), ("modifier", json!({ "type": "integer" })),
+        ("total", json!({ "type": "integer" })), ("target_dc", json!({ "type": "integer" })),
+        ("verdict", json!({ "type": "string", "enum": ["crit_fail", "fail", "success", "crit_success", "penalty"] })),
+        ("damage", num("0-3, a crit 4 (× duel_damage_scale).")), ("hp", object("Both healths after it.", &[("a", num("")), ("b", num(""))], &[])),
+        ("flavor", string("The DM's rules-templated line.")), ("wit", json!({ "type": "integer", "minimum": -3, "maximum": 4 })),
+        ("tags", array(string(""), "What the wit saw: verb, combo, body, item, terrain, story, repeat, echo, short, spam, empty, rate_limit.")),
+        ("ko", boolean("")), ("auto", boolean("An automatic blow (an AI counter or a duel nobody typed in).")), ("anim", anim),
+    ];
+    let pose = json!({ "type": "string", "enum": ["idle_guard", "step_in", "lunge_extend", "slash_high", "slash_low", "overhead_windup", "overhead_strike", "parry_high",
+        "parry_low", "block_cross", "dodge_left", "dodge_right", "duck", "leap_up", "land", "feint_shoulder", "grab_reach",
+        "grapple_lock", "throw_hip", "stagger_back", "stumble", "fall_back", "kneel_hit", "rise", "cast_raise", "cast_release",
+        "command_point", "taunt_beckon", "victory", "defeat"] });
+    let class = json!({ "type": ["string", "null"], "enum": ["strike", "heavy", "guard", "parry", "feint", "evade", "close", "retreat", "grapple", "throw", "invoke", "command", "taunt", null] });
+    let stance = json!({ "type": "string", "enum": ["neutral", "guarding", "committed", "off_balance", "airborne", "downed"] });
+    let range = json!({ "type": "string", "enum": ["far", "mid", "close", "grapple"] });
+    let figure = object("One figure in an exchange.",
+        &[("move_class", class), ("pose_keys", array(object("", &[("pose", pose), ("t_ms", int(""))], &[]), "Timed poses.")),
+          ("contact", nullable(object("", &[("limb", string("right_hand | left_hand | right_foot")), ("target_limb", string("head | torso | arms | legs")), ("t_ms", int(""))], &[]))),
+          ("stance_after", stance)], &[]);
+    let choreo = object("Rules 0.8.1: the formal model's choreography of one strike (DM_RULEBOOK 21.4).",
+        &[("range_before", range.clone()), ("range_after", range), ("initiative_before", json!({ "type": "string", "enum": ["a", "b"] })),
+          ("initiative_after", json!({ "type": "string", "enum": ["a", "b"] })), ("flip", boolean("")),
+          ("result", json!({ "type": "string", "enum": ["landed", "absorbed", "parried", "evaded", "missed", "thrown", "grappled", "wasted", "moved", "set", "taunted", "penalty"] })),
+          ("a", figure.clone()), ("b", figure), ("camera", json!({ "type": "string", "enum": ["wide", "close", "over_a", "over_b"] })),
+          ("contacts", array(object("", &[("by", json!({ "type": "string", "enum": ["a", "b"] })), ("limb", string("right_hand | left_hand | right_foot")),
+                                           ("on", json!({ "type": "string", "enum": ["a", "b"] })), ("target_limb", string("head | torso | arms | legs")), ("t_ms", int(""))], &[]),
+                             "Every contact: who hits, with which limb, which body part of the other, when (empty when nothing lands).")),
+          ("duration_ms", json!({ "type": "integer", "minimum": 600, "maximum": 1400 }))], &[]);
+    let strike_opt = vec![
+        ("choreo", choreo),
+        ("modifiers", object("", &[("wit", json!({ "type": "integer" })), ("health", json!({ "type": "integer" })), ("gear", json!({ "type": "integer" })),
+                                   ("follow_up", json!({ "type": "integer" })), ("home", json!({ "type": "integer" })), ("situation", json!({ "type": "integer" }))], &[])),
+        ("self_damage", num("A penalty's cost to its author.")),
+    ];
+    d.insert("DuelStrike".into(), object("Rules 0.8.1: one strike (a counter's shape).", &strike_req, &strike_opt));
+    let mut blow_req = vec![("event", json!({ "const": "duel.blow" })), ("duel_id", string("")), ("n", int("1-based blow number."))];
+    blow_req.extend(strike_req.iter().cloned());
+    let mut blow_opt = strike_opt.clone();
+    blow_opt.extend([("counter", r("DuelStrike")), ("hp_after", object("Healths after the counter.", &[("a", num("")), ("b", num(""))], &[])),
+                     ("at_ms", json!({ "type": "integer" })), ("seq", int("")), ("received_at_ms", json!({ "type": "integer" }))]);
+    d.insert("DuelBlow".into(), object("Rules 0.8.1: `phase.event.public` for each duel line, at once (also in the resolve's challenge.open / challenge.end log).", &blow_req, &blow_opt));
+    d.insert("ChallengeOpen".into(), object(
+        "Rules 0.8.1: a duel still under way after this resolve (`round.outcome.public.duels_open[]`; the damage so far is applied).",
+        &[("event", json!({ "const": "challenge.open" })), ("duel_id", string("")), ("a", r("Ref")), ("b", r("Ref")),
+          ("hp", object("Both duel healths now.", &[("a", num("")), ("b", num(""))], &[])), ("blows", int("")), ("typed", int("")),
+          ("ends_beat", int("")), ("deadline_ms", nullable(int(""))), ("range", json!({ "type": "string", "enum": ["far", "mid", "close", "grapple"] })),
+          ("initiative", json!({ "type": "string", "enum": ["a", "b"] })), ("log", array(r("DuelBlow"), "The blows this resolve was handed."))],
+        &[],
+    ));
+    d.insert("ChallengeEnd".into(), object(
+        "Rules 0.8.1: a duel over, applied at the resolve (`round.outcome.public.duels[]`).",
+        &[("event", json!({ "const": "challenge.end" })), ("duel_id", string("")),
+          ("reason", json!({ "type": "string", "enum": ["ko", "deadline", "fallen", "auto"] })), ("locked_beat", int("")), ("a", r("Ref")), ("b", r("Ref")), ("a_name", string("")), ("b_name", string("")),
+          ("winner", nullable(r("Ref"))), ("loser", nullable(r("Ref"))), ("ko", boolean("")),
+          ("damage", object("Damage each took.", &[("a", num("")), ("b", num(""))], &[])), ("hp", object("", &[("a", num("")), ("b", num(""))], &[])),
+          ("blows", int("Blows numbered (typed and automatic).")), ("typed", int("Lines typed.")), ("deed", string("One line: the duel mind's, else the rules'.")),
+          ("at", r("LonLat")), ("pos", json!({ "$ref": "#/$defs/LonLat", "description": "`at` at full precision (outcome numbers are rounded to 2 decimals except `pos`)." })),
+          ("cell", string("")), ("level", string("")), ("place", string("")), ("log", array(r("DuelBlow"), "The blows this final resolve was handed (earlier ones came live and in challenge.open)."))],
+        &[],
     ));
     d.insert("Tale".into(), object("Rules 0.8.0: a deed the DM told.", &[("beat", int("")), ("kind", string("")), ("text", string(""))], &[]));
     d.insert("Scar".into(), object("Rules 0.8.0: a scar.", &[("beat", int("")), ("cause", string("")), ("place", string(""))], &[("cell", string(""))]));
@@ -1541,6 +1676,11 @@ pub fn all() -> Vec<(&'static str, Value)> {
               ("alive", boolean("")), ("pos", r("LonLat")), ("cell", json!({ "type": ["string", "null"], "description": "People-level hex key." }))], &[]),
             "Rules 0.7.0: both of your demigods (`you` is your lead one: the first standing)."));
         props.insert("manifests".into(), array(r("Manifestation"), "Rules 0.7.0: your demigods' manifestations this beat, with the verdict."));
+        props.insert("wills".into(), array(object("Rules 0.8.1: what became of an order you gave while all your demigods were fallen (never silence).",
+            &[("text", string("Your order.")), ("routed_to", nullable(string("The god it went to (Death for a plea to come back)."))),
+              ("verdict", json!({ "type": "string", "enum": ["grant", "bargain", "twist", "refuse", "refused"], "description": "The god's verdict, or refused (never reached a god)." })),
+              ("speech", nullable(string("The god's words."))), ("reason", string("Why: Death's price and your purse, or why it can't be done."))], &[]),
+            "Rules 0.8.1: your fallen demigods' wills this beat (absent when none)."));
     }
     round_private["description"] =
         "`round.private.private` (the `SeatDelta`): what only your seat learns from the beat that just resolved. \
@@ -1560,7 +1700,7 @@ pub fn all() -> Vec<(&'static str, Value)> {
         ("match_summary", finish("match_summary", "match.ended summary", "match.ended.summary", match_summary(), &pool)),
         ("phase_event", finish("phase_event", "phase.event public", "phase.event.public (pushed at once: who slowed time, a cast's streak)",
             json!({ "description": "`phase.event.public`: an immediate push from the game. `event` says which.",
-                    "oneOf": [r("Slowed"), r("Streak"), r("Summoning")] }), &pool)),
+                    "oneOf": [r("Slowed"), r("Streak"), r("Summoning"), r("ChallengeLock"), r("DuelBlow")] }), &pool)),
     ];
     out.extend(query_schemas(&pool));
     out
