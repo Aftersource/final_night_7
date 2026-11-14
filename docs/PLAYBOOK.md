@@ -81,7 +81,8 @@ client action needed: ...                  (none = "none")
 - Game queries over HTTP: `GET /api/rooms/{code}/query/{name}?key=<KEY>` (public ones): `globe` (main poll),
   `events?since=`, `region`, `node`, `person`, `army`, `standings`, `powers`, `gods`, `piles_final`.
 - Admin (time travel, fork, recordings): `Authorization: Bearer <ADMIN>`. See `docs/AGENT_GUIDE.md` §11.
-- Simulator API `/sim/*` (balance batches): lands in an upcoming release, behind the admin token.
+- Simulator API `/sim/*` (balance batches): lands in an upcoming release, behind the admin token; usage in
+  `docs/AGENT_GUIDE.md` §12 (check: `GET /sim/settings` answers 401/200 instead of 404 once it is live).
 - Images: `docs/MEDIA.md` (placeholders until Chris sets a budget).
 
 ## 6. Rhythm

@@ -979,3 +979,26 @@ for LLM players). Run it against a server for a full 4-player match:
    (`eliminated`, `alive`, `champions`, `standings`) are the result.
 10. **`round.started` deaths come first:** it can eliminate you before the brief, and the match can end right after
     a Start (then no brief follows, just `match.ended`).
+
+## Simulator API (for balance)
+Not part of the game protocol: plain HTTP on the same server, for balance work (whole matches with any room settings,
+run server-side). It needs the host's admin token, sent as `Authorization: Bearer <ADMIN_TOKEN>` (never in a URL);
+every `/sim/*` path is `404` when the host has none and `401` with a wrong one. Over the tunnel add `?key=<KEY>` as
+for every request. Full field list, result shape and limits: [AGENT_GUIDE.md §12](AGENT_GUIDE.md#12-simulator-api-for-balance).
+
+| Route | Body / reply |
+|---|---|
+| `GET /sim/settings` | `{settings: [{key, type, default, min, max, aliases?, alias_of?, values?, description, source}], set_by_request, limits}` (generated from the validator, so it matches `room.create` settings exactly) |
+| `POST /sim/run` | `{settings?, seeds: [u64] (1–64), players?, beats?, society_only?, record?, llm?, budget_usd?, client?}` → `{job_id, status, runs, settings_hash, poll}` |
+| `POST /sim/compare` | the same plus `a`, `b` (settings overrides over `settings`) → `{job_id, …}` |
+| `GET /sim/jobs` | `{jobs: [{job_id, kind, status, progress, duration_ms, settings_hash, seeds, llm, client}], workers, running_runs, queued_runs, limits}` |
+| `GET /sim/jobs/{id}` | status, `progress`, `settings`, `results` (one per seed: champion, beats played, eliminations by beat and cause, casts and bolts spent, entropy curve, slow bills, debts paid, society totals, timing), `aggregate` (`stats` = mean/median/min/max per field); compare: `a`, `b`, `delta` |
+| `GET /sim/jobs/{id}/recording/{seed}[?arm=a\|b]` | the seed's core JSONL recording (`record: true`) |
+
+```sh
+curl -s -H "Authorization: Bearer <ADMIN_TOKEN>" -H 'content-type: application/json' \
+     -X POST "https://<PUBLIC>/sim/run?key=<KEY>" -d '{"settings":{"entropy_scale":2},"seeds":[1,2,3,4]}'
+curl -s -H "Authorization: Bearer <ADMIN_TOKEN>" "https://<PUBLIC>/sim/jobs/<JOB_ID>?key=<KEY>"
+```
+With `llm: false` (the default) a seed's result is deterministic: the same settings, seed and players give the same
+numbers (all but `timing`).

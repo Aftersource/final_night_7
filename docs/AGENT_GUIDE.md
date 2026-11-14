@@ -383,3 +383,91 @@ theatre-trace = { path = "../theatre/crates/trace" }
 ```
 That still builds online (crates.io). Offline builds need a vendored crate directory (`cargo vendor`), which is not in
 either repo.
+
+## 12. Simulator API (for balance)
+Whole matches run on the host's server, with any room settings, without building this code. Same placeholders and
+auth as §11: `<PUBLIC>`, `<KEY>` (`?key=` is ignored by the routes, required by the tunnel) and `<ADMIN_TOKEN>` as the
+`Authorization: Bearer` header. Every `/sim/*` path is `404` when the host has no admin token set and `401` with a
+missing or wrong token. Errors are `{"error": "..."}` with `400` (bad request, the message says what), `404`, `409`
+or `429` (queue full: retry later).
+
+```sh
+P=https://<PUBLIC>; K=<KEY>; AUTH="Authorization: Bearer <ADMIN_TOKEN>"; J='content-type: application/json'
+curl -s -H "$AUTH" "$P/sim/settings?key=$K"          # every setting: key, type, default, min/max, description
+curl -s -H "$AUTH" -H "$J" -X POST "$P/sim/run?key=$K" \
+     -d '{"settings":{"entropy_scale":2,"start_bolts":5},"seeds":[1,2,3,4],"players":4,"beats":100,"client":"bridge"}'
+#   {"job_id":"<JOB_ID>","status":"queued","runs":4,"settings_hash":"…","poll":"/sim/jobs/<JOB_ID>"}
+curl -s -H "$AUTH" "$P/sim/jobs/<JOB_ID>?key=$K"     # poll until status is "done" (or "failed")
+curl -s -H "$AUTH" "$P/sim/jobs?key=$K"              # recent jobs, newest first, and the pool's load
+curl -s -H "$AUTH" -H "$J" -X POST "$P/sim/compare?key=$K" \
+     -d '{"settings":{"clusters":200},"a":{"entropy_scale":1},"b":{"entropy_scale":3},"seeds":[1,2,3,4,5,6,7,8]}'
+curl -s -H "$AUTH" "$P/sim/jobs/<JOB_ID>/recording/<SEED>?key=$K" -o <SEED>.jsonl   # needs "record": true
+```
+
+**`POST /sim/run`** fields (anything else is a 400):
+
+| Field | Default | Notes |
+|---|---|---|
+| `seeds` | required | 1–64 distinct non-negative integers; one match per seed |
+| `settings` | `{}` | room settings (`GET /sim/settings`); an unknown key is a 400 (typos don't pass silently); `seed` and `llm` are not allowed here |
+| `players` | `settings.players` or 4 | 1–8 demigods, all played by the built-in AI |
+| `beats` | `settings.beats_total` or 100 | the Final Night's beat, 1–500 (most matches end earlier: one demigod left) |
+| `society_only` | `false` | only the society acts (no orders, no casts) |
+| `record` | `false` | write each seed's core JSONL recording (at most 8 runs per job; 15–40 MB each) |
+| `llm` | `false` | `true` uses the host's Claude backend and needs `budget_usd` (> 0, ≤ 1.0); calls stop at the budget (the minds fall back to rules) |
+| `client` | none | your name for the host's job log |
+
+**`POST /sim/compare`**: the same fields plus `a` and `b` (settings overrides merged over `settings`; they must
+differ). Both arms run the same seeds; seeds × 2 runs.
+
+**Job (`GET /sim/jobs/<JOB_ID>`)**:
+```json
+{ "job_id": "…", "kind": "run", "status": "queued|running|done|failed", "duration_ms": 2997,
+  "progress": { "done": 4, "total": 4, "failed": 0 }, "settings_hash": "2568e8a8fe4acb57",
+  "settings": { …validated room settings… },
+  "results": [ {
+    "seed": 1, "arena": "Earth", "beats_played": 21, "beats_total": 100, "ended": "last_standing|final_night|stopped",
+    "champion": { "name": "Brix", "seat": 1, "health": 7.5, "demigod": "dg:1" }, "champions": […], "alive_end": 1,
+    "eliminations": [ { "beat": 10, "name": "Ash", "seat": 0, "cause_kind": "army", "cause": "overrun by the Volunteers of Vienna for Brix" } ],
+    "eliminations_count": 3, "first_elimination_beat": 10,
+    "eliminations_by_cause_kind": { "army": 1, "debt": 2 }, "eliminations_by_cause": { "<cause text>": 1 },
+    "eliminations_by_beat": { "10": 1, "21": 2 },
+    "casts": { "count": 6, "fizzled": 0, "bolts_spent": 9, "by_power": { "flood": 2 } }, "bolts_end_total": 14,
+    "entropy": { "final": 32.6, "max": 32.6, "heat_death_beat": null, "curve": [[1, 1.2], [2, 2.9], …] },
+    "slow": { "windows": 0, "mean_open_ms": null, "timeouts": 0, "instant_orders": 30, "debt_billed": 54.5, "paid_with_bolt": 30 },
+    "debts": { "paid": 43, "paid_amount": 55.95, "open": 2, "delayed": 0, "owed_amount": 1.75 },
+    "society": { "mobs_formed": 25, "mobs_dissolved": 10, "mobs_ever": 25, "people_emerged": 40,
+                 "people_emerged_by_role": { "ringleader": 25, "captain": 6, … }, "people_emerged_dead": 0,
+                 "battles": 0, "clashes": 0, "migrations": 11, "migrants": 919283, "deaths": 41927, "cults": 5,
+                 "mutinies": 1, "defections": 0, "promotions": 0, "deserters": 0, "hosts": 2,
+                 "arena_population_start": 141995079, "arena_population_end": 141893117 },
+    "llm": { "plugin_calls": 0, "plugin_fallbacks": 0, "provider_calls": 0 },
+    "timing": { "wall_ms": 854.7, "beat_ms": { "n": 21, "mean": 3.6, "p50": 3.3, "p95": 6.1, "max": 7.3 }, "society_ms": { … } },
+    "recording": { "run_id": "…", "file": "….jsonl", "download": "/sim/jobs/<JOB_ID>/recording/1" } } ],
+  "aggregate": { "seeds_ok": 4, "seeds_failed": 0, "champion_seats": { "seat 1": 2, "seat 2": 1, "seat 3": 1 },
+                 "ended": { "last_standing": 4 }, "eliminations_by_cause_total": { … },
+                 "stats": { "beats_played": { "n": 4, "mean": 29, "median": 29.5, "min": 21, "max": 36 }, "entropy.final": { … }, … } } }
+```
+- A seed that is still waiting reads `{"seed", "status": "queued|running"}`; one that failed reads `{"seed", "error"}`.
+- `aggregate.stats` has every numeric field above as a dotted path (`casts.count`, `society.battles`,
+  `eliminations_by_cause_kind.debt`, `timing.beat_ms.mean` …). A compare job has `a` and `b` (each `settings`,
+  `settings_hash`, `results`, `aggregate`) and `delta`: `{ "<path>": { "a", "b", "mean": b−a, "median": b−a, "pct" } }`
+  for every stat that changed.
+- `cause_kind` is a coarse class of the cause prose: `debt`, `arena_clock`, `accident`, `army`, `final_night`,
+  `god_power`, `bolt`, `entropy`, `mod`, `other`.
+- `slow.windows` is always 0 here: in a simulation the AI demigods give their orders without opening a slow-time window
+  (each is an `instant_orders` bill). Wall-clock settings (`flow_ms`, `compose_seconds`, `resolve_timeout_s`) have no
+  effect: beats run back to back.
+- **Deterministic:** with `llm: false` the same settings, seed and players give the same result every time (all but
+  `timing` and `recording`), so A/B differences are the settings' doing. `llm: true` results are not reproducible.
+- A recording is the core's JSONL (the same format as the live server's): replay it with `fn7-sim --replay`, and when
+  the host keeps sim recordings in the server's recording directory (the default) `GET /admin/matches/<run_id>/…`
+  (§11.2) reads it too.
+- **Limits:** 64 seeds per job, 500 beats, 1–8 players, `budget_usd` ≤ 1.0, at most 8 recorded runs per job, 512 runs
+  queued across all jobs (then `429`). The host runs 2 simulations at a time on their own threads, so live rooms keep
+  their pace; the rest wait their turn. The last 200 jobs are kept in memory (lost on a server restart).
+
+Measured on the host's machine (release build, 2 workers, default settings, `llm: false`): 4 seeds (21–36 beats each)
+in 3.0 s; 4 `society_only` seeds (65–100 beats) in 9.8 s; a compare of 8 seeds × 2 arms in 7.0 s; 64 seeds in 31.4 s
+(about 1 s per seed, 5 ms per beat). A live room paced at 1 s per beat kept its pace while 64 seeds ran (median beat
+interval 1032 ms alone, 1043 ms under load).

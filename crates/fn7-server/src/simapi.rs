@@ -59,6 +59,8 @@ pub struct Limits {
     /// Runs (seed × arm) waiting or running across all jobs.
     pub max_queued_runs: usize,
     pub max_budget_usd: f64,
+    /// Most recorded runs (seed × arm) per job: a recording is ~20–40 MB at the default 200 clusters.
+    pub max_recorded_runs: usize,
     /// Jobs kept in memory (oldest finished ones are dropped first).
     pub keep_jobs: usize,
 }
@@ -70,6 +72,7 @@ impl Default for Limits {
             max_beats: 500,
             max_queued_runs: 512,
             max_budget_usd: 1.0,
+            max_recorded_runs: 8,
             keep_jobs: 200,
         }
     }
@@ -337,6 +340,8 @@ impl Inner {
             let ctx = theatre_trace::Ctx::new(sink.clone() as Arc<dyn Sink>, "fn7-sim-jobs");
             let actor = job.who["client"].as_str().unwrap_or("bridge").to_string();
             theatre_trace::within_sync(ctx, || theatre_trace::event(kind, Some(&actor), data));
+            // One line per job event: put it on disk now (the sink's writer thread buffers otherwise).
+            sink.flush();
         }
     }
 
@@ -651,6 +656,12 @@ fn submit(inner: &Arc<Inner>, kind: &'static str, headers: &HeaderMap, body: Map
         return Err(bad("`a` and `b` give the same settings"));
     }
     let runs = built.len() * p.seeds.len();
+    if p.record && runs > limits.max_recorded_runs {
+        return Err(bad(format!(
+            "`record: true` is limited to {} runs per job ({runs} asked; a recording is tens of MB)",
+            limits.max_recorded_runs
+        )));
+    }
     let pending = inner.pending.load(Ordering::Relaxed);
     if pending + runs > limits.max_queued_runs {
         return Err(err(
@@ -763,7 +774,7 @@ async fn list(State(inner): State<Arc<Inner>>, headers: HeaderMap) -> ApiResult 
 
 fn limits_json(l: &Limits) -> Value {
     json!({ "max_seeds": l.max_seeds, "max_beats": l.max_beats, "max_queued_runs": l.max_queued_runs,
-            "max_budget_usd": l.max_budget_usd, "players": [1, 8] })
+            "max_budget_usd": l.max_budget_usd, "max_recorded_runs": l.max_recorded_runs, "players": [1, 8] })
 }
 
 async fn job(State(inner): State<Arc<Inner>>, headers: HeaderMap, Path(id): Path<String>) -> ApiResult {

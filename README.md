@@ -80,6 +80,16 @@ recording (server or `fn7-sim`, a fork included):
 cargo run --release -p fn7-server --bin fn7-sim -- --replay runs/recordings/<match_id>.jsonl
 cargo run --release -p fn7-tools --bin fn7-project -- --db runs/fn7.sqlite runs/recordings/   # JSONL -> SQLite + fn7_* tables
 
+**Simulator API (`/sim/*`).** The server also runs balance simulations for remote agents that don't build this code:
+`POST /sim/run {settings, seeds, players?, beats?, society_only?, record?, llm?, budget_usd?}` and `POST /sim/compare`
+(the same seeds under settings A and B) queue in-process matches on their own worker threads (`FN7_SIM_WORKERS`,
+default 2; live rooms are never blocked), `GET /sim/jobs/<id>` returns per-seed results and mean/median aggregates,
+`GET /sim/settings` lists every setting with default, range and description (generated from `settings.rs`). Same auth
+as the admin API (`THEATRE_ADMIN_TOKEN`: 404 unset, 401 wrong). Rules-only results are deterministic per seed. Every job
+is logged (target `fn7_sim`) and written to `<FN7_SIM_LOG_DIR, default runs/sim>/fn7-sim-jobs.jsonl`; `record: true`
+recordings go to `FN7_SIM_RECORD_DIR` (default: the core's recording dir, so `/admin/matches` reads them too). Code in
+`crates/fn7-server/src/simapi.rs`; usage in docs/AGENT_GUIDE.md §12.
+
 **Simulator.** `fn7-sim` plays a whole match in-process through the `GamePlugin` trait exactly as the core drives it
 (Start → Brief → Compose → Resolve → Commit), with bot seats, recorded in the core's JSONL format (the engine's
 `JsonlSink` and `RunRec`, same records and snapshot labels as a server recording), printing each beat's caption and

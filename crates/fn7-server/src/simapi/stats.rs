@@ -49,6 +49,34 @@ fn dist(mut v: Vec<f64>) -> Value {
     json!({ "n": n, "mean": round3(mean), "p50": round3(pct(0.5)), "p95": round3(pct(0.95)), "max": round3(v[n - 1]) })
 }
 
+/// A coarse kind for an elimination cause (causes are prose that names people): `debt`, `arena_clock`, `accident`,
+/// `army`, `final_night`, `god_power`, `bolt`, `entropy`, `mod` or `other`. The prose stays in `eliminations[].cause`.
+pub fn cause_kind(cause: &str) -> &'static str {
+    let c = cause.to_lowercase();
+    let has = |k: &[&str]| k.iter().any(|x| c.contains(x));
+    if has(&["debt", "consequence"]) {
+        "debt"
+    } else if has(&["outside the arena", "time's clock"]) {
+        "arena_clock"
+    } else if has(&["final destination", "accident"]) {
+        "accident"
+    } else if has(&["overrun", "army", "host of", "volunteers"]) {
+        "army"
+    } else if has(&["final night"]) {
+        "final_night"
+    } else if has(&["god power"]) {
+        "god_power"
+    } else if has(&["lightning", "bolt"]) {
+        "bolt"
+    } else if has(&["entropy", "heat death"]) {
+        "entropy"
+    } else if has(&["storm", "flood", "quake", "fire", "plague"]) {
+        "mod"
+    } else {
+        "other"
+    }
+}
+
 fn round3(x: f64) -> f64 {
     (x * 1000.0).round() / 1000.0
 }
@@ -149,16 +177,18 @@ pub async fn run_seed(
     // Eliminations (from the final world: beat and cause per demigod).
     let mut elims: Vec<Value> = vec![];
     let mut by_cause: BTreeMap<String, u64> = BTreeMap::new();
+    let mut by_kind: BTreeMap<&str, u64> = BTreeMap::new();
     let mut by_beat: BTreeMap<String, u64> = BTreeMap::new();
     let mut ds: Vec<&fn7_model::Demigod> = w.demigods.iter().filter(|d| !d.alive).collect();
     ds.sort_by_key(|d| (d.eliminated_beat, d.id));
     for d in &ds {
         let cause = d.cause.clone().unwrap_or_else(|| "unknown".into());
         *by_cause.entry(cause.clone()).or_default() += 1;
+        *by_kind.entry(cause_kind(&cause)).or_default() += 1;
         if let Some(b) = d.eliminated_beat {
             *by_beat.entry(b.to_string()).or_default() += 1;
         }
-        elims.push(json!({ "beat": d.eliminated_beat, "name": d.name, "seat": (d.seat < fn7_plugin::SYNTHETIC_SEAT).then_some(d.seat), "cause": cause }));
+        elims.push(json!({ "beat": d.eliminated_beat, "name": d.name, "seat": (d.seat < fn7_plugin::SYNTHETIC_SEAT).then_some(d.seat), "cause_kind": cause_kind(&cause), "cause": cause }));
     }
     let first_elim = ds.iter().filter_map(|d| d.eliminated_beat).min();
 
@@ -247,6 +277,7 @@ pub async fn run_seed(
         "eliminations": elims,
         "eliminations_count": ds.len(),
         "first_elimination_beat": first_elim,
+        "eliminations_by_cause_kind": by_kind,
         "eliminations_by_cause": by_cause,
         "eliminations_by_beat": by_beat,
         "casts": { "count": casts, "fizzled": fizzled, "bolts_spent": bolts_spent, "by_power": by_power },
@@ -298,7 +329,8 @@ fn leaves(prefix: &str, v: &Value, out: &mut BTreeMap<String, f64>) {
 }
 
 fn skip_key(k: &str) -> bool {
-    k == "seed" || k.starts_with("champion.") || k.starts_with("recording") || k.starts_with("eliminations_by_beat")
+    // Raw causes name people, so they don't aggregate as stats (see `eliminations_by_cause_total`).
+    k == "seed" || k.starts_with("eliminations_by_cause.") || k.starts_with("champion.") || k.starts_with("recording") || k.starts_with("eliminations_by_beat")
 }
 
 /// Count-map keys: a seed without the key counted zero of it.
@@ -368,8 +400,14 @@ pub fn delta(a: &Value, b: &Value) -> Value {
     let (Some(sa), Some(sb)) = (a["stats"].as_object(), b["stats"].as_object()) else {
         return Value::Object(out);
     };
-    for (k, x) in sa {
-        let Some(y) = sb.get(k) else { continue };
+    let zero = json!({ "mean": 0.0, "median": 0.0 });
+    let mut keys: Vec<&String> = sa.keys().chain(sb.keys()).collect();
+    keys.sort();
+    keys.dedup();
+    for k in keys {
+        // A count-map key only one arm saw counted zero in the other.
+        let pick = |s: &Map<String, Value>| s.get(k.as_str()).or(zero_when_missing(k).then_some(&zero)).cloned();
+        let (Some(x), Some(y)) = (pick(sa), pick(sb)) else { continue };
         let (Some(ma), Some(mb)) = (x["mean"].as_f64(), y["mean"].as_f64()) else { continue };
         let (da, db) = (x["median"].as_f64().unwrap_or(0.0), y["median"].as_f64().unwrap_or(0.0));
         if ma == mb && da == db {
