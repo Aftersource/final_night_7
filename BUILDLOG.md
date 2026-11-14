@@ -626,3 +626,24 @@ Engineering:
 - A native engine "house room" has been requested from theatre_worker.
 - The style kit's corners are tightened: panel 6, card 8.
 - A START overlay with a "JOIN THE GAME" button that captures clicks.
+
+## 2026-11-14: the final wish, wood-block powers, drag to cast, hotspot zoom
+
+> for the start, each player has 30 seconds to make their final wish, which covers whatever they can do; again, the
+> the will element should have a nice texture; the entropy powers should have attractive SVG-style icons, each of them being
+> rendered properly. A tan-white wood texture can be procedural if needed ahead of time, on a carved wood block or similar
+> works for those; drag onto the board, which has zoom 4 for dragging only. Benito wants zoom 2 onwards for clicking the globe
+> itself, to help with characterization, since demigods hang out in the most dynamic areas. So each one of the map
+> hexes has an area that is most interesting, in a circle; that is zoom 2 by default, which is when you click the map,
+> when you slide one of these rendered SVG mega-powers over the globe, that one is at the level 1 height
+
+Engineering:
+- Server:
+  - Round 1 is THE FINAL WISH: a 30 s opening window where each player's wish can be anything (a larger act budget, framed as the wish).
+  - Each region gets a hotspot: its most dynamic area as a circle (from events, battles, mobs and demigods), which the client's globe click opens at zoom 2.
+  - AI demigods gravitate to hotspots.
+- Client:
+  - The WILL box gets a real texture.
+  - The Entropy powers become carved tan/white wood-block tiles with clean vector icons.
+  - Powers are dragged onto the globe (targeting at level 1, the regions) or the board.
+  - Clicking the globe opens zoom 2 on the clicked region's hotspot.
