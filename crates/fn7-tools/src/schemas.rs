@@ -777,7 +777,11 @@ fn settings_schema() -> Value {
     p("god_power_gift", i(0, 10, json!(1), "Rules 0.8.0: bolts every other player gains per god-tier power."));
     p("challenge_enabled", json!({ "type": "boolean", "default": true, "description": "Rules 0.8.1: challenge mode (fields.challenge / fields.duel, and the built-in AI's challenges). Settings recorded before 0.8.1 read it as false." }));
     p("rules_0_8_1", json!({ "type": "boolean", "default": true, "description": "Rules 0.8.1 marker (always true when validated by a 0.8.1+ server; absent in older recordings)." }));
-    p("duel_reach_factor", f(0.5, 10.0, 1.5, "Rules 0.8.1: a challenge reaches this many times its level's hex size."));
+    p("challenge_min_km", f(0.0, 20000.0, 120.0, "Rules 0.8.1: a challenge always reaches this far (km), at any zoom."));
+    p("challenge_contact_km_regions", f(0.0, 20000.0, 600.0, "Rules 0.8.1: at the regions level a challenge also reaches as far as two touching board cards (km); the reach is max(challenge_min_km, this)."));
+    p("challenge_contact_km_villages", f(0.0, 20000.0, 15.0, "Rules 0.8.1: the contact reach at the villages level (km)."));
+    p("challenge_contact_km_houses", f(0.0, 20000.0, 0.15, "Rules 0.8.1: the contact reach at the houses level (km)."));
+    p("challenge_contact_km_people", f(0.0, 20000.0, 0.015, "Rules 0.8.1: the contact reach at the people level (km)."));
     p("duel_cooldown_beats", i(1, 100, json!(1), "Rules 0.8.1: beats between two challenges by one demigod."));
     p("duel_damage_scale", f(0.0, 10.0, 1.0, "Rules 0.8.1: multiplier on duel blow damage."));
     p("duel_ai_chance", f(0.0, 1.0, 0.02, "Rules 0.8.1: chance per beat that a built-in AI demigod challenges its nearest rival."));
@@ -786,7 +790,7 @@ fn settings_schema() -> Value {
     p("duel_counter_ms", i(0, 60000, json!(3000), "Rules 0.8.1: a human idle this long is countered automatically."));
     p("duel_min_gap_ms", i(0, 5000, json!(500), "Rules 0.8.1: a blow sooner than this after the same side's last is a penalty."));
     p("duel_followup_ms", i(0, 10000, json!(1500), "Rules 0.8.1: a blow within this of the same side's last is a quick follow-up (+1)."));
-    p("duel_deadline_ms", i(1000, 600000, json!(30000), "Rules 0.8.1: the longest a duel runs after its lock (the engine hold's deadline)."));
+    p("duel_deadline_ms", i(1000, 600000, json!(30000), "Rules 0.8.1: the longest a duel runs after its lock (the engine hold's deadline; without a hold the world keeps beating and the duel lasts at most ceil(duel_deadline_ms / flow_ms) resolves)."));
     p(
         "memory_per_owner",
         i(
@@ -905,11 +909,11 @@ fn action_fields_schema() -> Value {
             }] },
             "challenge": { "anyOf": [{ "type": "null" }, {
                 "type": "object",
-                "description": "Rules 0.8.1: challenge a rival's demigod in reach to a duel (an instant action that travels alone; forced). Refusals: not_yours, fallen, bad_target, bad_level, too_far, busy, cooldown, challenge_disabled.",
+                "description": "Rules 0.8.1: challenge a rival's demigod in reach to a duel (an instant action that travels alone; forced). Refusals: not_yours, fallen, bad_target, too_far:<distance km>:<allowed km>, busy, cooldown, challenge_disabled.",
                 "properties": {
                     "demigod": { "type": "string", "pattern": "^dg:\\d+$", "description": "One of your standing demigods." },
                     "target": { "type": "string", "pattern": "^dg:\\d+$", "description": "A rival's standing demigod." },
-                    "level": { "type": "string", "enum": ["regions", "villages", "houses", "people"], "description": "The board level (its hex size × duel_reach_factor is the reach; default villages)." }
+                    "level": { "type": "string", "enum": ["regions", "villages", "houses", "people"], "description": "The board level it was issued at (missing or unknown = regions): the reach is max(challenge_min_km 120, the touching-cards distance at this level: regions 600, villages 15, houses 0.15, people 0.015 km); it also frames the fight (the lock's cell)." }
                 },
                 "required": ["demigod", "target"]
             }] },
@@ -1138,7 +1142,8 @@ fn outcome_public() -> Value {
             ("manifests", array(r("Manifestation"), "Rules 0.7.0: public manifestations this beat (made things of tier relic or up, or legend+ attempts).")),
             ("dice", array(r("DiceRolled"), "Rules 0.8.0: every d20 the DM rolled this beat (at most 60), in order.")),
             ("god_powers", array(r("GodPowerLine"), "Rules 0.8.0: god-tier powers settled this beat (each then ruled on by its god: see `omens`).")),
-            ("duels", array(r("DuelEnd"), "Rules 0.8.1: the duels fought this beat (absent when none).")),
+            ("duels", array(r("ChallengeEnd"), "Rules 0.8.1: the duels that ended this beat (absent when none).")),
+            ("duels_open", array(r("ChallengeOpen"), "Rules 0.8.1: duels still under way (absent when none).")),
             ("summons", array(r("DmEvent"), "Rules 0.8.0: the `summoned` events of this beat (also in dm_events): {demigod, from {pos, cell}, to {pos, cell}, deed, health_lost}.")),
             ("dm_events", array(r("DmEvent"), "Rules 0.8.0: the DM's public decisions this beat (at most 40): settlements growing, encounters, loot, roads, shrines, scars, the time of day.")),
             ("time_of_day", r("TimeOfDay")),
@@ -1417,10 +1422,13 @@ fn v08_defs() -> Map<String, Value> {
     );
     d.insert("ChallengeLock".into(), object(
         "Rules 0.8.1: `phase.event.public` when a challenge is accepted (or `round.started.public.challenges[]` for the AI's): both portraits lock in.",
-        &[("event", json!({ "const": "challenge.lock" })), ("duel_id", string("duel:<beat>:<a>:<b>")), ("a", side.clone()), ("b", side),
+        &[("event", json!({ "const": "challenge.lock" })), ("duel_id", string("duel:s<seq>:<a>:<b> (a player's challenge: its action's seq) or duel:<beat>:<a>:<b> (the AI's)")), ("a", side.clone()), ("b", side),
           ("at", r("LonLat")), ("cell", string("The hex at `level`.")), ("level", json!({ "type": "string", "enum": ["regions", "villages", "houses", "people"] })),
-          ("focus", object("Centre the camera and spin the globe here.", &[("at", r("LonLat")), ("cell", string("")), ("level", string(""))], &[])),
-          ("ends", json!({ "type": "string", "enum": ["resolve", "ko_or_deadline"] })),
+          ("focus", object("Centre the camera and spin the globe here.", &[("at", r("LonLat")), ("lat", num("")), ("lon", num("")), ("cell", string("")), ("level", string(""))], &[])),
+          ("ends", json!({ "const": "ko_or_deadline" })),
+          ("ends_beat", int("The last beat whose resolve may still carry it (the world keeps beating meanwhile).")),
+          ("deadline_ms", nullable(int("Epoch ms: lines after it are refused (null for the AI's challenges).")))
+          ,("world", json!({ "type": "string", "enum": ["beating", "held"], "description": "beating until the engine offers a hold window." })),
           ("freeze", object("The world hold the duel requests (supported once the engine has holds).",
                             &[("requested", boolean("")), ("supported", boolean("")), ("participants", array(int(""), "Human seats.")),
                               ("deadline_ms", nullable(int("Epoch ms.")))], &[])),
@@ -1451,7 +1459,7 @@ fn v08_defs() -> Map<String, Value> {
         "parry_low", "block_cross", "dodge_left", "dodge_right", "duck", "leap_up", "land", "feint_shoulder", "grab_reach",
         "grapple_lock", "throw_hip", "stagger_back", "stumble", "fall_back", "kneel_hit", "rise", "cast_raise", "cast_release",
         "command_point", "taunt_beckon", "victory", "defeat"] });
-    let class = json!({ "type": ["string", "null"], "enum": ["strike", "heavy", "guard", "parry", "feint", "evade", "close_in", "retreat", "grapple", "throw", "invoke", "command", "taunt", null] });
+    let class = json!({ "type": ["string", "null"], "enum": ["strike", "heavy", "guard", "parry", "feint", "evade", "close", "retreat", "grapple", "throw", "invoke", "command", "taunt", null] });
     let stance = json!({ "type": "string", "enum": ["neutral", "guarding", "committed", "off_balance", "airborne", "downed"] });
     let range = json!({ "type": "string", "enum": ["far", "mid", "close", "grapple"] });
     let figure = object("One figure in an exchange.",
@@ -1463,6 +1471,9 @@ fn v08_defs() -> Map<String, Value> {
           ("initiative_after", json!({ "type": "string", "enum": ["a", "b"] })), ("flip", boolean("")),
           ("result", json!({ "type": "string", "enum": ["landed", "absorbed", "parried", "evaded", "missed", "thrown", "grappled", "wasted", "moved", "set", "taunted", "penalty"] })),
           ("a", figure.clone()), ("b", figure), ("camera", json!({ "type": "string", "enum": ["wide", "close", "over_a", "over_b"] })),
+          ("contacts", array(object("", &[("by", json!({ "type": "string", "enum": ["a", "b"] })), ("limb", string("right_hand | left_hand | right_foot")),
+                                           ("on", json!({ "type": "string", "enum": ["a", "b"] })), ("target_limb", string("head | torso | arms | legs")), ("t_ms", int(""))], &[]),
+                             "Every contact: who hits, with which limb, which body part of the other, when (empty when nothing lands).")),
           ("duration_ms", json!({ "type": "integer", "minimum": 600, "maximum": 1400 }))], &[]);
     let strike_opt = vec![
         ("choreo", choreo),
@@ -1476,15 +1487,24 @@ fn v08_defs() -> Map<String, Value> {
     let mut blow_opt = strike_opt.clone();
     blow_opt.extend([("counter", r("DuelStrike")), ("hp_after", object("Healths after the counter.", &[("a", num("")), ("b", num(""))], &[])),
                      ("at_ms", json!({ "type": "integer" })), ("seq", int("")), ("received_at_ms", json!({ "type": "integer" }))]);
-    d.insert("DuelBlow".into(), object("Rules 0.8.1: `phase.event.public` for each duel line, at once (also in duel.end's log).", &blow_req, &blow_opt));
-    d.insert("DuelEnd".into(), object(
-        "Rules 0.8.1: a duel applied at the resolve (`round.outcome.public.duels[]`).",
-        &[("event", json!({ "const": "duel.end" })), ("duel_id", string("")), ("a", r("Ref")), ("b", r("Ref")), ("a_name", string("")), ("b_name", string("")),
+    d.insert("DuelBlow".into(), object("Rules 0.8.1: `phase.event.public` for each duel line, at once (also in the resolve's challenge.open / challenge.end log).", &blow_req, &blow_opt));
+    d.insert("ChallengeOpen".into(), object(
+        "Rules 0.8.1: a duel still under way after this resolve (`round.outcome.public.duels_open[]`; the damage so far is applied).",
+        &[("event", json!({ "const": "challenge.open" })), ("duel_id", string("")), ("a", r("Ref")), ("b", r("Ref")),
+          ("hp", object("Both duel healths now.", &[("a", num("")), ("b", num(""))], &[])), ("blows", int("")), ("typed", int("")),
+          ("ends_beat", int("")), ("deadline_ms", nullable(int(""))), ("range", json!({ "type": "string", "enum": ["far", "mid", "close", "grapple"] })),
+          ("initiative", json!({ "type": "string", "enum": ["a", "b"] })), ("log", array(r("DuelBlow"), "The blows this resolve was handed."))],
+        &[],
+    ));
+    d.insert("ChallengeEnd".into(), object(
+        "Rules 0.8.1: a duel over, applied at the resolve (`round.outcome.public.duels[]`).",
+        &[("event", json!({ "const": "challenge.end" })), ("duel_id", string("")),
+          ("reason", json!({ "type": "string", "enum": ["ko", "deadline", "fallen", "auto"] })), ("locked_beat", int("")), ("a", r("Ref")), ("b", r("Ref")), ("a_name", string("")), ("b_name", string("")),
           ("winner", nullable(r("Ref"))), ("loser", nullable(r("Ref"))), ("ko", boolean("")),
           ("damage", object("Damage each took.", &[("a", num("")), ("b", num(""))], &[])), ("hp", object("", &[("a", num("")), ("b", num(""))], &[])),
           ("blows", int("Blows numbered (typed and automatic).")), ("typed", int("Lines typed.")), ("deed", string("One line: the duel mind's, else the rules'.")),
           ("at", r("LonLat")), ("pos", json!({ "$ref": "#/$defs/LonLat", "description": "`at` at full precision (outcome numbers are rounded to 2 decimals except `pos`)." })),
-          ("cell", string("")), ("level", string("")), ("place", string("")), ("log", array(r("DuelBlow"), "Every blow, in order."))],
+          ("cell", string("")), ("level", string("")), ("place", string("")), ("log", array(r("DuelBlow"), "The blows this final resolve was handed (earlier ones came live and in challenge.open)."))],
         &[],
     ));
     d.insert("Tale".into(), object("Rules 0.8.0: a deed the DM told.", &[("beat", int("")), ("kind", string("")), ("text", string(""))], &[]));
@@ -1656,6 +1676,11 @@ pub fn all() -> Vec<(&'static str, Value)> {
               ("alive", boolean("")), ("pos", r("LonLat")), ("cell", json!({ "type": ["string", "null"], "description": "People-level hex key." }))], &[]),
             "Rules 0.7.0: both of your demigods (`you` is your lead one: the first standing)."));
         props.insert("manifests".into(), array(r("Manifestation"), "Rules 0.7.0: your demigods' manifestations this beat, with the verdict."));
+        props.insert("wills".into(), array(object("Rules 0.8.1: what became of an order you gave while all your demigods were fallen (never silence).",
+            &[("text", string("Your order.")), ("routed_to", nullable(string("The god it went to (Death for a plea to come back)."))),
+              ("verdict", json!({ "type": "string", "enum": ["grant", "bargain", "twist", "refuse", "refused"], "description": "The god's verdict, or refused (never reached a god)." })),
+              ("speech", nullable(string("The god's words."))), ("reason", string("Why: Death's price and your purse, or why it can't be done."))], &[]),
+            "Rules 0.8.1: your fallen demigods' wills this beat (absent when none)."));
     }
     round_private["description"] =
         "`round.private.private` (the `SeatDelta`): what only your seat learns from the beat that just resolved. \

@@ -81,10 +81,45 @@
       "minimum": 0,
       "type": "integer"
     },
+    "challenge_contact_km_houses": {
+      "default": 0.15,
+      "description": "Rules 0.8.1: the contact reach at the houses level (km).",
+      "maximum": 20000.0,
+      "minimum": 0.0,
+      "type": "number"
+    },
+    "challenge_contact_km_people": {
+      "default": 0.015,
+      "description": "Rules 0.8.1: the contact reach at the people level (km).",
+      "maximum": 20000.0,
+      "minimum": 0.0,
+      "type": "number"
+    },
+    "challenge_contact_km_regions": {
+      "default": 600.0,
+      "description": "Rules 0.8.1: at the regions level a challenge also reaches as far as two touching board cards (km); the reach is max(challenge_min_km, this).",
+      "maximum": 20000.0,
+      "minimum": 0.0,
+      "type": "number"
+    },
+    "challenge_contact_km_villages": {
+      "default": 15.0,
+      "description": "Rules 0.8.1: the contact reach at the villages level (km).",
+      "maximum": 20000.0,
+      "minimum": 0.0,
+      "type": "number"
+    },
     "challenge_enabled": {
       "default": true,
       "description": "Rules 0.8.1: challenge mode (fields.challenge / fields.duel, and the built-in AI's challenges). Settings recorded before 0.8.1 read it as false.",
       "type": "boolean"
+    },
+    "challenge_min_km": {
+      "default": 120.0,
+      "description": "Rules 0.8.1: a challenge always reaches this far (km), at any zoom.",
+      "maximum": 20000.0,
+      "minimum": 0.0,
+      "type": "number"
     },
     "choose_seconds": {
       "description": "Unused by Final Night 7 (there is no Choose phase); copied through if set.",
@@ -266,7 +301,7 @@
     },
     "duel_deadline_ms": {
       "default": 30000,
-      "description": "Rules 0.8.1: the longest a duel runs after its lock (the engine hold's deadline).",
+      "description": "Rules 0.8.1: the longest a duel runs after its lock (the engine hold's deadline; without a hold the world keeps beating and the duel lasts at most ceil(duel_deadline_ms / flow_ms) resolves).",
       "maximum": 600000,
       "minimum": 1000,
       "type": "integer"
@@ -284,13 +319,6 @@
       "maximum": 5000,
       "minimum": 0,
       "type": "integer"
-    },
-    "duel_reach_factor": {
-      "default": 1.5,
-      "description": "Rules 0.8.1: a challenge reaches this many times its level's hex size.",
-      "maximum": 10.0,
-      "minimum": 0.5,
-      "type": "number"
     },
     "entropy_per_mega": {
       "default": 10.0,

@@ -832,6 +832,56 @@
       "minimum": 0,
       "type": "integer"
     },
+    "wills": {
+      "description": "Rules 0.8.1: your fallen demigods' wills this beat (absent when none).",
+      "items": {
+        "description": "Rules 0.8.1: what became of an order you gave while all your demigods were fallen (never silence).",
+        "properties": {
+          "reason": {
+            "description": "Why: Death's price and your purse, or why it can't be done.",
+            "type": "string"
+          },
+          "routed_to": {
+            "description": "The god it went to (Death for a plea to come back).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "speech": {
+            "description": "The god's words.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "text": {
+            "description": "Your order.",
+            "type": "string"
+          },
+          "verdict": {
+            "description": "The god's verdict, or refused (never reached a god).",
+            "enum": [
+              "grant",
+              "bargain",
+              "twist",
+              "refuse",
+              "refused"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "routed_to",
+          "verdict",
+          "speech",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
     "you": {
       "$ref": "#/$defs/YouLine"
     },

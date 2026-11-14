@@ -119,6 +119,268 @@
       ],
       "type": "object"
     },
+    "ChallengeEnd": {
+      "description": "Rules 0.8.1: a duel over, applied at the resolve (`round.outcome.public.duels[]`).",
+      "properties": {
+        "a": {
+          "$ref": "#/$defs/Ref"
+        },
+        "a_name": {
+          "description": "",
+          "type": "string"
+        },
+        "at": {
+          "$ref": "#/$defs/LonLat"
+        },
+        "b": {
+          "$ref": "#/$defs/Ref"
+        },
+        "b_name": {
+          "description": "",
+          "type": "string"
+        },
+        "blows": {
+          "description": "Blows numbered (typed and automatic).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cell": {
+          "description": "",
+          "type": "string"
+        },
+        "damage": {
+          "description": "Damage each took.",
+          "properties": {
+            "a": {
+              "description": "",
+              "type": "number"
+            },
+            "b": {
+              "description": "",
+              "type": "number"
+            }
+          },
+          "required": [
+            "a",
+            "b"
+          ],
+          "type": "object"
+        },
+        "deed": {
+          "description": "One line: the duel mind's, else the rules'.",
+          "type": "string"
+        },
+        "duel_id": {
+          "description": "",
+          "type": "string"
+        },
+        "event": {
+          "const": "challenge.end"
+        },
+        "hp": {
+          "description": "",
+          "properties": {
+            "a": {
+              "description": "",
+              "type": "number"
+            },
+            "b": {
+              "description": "",
+              "type": "number"
+            }
+          },
+          "required": [
+            "a",
+            "b"
+          ],
+          "type": "object"
+        },
+        "ko": {
+          "description": "",
+          "type": "boolean"
+        },
+        "level": {
+          "description": "",
+          "type": "string"
+        },
+        "locked_beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "log": {
+          "description": "The blows this final resolve was handed (earlier ones came live and in challenge.open).",
+          "items": {
+            "$ref": "#/$defs/DuelBlow"
+          },
+          "type": "array"
+        },
+        "loser": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "place": {
+          "description": "",
+          "type": "string"
+        },
+        "pos": {
+          "$ref": "#/$defs/LonLat",
+          "description": "`at` at full precision (outcome numbers are rounded to 2 decimals except `pos`)."
+        },
+        "reason": {
+          "enum": [
+            "ko",
+            "deadline",
+            "fallen",
+            "auto"
+          ],
+          "type": "string"
+        },
+        "typed": {
+          "description": "Lines typed.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "winner": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "event",
+        "duel_id",
+        "reason",
+        "locked_beat",
+        "a",
+        "b",
+        "a_name",
+        "b_name",
+        "winner",
+        "loser",
+        "ko",
+        "damage",
+        "hp",
+        "blows",
+        "typed",
+        "deed",
+        "at",
+        "pos",
+        "cell",
+        "level",
+        "place",
+        "log"
+      ],
+      "type": "object"
+    },
+    "ChallengeOpen": {
+      "description": "Rules 0.8.1: a duel still under way after this resolve (`round.outcome.public.duels_open[]`; the damage so far is applied).",
+      "properties": {
+        "a": {
+          "$ref": "#/$defs/Ref"
+        },
+        "b": {
+          "$ref": "#/$defs/Ref"
+        },
+        "blows": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "deadline_ms": {
+          "description": "",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "duel_id": {
+          "description": "",
+          "type": "string"
+        },
+        "ends_beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "event": {
+          "const": "challenge.open"
+        },
+        "hp": {
+          "description": "Both duel healths now.",
+          "properties": {
+            "a": {
+              "description": "",
+              "type": "number"
+            },
+            "b": {
+              "description": "",
+              "type": "number"
+            }
+          },
+          "required": [
+            "a",
+            "b"
+          ],
+          "type": "object"
+        },
+        "initiative": {
+          "enum": [
+            "a",
+            "b"
+          ],
+          "type": "string"
+        },
+        "log": {
+          "description": "The blows this resolve was handed.",
+          "items": {
+            "$ref": "#/$defs/DuelBlow"
+          },
+          "type": "array"
+        },
+        "range": {
+          "enum": [
+            "far",
+            "mid",
+            "close",
+            "grapple"
+          ],
+          "type": "string"
+        },
+        "typed": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event",
+        "duel_id",
+        "a",
+        "b",
+        "hp",
+        "blows",
+        "typed",
+        "ends_beat",
+        "deadline_ms",
+        "range",
+        "initiative",
+        "log"
+      ],
+      "type": "object"
+    },
     "DayPhase": {
       "description": "Rules 0.8.0: the phase of the game day.",
       "enum": [
@@ -225,7 +487,7 @@
       "type": "object"
     },
     "DuelBlow": {
-      "description": "Rules 0.8.1: `phase.event.public` for each duel line, at once (also in duel.end's log).",
+      "description": "Rules 0.8.1: `phase.event.public` for each duel line, at once (also in the resolve's challenge.open / challenge.end log).",
       "properties": {
         "anim": {
           "description": "Rules 0.8.1: animation cues for the figures (deterministic, from the rules).",
@@ -374,7 +636,7 @@
                     "parry",
                     "feint",
                     "evade",
-                    "close_in",
+                    "close",
                     "retreat",
                     "grapple",
                     "throw",
@@ -500,7 +762,7 @@
                     "parry",
                     "feint",
                     "evade",
-                    "close_in",
+                    "close",
                     "retreat",
                     "grapple",
                     "throw",
@@ -597,6 +859,50 @@
               ],
               "type": "string"
             },
+            "contacts": {
+              "description": "Every contact: who hits, with which limb, which body part of the other, when (empty when nothing lands).",
+              "items": {
+                "description": "",
+                "properties": {
+                  "by": {
+                    "enum": [
+                      "a",
+                      "b"
+                    ],
+                    "type": "string"
+                  },
+                  "limb": {
+                    "description": "right_hand | left_hand | right_foot",
+                    "type": "string"
+                  },
+                  "on": {
+                    "enum": [
+                      "a",
+                      "b"
+                    ],
+                    "type": "string"
+                  },
+                  "t_ms": {
+                    "description": "",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "target_limb": {
+                    "description": "head | torso | arms | legs",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "by",
+                  "limb",
+                  "on",
+                  "target_limb",
+                  "t_ms"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
             "duration_ms": {
               "maximum": 1400,
               "minimum": 600,
@@ -666,6 +972,7 @@
             "a",
             "b",
             "camera",
+            "contacts",
             "duration_ms"
           ],
           "type": "object"
@@ -842,155 +1149,6 @@
       ],
       "type": "object"
     },
-    "DuelEnd": {
-      "description": "Rules 0.8.1: a duel applied at the resolve (`round.outcome.public.duels[]`).",
-      "properties": {
-        "a": {
-          "$ref": "#/$defs/Ref"
-        },
-        "a_name": {
-          "description": "",
-          "type": "string"
-        },
-        "at": {
-          "$ref": "#/$defs/LonLat"
-        },
-        "b": {
-          "$ref": "#/$defs/Ref"
-        },
-        "b_name": {
-          "description": "",
-          "type": "string"
-        },
-        "blows": {
-          "description": "Blows numbered (typed and automatic).",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "cell": {
-          "description": "",
-          "type": "string"
-        },
-        "damage": {
-          "description": "Damage each took.",
-          "properties": {
-            "a": {
-              "description": "",
-              "type": "number"
-            },
-            "b": {
-              "description": "",
-              "type": "number"
-            }
-          },
-          "required": [
-            "a",
-            "b"
-          ],
-          "type": "object"
-        },
-        "deed": {
-          "description": "One line: the duel mind's, else the rules'.",
-          "type": "string"
-        },
-        "duel_id": {
-          "description": "",
-          "type": "string"
-        },
-        "event": {
-          "const": "duel.end"
-        },
-        "hp": {
-          "description": "",
-          "properties": {
-            "a": {
-              "description": "",
-              "type": "number"
-            },
-            "b": {
-              "description": "",
-              "type": "number"
-            }
-          },
-          "required": [
-            "a",
-            "b"
-          ],
-          "type": "object"
-        },
-        "ko": {
-          "description": "",
-          "type": "boolean"
-        },
-        "level": {
-          "description": "",
-          "type": "string"
-        },
-        "log": {
-          "description": "Every blow, in order.",
-          "items": {
-            "$ref": "#/$defs/DuelBlow"
-          },
-          "type": "array"
-        },
-        "loser": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Ref"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "place": {
-          "description": "",
-          "type": "string"
-        },
-        "pos": {
-          "$ref": "#/$defs/LonLat",
-          "description": "`at` at full precision (outcome numbers are rounded to 2 decimals except `pos`)."
-        },
-        "typed": {
-          "description": "Lines typed.",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "winner": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Ref"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      },
-      "required": [
-        "event",
-        "duel_id",
-        "a",
-        "b",
-        "a_name",
-        "b_name",
-        "winner",
-        "loser",
-        "ko",
-        "damage",
-        "hp",
-        "blows",
-        "typed",
-        "deed",
-        "at",
-        "pos",
-        "cell",
-        "level",
-        "place",
-        "log"
-      ],
-      "type": "object"
-    },
     "DuelStrike": {
       "description": "Rules 0.8.1: one strike (a counter's shape).",
       "properties": {
@@ -1138,7 +1296,7 @@
                     "parry",
                     "feint",
                     "evade",
-                    "close_in",
+                    "close",
                     "retreat",
                     "grapple",
                     "throw",
@@ -1264,7 +1422,7 @@
                     "parry",
                     "feint",
                     "evade",
-                    "close_in",
+                    "close",
                     "retreat",
                     "grapple",
                     "throw",
@@ -1361,6 +1519,50 @@
               ],
               "type": "string"
             },
+            "contacts": {
+              "description": "Every contact: who hits, with which limb, which body part of the other, when (empty when nothing lands).",
+              "items": {
+                "description": "",
+                "properties": {
+                  "by": {
+                    "enum": [
+                      "a",
+                      "b"
+                    ],
+                    "type": "string"
+                  },
+                  "limb": {
+                    "description": "right_hand | left_hand | right_foot",
+                    "type": "string"
+                  },
+                  "on": {
+                    "enum": [
+                      "a",
+                      "b"
+                    ],
+                    "type": "string"
+                  },
+                  "t_ms": {
+                    "description": "",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "target_limb": {
+                    "description": "head | torso | arms | legs",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "by",
+                  "limb",
+                  "on",
+                  "target_limb",
+                  "t_ms"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
             "duration_ms": {
               "maximum": 1400,
               "minimum": 600,
@@ -1430,6 +1632,7 @@
             "a",
             "b",
             "camera",
+            "contacts",
             "duration_ms"
           ],
           "type": "object"
@@ -2229,9 +2432,16 @@
       "type": "array"
     },
     "duels": {
-      "description": "Rules 0.8.1: the duels fought this beat (absent when none).",
+      "description": "Rules 0.8.1: the duels that ended this beat (absent when none).",
       "items": {
-        "$ref": "#/$defs/DuelEnd"
+        "$ref": "#/$defs/ChallengeEnd"
+      },
+      "type": "array"
+    },
+    "duels_open": {
+      "description": "Rules 0.8.1: duels still under way (absent when none).",
+      "items": {
+        "$ref": "#/$defs/ChallengeOpen"
       },
       "type": "array"
     },

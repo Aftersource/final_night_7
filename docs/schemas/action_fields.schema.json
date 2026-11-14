@@ -361,7 +361,7 @@
           "type": "null"
         },
         {
-          "description": "Rules 0.8.1: challenge a rival's demigod in reach to a duel (an instant action that travels alone; forced). Refusals: not_yours, fallen, bad_target, bad_level, too_far, busy, cooldown, challenge_disabled.",
+          "description": "Rules 0.8.1: challenge a rival's demigod in reach to a duel (an instant action that travels alone; forced). Refusals: not_yours, fallen, bad_target, too_far:<distance km>:<allowed km>, busy, cooldown, challenge_disabled.",
           "properties": {
             "demigod": {
               "description": "One of your standing demigods.",
@@ -369,7 +369,7 @@
               "type": "string"
             },
             "level": {
-              "description": "The board level (its hex size × duel_reach_factor is the reach; default villages).",
+              "description": "The board level it was issued at (missing or unknown = regions): the reach is max(challenge_min_km 120, the touching-cards distance at this level: regions 600, villages 15, houses 0.15, people 0.015 km); it also frames the fight (the lock's cell).",
               "enum": [
                 "regions",
                 "villages",
