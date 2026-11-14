@@ -774,3 +774,21 @@ place×time memory:
 6. day and night on the board
 7. paths that wear in
 8. shrines to your demigod
+
+## 2026-11-14: fault lines for megas, faded coastlines, ground life, an Archon stretch goal
+
+> Asked whether everything has been merged, since the changes are not yet visible on either side. The other side has useful geodata.
+> The geodata includes faultlines, which appear only when the mega-powers are selected. Near a faultline, effects are stronger.
+> Effects are more intense near a faultline, and a weaker faultline should look like a mild volcano. Coastlines and city lines should fade in and out smoothly, mostly.
+> After they fade out, the ground should be worked on for the ground characters and events that occur at level 1.
+> Small characters hopping around are planned, with an Archon-style fast typing interaction as the stretch goal (all
+> The stretch goal applies all the way down the zoom levels.
+
+Engineering:
+- Merged is not the same as running: clients must rebuild from main (Chris's editor: the Mac session; Benito's: the Windows builder).
+- Fault lines:
+  - The client shows them only while a mega is armed or dragged (the kit's OnMegaArmed event).
+  - The server scales a mega cast's effect by its distance to the nearest fault line, using Benito's fault data.
+- Coastlines and city lines are mostly faded, fading in on zoom or hover.
+- Level 1 ground life: crowds drawn as small hopping figures.
+- Stretch goal: Archon-style typed battles at people level.
