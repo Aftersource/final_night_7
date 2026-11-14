@@ -1,0 +1,749 @@
+{
+  "$defs": {
+    "Allegiance": {
+      "description": "Loyalty to one demigod, -1..1.",
+      "properties": {
+        "demigod": {
+          "description": "",
+          "type": "string"
+        },
+        "demigod_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "value": {
+          "description": "",
+          "type": "number"
+        }
+      },
+      "required": [
+        "demigod",
+        "demigod_ref",
+        "value"
+      ],
+      "type": "object"
+    },
+    "Cell": {
+      "description": "A cell: 10-500 people out of a crowd (a gang, squad, congregation, crew or militia).",
+      "properties": {
+        "at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LonLat"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": ""
+        },
+        "crowd": {
+          "$ref": "#/$defs/Ref"
+        },
+        "kind": {
+          "description": "",
+          "enum": [
+            "gang",
+            "squad",
+            "congregation",
+            "crew",
+            "militia"
+          ],
+          "type": "string"
+        },
+        "leader": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Who"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mob": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The mob it merged into."
+        },
+        "name": {
+          "description": "",
+          "type": "string"
+        },
+        "ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "size": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "stance": {
+          "$ref": "#/$defs/Stance"
+        }
+      },
+      "required": [
+        "ref",
+        "name",
+        "kind",
+        "size",
+        "crowd",
+        "leader",
+        "stance",
+        "mob",
+        "at"
+      ],
+      "type": "object"
+    },
+    "Crowd": {
+      "description": "A crowd (a cluster of unaddressed people) and its live cells.",
+      "properties": {
+        "allegiance": {
+          "description": "Per demigod (sparse).",
+          "items": {
+            "$ref": "#/$defs/Allegiance"
+          },
+          "type": "array"
+        },
+        "at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LonLat"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": ""
+        },
+        "cells": {
+          "description": "Live cells.",
+          "items": {
+            "$ref": "#/$defs/Cell"
+          },
+          "type": "array"
+        },
+        "dead": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "leader": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Who"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mood": {
+          "$ref": "#/$defs/Mood"
+        },
+        "name": {
+          "description": "",
+          "type": "string"
+        },
+        "need": {
+          "$ref": "#/$defs/Need"
+        },
+        "place": {
+          "$ref": "#/$defs/Ref"
+        },
+        "ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "size": {
+          "description": "Head count.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "stance": {
+          "$ref": "#/$defs/Stance"
+        }
+      },
+      "required": [
+        "ref",
+        "name",
+        "size",
+        "place",
+        "at",
+        "mood",
+        "need",
+        "stance",
+        "allegiance",
+        "leader",
+        "dead",
+        "cells"
+      ],
+      "type": "object"
+    },
+    "Level": {
+      "description": "A level of the hierarchy.",
+      "enum": [
+        "planet",
+        "region",
+        "city",
+        "district",
+        "crowd",
+        "cell",
+        "person"
+      ],
+      "type": "string"
+    },
+    "LonLat": {
+      "description": "[longitude, latitude] in degrees (WGS84). Note the order: longitude first.",
+      "items": {
+        "type": "number"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+    },
+    "Mob": {
+      "description": "A mob: cells merged under a ringleader.",
+      "properties": {
+        "action": {
+          "description": "",
+          "enum": [
+            "gathering",
+            "rioting",
+            "looting",
+            "attacking",
+            "marching",
+            "dispersed"
+          ],
+          "type": "string"
+        },
+        "anger": {
+          "description": "",
+          "type": "number"
+        },
+        "at": {
+          "$ref": "#/$defs/LonLat"
+        },
+        "casualties": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cause": {
+          "description": "Why it formed.",
+          "type": "string"
+        },
+        "cells": {
+          "description": "Its cells (`ce:` refs).",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "type": "array"
+        },
+        "city": {
+          "$ref": "#/$defs/Ref"
+        },
+        "ended_beat": {
+          "description": "",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "fear": {
+          "description": "",
+          "type": "number"
+        },
+        "formed_beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kills": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "description": "",
+          "type": "string"
+        },
+        "place": {
+          "$ref": "#/$defs/Ref"
+        },
+        "ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "region": {
+          "description": "",
+          "type": "string"
+        },
+        "ringleader": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Who"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "side": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The demigod it rallies behind."
+        },
+        "size": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What it is angry at."
+        }
+      },
+      "required": [
+        "ref",
+        "name",
+        "size",
+        "action",
+        "target",
+        "ringleader",
+        "cause",
+        "at",
+        "city",
+        "place",
+        "region",
+        "side",
+        "anger",
+        "fear",
+        "cells",
+        "formed_beat",
+        "ended_beat",
+        "casualties",
+        "kills"
+      ],
+      "type": "object"
+    },
+    "Mood": {
+      "description": "Mood, each 0..1.",
+      "properties": {
+        "anger": {
+          "description": "",
+          "type": "number"
+        },
+        "devotion": {
+          "description": "",
+          "type": "number"
+        },
+        "fear": {
+          "description": "",
+          "type": "number"
+        },
+        "hope": {
+          "description": "",
+          "type": "number"
+        }
+      },
+      "required": [
+        "anger",
+        "fear",
+        "hope",
+        "devotion"
+      ],
+      "type": "object"
+    },
+    "Need": {
+      "description": "Unmet needs, each 0 (met) .. 1 (desperate).",
+      "properties": {
+        "faith": {
+          "description": "",
+          "type": "number"
+        },
+        "food": {
+          "description": "",
+          "type": "number"
+        },
+        "safety": {
+          "description": "",
+          "type": "number"
+        }
+      },
+      "required": [
+        "food",
+        "safety",
+        "faith"
+      ],
+      "type": "object"
+    },
+    "Node": {
+      "description": "The rolled-up state of a place (planet, region, city, city district).",
+      "properties": {
+        "allegiance": {
+          "description": "Size-weighted allegiance per demigod (sparse).",
+          "items": {
+            "$ref": "#/$defs/Allegiance"
+          },
+          "type": "array"
+        },
+        "at": {
+          "$ref": "#/$defs/LonLat"
+        },
+        "base": {
+          "description": "Population at setup.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "dead": {
+          "description": "Deaths here so far.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "leader": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Who"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "level": {
+          "$ref": "#/$defs/Level"
+        },
+        "mood": {
+          "$ref": "#/$defs/Mood"
+        },
+        "name": {
+          "description": "",
+          "type": "string"
+        },
+        "need": {
+          "$ref": "#/$defs/Need"
+        },
+        "parent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The place above (null for the planet)."
+        },
+        "population": {
+          "description": "People living here now (crowds, not armies passing through).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "stance": {
+          "$ref": "#/$defs/Stance"
+        },
+        "supply": {
+          "description": "Food and goods stock: 1 = normal.",
+          "type": "number"
+        },
+        "worship": {
+          "description": "Worship share per god (sparse).",
+          "items": {
+            "description": "",
+            "properties": {
+              "god": {
+                "description": "",
+                "type": "string"
+              },
+              "god_ref": {
+                "$ref": "#/$defs/Ref"
+              },
+              "value": {
+                "description": "0..1",
+                "type": "number"
+              }
+            },
+            "required": [
+              "god",
+              "god_ref",
+              "value"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "ref",
+        "name",
+        "level",
+        "population",
+        "base",
+        "mood",
+        "need",
+        "allegiance",
+        "worship",
+        "supply",
+        "stance",
+        "leader",
+        "dead",
+        "at",
+        "parent"
+      ],
+      "type": "object"
+    },
+    "Ref": {
+      "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row, ce cell, mb mob. Stable for the whole match.",
+      "examples": [
+        "ch:12"
+      ],
+      "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg|ce|mb):\\d+$",
+      "type": "string"
+    },
+    "Role": {
+      "description": "A person's part in the society.",
+      "enum": [
+        "commoner",
+        "notable",
+        "ringleader",
+        "general",
+        "captain",
+        "soldier",
+        "hero",
+        "coward",
+        "witness",
+        "prophet",
+        "paladin",
+        "deserter",
+        "avenger"
+      ],
+      "type": "string"
+    },
+    "Stance": {
+      "description": "What it is doing as a whole.",
+      "enum": [
+        "calm",
+        "restless",
+        "rioting",
+        "fleeing",
+        "worshipping",
+        "fighting",
+        "marching",
+        "holding",
+        "besieging",
+        "raiding",
+        "retreating",
+        "rogue"
+      ],
+      "type": "string"
+    },
+    "Who": {
+      "description": "A person in short: who leads, commands or belongs somewhere.",
+      "properties": {
+        "alive": {
+          "description": "",
+          "type": "boolean"
+        },
+        "name": {
+          "description": "",
+          "type": "string"
+        },
+        "ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Role"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "title": {
+          "description": "\"General of Ash's Host of Cairo\".",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "ref",
+        "name",
+        "alive",
+        "role",
+        "title"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "query_node.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "`game.node`: one hierarchy node.",
+  "properties": {
+    "children": {
+      "description": "place only: the places below.",
+      "items": {
+        "$ref": "#/$defs/Node"
+      },
+      "type": "array"
+    },
+    "crowds": {
+      "description": "place only: crowds living under it, biggest first.",
+      "properties": {
+        "items": {
+          "description": "This page.",
+          "items": {
+            "$ref": "#/$defs/Crowd"
+          },
+          "type": "array"
+        },
+        "next_cursor": {
+          "description": "Pass as `cursor` for the next page; null on the last page.",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "total": {
+          "description": "Entries in the whole list.",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "items",
+        "next_cursor",
+        "total"
+      ],
+      "type": "object"
+    },
+    "kind": {
+      "description": "Which builder `node` is.",
+      "enum": [
+        "place",
+        "crowd",
+        "cell",
+        "mob"
+      ],
+      "type": "string"
+    },
+    "node": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Node"
+        },
+        {
+          "$ref": "#/$defs/Crowd"
+        },
+        {
+          "$ref": "#/$defs/Cell"
+        },
+        {
+          "$ref": "#/$defs/Mob"
+        }
+      ],
+      "description": "place: Node; crowd: Crowd; cell: Cell; mob: Mob."
+    },
+    "people": {
+      "description": "crowd, cell, mob: people known there (came from the crowd, members, in the mob).",
+      "properties": {
+        "items": {
+          "description": "This page.",
+          "items": {
+            "$ref": "#/$defs/Who"
+          },
+          "type": "array"
+        },
+        "next_cursor": {
+          "description": "Pass as `cursor` for the next page; null on the last page.",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "total": {
+          "description": "Entries in the whole list.",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "items",
+        "next_cursor",
+        "total"
+      ],
+      "type": "object"
+    },
+    "ref": {
+      "$ref": "#/$defs/Ref"
+    }
+  },
+  "required": [
+    "kind",
+    "ref",
+    "node"
+  ],
+  "title": "game.node",
+  "type": "object",
+  "x-applies-to": "game.node reply (WebSocket), GET /api/rooms/{code}/query/node",
+  "x-args": {
+    "additionalProperties": true,
+    "description": "Over HTTP every arg is a query-string parameter (numbers as numeric strings). Unknown args are ignored.",
+    "properties": {
+      "cursor": {
+        "description": "Page cursor: `next_cursor` from the previous page. Omit for the first page.",
+        "minimum": 0,
+        "type": [
+          "integer",
+          "string"
+        ]
+      },
+      "limit": {
+        "description": "Page size (default 20, at most 100).",
+        "maximum": 100,
+        "minimum": 1,
+        "type": [
+          "integer",
+          "string"
+        ]
+      },
+      "ref": {
+        "description": "The node.",
+        "pattern": "^(pl|cl|ce|mb):\\d+$",
+        "type": "string"
+      }
+    },
+    "required": [
+      "ref"
+    ],
+    "type": "object"
+  },
+  "x-description": "One hierarchy node by ref: a place (planet, region, city, district: its node, child nodes and a page of its crowds), a crowd (`cl:`, not an army), a cell (`ce:`) or a mob (`mb:`), with the people known there.",
+  "x-public": true
+}

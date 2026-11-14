@@ -6,7 +6,8 @@ timing, and who sees what. The envelope, login/resume, the lobby, rate limits an
 Theatre's [`PROTOCOL.md`](../../theatre/PROTOCOL.md) (also in the repo root of
 [Aftersource/theatre](https://github.com/Aftersource/theatre)). Read that first; this file doesn't repeat it.
 
-- **Schemas:** [`docs/schemas/`](schemas/) has a JSON Schema (draft 2020-12) for every game payload. They're generated
+- **Schemas:** [`docs/schemas/`](schemas/) has a JSON Schema (draft 2020-12) for every game payload and every query
+  reply (`query_<name>`, with its args, see "Game queries"). They're generated
   from the code by `cargo run -p fn7-tools --bin fn7-schemas`, and a test fails if they go stale.
 - **Examples:** [`docs/examples/`](examples/) has one real frame of every message type. They were recorded from one
   player (`Juniper`, seat 1) in a 4-player offline match (no LLM, 6 beats, `beat_ms` 1500), with arrays longer than 8
@@ -593,6 +594,275 @@ every key above except `rounds`, plus `seed`, `city` and `choose_seconds` only w
 - **Windows and instant actions ignore phases.** A window stays open across beats; held orders and casts reach the
   game at the next resolve after they arrive (a window's orders: after it closes).
 - Use `deadline` against your clock and correct for skew with `sys.pong.server_time`.
+
+## Game queries (`game.*`)
+
+Queries are read-only requests that return game data on demand. The pushed messages above deliver each beat as it
+happens. A query answers from the room's current game state, which changes at each beat's Resolve and Commit, so ask
+again after `round.committed` to get the new beat. Queries work in every phase and after the match ends (against the
+final state). Before the first match they fail with `wrong_phase`. The engine side is in PROTOCOL.md "Game queries".
+
+**The manifest.** `server.hello.api.queries` lists every query as `{ name, description, args_schema, public }`. The
+reply schemas are [`docs/schemas/query_<name>.schema.json`](schemas/). Each file also carries the args schema
+(`x-args`) and whether the query is served over HTTP (`x-public`). A test validates real replies against them,
+strictly.
+
+**WebSocket** (you must be seated in the room; spectators count). The answer is computed for your seat:
+```
+C→S { "t": "game.region", "id": "q7", "d": { "ref": "pl:1", "limit": 2 } }
+S→C { "t": "game.region", "re": "q7", "d": { …the reply… } }
+S→C { "t": "error", "re": "q7", "d": { "code": "bad_request", "message": "`limit` must be 1..50" } }
+```
+`not_found` = no such query. `bad_request` = the game refused the args (the message says why). `wrong_phase` = no
+match yet.
+
+**HTTP** (public queries only; no socket and no seat, so the answer carries public information only):
+```
+GET http://<host>:<port>/api/rooms/{code}/query/{name}?arg=value&…
+200 → the reply JSON     400 → refused args (text)     403 → not a public query (`me`)
+404 → no such room or query     409 → no match yet
+```
+Over HTTP every arg is a string. Numbers are sent as numeric strings (`limit=20`), and refs as written (`ref=pl:1`).
+Unknown args are ignored, including the ngrok gate's `?key=`.
+
+**Conventions.**
+- **Cheap, small answers.** Queries run on the room's own loop and are built to take about a millisecond (a median
+  of 2.2 ms for the slowest on a planet at beat 50, release build). Lists that grow are **paged**. A paged list is
+  `{ items, next_cursor, total }`: pass `next_cursor` back as `cursor` to get the next page (`null` = the last page).
+  `limit` sets the page size, with each query's default and maximum.
+- **Events are paged by ledger row.** An event page is `{ items, since, next, more, head }`. `items` are public
+  geotagged events in ledger order (oldest first), each a `round.outcome.public.events` entry plus `beat` and
+  `region_ref`. `head` is the number of ledger rows so far. With `since: N` you get events from row `N` on. `next` is
+  the row to pass as `since` next time, and `more: true` means more rows are waiting to be scanned right now (one call
+  looks at no more than 2000 rows). Without `since` you get the latest `limit` events, and `next` = `head`. So start
+  without `since`, then ask with `since: next`, and you get every public event exactly once.
+- **Hidden information.** Public queries return only what the PublicView already shows, and they return the same
+  answer to every asker. A seat-scoped field uses the asking seat's demigod. For a public asker (HTTP) that field is
+  absent (`person`) or reduced (`army`). Health is never in a public answer.
+- Floats are rounded as in every payload. All ids are refs. Two prefixes appear only in society answers: `ce:` (a
+  cell) and `mb:` (a mob). With media on, image fields appear next to the prompts as in [`MEDIA.md`](MEDIA.md).
+
+| Query | Public | Args | Reply |
+|---|---|---|---|
+| `globe` | yes | `since?`, `limit?` (30, ≤ 200) | The globe in one call: arena, demigods, influence, mods, armies, Entropy, beat, an event page |
+| `region` | yes | `ref` (a region `pl:`), `cursor?`, `limit?` (10, ≤ 50) | One region: node, cities, crowds (paged), mobs, armies, demigods, mods, influence, recent events |
+| `node` | yes | `ref` (`pl:` / `cl:` / `ce:` / `mb:`), `cursor?`, `limit?` (20, ≤ 100) | One hierarchy node and what is under it |
+| `person` | yes (subset) | `ref` (`ch:`), `cursor?`, `limit?` (20, ≤ 100) | Role, rank, place; for your seat: allegiance you know, memories you can see |
+| `army` | yes (subset) | `ref` (`cl:` of an army) | General, captains, size, position, morale; its owner also gets orders and the full chain |
+| `events` | yes | `since?`, `limit?` (50, ≤ 200), `region?` (`pl:`) | An event page (+ `beat`) |
+| `me` | **no** | none | Your SeatView, now |
+| `powers` | yes | none | The power palette |
+| `gods` | yes | none | The pantheon with each god's health |
+| `standings` | yes | none | Every demigod ranked now |
+| `piles_final` | yes | none | The end-of-match piles; an error until the match is over |
+
+### `game.globe`
+
+The arena circle, every demigod as in the PublicView, each demigod's share of each region, live world mods, live
+armies (markers, without orders), the Entropy meter and the beat, plus a page of public events.
+
+```
+C→S { "t": "game.globe", "id": "g1", "d": { "since": 0, "limit": 3 } }
+GET /api/rooms/66X6KM/query/globe?since=0&limit=3
+```
+```json
+{ "beat": 7, "beats_total": 14, "final_night": false, "alive": 4,
+  "arena": { "kind": "planet", "name": "Earth", "city": "Santo Domingo", "center": [-66.918983, 10.502944],
+             "radius_km": 5119.19, "start_radius_km": 14102.77, "end_radius_km": 1500.0 },
+  "entropy": { "value": 11.0, "max": 100.0, "level": 0, "key": "calm", "text": "The world is holding together, mostly.",
+               "next_at": 20.0, "heat_death": null },
+  "demigods": [ { "ref": "dg:1", "name": "Vex", "seat": null, "alive": true, "bolts": 18, "pos": [-74.87795, 20.049207],
+                  "place": "Caribbean", "region": "Caribbean", "portrait_prompt": "Vex, a demigod: …", "image_kind": "portrait" }, … ],
+  "influence": [ { "region": "Australia and New Zealand", "region_ref": "pl:1", "demigod": "Vex", "demigod_ref": "dg:1", "share": 0.01 }, … ],
+  "mods": [ { "id": 0, "name": "Wildfire scar", "description": "The wildfire leaves Chicago changed for good",
+              "at": [-87.92, 42.61], "radius_km": 200.0, "region": "Northern America", "region_ref": "pl:41",
+              "tags": ["fire", "plants"], "stacks": 1, "since_beat": 1, "expires_beat": 11, "power": "wildfire", "by": "dg:2" } ],
+  "armies": [ { "ref": "cl:241", "name": "the Volunteers of Kyiv for Vex", "demigod": "Vex", "demigod_ref": "dg:1",
+                "rogue": false, "size": 29997, "pos": [6.887534, 51.232243], "region": "Western Europe",
+                "dest": [-66.92, 10.5], "target": "pl:0", "stance": "marching", "morale": 0.82 } ],
+  "events": { "since": 0, "next": 5, "more": true, "head": 103,
+              "items": [ { "row": "lg:2", "beat": 1, "kind": "cast", "text": "Mara casts wildfire on Chicago",
+                           "at": [-87.64, 41.85], "region": "Northern America", "region_ref": "pl:41", "refs": ["dg:2"],
+                           "magnitude": 7, "image_prompt": "Mara casts wildfire on Chicago, in Chicago, Northern America",
+                           "image_kind": "event" }, … ] } }
+```
+`demigods`, `influence`, `mods`, `entropy` and `arena` are exactly the PublicView's (`round.committed.public_state`).
+
+### `game.region`
+
+```
+C→S { "t": "game.region", "id": "r1", "d": { "ref": "pl:1", "limit": 2 } }
+GET /api/rooms/66X6KM/query/region?ref=pl:1&limit=2
+```
+```json
+{ "ref": "pl:1", "name": "Australia and New Zealand", "center": [156.982882, -36.179171], "radius_km": 1988.45,
+  "node": { "ref": "pl:1", "name": "Australia and New Zealand", "level": "region", "population": 8532215, "base": 8532215,
+            "mood": { "anger": 0.23, "fear": 0.33, "hope": 0.4, "devotion": 0.44 }, "need": { "food": 0.14, "safety": 0.34, "faith": 0.24 },
+            "allegiance": [ { "demigod": "Vex", "demigod_ref": "dg:1", "value": 0.01 }, … ],
+            "worship": [ { "god": "Time", "god_ref": "gd:0", "value": 0.11 }, … ], "supply": 0.96, "stance": "calm",
+            "leader": null, "dead": 0, "at": [156.98, -36.18], "parent": "pl:0" },
+  "cities": [ { "ref": "pl:2", "name": "Sydney", "level": "city", "population": 939351, …, "parent": "pl:1" }, … ],
+  "crowds": { "items": [ { "ref": "cl:11", "name": "Parents and children of Auckland", "size": 3547180, "place": "pl:86",
+                           "at": [174.8, -36.73], "mood": { … }, "need": { … }, "stance": "calm",
+                           "allegiance": [ … ], "leader": null, "dead": 0, "cells": [] }, … ],
+              "next_cursor": 2, "total": 12 },
+  "mobs": [], "armies": [], "demigods": [], "mods": [],
+  "influence": [ { "region": "Australia and New Zealand", "region_ref": "pl:1", "demigod": "Vex", "demigod_ref": "dg:1", "share": 0.01 } ],
+  "events": { "since": null, "next": 103, "more": false, "head": 103, "items": [] } }
+```
+- `ref` must be a region (`round.brief.public.regions[].ref`). In a city arena it is a district.
+- `node` is the region's rolled-up state (a **Node**: `{ref, name, level, population, base, mood, need, allegiance,
+  worship, supply, stance, leader, dead, at, parent}`). `leader` is a **Who** (`{ref, name, alive, role, title}`) or
+  null. `cities` are Nodes too.
+- `crowds` lists its crowds, biggest first, paged (a **Crowd**: `{ref, name, size, place, at, mood, need, stance,
+  allegiance, leader, dead, cells}`, with each live **Cell** as `{ref, name, kind, size, crowd, leader, stance, mob,
+  at}`).
+- `mobs` are its live mobs (a **Mob**: `{ref, name, size, action, target, ringleader, cause, at, city, place, region,
+  side, anger, fear, cells, formed_beat, ended_beat, casualties, kills}`). `armies` and `demigods` are the live ones
+  standing in it (army markers as in `globe`, demigods as in the PublicView). `mods` are those centered in it, and
+  `influence` is this region's shares. `events` are its 10 latest public events.
+
+### `game.node`
+
+```
+C→S { "t": "game.node", "id": "n1", "d": { "ref": "pl:2", "limit": 2 } }
+GET /api/rooms/66X6KM/query/node?ref=pl:2&limit=2
+```
+```json
+{ "kind": "place", "ref": "pl:2",
+  "node": { "ref": "pl:2", "name": "Sydney", "level": "city", "population": 939351, …, "parent": "pl:1" },
+  "children": [ { "ref": "pl:81", "name": "North Docks, Sydney", "level": "district", "population": 805214, … }, … ],
+  "crowds": { "items": [ { "ref": "cl:0", "name": "Fishwives and net-menders of Sydney", "size": 622051, … }, … ],
+              "next_cursor": 2, "total": 4 } }
+```
+| `kind` | `ref` | `node` | also |
+|---|---|---|---|
+| `place` | `pl:` (planet, region, city, city district) | Node | `children` (the Nodes one level down), `crowds` (paged, biggest first, everything living under it) |
+| `crowd` | `cl:` (not an army) | Crowd | `people`: people who came out of this crowd, as a paged list of Who |
+| `cell` | `ce:` | Cell | `people`: its members (paged Who) |
+| `mob` | `mb:` | Mob | `people`: the people in it (paged Who) |
+
+An army's `cl:` is refused (ask `game.army`).
+
+### `game.person`
+
+```
+C→S { "t": "game.person", "id": "p1", "d": { "ref": "ch:19", "limit": 3 } }
+GET /api/rooms/66X6KM/query/person?ref=ch:19
+```
+Public answer (HTTP, or the fields any seat gets):
+```json
+{ "ref": "ch:19", "name": "Dario Nakamura", "alive": true, "role": "general",
+  "rank": { "level": "crowd", "of": "cl:241", "title": "General of the Volunteers of Kyiv for Vex" },
+  "place": "pl:77", "place_name": "Western Europe", "region": "Western Europe", "at": [6.89, 51.23], "died_beat": null }
+```
+Over the WebSocket your seat also gets (values illustrative):
+```json
+{ …, "yours": false, "follower": false,
+  "allegiance": [ { "demigod": "Probe", "demigod_ref": "dg:0", "value": 0.12 } ],
+  "memories": { "items": [ { "memory": 2211, "beat": 6, "kind": "witnessed", "text": "…", "about": ["dg:0"],
+                             "row": "lg:88", "confidence": 0.9 } ], "next_cursor": 2190 } }
+```
+- `role` and `rank` are null for people the society hasn't given a sheet. `role` is one of `commoner`, `notable`,
+  `ringleader`, `general`, `captain`, `soldier`, `hero`, `coward`, `witness`, `prophet`, `paladin`, `deserter`,
+  `avenger`. `rank.level` is a hierarchy level (`planet` … `person`), and `rank.of` is the node or unit they rank in
+  (absent if none).
+- `yours` is true for a body one of your agents steers, or for someone your side brought into the story. `follower`
+  means they are in your Following.
+- `allegiance` is what you know of their loyalty (−1..1): toward you only, or every demigod when they are `yours`.
+- `memories` are their memories that you can see, newest first. That is all of them when they are `yours`; otherwise
+  only memories about a ledger row you know (see "Hidden information") or told to them by your side. Pass
+  `next_cursor` as `cursor` to read further back.
+
+### `game.army`
+
+```
+C→S { "t": "game.army", "id": "a1", "d": { "ref": "cl:241" } }
+GET /api/rooms/66X6KM/query/army?ref=cl:241
+```
+```json
+{ "ref": "cl:241", "name": "the Volunteers of Kyiv for Vex", "demigod": "Vex", "demigod_ref": "dg:1", "rogue": true,
+  "size": 29997, "pos": [-47.97612, 30.231775], "region": "Caribbean", "dest": [-58.97, 20.19], "target": "dg:0",
+  "stance": "rogue", "morale": 0.8, "supply": 0.38, "live": true, "yours": false, "raised_beat": 6, "battles": 0, "losses": 0,
+  "general": { "ref": "ch:19", "name": "Dario Nakamura", "alive": true, "role": "general", "title": "General of the Volunteers of Kyiv for Vex" },
+  "captains": [ { "ref": "ch:67", "name": "Emeka Fairweather", "alive": true, "role": "captain", "title": "captain in the Volunteers of Kyiv for Vex" }, … ],
+  "units": 4,
+  "order": { "text": null, "by": "dg:1", "beat": 14, "reading": "mutiny", "target": "dg:0", "stance": "rogue",
+             "speech": "Nakamura: \"No more gods. This army answers to me.\"", "why": "strain", "llm": false } }
+```
+- `live` is false once the army is wiped out (or its demigod fell and it isn't rogue). `yours` is true for the seat
+  of the demigod it marches for (never for a rogue army). `units` counts its live squads.
+- `order` is the order the army acts on, as its general read it (`reading`: `obey`, `misread`, `stall`, `refuse`,
+  `mutiny`, `defect`). `order.text` (the demigod's words) is null unless the army is `yours`.
+- When it is `yours`, the reply also has `orders` (its standing orders) and `chain` (the full chain of command:
+  general and captains with their sheets, units, morale, supply, strain, the order with its text).
+
+### `game.events`
+
+```
+C→S { "t": "game.events", "id": "e1", "d": { "since": 0, "limit": 3 } }
+GET /api/rooms/66X6KM/query/events?since=0&limit=3            (add &region=pl:41 for one region)
+```
+```json
+{ "beat": 7, "since": 0, "next": 5, "more": true, "head": 103,
+  "items": [ { "row": "lg:2", "beat": 1, "kind": "cast", "text": "Mara casts wildfire on Chicago", "at": [-87.64, 41.85],
+               "region": "Northern America", "region_ref": "pl:41", "refs": ["dg:2"], "magnitude": 7,
+               "image_prompt": "Mara casts wildfire on Chicago, in Chicago, Northern America", "image_kind": "event" },
+             { "row": "lg:3", "beat": 1, "kind": "happen", "text": "The wildfire tears through Chicago", "at": [-87.92, 42.61],
+               "region": "Northern America", "region_ref": "pl:41", "refs": ["gd:6"], "magnitude": 5 }, … ] }
+```
+The same events as `round.outcome.public.events` (casts and their ramifications, armies, battles and the society's
+big moments, weather, mods, wounded gods, eliminations), but readable for any span of the match. Paging works as
+described under "Conventions". `region` keeps one region's events only.
+
+### `game.me` (WebSocket only)
+
+`C→S { "t": "game.me", "id": "m1", "d": {} }` → your **SeatView** (the same object as `round.private_state.state`,
+schema `query_me`), built from the current state. Over HTTP it answers `403`.
+
+### `game.powers`, `game.gods`
+
+```
+GET /api/rooms/66X6KM/query/powers   → { "powers": [ { "slug": "lightning", "name": "Lightning bolt", "icon": "lightning", "cost": 1,
+                                         "radius_km": 30.0, "target": "unit", "magnitude": 6, "damage": 1.0,
+                                         "tags": ["sky", "fire", "fast"] }, …, { "slug": "custom", … } ] }
+GET /api/rooms/66X6KM/query/gods     → { "gods": [ { "ref": "gd:0", "name": "Time", "slug": "time",
+                                         "domain": "slowing, hastening, rewinding and traveling through time; the arena clock",
+                                         "health": 10.0, "unmade": false }, … ] }
+```
+`powers` is `round.brief.public.powers`. In `gods`, `unmade: true` (health 0) means Entropy answers that god's
+invocations.
+
+### `game.standings`
+
+```
+GET /api/rooms/66X6KM/query/standings
+```
+```json
+{ "beat": 7, "beats_total": 14, "alive": 4, "over": false,
+  "standings": [ { "rank": 1, "demigod": "dg:1", "name": "Vex", "seat": null, "alive": true, "eliminated_beat": null,
+                   "cause": null, "score": 1030001.0, "bolts": 18 }, … ] }
+```
+Ordered: alive first, then whoever fell last, then `score` (the `round.committed` formula), then id. Health never
+decides the order, because health is hidden. `over` is true once the match has ended. At the end the order can
+differ from `match.ended.summary.standings`, which breaks ties by final health.
+
+### `game.piles_final`
+
+```
+GET /api/rooms/66X6KM/query/piles_final
+400 piles_final: the match is not over (beat 7 of 14)          (before the end; bad_request over the WebSocket)
+```
+```json
+{ "beat": 14,
+  "piles": [ { "demigod": "dg:1", "name": "Vex", "seat": null, "alive": false,
+               "items": [ { "item": "it:0", "name": "search", "origin": "summoned", "origin_ref": null } ],
+               "summons": [ { "item": "it:0", "name": "search" } ],
+               "stats": { "words": 35, "acts": 13, "debt_paid": 13.6, "rulings": 0, "memorized_people": 2, "subagents": 1 },
+               "statue_prompt": "An amiibo-style collectible figure of the demigod Vex, frozen mid-fall …",
+               "image_kind": "statue", "bolts": 24, "slows": 9 }, … ] }
+```
+The same piles as `match.ended.summary.piles`, readable after the match for as long as the room exists.
 
 ## Hidden information
 

@@ -436,7 +436,7 @@ pub fn commit(w: &mut World, round: u32, pantheon: &Arc<Pantheon>) -> Committed 
     }
 }
 
-fn score(w: &World, d: &Demigod) -> f64 {
+pub(crate) fn score(w: &World, d: &Demigod) -> f64 {
     let favor: f32 = w
         .gods
         .iter()
@@ -563,7 +563,7 @@ pub fn match_over(w: &World, round: u32) -> bool {
 // Views
 // ---------------------------------------------------------------------------------------------------------------------
 
-fn arena_json(w: &World) -> Value {
+pub(crate) fn arena_json(w: &World) -> Value {
     let a = &w.places[w.meta.arena.ix()];
     // On the planet the arena is Earth and `city` is where Time's clock closes in for the Final Night.
     let city = if w.is_planet() {
@@ -610,20 +610,7 @@ pub fn public_view(w: &World) -> Value {
         "beats_total": w.meta.beats_total,
         "arena": arena_json(w),
         "alive": w.alive_demigods().count(),
-        "demigods": w.demigods.iter().map(|d| {
-            let mut v = json!({ "ref": Ref::Demigod(d.id), "name": d.name, "alive": d.alive,
-                                "seat": (d.seat < SYNTHETIC_SEAT).then_some(d.seat), "bolts": d.bolts,
-                                "portrait_prompt": crate::payload::portrait_prompt(w, d), "image_kind": "portrait" });
-            if d.alive {
-                v["pos"] = json!(d.pos);
-                v["place"] = w.name_of(Ref::Place(d.place)).into();
-                v["region"] = crate::payload::region_name(w, d.pos).into();
-            } else {
-                v["eliminated_beat"] = json!(d.eliminated_beat);
-                v["cause"] = json!(d.cause);
-            }
-            v
-        }).collect::<Vec<_>>(),
+        "demigods": w.demigods.iter().map(|d| demigod_public(w, d)).collect::<Vec<_>>(),
         "omens": omens,
         "caption": caption,
         "caption_beat": caption_beat,
@@ -636,6 +623,22 @@ pub fn public_view(w: &World) -> Value {
         "gods": w.gods.iter().map(|g| json!({ "ref": Ref::God(g.id), "name": g.name, "health": g.health }))
             .collect::<Vec<_>>(),
     }))
+}
+
+/// One demigod as everyone sees it: never health; a live one's position, place and region, a dead one's beat and cause.
+pub(crate) fn demigod_public(w: &World, d: &Demigod) -> Value {
+    let mut v = json!({ "ref": Ref::Demigod(d.id), "name": d.name, "alive": d.alive,
+                        "seat": (d.seat < SYNTHETIC_SEAT).then_some(d.seat), "bolts": d.bolts,
+                        "portrait_prompt": crate::payload::portrait_prompt(w, d), "image_kind": "portrait" });
+    if d.alive {
+        v["pos"] = json!(d.pos);
+        v["place"] = w.name_of(Ref::Place(d.place)).into();
+        v["region"] = crate::payload::region_name(w, d.pos).into();
+    } else {
+        v["eliminated_beat"] = json!(d.eliminated_beat);
+        v["cause"] = json!(d.cause);
+    }
+    v
 }
 
 /// A payload with its floats rounded ([`crate::payload::tidy`]).
@@ -739,6 +742,24 @@ pub fn brief_public(w: &World, round: u32, pantheon: &Pantheon) -> Value {
 
 fn pile(w: &World, d: &Demigod) -> Value {
     let me = selves(w, d.id);
+    let acts = w.ledger.rows.iter().filter(|r| me.contains(&r.actor)).count();
+    let paid = debt_paid(d.id, w.ledger.rows.iter().filter_map(|r| r.debt.as_ref()));
+    pile_with(w, d, &me, acts, paid)
+}
+
+/// What a demigod has paid Consequence: its collected and settled debts.
+pub(crate) fn debt_paid<'a>(d: DemigodId, debts: impl Iterator<Item = &'a Debt>) -> f32 {
+    debts
+        .filter(|x| {
+            x.owed_by == Ref::Demigod(d) && matches!(x.status, DebtStatus::Collected | DebtStatus::Settled)
+        })
+        .map(|x| x.amount)
+        .sum()
+}
+
+/// A demigod's pile, given what it needs from the ledger (`me` = its [`selves`], `acts` = rows it or its agents did,
+/// `paid` = [`debt_paid`]), so a query can count those without loading the whole ledger.
+pub(crate) fn pile_with(w: &World, d: &Demigod, me: &[Ref], acts: usize, paid: f32) -> Value {
     let mine = |r: &Ref| me.contains(r);
     let held: Vec<&Item> = w
         .items
@@ -750,18 +771,6 @@ fn pile(w: &World, d: &Demigod) -> Value {
         .iter()
         .filter(|i| i.created_by.is_some_and(|c| mine(&c)))
         .collect();
-    let acts = w.ledger.rows.iter().filter(|r| mine(&r.actor)).count();
-    let paid: f32 = w
-        .ledger
-        .rows
-        .iter()
-        .filter_map(|r| r.debt)
-        .filter(|x| {
-            x.owed_by == Ref::Demigod(d.id)
-                && matches!(x.status, DebtStatus::Collected | DebtStatus::Settled)
-        })
-        .map(|x| x.amount)
-        .sum();
     let rulings = w
         .rulings
         .iter()

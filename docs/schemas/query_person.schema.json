@@ -1,0 +1,305 @@
+{
+  "$defs": {
+    "Allegiance": {
+      "description": "Loyalty to one demigod, -1..1.",
+      "properties": {
+        "demigod": {
+          "description": "",
+          "type": "string"
+        },
+        "demigod_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "value": {
+          "description": "",
+          "type": "number"
+        }
+      },
+      "required": [
+        "demigod",
+        "demigod_ref",
+        "value"
+      ],
+      "type": "object"
+    },
+    "Level": {
+      "description": "A level of the hierarchy.",
+      "enum": [
+        "planet",
+        "region",
+        "city",
+        "district",
+        "crowd",
+        "cell",
+        "person"
+      ],
+      "type": "string"
+    },
+    "LonLat": {
+      "description": "[longitude, latitude] in degrees (WGS84). Note the order: longitude first.",
+      "items": {
+        "type": "number"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+    },
+    "Rank": {
+      "description": "Where a person stands.",
+      "properties": {
+        "level": {
+          "$ref": "#/$defs/Level"
+        },
+        "of": {
+          "$ref": "#/$defs/Ref",
+          "description": "The node or unit they hold rank in."
+        },
+        "title": {
+          "description": "",
+          "type": "string"
+        }
+      },
+      "required": [
+        "level",
+        "title"
+      ],
+      "type": "object"
+    },
+    "Ref": {
+      "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row, ce cell, mb mob. Stable for the whole match.",
+      "examples": [
+        "ch:12"
+      ],
+      "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg|ce|mb):\\d+$",
+      "type": "string"
+    },
+    "Role": {
+      "description": "A person's part in the society.",
+      "enum": [
+        "commoner",
+        "notable",
+        "ringleader",
+        "general",
+        "captain",
+        "soldier",
+        "hero",
+        "coward",
+        "witness",
+        "prophet",
+        "paladin",
+        "deserter",
+        "avenger"
+      ],
+      "type": "string"
+    }
+  },
+  "$id": "query_person.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "`game.person`: one person. The seat-only fields are absent for a public asker (HTTP).",
+  "properties": {
+    "alive": {
+      "description": "",
+      "type": "boolean"
+    },
+    "allegiance": {
+      "description": "Seat only: what you know of their loyalty: toward you, or all of it when they are yours.",
+      "items": {
+        "$ref": "#/$defs/Allegiance"
+      },
+      "type": "array"
+    },
+    "at": {
+      "$ref": "#/$defs/LonLat"
+    },
+    "died_beat": {
+      "description": "",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "follower": {
+      "description": "Seat only: in your Following.",
+      "type": "boolean"
+    },
+    "memories": {
+      "description": "Seat only: their memories you can see (all when yours, else those about events you know or told by your side), newest first.",
+      "properties": {
+        "items": {
+          "description": "",
+          "items": {
+            "description": "One memory you can see.",
+            "properties": {
+              "about": {
+                "description": "Who and what it is about.",
+                "items": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "type": "array"
+              },
+              "beat": {
+                "description": "",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "confidence": {
+                "description": "0..1.",
+                "type": "number"
+              },
+              "kind": {
+                "description": "",
+                "enum": [
+                  "witnessed",
+                  "did",
+                  "told",
+                  "rumor",
+                  "inherited",
+                  "planted",
+                  "summary",
+                  "report"
+                ],
+                "type": "string"
+              },
+              "memory": {
+                "description": "Its index.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "row": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Ref"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The ledger row it remembers."
+              },
+              "text": {
+                "description": "",
+                "type": "string"
+              }
+            },
+            "required": [
+              "memory",
+              "beat",
+              "kind",
+              "text",
+              "about",
+              "row",
+              "confidence"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "next_cursor": {
+          "description": "Pass as `cursor` for the next page; null on the last page.",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "items",
+        "next_cursor"
+      ],
+      "type": "object"
+    },
+    "name": {
+      "description": "",
+      "type": "string"
+    },
+    "place": {
+      "$ref": "#/$defs/Ref"
+    },
+    "place_name": {
+      "description": "",
+      "type": "string"
+    },
+    "rank": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Rank"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "ref": {
+      "$ref": "#/$defs/Ref"
+    },
+    "region": {
+      "description": "",
+      "type": "string"
+    },
+    "role": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Role"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "yours": {
+      "description": "Seat only: a body your agents steer, or someone your side brought into the story.",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "ref",
+    "name",
+    "alive",
+    "role",
+    "rank",
+    "place",
+    "place_name",
+    "region",
+    "at",
+    "died_beat"
+  ],
+  "title": "game.person",
+  "type": "object",
+  "x-applies-to": "game.person reply (WebSocket), GET /api/rooms/{code}/query/person",
+  "x-args": {
+    "additionalProperties": true,
+    "description": "Over HTTP every arg is a query-string parameter (numbers as numeric strings). Unknown args are ignored.",
+    "properties": {
+      "cursor": {
+        "description": "Page cursor: `next_cursor` from the previous page. Omit for the first page.",
+        "minimum": 0,
+        "type": [
+          "integer",
+          "string"
+        ]
+      },
+      "limit": {
+        "description": "Page size (default 20, at most 100).",
+        "maximum": 100,
+        "minimum": 1,
+        "type": [
+          "integer",
+          "string"
+        ]
+      },
+      "ref": {
+        "description": "The person.",
+        "pattern": "^ch:\\d+$",
+        "type": "string"
+      }
+    },
+    "required": [
+      "ref"
+    ],
+    "type": "object"
+  },
+  "x-description": "One person (`ch:`): role, rank, place. For your seat also the allegiance you know and a page of the memories you can see.",
+  "x-public": true
+}

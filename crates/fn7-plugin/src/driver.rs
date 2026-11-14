@@ -95,7 +95,7 @@ pub async fn run_match_with(
             .await
         {
             Ok(o) => o,
-            Err(_) => p.fallback_outcome(&state, round, &actions),
+            Err(_) => p.fallback_outcome(&state, round, &actions, &ctx),
         };
         state = outcome.state.clone();
         let committed = p.commit_round(&state, round, &[], llm).await?;

@@ -47,7 +47,7 @@ lets anyone spend the host's LLM budget.
 | These docs, served over HTTP | `http://10.0.0.34:8081/` (browse or `curl`; same files as `final_night_7/docs/`) |
 | Engine protocol (envelope, login, lobby) | `theatre/PROTOCOL.md` (here: [`theatre/PROTOCOL.md`](theatre/PROTOCOL.md); also in the `Aftersource/theatre` repo) |
 | Game payloads (every Final Night 7 object) | [`CLIENT_API.md`](CLIENT_API.md) |
-| JSON Schemas (draft 2020-12), one per payload | [`schemas/`](schemas/) |
+| JSON Schemas (draft 2020-12), one per payload and one per query reply (`query_<name>`) | [`schemas/`](schemas/) |
 | One real recorded frame of every message | [`examples/`](examples/) |
 | The seven gods (ids, names, keywords) | [`data/pantheon.json`](data/pantheon.json) |
 | The power palette (casts: slugs, costs, radii) | [`data/powers.json`](data/powers.json) (also sent every beat in `round.brief.public.powers`) |
@@ -189,6 +189,28 @@ Rules that bite:
 
 Positions are `[longitude, latitude]` degrees everywhere.
 
+### 5.1 Game queries (pull instead of waiting for a push)
+Everything above arrives pushed, once per beat. Queries let you ask for it at any time (CLIENT_API.md "Game queries";
+reply schemas `schemas/query_<name>.schema.json`; the manifest is `server.hello.api.queries`):
+- WebSocket, from your seat: `{ "t": "game.<name>", "id": "q1", "d": { …args } }` → `{ "t": "game.<name>", "re": "q1",
+  "d": … }` or `error` (`bad_request` with the reason, `not_found`, `wrong_phase` before the first match).
+- HTTP, public queries only, no socket needed (public data only):
+  `curl "http://10.0.0.34:8080/api/rooms/<CODE>/query/globe?limit=30"` (args are query-string parameters; through
+  ngrok keep the `?key=` gate parameter, it is ignored). `403` = a seat-only query (`me`), `404` = no such room.
+
+| Need | Query |
+|---|---|
+| The globe in one poll (arena, demigods, influence, mods, armies, Entropy, beat, recent events) | `game.globe {since?, limit?}` |
+| One region / one node of the hierarchy (city, district, crowd, cell, mob) | `game.region {ref, cursor?, limit?}`, `game.node {ref, cursor?, limit?}` |
+| A person, an army | `game.person {ref}`, `game.army {ref}` (your seat also gets what only you know: allegiance and memories, your army's orders) |
+| Every public event since you last looked | `game.events {since, limit?, region?}`: pass back `next` as `since` |
+| Your seat view now | `game.me {}` (WebSocket only) |
+| The palette, the pantheon, the ranking, the end piles | `game.powers`, `game.gods`, `game.standings`, `game.piles_final` (an error until the match is over) |
+
+Lists that grow come back paged: `{items, next_cursor, total}`; pass `next_cursor` as `cursor`. Answers reflect the
+current state; ask again after `round.committed` for the new beat. Each query takes about a millisecond on the
+server, but it runs on the room's loop, so poll at the beat rate, not in a tight loop.
+
 ## 6. Developing without the server
 - **Fixtures:** `examples/*.json` are real frames. Feed them into your router in order (§4) to build UI offline.
 - **Your own recordings:** run `fn7_client.mjs --log frames.jsonl` once, then replay that JSONL into your client with
@@ -253,7 +275,8 @@ in a URL, a log or a repo). On the host's Wi-Fi drop `?key=` and use `http://10.
 recordings need a server built on Theatre `faa7220` or later and started with `THEATRE_RECORD=full`,
 `THEATRE_RECORD_DIR=…` and `THEATRE_ADMIN_TOKEN=…`; without the token every `/admin/*` path is `404`. Check with
 `GET /admin/matches` (below): `404` = not enabled, `401` = wrong token. `server.hello.api` carries `version` and
-`rules_version`.
+`rules_version`. Replaying a recording whose beat fell back (resolve failed twice or timed out) needs a server on
+Theatre `1741d8f` or later, which records the `fallback_outcome` hook.
 
 ### 11.1 Fast matches on the live server
 Create a room with these settings (`room.create { visibility: "private", settings }`), then `room.start`:

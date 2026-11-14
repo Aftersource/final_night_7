@@ -487,7 +487,7 @@ async fn settings_and_actions() {
         actions::action(0, "recruit the dockworkers", "slow time", None),
         p.default_action(&rs.state, 1),
     ];
-    let fo = p.fallback_outcome(&rs.state, 1, &acts);
+    let fo = p.fallback_outcome(&rs.state, 1, &acts, &RoundContext::default());
     assert_eq!(fo.public["timing"]["llm_calls"], 0);
     assert!(load(&fo.state).ledger.rows.len() > load(&rs.state).ledger.rows.len());
     let pv = p.public_view(&rs.state);

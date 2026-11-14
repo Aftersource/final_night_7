@@ -144,7 +144,8 @@ validation (including `compose_seconds` via `util::copy_timer_settings`), the ro
 `default_action`, `bot_action`, `resolve_round` with the actions the core delivers, `commit_round`, the views and
 `summarize`, the real-time hooks (`on_action_begin` opens Time's slow windows with the core's exact `next_window_id`,
 `on_instant` pushes cast streaks, `validate_action` sees the `SubmitKind` and refuses orders in instant actions;
-`Committed.revived` / `RoundStart.revived` return a revived seat to play), and `queries()` / `query()` (none declared
-yet). Time's bill settles at resolve from the core's `RoundContext.windows_closed` (opener, open/close times, reason)
+`Committed.revived` / `RoundStart.revived` return a revived seat to play), and `queries()` / `query()` (the `game.*` queries:
+globe, region, node, person, army, events, me, powers, gods, standings, piles_final; docs/CLIENT_API.md "Game
+queries"). Time's bill settles at resolve from the core's `RoundContext.windows_closed` (opener, open/close times, reason)
 and the actions' metadata (`windowed`, `window_id`, `instant`, `received_at_ms`, `seq`). `PluginInfo` carries
 `version` (the crate version) and `rules_version` (`RULES_VERSION`), recorded in every match's ruleset.

@@ -1,0 +1,98 @@
+{
+  "$id": "query_powers.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "`game.powers`.",
+  "properties": {
+    "powers": {
+      "description": "The palette, then the custom entry.",
+      "items": {
+        "description": "One power of the palette (data/powers.json), or the custom entry.",
+        "properties": {
+          "cost": {
+            "description": "Bolts; null for custom (priced by magnitude).",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "damage": {
+            "description": "Direct damage to a body it hits.",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "icon": {
+            "description": "Icon key (= slug).",
+            "type": "string"
+          },
+          "magnitude": {
+            "maximum": 10,
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "name": {
+            "description": "Display name.",
+            "type": "string"
+          },
+          "radius_km": {
+            "description": "Area it affects.",
+            "type": "number"
+          },
+          "slug": {
+            "description": "Its id (send as `cast.power`).",
+            "type": "string"
+          },
+          "tags": {
+            "description": "",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "target": {
+            "description": "What it is aimed at.",
+            "enum": [
+              "point",
+              "region",
+              "unit"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "name",
+          "icon",
+          "cost",
+          "radius_km",
+          "target",
+          "magnitude",
+          "damage",
+          "tags"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "powers"
+  ],
+  "title": "game.powers",
+  "type": "object",
+  "x-applies-to": "game.powers reply (WebSocket), GET /api/rooms/{code}/query/powers",
+  "x-args": {
+    "additionalProperties": true,
+    "description": "Over HTTP every arg is a query-string parameter (numbers as numeric strings). Unknown args are ignored.",
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
+  "x-description": "The power palette (casts), then the custom entry.",
+  "x-public": true
+}

@@ -4,10 +4,13 @@
 //! lines in `<dir>/<run>.jsonl` through the engine's own `JsonlSink` and `RunRec`. One toolchain (replay,
 //! `fn7-project`, the admin API's readers) then reads recordings from `fn7-sim` and from the real server alike.
 //!
-//! Hook inputs, snapshot labels and rounds follow `theatre-server`'s room (faa7220; `resolve_round`'s input carries its
+//! Hook inputs, snapshot labels and rounds follow `theatre-server`'s room (1741d8f; `resolve_round`'s input carries its
 //! `RoundContext` as `ctx`): `on_match_start` (round 0),
-//! `on_round_start` (full), `resolve_round` (full; also after a fallback), `commit_round`. The sync hooks are recorded
-//! at `full` like the core does.
+//! `on_round_start` (full), `resolve_round` (full; also after a fallback), `commit_round`. Like the core, the sync hooks
+//! (`validate_action`, `on_action_begin`, `on_instant`, `query`, `fallback_outcome`) run inside the run's trace context
+//! (round, a fresh hook id, `actor = "seat:N"` where a seat acted), so the plugin's events there land in the run;
+//! `on_action_begin` / `on_instant` / `query` are recorded at `full`. A fallback is recorded at every level as a
+//! `fallback_outcome` hook (input: round, actions, ctx, resolve_error) plus a `fallback_outcome` snapshot.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -39,6 +42,8 @@ pub struct Recorded<P> {
     rec: RunRec,
     /// The round the core would be in (`m.round`): 0 until the first `on_round_start`.
     round: std::sync::atomic::AtomicU32,
+    /// The last `resolve_round` error (`{e:#}`), the `resolve_error` of a fallback that follows it.
+    resolve_error: std::sync::Mutex<Option<String>>,
 }
 
 impl<P: GamePlugin> Recorded<P> {
@@ -47,6 +52,7 @@ impl<P: GamePlugin> Recorded<P> {
             inner,
             rec,
             round: Default::default(),
+            resolve_error: Default::default(),
         }
     }
 
@@ -72,13 +78,13 @@ impl<P: GamePlugin> GamePlugin for Recorded<P> {
         self.inner.queries()
     }
     fn query(&self, state: &Value, seat: Option<Seat>, name: &str, args: &Value) -> Result<Value, String> {
-        let res = self.inner.query(state, seat, name, args);
+        let round = Some(self.round());
+        let (res, id) = self.rec.within_sync(round, seat, || self.inner.query(state, seat, name, args));
         let out = match &res {
             Ok(v) => v.clone(),
             Err(e) => json!({ "error": e }),
         };
-        self.rec
-            .sync_hook(Some(self.round()), "query", seat, json!({ "name": name, "args": args }), out);
+        self.rec.sync_hook(id, round, "query", seat, json!({ "name": name, "args": args }), out);
         res
     }
     async fn on_match_start(
@@ -140,7 +146,9 @@ impl<P: GamePlugin> GamePlugin for Recorded<P> {
         fields: &Value,
         kind: SubmitKind,
     ) -> Result<(), String> {
-        self.inner.validate_action(state, seat, text, fields, kind)
+        self.rec
+            .within_sync(Some(self.round()), Some(seat), || self.inner.validate_action(state, seat, text, fields, kind))
+            .0
     }
     fn default_action(&self, state: &Value, seat: Seat) -> Action {
         self.inner.default_action(state, seat)
@@ -153,8 +161,11 @@ impl<P: GamePlugin> GamePlugin for Recorded<P> {
         window: Option<&WindowInfo>,
         next_window_id: u64,
     ) -> PhaseControl {
-        let c = self.inner.on_action_begin(state, round, seat, window, next_window_id);
+        let (c, id) = self.rec.within_sync(Some(round), Some(seat), || {
+            self.inner.on_action_begin(state, round, seat, window, next_window_id)
+        });
         self.rec.sync_hook(
+            id,
             Some(round),
             "on_action_begin",
             Some(seat),
@@ -164,9 +175,9 @@ impl<P: GamePlugin> GamePlugin for Recorded<P> {
         c
     }
     fn on_instant(&self, state: &Value, seat: Seat, action: &Action) -> Option<Value> {
-        let v = self.inner.on_instant(state, seat, action);
-        self.rec
-            .sync_hook(None, "on_instant", Some(seat), json!({ "action": action }), json!(v));
+        let round = Some(self.round());
+        let (v, id) = self.rec.within_sync(round, Some(seat), || self.inner.on_instant(state, seat, action));
+        self.rec.sync_hook(id, round, "on_instant", Some(seat), json!({ "action": action }), json!(v));
         v
     }
     async fn bot_action(&self, state: &Value, seat: Seat, llm: &dyn LlmProvider) -> anyhow::Result<Action> {
@@ -185,7 +196,7 @@ impl<P: GamePlugin> GamePlugin for Recorded<P> {
         progress: &dyn Progress,
     ) -> anyhow::Result<RoundOutcome> {
         let input = json!({ "round": round, "actions": actions, "ctx": ctx });
-        let o = self
+        let res = self
             .rec
             .clone()
             .hook(
@@ -196,15 +207,46 @@ impl<P: GamePlugin> GamePlugin for Recorded<P> {
                 StateOut::Field,
                 self.inner.resolve_round(state, round, actions, ctx, llm, progress),
             )
-            .await?;
+            .await;
+        if let Err(e) = &res {
+            *self.resolve_error.lock().expect("resolve error") = Some(format!("{e:#}"));
+        }
+        let o = res?;
         if self.rec.full() {
             self.rec.snapshot(Some(round), "resolve_round", &o.state);
         }
         Ok(o)
     }
-    fn fallback_outcome(&self, state: &Value, round: u32, actions: &[Action]) -> RoundOutcome {
-        // The core doesn't record fallback_outcome as a hook; its state is snapshotted as the round's resolve.
-        let o = self.inner.fallback_outcome(state, round, actions);
+    fn fallback_outcome(&self, state: &Value, round: u32, actions: &[Action], ctx: &RoundContext) -> RoundOutcome {
+        // As the core's room (`on_resolved`): run in the trace context, record a `fallback_outcome` hook at every level
+        // (state in its snapshot), then the round's `resolve_round` snapshot at full (`apply_outcome`).
+        let (res, id) = self.rec.within_sync(Some(round), None, || {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                self.inner.fallback_outcome(state, round, actions, ctx)
+            }))
+        });
+        let output = match &res {
+            Ok(o) => {
+                let mut v = serde_json::to_value(o).unwrap_or(Value::Null);
+                if let Some(obj) = v.as_object_mut() {
+                    obj.insert("state".into(), json!("<see snapshot>"));
+                }
+                v
+            }
+            Err(_) => Value::Null,
+        };
+        let resolve_error = self.resolve_error.lock().expect("resolve error").take().unwrap_or_default();
+        self.rec.hook_record(
+            id,
+            Some(round),
+            "fallback_outcome",
+            None,
+            json!({ "round": round, "actions": actions, "ctx": ctx, "resolve_error": resolve_error }),
+            output,
+            res.is_err().then(|| "fallback_outcome panicked".to_string()),
+        );
+        let o = res.unwrap_or_else(|p| std::panic::resume_unwind(p));
+        self.rec.snapshot(Some(round), "fallback_outcome", &o.state);
         if self.rec.full() {
             self.rec.snapshot(Some(round), "resolve_round", &o.state);
         }

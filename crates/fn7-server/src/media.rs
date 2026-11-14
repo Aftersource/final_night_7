@@ -141,8 +141,8 @@ impl<P: GamePlugin> GamePlugin for MediaPlugin<P> {
         self.mark_seats(&mut r.public, &mut r.per_seat);
         Ok(r)
     }
-    fn fallback_outcome(&self, state: &Value, round: u32, actions: &[Action]) -> RoundOutcome {
-        let mut r = self.inner.fallback_outcome(state, round, actions);
+    fn fallback_outcome(&self, state: &Value, round: u32, actions: &[Action], ctx: &RoundContext) -> RoundOutcome {
+        let mut r = self.inner.fallback_outcome(state, round, actions, ctx);
         self.mark_seats(&mut r.public, &mut r.per_seat);
         r
     }

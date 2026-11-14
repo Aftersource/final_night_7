@@ -9,3 +9,4 @@ pub mod llm;
 pub mod media;
 pub mod record;
 pub mod replay;
+pub mod simapi;

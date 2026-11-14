@@ -1,0 +1,137 @@
+{
+  "$defs": {
+    "Ref": {
+      "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row, ce cell, mb mob. Stable for the whole match.",
+      "examples": [
+        "ch:12"
+      ],
+      "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg|ce|mb):\\d+$",
+      "type": "string"
+    }
+  },
+  "$id": "query_standings.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "`game.standings`: everyone ranked now (alive first, then who fell last, then score; never by health).",
+  "properties": {
+    "alive": {
+      "description": "",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "beat": {
+      "description": "",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "beats_total": {
+      "description": "",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "over": {
+      "description": "The match is over.",
+      "type": "boolean"
+    },
+    "standings": {
+      "description": "Best first.",
+      "items": {
+        "allOf": [
+          {
+            "description": "One demigod's final place.",
+            "properties": {
+              "alive": {
+                "description": "",
+                "type": "boolean"
+              },
+              "cause": {
+                "description": "How it fell.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "demigod": {
+                "$ref": "#/$defs/Ref"
+              },
+              "eliminated_beat": {
+                "description": "",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "name": {
+                "description": "",
+                "type": "string"
+              },
+              "rank": {
+                "description": "1 = champion.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "score": {
+                "description": "Same formula as round.committed scores: 1e6 if alive + followers + 100 x total favor.",
+                "type": "number"
+              },
+              "seat": {
+                "description": "Theatre seat; null for the built-in AI's demigods.",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "rank",
+              "demigod",
+              "name",
+              "seat",
+              "alive",
+              "eliminated_beat",
+              "cause",
+              "score"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "",
+            "properties": {
+              "bolts": {
+                "description": "Bolts held (public).",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "bolts"
+            ],
+            "type": "object"
+          }
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "beat",
+    "beats_total",
+    "alive",
+    "over",
+    "standings"
+  ],
+  "title": "game.standings",
+  "type": "object",
+  "x-applies-to": "game.standings reply (WebSocket), GET /api/rooms/{code}/query/standings",
+  "x-args": {
+    "additionalProperties": true,
+    "description": "Over HTTP every arg is a query-string parameter (numbers as numeric strings). Unknown args are ignored.",
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
+  "x-description": "Every demigod ranked now: alive first, then who fell last, then score.",
+  "x-public": true
+}

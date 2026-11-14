@@ -1,0 +1,209 @@
+{
+  "$defs": {
+    "Ref": {
+      "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row, ce cell, mb mob. Stable for the whole match.",
+      "examples": [
+        "ch:12"
+      ],
+      "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg|ce|mb):\\d+$",
+      "type": "string"
+    }
+  },
+  "$id": "query_piles_final.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "`game.piles_final`: the end-of-match piles (an error until the match is over).",
+  "properties": {
+    "beat": {
+      "description": "The last beat.",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "piles": {
+      "description": "One per demigod, in id order (as in match.ended.summary.piles).",
+      "items": {
+        "description": "Everything one demigod held and summoned, its stats and an image prompt for its statue (the end screen).",
+        "properties": {
+          "alive": {
+            "description": "",
+            "type": "boolean"
+          },
+          "bolts": {
+            "description": "Bolts it held at the end.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "demigod": {
+            "$ref": "#/$defs/Ref"
+          },
+          "image_kind": {
+            "enum": [
+              "statue"
+            ],
+            "type": "string"
+          },
+          "items": {
+            "description": "Items it or its agents/bodies ever held.",
+            "items": {
+              "description": "",
+              "properties": {
+                "item": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "name": {
+                  "description": "",
+                  "type": "string"
+                },
+                "origin": {
+                  "description": "How it came to be: starting kit, summoned, found, echoed (a copy of `origin_ref`) or granted by the god `origin_ref`.",
+                  "enum": [
+                    "starting",
+                    "summoned",
+                    "found",
+                    "echoed",
+                    "granted"
+                  ],
+                  "type": "string"
+                },
+                "origin_ref": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/Ref"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The source item (`it:<n>`) for echoed, the god (`gd:<n>`) for granted, else null."
+                }
+              },
+              "required": [
+                "item",
+                "name",
+                "origin",
+                "origin_ref"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "name": {
+            "description": "",
+            "type": "string"
+          },
+          "seat": {
+            "description": "Theatre seat; null for the built-in AI's demigods.",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "slows": {
+            "description": "Times it slowed time.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "stats": {
+            "description": "",
+            "properties": {
+              "acts": {
+                "description": "Ledger rows it (or its agents/bodies) acted in.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "debt_paid": {
+                "description": "Debt collected or settled.",
+                "type": "number"
+              },
+              "memorized_people": {
+                "description": "People it memorized.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "rulings": {
+                "description": "God rulings it invoked.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "subagents": {
+                "description": "Subagents and possessions it spawned.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "words": {
+                "description": "Words spoken to its hands.",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "words",
+              "acts",
+              "debt_paid",
+              "rulings",
+              "memorized_people",
+              "subagents"
+            ],
+            "type": "object"
+          },
+          "statue_prompt": {
+            "description": "An image-generation prompt for its amiibo-style statue.",
+            "type": "string"
+          },
+          "summons": {
+            "description": "Items it created.",
+            "items": {
+              "description": "",
+              "properties": {
+                "item": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "name": {
+                  "description": "",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "item",
+                "name"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "demigod",
+          "name",
+          "seat",
+          "alive",
+          "items",
+          "summons",
+          "stats",
+          "statue_prompt",
+          "image_kind",
+          "bolts",
+          "slows"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "beat",
+    "piles"
+  ],
+  "title": "game.piles_final",
+  "type": "object",
+  "x-applies-to": "game.piles_final reply (WebSocket), GET /api/rooms/{code}/query/piles_final",
+  "x-args": {
+    "additionalProperties": true,
+    "description": "Over HTTP every arg is a query-string parameter (numbers as numeric strings). Unknown args are ignored.",
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
+  "x-description": "Every demigod's end-of-match pile (items, summons, stats, statue prompt). An error until the match is over.",
+  "x-public": true
+}

@@ -95,10 +95,11 @@ async fn main() -> anyhow::Result<()> {
         let t = Instant::now();
         let rep = fn7_server::replay::verify(path, |l| println!("{l}")).await?;
         println!(
-            "run {}: verified {} snapshots over {} beats: {} identical, {} different; summary {}; LLM replay {} hits, {} misses ({:?})",
+            "run {}: verified {} snapshots over {} beats ({} via fallback_outcome): {} identical, {} different; summary {}; LLM replay {} hits, {} misses ({:?})",
             rep.run,
             rep.snapshots,
             rep.beats,
+            rep.fallbacks,
             rep.identical,
             rep.differences.len(),
             match rep.summary_identical {

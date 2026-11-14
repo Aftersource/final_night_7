@@ -3,6 +3,11 @@
     "Army": {
       "description": "A live army (a cluster raised from a crowd).",
       "properties": {
+        "chain": {
+          "additionalProperties": true,
+          "description": "Its chain of command (general, captains, units, morale, supply, the order as understood; the order's text only for its owner).",
+          "type": "object"
+        },
         "demigod": {
           "description": "The demigod it marches for.",
           "type": "string"
@@ -20,6 +25,31 @@
             }
           ],
           "description": "Where it is headed, or null."
+        },
+        "general": {
+          "anyOf": [
+            {
+              "description": "",
+              "properties": {
+                "name": {
+                  "description": "",
+                  "type": "string"
+                },
+                "ref": {
+                  "$ref": "#/$defs/Ref"
+                }
+              },
+              "required": [
+                "ref",
+                "name"
+              ],
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Its live general."
         },
         "name": {
           "description": "",
@@ -39,10 +69,17 @@
           "description": "Where it is.",
           "type": "string"
         },
+        "rogue": {
+          "description": "Its general mutinied: it answers to no demigod.",
+          "type": "boolean"
+        },
         "size": {
           "description": "Head count.",
           "minimum": 0,
           "type": "integer"
+        },
+        "stance": {
+          "$ref": "#/$defs/Stance"
         },
         "target": {
           "anyOf": [
@@ -131,6 +168,10 @@
     "Entity": {
       "description": "One thing a seat can see (`world::entity_json`): a ref, its display name and kind, plus a few kind-specific fields. Rivals' health is never included.",
       "properties": {
+        "action": {
+          "description": "Mobs only: what it is doing (gathering, rioting, looting, attacking, marching, dispersed).",
+          "type": "string"
+        },
         "alive": {
           "description": "Characters only.",
           "type": "boolean"
@@ -139,8 +180,12 @@
           "$ref": "#/$defs/Ref",
           "description": "Clusters that are armies only: the demigod (`dg:<n>`) it marches for."
         },
+        "cell_kind": {
+          "description": "Cells only: gang, squad, congregation, crew or militia.",
+          "type": "string"
+        },
         "kind": {
-          "description": "Matches the ref prefix (dg, ch, cl, gr, gd, pl, it, ag, lg).",
+          "description": "Matches the ref prefix (dg, ch, cl, gr, gd, pl, it, ag, lg, ce, mb).",
           "enum": [
             "demigod",
             "character",
@@ -150,9 +195,22 @@
             "place",
             "item",
             "agent",
-            "ledger"
+            "ledger",
+            "cell",
+            "mob"
           ],
           "type": "string"
+        },
+        "leader": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Cells only."
         },
         "mood": {
           "description": "Clusters only: the dominant mood.",
@@ -173,8 +231,27 @@
           "$ref": "#/$defs/LonLat",
           "description": "Where it is, when it has a position (absent for groups, gods, agents)."
         },
+        "rank": {
+          "$ref": "#/$defs/Rank",
+          "description": "Characters with a society sheet only."
+        },
         "ref": {
           "$ref": "#/$defs/Ref"
+        },
+        "ringleader": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Mobs only."
+        },
+        "role": {
+          "$ref": "#/$defs/Role",
+          "description": "Characters with a society sheet only."
         },
         "size": {
           "description": "Clusters only: approximate head count.",
@@ -217,6 +294,19 @@
       "enum": [
         "left",
         "right"
+      ],
+      "type": "string"
+    },
+    "Level": {
+      "description": "A level of the hierarchy.",
+      "enum": [
+        "planet",
+        "region",
+        "city",
+        "district",
+        "crowd",
+        "cell",
+        "person"
       ],
       "type": "string"
     },
@@ -281,12 +371,52 @@
       ],
       "type": "object"
     },
+    "Rank": {
+      "description": "Where a person stands.",
+      "properties": {
+        "level": {
+          "$ref": "#/$defs/Level"
+        },
+        "of": {
+          "$ref": "#/$defs/Ref",
+          "description": "The node or unit they hold rank in."
+        },
+        "title": {
+          "description": "",
+          "type": "string"
+        }
+      },
+      "required": [
+        "level",
+        "title"
+      ],
+      "type": "object"
+    },
     "Ref": {
       "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row, ce cell, mb mob. Stable for the whole match.",
       "examples": [
         "ch:12"
       ],
       "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg|ce|mb):\\d+$",
+      "type": "string"
+    },
+    "Role": {
+      "description": "A person's part in the society.",
+      "enum": [
+        "commoner",
+        "notable",
+        "ringleader",
+        "general",
+        "captain",
+        "soldier",
+        "hero",
+        "coward",
+        "witness",
+        "prophet",
+        "paladin",
+        "deserter",
+        "avenger"
+      ],
       "type": "string"
     },
     "SeatHand": {
@@ -319,6 +449,24 @@
         "subagents"
       ],
       "type": "object"
+    },
+    "Stance": {
+      "description": "What it is doing as a whole.",
+      "enum": [
+        "calm",
+        "restless",
+        "rioting",
+        "fleeing",
+        "worshipping",
+        "fighting",
+        "marching",
+        "holding",
+        "besieging",
+        "raiding",
+        "retreating",
+        "rogue"
+      ],
+      "type": "string"
     },
     "SubagentKind": {
       "description": "What kind of agent a subagent line is: a subagent, a possession (steers a body) or a paladin (a god's champion).",

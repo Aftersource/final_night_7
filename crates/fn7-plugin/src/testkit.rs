@@ -113,3 +113,43 @@ impl LlmProvider for Slow {
         Scripted::default().complete(req).await
     }
 }
+
+/// A planet match played offline through the plugin's hooks (4 bot seats, [`Scripted`] minds) for `beats` beats, with
+/// every demigod kept alive and healthy after each commit so the state keeps growing like a long match (armies, mobs,
+/// people, ledger and memory). For query tests and timing.
+pub async fn played_state(seed: u64, beats: u32, beats_total: u32) -> Value {
+    use fn7_model::AgentStatus;
+    use theatre_plugin_api::{GamePlugin, NoProgress, RoundContext, SeatInfo};
+    let llm = Scripted::default();
+    let p = crate::FinalNight7Plugin::new();
+    let seats: Vec<SeatInfo> = (0..4)
+        .map(|i| SeatInfo { seat: i, display_name: ["Ash", "Brix", "Cyra", "Dune"][i as usize].into(), is_bot: true })
+        .collect();
+    let settings = p.validate_settings(&json!({ "seed": seed, "beats_total": beats_total })).expect("settings");
+    let mut state = p.on_match_start(&seats, &settings, &llm).await.expect("start");
+    for round in 1..=beats {
+        state = p.on_round_start(&state, round, &llm).await.expect("round start").state;
+        let mut actions = vec![];
+        for s in 0..4u8 {
+            actions.push(p.bot_action(&state, s, &llm).await.expect("bot"));
+        }
+        let o = p
+            .resolve_round(&state, round, &actions, &RoundContext::default(), &llm, &NoProgress)
+            .await
+            .expect("resolve");
+        state = p.commit_round(&o.state, round, &[], &llm).await.expect("commit").state;
+        let mut w = crate::world::load(&state).expect("load");
+        for d in w.demigods.iter_mut() {
+            d.max_health = d.max_health.max(5.0);
+            d.health = d.max_health;
+            d.alive = true;
+            d.eliminated_beat = None;
+            d.cause = None;
+            for h in d.hands {
+                w.agents[h.ix()].status = AgentStatus::Live;
+            }
+        }
+        state = crate::world::save(&w);
+    }
+    state
+}

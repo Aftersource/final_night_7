@@ -1,0 +1,221 @@
+{
+  "$defs": {
+    "EventPage": {
+      "description": "A page of public events in ledger order.",
+      "properties": {
+        "head": {
+          "description": "Ledger rows so far.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "items": {
+          "description": "Oldest first.",
+          "items": {
+            "$ref": "#/$defs/QueryEvent"
+          },
+          "type": "array"
+        },
+        "more": {
+          "description": "More rows to scan right now: ask again with `since: next`.",
+          "type": "boolean"
+        },
+        "next": {
+          "description": "The ledger row to ask from next time (`since`); poll with it.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "since": {
+          "description": "The `since` asked (null: the latest events).",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "items",
+        "since",
+        "next",
+        "more",
+        "head"
+      ],
+      "type": "object"
+    },
+    "LonLat": {
+      "description": "[longitude, latitude] in degrees (WGS84). Note the order: longitude first.",
+      "items": {
+        "type": "number"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+    },
+    "QueryEvent": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/WorldEvent"
+        },
+        {
+          "properties": {
+            "beat": {
+              "description": "The beat it happened.",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "region_ref": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Ref"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The region it happened in."
+            }
+          },
+          "required": [
+            "beat",
+            "region_ref"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "A public geotagged event (a world event plus its beat and region ref).",
+      "type": "object"
+    },
+    "Ref": {
+      "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row, ce cell, mb mob. Stable for the whole match.",
+      "examples": [
+        "ch:12"
+      ],
+      "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg|ce|mb):\\d+$",
+      "type": "string"
+    },
+    "WorldEvent": {
+      "description": "A public, geotagged world event (one ledger row): casts and their ramifications, armies raised, marching and fighting, freak weather, world mods, wounded gods, eliminations.",
+      "properties": {
+        "at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LonLat"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where, [lon, lat]."
+        },
+        "image_kind": {
+          "description": "With image_prompt.",
+          "enum": [
+            "event"
+          ],
+          "type": "string"
+        },
+        "image_prompt": {
+          "description": "Only on the truly big ones (a cast, an elimination, magnitude ≥ 8): an image prompt (subject only).",
+          "type": "string"
+        },
+        "kind": {
+          "description": "The row's verb: cast, happen, march, raise_army, shrink, damage, mood_shift, mod, unmod, wound, eliminate...",
+          "type": "string"
+        },
+        "magnitude": {
+          "description": "0..10.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "refs": {
+          "description": "The actor, then the targets.",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "type": "array"
+        },
+        "region": {
+          "description": "Region (planet) or district (city).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "row": {
+          "$ref": "#/$defs/Ref"
+        },
+        "text": {
+          "description": "What happened, in prose.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "row",
+        "kind",
+        "text",
+        "at",
+        "region",
+        "refs",
+        "magnitude"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "query_events.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "allOf": [
+    {
+      "$ref": "#/$defs/EventPage"
+    },
+    {
+      "description": "",
+      "properties": {
+        "beat": {
+          "description": "Last beat started.",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "beat"
+      ],
+      "type": "object"
+    }
+  ],
+  "description": "`game.events`: a page of public events.",
+  "title": "game.events",
+  "type": "object",
+  "x-applies-to": "game.events reply (WebSocket), GET /api/rooms/{code}/query/events",
+  "x-args": {
+    "additionalProperties": true,
+    "description": "Over HTTP every arg is a query-string parameter (numbers as numeric strings). Unknown args are ignored.",
+    "properties": {
+      "limit": {
+        "description": "Page size (default 50, at most 200).",
+        "maximum": 200,
+        "minimum": 1,
+        "type": [
+          "integer",
+          "string"
+        ]
+      },
+      "region": {
+        "description": "Only events in this region.",
+        "pattern": "^pl:\\d+$",
+        "type": "string"
+      },
+      "since": {
+        "description": "Event cursor: a ledger row index (`next` from the previous page). Events from this row on. Omit for the latest events.",
+        "minimum": 0,
+        "type": [
+          "integer",
+          "string"
+        ]
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "x-description": "Public geotagged events, paged by ledger row: since a cursor, or the latest. Optionally one region's.",
+  "x-public": true
+}

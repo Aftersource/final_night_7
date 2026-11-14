@@ -41,12 +41,19 @@ async fn main() -> anyhow::Result<()> {
         Arc::new(fn7_server::media::MediaPlugin::new(FinalNight7Plugin::new(), media.clone()));
     let app = AppState::new(cfg.clone(), plugin, built.llm);
     restore(&app);
+    // The simulator API (/sim/*, admin token; see simapi.rs): its matches run on their own threads, never on rooms'.
+    let sim = fn7_server::simapi::SimConfig::from_env(
+        &cfg,
+        app.recorder.as_ref().map(|r| r.dir.clone()),
+        fn7_server::simapi::claude_factory(&cfg, &built.label),
+    );
 
     let listener = TcpListener::bind(cfg.bind).await?;
     tracing::info!(addr = %listener.local_addr()?, game = fn7_plugin::PLUGIN_ID, rules = fn7_plugin::RULES_VERSION,
-                   "final night 7 listening (ws at /ws, images at /media)");
-    // The engine's own serve, with the /media routes merged in (engine route extension, theatre 330896e).
-    theatre_server::serve_with(listener, app, fn7_media::http::router(media), async {
+                   "final night 7 listening (ws at /ws, images at /media, simulator at /sim)");
+    // The engine's own serve, with the /media and /sim routes merged in (engine route extension, theatre 330896e).
+    let extra = fn7_media::http::router(media).merge(fn7_server::simapi::router(sim));
+    theatre_server::serve_with(listener, app, extra, async {
         let _ = tokio::signal::ctrl_c().await;
     })
     .await

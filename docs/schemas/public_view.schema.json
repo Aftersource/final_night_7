@@ -49,6 +49,11 @@
     "Army": {
       "description": "A live army (a cluster raised from a crowd).",
       "properties": {
+        "chain": {
+          "additionalProperties": true,
+          "description": "Its chain of command (general, captains, units, morale, supply, the order as understood; the order's text only for its owner).",
+          "type": "object"
+        },
         "demigod": {
           "description": "The demigod it marches for.",
           "type": "string"
@@ -66,6 +71,31 @@
             }
           ],
           "description": "Where it is headed, or null."
+        },
+        "general": {
+          "anyOf": [
+            {
+              "description": "",
+              "properties": {
+                "name": {
+                  "description": "",
+                  "type": "string"
+                },
+                "ref": {
+                  "$ref": "#/$defs/Ref"
+                }
+              },
+              "required": [
+                "ref",
+                "name"
+              ],
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Its live general."
         },
         "name": {
           "description": "",
@@ -85,10 +115,17 @@
           "description": "Where it is.",
           "type": "string"
         },
+        "rogue": {
+          "description": "Its general mutinied: it answers to no demigod.",
+          "type": "boolean"
+        },
         "size": {
           "description": "Head count.",
           "minimum": 0,
           "type": "integer"
+        },
+        "stance": {
+          "$ref": "#/$defs/Stance"
         },
         "target": {
           "anyOf": [
@@ -307,6 +344,24 @@
         "opened_beat"
       ],
       "type": "object"
+    },
+    "Stance": {
+      "description": "What it is doing as a whole.",
+      "enum": [
+        "calm",
+        "restless",
+        "rioting",
+        "fleeing",
+        "worshipping",
+        "fighting",
+        "marching",
+        "holding",
+        "besieging",
+        "raiding",
+        "retreating",
+        "rogue"
+      ],
+      "type": "string"
     },
     "WorldMod": {
       "description": "A persistent world mod (left by a cast's ramifications), applied every beat inside its radius.",

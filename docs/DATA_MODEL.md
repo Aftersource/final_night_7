@@ -120,18 +120,21 @@ Recording is the Theatre core's (P1, theatre `2b2b9e3`+): with `THEATRE_RECORD=f
 match id) written as JSON lines to `<THEATRE_RECORD_DIR>/<match_id>.jsonl`, one `theatre_trace::Record` per line tagged
 by `"type"`: `run_start` (settings, seats), `ruleset` (twice: the core's, with `PluginInfo.version` and
 `rules_version` as `label`; the plugin's own body with mechanics, prompts, pantheon version and `STATE_SCHEMA`),
-`event`, `hook` (each async hook's input and output, state replaced by `"<see snapshot>"`; at `full` also the sync hooks
+`event`, `hook` (each async hook's input and output, state replaced by `"<see snapshot>"`; a beat that fell back has a
+`fallback_outcome` hook at every level, input `{round, actions, ctx, resolve_error}`; at `full` also the sync hooks
 `on_action_begin` with its `PhaseControl`, `on_instant`, `query`), `llm_call`, `snapshot`, `frame` and `http` (`full`),
 `run_end`. **The JSONL file is the store of record.** The plugin emits its events with `theatre_trace::event` inside the
 hooks, which the core runs in the run's trace context. `fn7-sim` and `fn7-agents` write the same format
 (`fn7-server::record`, the engine's `JsonlSink`), and `fn7-project` loads any of them into SQLite (§4).
 
-The core runs the sync hooks (`on_action_begin`, `on_instant`) and `fallback_outcome` outside the trace context
-(theatre faa7220); the plugin re-enters its match's run there (remembered by match seed from the async hooks), so their
-events (`slow_begin`, `slow_engaged`, `slow_refused`, `cast_streak`, a fallback beat's rows) are recorded too.
+Since theatre 1741d8f the core also runs the sync hooks (`validate_action`, `on_action_begin`, `on_instant`, `query`,
+`fallback_outcome`) in the run's trace context (round, the hook's id, `actor = "seat:N"` where a seat acted), so their
+events (`slow_begin`, `slow_engaged`, `slow_refused`, `cast_streak`, a fallback beat's rows) land under their hook with
+no help from the plugin.
 
 **Snapshots** (full `World`, labels are the core's): `on_match_start` (round 0) and each beat's `commit_round`; at `full`
-also `on_round_start` and `resolve_round` (after a fallback too). The final state is the last `commit_round`. A forked
+also `on_round_start` and `resolve_round` (after a fallback too). A fallback beat also has a `fallback_outcome`
+snapshot at every level. The final state is the last `commit_round`. A forked
 match (admin API) starts from a `fork` snapshot after round N. Older SQLite recordings used `match_start`,
 `round_start`, `resolved`, `committed`, `final`; `fn7-project` still reads them.
 

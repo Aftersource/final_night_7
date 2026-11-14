@@ -172,3 +172,62 @@ fn caption_and_omen_fields_are_first_class() {
     sum["last_caption"] = json!({ "beat": 5, "caption": "Beat 5: the end." });
     assert!(validate(&schema("match_summary"), &sum, true).is_empty());
 }
+
+/// Real `game.*` replies (public and seat-scoped, on a played planet state) validate strictly against their
+/// `query_<name>` schemas, and each schema carries the plugin's args schema.
+#[test]
+fn query_replies_validate() {
+    use fn7_plugin::{testkit, FinalNight7Plugin};
+    use theatre_plugin_api::GamePlugin;
+    let state = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(testkit::played_state(9, 16, 100));
+    let w = fn7_plugin::world::load(&state).unwrap();
+    let p = FinalNight7Plugin::new();
+    let region = w.places.iter().find(|x| x.kind == PlaceKind::District).unwrap().id;
+    let city = w.places.iter().find(|x| x.kind == PlaceKind::Site).unwrap().id;
+    let crowd = w.clusters.iter().find(|c| c.army.is_none() && c.size > 0).unwrap().id;
+    let person = w.characters.iter().find(|c| c.life.is_some()).unwrap().id;
+    let army = w.clusters.iter().find(|c| c.army.is_some()).map(|c| c.id).expect("an army");
+    let owner = w.clusters[army.ix()].army.as_ref().unwrap().demigod.0 as u8;
+    let mut over = state.clone();
+    over["meta"]["beats_total"] = over["meta"]["beat"].clone();
+    let s = |r: Ref| r.to_string();
+    let mut cases: Vec<(&str, Option<u8>, Value, &Value)> = vec![
+        ("globe", None, json!({}), &state),
+        ("globe", None, json!({ "since": 0, "limit": 200 }), &state),
+        ("region", None, json!({ "ref": s(Ref::Place(region)) }), &state),
+        ("node", None, json!({ "ref": s(Ref::Place(w.meta.arena)) }), &state),
+        ("node", None, json!({ "ref": s(Ref::Place(city)) }), &state),
+        ("node", None, json!({ "ref": s(Ref::Cluster(crowd)) }), &state),
+        ("person", None, json!({ "ref": s(Ref::Char(person)) }), &state),
+        ("person", Some(0), json!({ "ref": s(Ref::Char(person)) }), &state),
+        ("army", None, json!({ "ref": s(Ref::Cluster(army)) }), &state),
+        ("army", Some(owner), json!({ "ref": s(Ref::Cluster(army)) }), &state),
+        ("events", None, json!({ "since": 0, "limit": 200 }), &state),
+        ("me", Some(0), json!({}), &state),
+        ("me", Some(2), json!({}), &state),
+        ("powers", None, json!({}), &state),
+        ("gods", None, json!({}), &state),
+        ("standings", None, json!({}), &state),
+        ("piles_final", None, json!({}), &over),
+    ];
+    if let Some(c) = w.cells.first() {
+        cases.push(("node", None, json!({ "ref": s(Ref::Cell(c.id)) }), &state));
+    }
+    if let Some(m) = w.mobs.first() {
+        cases.push(("node", None, json!({ "ref": s(Ref::Mob(m.id)) }), &state));
+    }
+    let specs = p.queries();
+    for (name, seat, args, st) in cases {
+        let schema = schema(&format!("query_{name}"));
+        let spec = specs.iter().find(|x| x.name == name).unwrap();
+        assert_eq!(schema["x-args"], spec.args_schema, "query_{name} x-args");
+        assert_eq!(schema["x-public"], json!(spec.public));
+        let v = p.query(st, seat, name, &args).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let errs = validate(&schema, &v, true);
+        assert!(errs.is_empty(), "game.{name} {args} (seat {seat:?}) vs query_{name}:\n{}", errs.join("\n"));
+    }
+}

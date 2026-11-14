@@ -1,0 +1,358 @@
+{
+  "$defs": {
+    "ArmyMarker": {
+      "description": "An army as everyone sees it (no orders, no chain of command).",
+      "properties": {
+        "demigod": {
+          "description": "The demigod it marches for.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "demigod_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "dest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LonLat"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where it is headed."
+        },
+        "morale": {
+          "description": "0..1.",
+          "type": "number"
+        },
+        "name": {
+          "description": "",
+          "type": "string"
+        },
+        "pos": {
+          "$ref": "#/$defs/LonLat"
+        },
+        "ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "region": {
+          "description": "Where it is.",
+          "type": "string"
+        },
+        "rogue": {
+          "description": "Its general mutinied: it answers to no demigod.",
+          "type": "boolean"
+        },
+        "size": {
+          "description": "Head count.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "stance": {
+          "$ref": "#/$defs/Stance"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What it marches on."
+        }
+      },
+      "required": [
+        "ref",
+        "name",
+        "demigod",
+        "demigod_ref",
+        "rogue",
+        "size",
+        "pos",
+        "region",
+        "dest",
+        "target",
+        "stance",
+        "morale"
+      ],
+      "type": "object"
+    },
+    "LonLat": {
+      "description": "[longitude, latitude] in degrees (WGS84). Note the order: longitude first.",
+      "items": {
+        "type": "number"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+    },
+    "Ref": {
+      "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row, ce cell, mb mob. Stable for the whole match.",
+      "examples": [
+        "ch:12"
+      ],
+      "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg|ce|mb):\\d+$",
+      "type": "string"
+    },
+    "Role": {
+      "description": "A person's part in the society.",
+      "enum": [
+        "commoner",
+        "notable",
+        "ringleader",
+        "general",
+        "captain",
+        "soldier",
+        "hero",
+        "coward",
+        "witness",
+        "prophet",
+        "paladin",
+        "deserter",
+        "avenger"
+      ],
+      "type": "string"
+    },
+    "Stance": {
+      "description": "What it is doing as a whole.",
+      "enum": [
+        "calm",
+        "restless",
+        "rioting",
+        "fleeing",
+        "worshipping",
+        "fighting",
+        "marching",
+        "holding",
+        "besieging",
+        "raiding",
+        "retreating",
+        "rogue"
+      ],
+      "type": "string"
+    },
+    "Who": {
+      "description": "A person in short: who leads, commands or belongs somewhere.",
+      "properties": {
+        "alive": {
+          "description": "",
+          "type": "boolean"
+        },
+        "name": {
+          "description": "",
+          "type": "string"
+        },
+        "ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Role"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "title": {
+          "description": "\"General of Ash's Host of Cairo\".",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "ref",
+        "name",
+        "alive",
+        "role",
+        "title"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "query_army.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "allOf": [
+    {
+      "$ref": "#/$defs/ArmyMarker"
+    },
+    {
+      "description": "",
+      "properties": {
+        "battles": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "captains": {
+          "description": "",
+          "items": {
+            "$ref": "#/$defs/Who"
+          },
+          "type": "array"
+        },
+        "chain": {
+          "additionalProperties": true,
+          "description": "Owner only: the full chain of command (general and captains with their sheets, units, morale, supply, strain, the order with its text).",
+          "type": "object"
+        },
+        "general": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Who"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "live": {
+          "description": "Still in the field (not wiped out, and its demigod stands or it is rogue).",
+          "type": "boolean"
+        },
+        "losses": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "order": {
+          "description": "The order the army acts on, as its general understood it.",
+          "properties": {
+            "beat": {
+              "description": "",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "by": {
+              "$ref": "#/$defs/Ref"
+            },
+            "llm": {
+              "description": "The general mind decided it.",
+              "type": "boolean"
+            },
+            "reading": {
+              "description": "How the general read it.",
+              "enum": [
+                "obey",
+                "misread",
+                "stall",
+                "refuse",
+                "mutiny",
+                "defect"
+              ],
+              "type": "string"
+            },
+            "speech": {
+              "description": "The general's line.",
+              "type": "string"
+            },
+            "stance": {
+              "$ref": "#/$defs/Stance"
+            },
+            "target": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Ref"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": ""
+            },
+            "text": {
+              "description": "The demigod's words: owner only (null for others).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "why": {
+              "description": "order, engage, strain or initiative.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "text",
+            "by",
+            "beat",
+            "reading",
+            "target",
+            "stance",
+            "speech",
+            "why",
+            "llm"
+          ],
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "orders": {
+          "description": "Owner only: its standing orders.",
+          "type": "string"
+        },
+        "raised_beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "supply": {
+          "description": "",
+          "type": "number"
+        },
+        "units": {
+          "description": "Live units (squads).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "yours": {
+          "description": "You are its demigod's seat.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "live",
+        "yours",
+        "supply",
+        "raised_beat",
+        "battles",
+        "losses",
+        "general",
+        "captains",
+        "units",
+        "order"
+      ],
+      "type": "object"
+    }
+  ],
+  "description": "`game.army`: one army. `orders` and `chain` only for its demigod's seat.",
+  "title": "game.army",
+  "type": "object",
+  "x-applies-to": "game.army reply (WebSocket), GET /api/rooms/{code}/query/army",
+  "x-args": {
+    "additionalProperties": true,
+    "description": "Over HTTP every arg is a query-string parameter (numbers as numeric strings). Unknown args are ignored.",
+    "properties": {
+      "ref": {
+        "description": "The army.",
+        "pattern": "^cl:\\d+$",
+        "type": "string"
+      }
+    },
+    "required": [
+      "ref"
+    ],
+    "type": "object"
+  },
+  "x-description": "One army (`cl:`): general, captains, size, position, target, morale. Its demigod's seat also gets its orders and full chain of command.",
+  "x-public": true
+}

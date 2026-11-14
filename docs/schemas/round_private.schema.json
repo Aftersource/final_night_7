@@ -3,6 +3,10 @@
     "Entity": {
       "description": "One thing a seat can see (`world::entity_json`): a ref, its display name and kind, plus a few kind-specific fields. Rivals' health is never included.",
       "properties": {
+        "action": {
+          "description": "Mobs only: what it is doing (gathering, rioting, looting, attacking, marching, dispersed).",
+          "type": "string"
+        },
         "alive": {
           "description": "Characters only.",
           "type": "boolean"
@@ -11,8 +15,12 @@
           "$ref": "#/$defs/Ref",
           "description": "Clusters that are armies only: the demigod (`dg:<n>`) it marches for."
         },
+        "cell_kind": {
+          "description": "Cells only: gang, squad, congregation, crew or militia.",
+          "type": "string"
+        },
         "kind": {
-          "description": "Matches the ref prefix (dg, ch, cl, gr, gd, pl, it, ag, lg).",
+          "description": "Matches the ref prefix (dg, ch, cl, gr, gd, pl, it, ag, lg, ce, mb).",
           "enum": [
             "demigod",
             "character",
@@ -22,9 +30,22 @@
             "place",
             "item",
             "agent",
-            "ledger"
+            "ledger",
+            "cell",
+            "mob"
           ],
           "type": "string"
+        },
+        "leader": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Cells only."
         },
         "mood": {
           "description": "Clusters only: the dominant mood.",
@@ -45,8 +66,27 @@
           "$ref": "#/$defs/LonLat",
           "description": "Where it is, when it has a position (absent for groups, gods, agents)."
         },
+        "rank": {
+          "$ref": "#/$defs/Rank",
+          "description": "Characters with a society sheet only."
+        },
         "ref": {
           "$ref": "#/$defs/Ref"
+        },
+        "ringleader": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Mobs only."
+        },
+        "role": {
+          "$ref": "#/$defs/Role",
+          "description": "Characters with a society sheet only."
         },
         "size": {
           "description": "Clusters only: approximate head count.",
@@ -115,6 +155,19 @@
         "subagents"
       ],
       "type": "object"
+    },
+    "Level": {
+      "description": "A level of the hierarchy.",
+      "enum": [
+        "planet",
+        "region",
+        "city",
+        "district",
+        "crowd",
+        "cell",
+        "person"
+      ],
+      "type": "string"
     },
     "LonLat": {
       "description": "[longitude, latitude] in degrees (WGS84). Note the order: longitude first.",
@@ -222,12 +275,52 @@
       ],
       "type": "object"
     },
+    "Rank": {
+      "description": "Where a person stands.",
+      "properties": {
+        "level": {
+          "$ref": "#/$defs/Level"
+        },
+        "of": {
+          "$ref": "#/$defs/Ref",
+          "description": "The node or unit they hold rank in."
+        },
+        "title": {
+          "description": "",
+          "type": "string"
+        }
+      },
+      "required": [
+        "level",
+        "title"
+      ],
+      "type": "object"
+    },
     "Ref": {
       "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row, ce cell, mb mob. Stable for the whole match.",
       "examples": [
         "ch:12"
       ],
       "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg|ce|mb):\\d+$",
+      "type": "string"
+    },
+    "Role": {
+      "description": "A person's part in the society.",
+      "enum": [
+        "commoner",
+        "notable",
+        "ringleader",
+        "general",
+        "captain",
+        "soldier",
+        "hero",
+        "coward",
+        "witness",
+        "prophet",
+        "paladin",
+        "deserter",
+        "avenger"
+      ],
       "type": "string"
     },
     "SubagentKind": {

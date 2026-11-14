@@ -121,8 +121,9 @@ impl GamePlugin for Stub {
         assert_eq!(ctx.windows_closed.len(), 1, "RoundContext forwarded");
         Ok(RoundOutcome { state: state.clone(), ..Default::default() })
     }
-    fn fallback_outcome(&self, state: &Value, _: u32, _: &[Action]) -> RoundOutcome {
+    fn fallback_outcome(&self, state: &Value, _: u32, _: &[Action], ctx: &RoundContext) -> RoundOutcome {
         self.hit("fallback_outcome");
+        assert_eq!(ctx.windows_closed.len(), 1, "RoundContext forwarded to fallback_outcome");
         RoundOutcome { state: state.clone(), ..Default::default() }
     }
     fn default_choice(&self, _: &Value, _: Seat, _: &[Choice]) -> String {
@@ -184,7 +185,7 @@ async fn call_all(p: &dyn GamePlugin) {
         }],
     };
     p.resolve_round(&st, 1, std::slice::from_ref(&a), &ctx, &llm, &NoProgress).await.unwrap();
-    p.fallback_outcome(&st, 1, &[a]);
+    p.fallback_outcome(&st, 1, &[a], &ctx);
     assert_eq!(p.default_choice(&st, 0, &[Choice::new("x", "X")]), "x");
     let c = p.commit_round(&st, 1, &[], &llm).await.unwrap();
     assert_eq!(c.revived, vec![(1, "Death relents".to_string())]);
@@ -233,6 +234,11 @@ async fn every_wrapper_forwards_every_hook() {
         assert!(lines.iter().any(|l| l["hook"] == "resolve_round" && l["input"]["ctx"]["windows_closed"][0]["reason"] == "deadline"));
         assert!(lines.iter().any(|l| l["hook"] == "on_instant" && l["output"]["streak"] == 0 && l["input"]["action"]["seq"] == 3));
         assert_eq!(hook("query"), 1);
+        // The fallback is a hook record with its input (round, actions, ctx, resolve_error) and a snapshot.
+        assert!(lines.iter().any(|l| l["hook"] == "fallback_outcome" && l["input"]["round"] == 1
+            && l["input"]["ctx"]["windows_closed"][0]["reason"] == "deadline" && l["input"]["actions"][0]["seq"] == 3
+            && l["input"].get("resolve_error").is_some() && l["output"]["state"] == "<see snapshot>"));
+        assert!(lines.iter().any(|l| l["type"] == "snapshot" && l["label"] == "fallback_outcome"));
         assert!(lines.iter().any(|l| l["type"] == "ruleset" && l["version"] == "0.0.1" && l["label"] == "r1"));
         assert!(lines.iter().any(|l| l["type"] == "snapshot" && l["label"] == "commit_round"));
         assert!(lines.iter().any(|l| l["type"] == "run_end"));
@@ -241,11 +247,15 @@ async fn every_wrapper_forwards_every_hook() {
 }
 
 #[test]
-fn final_night_7_declares_no_queries_yet() {
-    // P2 stub: honest and minimal until the real game.* queries land (separate task).
+fn final_night_7_declares_its_queries_through_the_media_wrapper() {
     let p = MediaPlugin::new(fn7_plugin::FinalNight7Plugin::new(), fn7_media::Media::off());
-    assert!(p.queries().is_empty());
-    assert_eq!(p.query(&json!({}), Some(0), "map", &json!({})), Err("no queries yet".to_string()));
+    let names: Vec<String> = p.queries().into_iter().map(|q| q.name).collect();
+    assert_eq!(
+        names,
+        ["globe", "region", "node", "person", "army", "events", "me", "powers", "gods", "standings", "piles_final"]
+    );
+    assert!(p.query(&json!({}), None, "powers", &json!({})).unwrap()["powers"].is_array());
+    assert_eq!(p.query(&json!({}), Some(0), "globe", &json!({})), Err("no match state".to_string()));
     let info = p.info();
     assert_eq!(info.version, env!("CARGO_PKG_VERSION"));
     assert_eq!(info.rules_version, fn7_plugin::RULES_VERSION);

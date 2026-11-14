@@ -24,6 +24,7 @@ pub mod flow;
 pub mod merge;
 pub mod payload;
 pub mod phases;
+pub mod queries;
 pub mod settings;
 pub mod society;
 pub mod testkit;
@@ -188,26 +189,17 @@ fn sample_step_prompt(kind: fn7_agents::step::StepKind) -> String {
     })
 }
 
-/// The Final Night 7 plugin. Holds the pantheon (data, compiled in). Everything Time's bill needs comes from the core
-/// (`RoundContext`), so the plugin keeps no game memory between hooks; the two maps below only route records and
-/// cover `fallback_outcome`, which the core calls without a context.
+/// The Final Night 7 plugin. Holds the pantheon (data, compiled in) and nothing else: everything Time's bill needs
+/// comes from the core (`RoundContext`, also passed to `fallback_outcome`), and the core runs every hook, sync ones
+/// included, inside the match's trace context (theatre 1741d8f), so the plugin keeps no memory between hooks.
 pub struct FinalNight7Plugin {
     pantheon: Arc<Pantheon>,
-    /// Each recorded match's trace context (its run), by match seed, learned in the async hooks. The core runs the
-    /// sync hooks (`on_action_begin`, `on_instant`) and `fallback_outcome` outside any trace context (theatre faa7220),
-    /// so without this their events would be lost.
-    runs: std::sync::Mutex<std::collections::HashMap<u64, theatre_trace::Ctx>>,
-    /// The `RoundContext` of each (seed, round) resolve in flight: `fallback_outcome` gets no context from the core
-    /// (theatre faa7220), so a resolve that fails twice still settles the windows it was handed.
-    round_ctx: std::sync::Mutex<std::collections::HashMap<(u64, u32), RoundContext>>,
 }
 
 impl Default for FinalNight7Plugin {
     fn default() -> Self {
         Self {
             pantheon: Arc::new(fn7_pantheon::load()),
-            runs: Default::default(),
-            round_ctx: Default::default(),
         }
     }
 }
@@ -226,35 +218,7 @@ impl FinalNight7Plugin {
         world::settings(w).llm.then_some(llm)
     }
 
-    /// Remember the current trace context (the core's run for this match), if any, for the sync hooks.
-    fn remember_run(&self, w: &World) {
-        if let Some(mut c) = theatre_trace::current() {
-            c.hook_id = None;
-            c.llm_call_id = None;
-            c.round = None;
-            c.step = None;
-            c.actor = None;
-            self.runs.lock().expect("runs").insert(w.meta.seed, c);
-        }
-    }
-
-    /// Run a sync hook inside its match's run (when the caller gave none), so its events are recorded.
-    fn in_run<R>(&self, seed: u64, round: Option<u32>, seat: Option<Seat>, f: impl FnOnce() -> R) -> R {
-        if theatre_trace::active() {
-            return f();
-        }
-        let ctx = self.runs.lock().expect("runs").get(&seed).cloned();
-        match ctx {
-            Some(mut c) => {
-                c.round = round;
-                c.actor = seat.map(|s| format!("seat:{s}"));
-                theatre_trace::within_sync(c, f)
-            }
-            None => f(),
-        }
-    }
-
-    /// `on_action_begin` on a loaded world (inside the match's run).
+    /// `on_action_begin` on a loaded world.
     fn action_begin(
         &self,
         w: &World,
@@ -317,14 +281,6 @@ impl FinalNight7Plugin {
                 "text": format!("{} slowed time", d.name),
             })),
             ..Default::default()
-        }
-    }
-
-    /// Replay of a resolve that fell back: the context its failed attempts were handed (the core passes none to
-    /// `fallback_outcome`).
-    pub fn remember_round_ctx(&self, state: &Value, round: u32, ctx: RoundContext) {
-        if let Ok(w) = world::load(state) {
-            self.round_ctx.lock().expect("round ctx").insert((w.meta.seed, round), ctx);
         }
     }
 
@@ -458,13 +414,13 @@ impl GamePlugin for FinalNight7Plugin {
         Settings::validate(settings)
     }
 
-    /// No game queries yet (P2 stub: the real `game.*` queries are a separate task).
+    /// The `game.*` queries (docs/CLIENT_API.md "Game queries"); cheap partial reads of the state ([`queries`]).
     fn queries(&self) -> Vec<QuerySpec> {
-        vec![]
+        queries::specs()
     }
 
-    fn query(&self, _state: &Value, _seat: Option<Seat>, _name: &str, _args: &Value) -> Result<Value, String> {
-        Err("no queries yet".into())
+    fn query(&self, state: &Value, seat: Option<Seat>, name: &str, args: &Value) -> Result<Value, String> {
+        queries::query(&self.pantheon, state, seat, name, args)
     }
 
     async fn on_match_start(
@@ -475,7 +431,6 @@ impl GamePlugin for FinalNight7Plugin {
     ) -> anyhow::Result<Value> {
         let settings = Settings::validate(settings).map_err(anyhow::Error::msg)?;
         let w = phases::new_match(seats, &settings, &self.pantheon, now_seed());
-        self.remember_run(&w);
         theatre_trace::ruleset(
             PLUGIN_ID,
             RULES_VERSION,
@@ -492,7 +447,6 @@ impl GamePlugin for FinalNight7Plugin {
         _llm: &dyn LlmProvider,
     ) -> anyhow::Result<RoundStart> {
         let mut w = world::load(state)?;
-        self.remember_run(&w);
         Ok(phases::round_start(&mut w, round, &self.pantheon))
     }
 
@@ -565,25 +519,21 @@ impl GamePlugin for FinalNight7Plugin {
         let Ok(w) = world::load(state) else {
             return PhaseControl::default();
         };
-        self.in_run(w.meta.seed, Some(round), Some(seat), || {
-            self.action_begin(&w, round, seat, window, next_window_id)
-        })
+        self.action_begin(&w, round, seat, window, next_window_id)
     }
 
     fn on_instant(&self, state: &Value, seat: Seat, action: &Action) -> Option<Value> {
         let w = world::load(state).ok()?;
-        self.in_run(w.meta.seed, None, Some(seat), || {
-            let s = world::seat_state(&w, seat)?;
-            let i = actions::parse(&action.text, &action.fields).ok()?;
-            if i.casts.is_empty() {
-                return None;
-            }
-            let mut v = casts::streak(&w, s.demigod, seat, &i.casts)?;
-            v["seq"] = action.seq.into();
-            v["received_at_ms"] = action.received_at_ms.into();
-            world::event("cast_streak", Some(Ref::Demigod(s.demigod).to_string()), v.clone());
-            Some(v)
-        })
+        let s = world::seat_state(&w, seat)?;
+        let i = actions::parse(&action.text, &action.fields).ok()?;
+        if i.casts.is_empty() {
+            return None;
+        }
+        let mut v = casts::streak(&w, s.demigod, seat, &i.casts)?;
+        v["seq"] = action.seq.into();
+        v["received_at_ms"] = action.received_at_ms.into();
+        world::event("cast_streak", Some(Ref::Demigod(s.demigod).to_string()), v.clone());
+        Some(v)
     }
 
     fn default_action(&self, _state: &Value, seat: Seat) -> Action {
@@ -620,25 +570,15 @@ impl GamePlugin for FinalNight7Plugin {
         _progress: &dyn Progress,
     ) -> anyhow::Result<RoundOutcome> {
         let mut w = world::load(state)?;
-        self.remember_run(&w);
-        let key = (w.meta.seed, round);
-        self.round_ctx.lock().expect("round ctx").insert(key, ctx.clone());
         let llm = Self::llm(&w, llm);
-        let out = self.resolve(&mut w, round, actions, ctx, llm).await;
-        self.round_ctx.lock().expect("round ctx").remove(&key);
-        Ok(out)
+        Ok(self.resolve(&mut w, round, actions, ctx, llm).await)
     }
 
-    fn fallback_outcome(&self, state: &Value, round: u32, actions: &[Action]) -> RoundOutcome {
+    fn fallback_outcome(&self, state: &Value, round: u32, actions: &[Action], ctx: &RoundContext) -> RoundOutcome {
         match world::load(state) {
-            // No LLM: every mind takes its rules fallback immediately, so this never waits.
-            Ok(mut w) => {
-                let seed = w.meta.seed;
-                let ctx = self.round_ctx.lock().expect("round ctx").remove(&(seed, round)).unwrap_or_default();
-                self.in_run(seed, Some(round), None, || {
-                    futures::executor::block_on(self.resolve(&mut w, round, actions, &ctx, None))
-                })
-            }
+            // No LLM: every mind takes its rules fallback immediately, so this never waits. `ctx` is the context the
+            // failed resolve attempts got, so the windows they were handed are still billed.
+            Ok(mut w) => futures::executor::block_on(self.resolve(&mut w, round, actions, ctx, None)),
             Err(_) => RoundOutcome {
                 state: state.clone(),
                 ..Default::default()
@@ -682,12 +622,11 @@ impl GamePlugin for FinalNight7Plugin {
     async fn summarize(&self, state: &Value, llm: &dyn LlmProvider) -> anyhow::Result<Summary> {
         let w = world::load(state)?;
         let llm = Self::llm(&w, llm);
-        let s = phases::summarize(&w, llm).await;
-        self.runs.lock().expect("runs").remove(&w.meta.seed);
-        self.round_ctx.lock().expect("round ctx").retain(|k, _| k.0 != w.meta.seed);
-        Ok(s)
+        Ok(phases::summarize(&w, llm).await)
     }
 }
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod query_tests;

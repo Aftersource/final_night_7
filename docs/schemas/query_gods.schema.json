@@ -1,0 +1,76 @@
+{
+  "$defs": {
+    "Ref": {
+      "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row, ce cell, mb mob. Stable for the whole match.",
+      "examples": [
+        "ch:12"
+      ],
+      "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg|ce|mb):\\d+$",
+      "type": "string"
+    }
+  },
+  "$id": "query_gods.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "`game.gods`.",
+  "properties": {
+    "gods": {
+      "description": "In id order (gd:0 Time .. gd:6 Entropy).",
+      "items": {
+        "description": "One god.",
+        "properties": {
+          "domain": {
+            "description": "",
+            "type": "string"
+          },
+          "health": {
+            "description": "0..10 (Entropy wounds gods at 80+).",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "name": {
+            "description": "",
+            "type": "string"
+          },
+          "ref": {
+            "$ref": "#/$defs/Ref"
+          },
+          "slug": {
+            "description": "",
+            "type": "string"
+          },
+          "unmade": {
+            "description": "Health 0: its invocations go to Entropy.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ref",
+          "name",
+          "slug",
+          "domain",
+          "health",
+          "unmade"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "gods"
+  ],
+  "title": "game.gods",
+  "type": "object",
+  "x-applies-to": "game.gods reply (WebSocket), GET /api/rooms/{code}/query/gods",
+  "x-args": {
+    "additionalProperties": true,
+    "description": "Over HTTP every arg is a query-string parameter (numbers as numeric strings). Unknown args are ignored.",
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
+  "x-description": "The pantheon: each god's ref, name, slug, domain and health now.",
+  "x-public": true
+}

@@ -3,8 +3,10 @@
 //! engine's [`ReplayLlm`] (keyed by round, actor, step and request content; a request the recording lacks fails, so its
 //! mind takes the same rules fallback it took live), feeding each round the actions and `RoundContext` (closed action
 //! windows) recorded in its `resolve_round` hook input, and check that every recorded snapshot
-//! (`on_round_start` and `resolve_round` at `full`, `commit_round` always) serializes byte for byte the same, plus the
-//! summary in `run_end`.
+//! (`on_round_start` and `resolve_round` at `full`, `commit_round` and `fallback_outcome` always) serializes byte for
+//! byte the same, plus the summary in `run_end`. A round whose resolve failed twice (or timed out) carries the core's
+//! `fallback_outcome` hook record (theatre 1741d8f: input round, actions, ctx, resolve_error): replay calls
+//! `fallback_outcome` with exactly that input.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -28,6 +30,8 @@ pub struct Report {
     pub llm_hits: u64,
     pub llm_misses: u64,
     pub beats: u32,
+    /// Beats replayed through `fallback_outcome` (from its hook record).
+    pub fallbacks: u32,
     /// Whether the replayed summary equals the recorded one (`None`: the recording has no `run_end`).
     pub summary_identical: Option<bool>,
 }
@@ -112,7 +116,19 @@ struct ResolveIn {
     hook_id: Option<i64>,
     actions: Vec<Action>,
     ctx: RoundContext,
-    ok: bool,
+    /// From the `fallback_outcome` hook record (else the successful `resolve_round`).
+    fallback: bool,
+}
+
+impl ResolveIn {
+    fn of(h: &Value, fallback: bool) -> Self {
+        Self {
+            hook_id: h["id"].as_i64(),
+            actions: serde_json::from_value(h["input"]["actions"].clone()).unwrap_or_default(),
+            ctx: serde_json::from_value(h["input"]["ctx"].clone()).unwrap_or_default(),
+            fallback,
+        }
+    }
 }
 
 pub async fn verify(path: impl AsRef<Path>, mut log: impl FnMut(&str)) -> anyhow::Result<Report> {
@@ -136,26 +152,28 @@ pub async fn verify(path: impl AsRef<Path>, mut log: impl FnMut(&str)) -> anyhow
             .find(|s| s.0 == Some(round) && s.1 == label)
             .map(|s| s.2)
     };
-    // Each round's resolve: the last attempt that succeeded, else (fallback) the last attempt.
+    // Each round's resolve: the `resolve_round` attempt that succeeded, or the core's `fallback_outcome` record (the
+    // resolve failed twice or timed out). A round with only failed attempts and no fallback record is an error.
     let mut resolves: BTreeMap<u32, ResolveIn> = BTreeMap::new();
-    for h in records
-        .iter()
-        .filter(|r| r["type"] == "hook" && r["hook"] == "resolve_round")
-    {
+    let mut failed: Vec<u32> = vec![];
+    for h in records.iter().filter(|r| r["type"] == "hook") {
         let Some(round) = round_of(h) else { continue };
-        let ok = h["error"].is_null();
-        if resolves.get(&round).is_some_and(|p| p.ok && !ok) {
-            continue;
+        match h["hook"].as_str() {
+            Some("resolve_round") if h["error"].is_null() => {
+                resolves.insert(round, ResolveIn::of(h, false));
+            }
+            Some("resolve_round") => failed.push(round),
+            Some("fallback_outcome") if h["error"].is_null() => {
+                resolves.insert(round, ResolveIn::of(h, true));
+            }
+            _ => {}
         }
-        resolves.insert(
-            round,
-            ResolveIn {
-                hook_id: h["id"].as_i64(),
-                actions: serde_json::from_value(h["input"]["actions"].clone()).unwrap_or_default(),
-                ctx: serde_json::from_value(h["input"]["ctx"].clone()).unwrap_or_default(),
-                ok,
-            },
-        );
+    }
+    if let Some(r) = failed.iter().find(|r| !resolves.contains_key(r)) {
+        return Err(anyhow!(
+            "run {run}: beat {r}'s resolve_round failed and the recording has no fallback_outcome record \
+             (recorded before theatre 1741d8f?)"
+        ));
     }
     // A match starts from its on_match_start snapshot; a fork (admin API) from its `fork` snapshot after round N.
     let (first, start) = snaps
@@ -206,15 +224,17 @@ pub async fn verify(path: impl AsRef<Path>, mut log: impl FnMut(&str)) -> anyhow
         let Some(input) = resolves.get(&round) else {
             break;
         };
-        let out = if input.ok {
-            let mut c = ctx(round);
-            c.hook_id = input.hook_id;
+        let mut c = ctx(round);
+        c.hook_id = input.hook_id;
+        let out = if input.fallback {
+            // Exactly the recorded call: the context the failed resolve attempts got, as the core passed it.
+            let o = theatre_trace::within_sync(c, || p.fallback_outcome(&state, round, &input.actions, &input.ctx));
+            compare(round, "fallback_outcome", &o.state, &mut rep);
+            rep.fallbacks += 1;
+            o
+        } else {
             theatre_trace::within(c, p.resolve_round(&state, round, &input.actions, &input.ctx, &replay, &NoProgress))
                 .await?
-        } else {
-            // The core passes no context to fallback_outcome; the plugin uses the one its failed attempts got.
-            p.remember_round_ctx(&state, round, input.ctx.clone());
-            p.fallback_outcome(&state, round, &input.actions)
         };
         compare(round, "resolve_round", &out.state, &mut rep);
         state = out.state;

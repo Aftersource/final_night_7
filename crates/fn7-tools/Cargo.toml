@@ -20,6 +20,7 @@ path = "src/bin/schemas.rs"
 [dependencies]
 fn7-pantheon.workspace = true
 fn7-model = { workspace = true, features = ["schema"] }
+fn7-plugin.workspace = true
 schemars.workspace = true
 theatre-trace.workspace = true
 theatre-protocol.workspace = true
@@ -36,3 +37,6 @@ dotenvy.workspace = true
 uuid.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+
+[dev-dependencies]
+theatre-plugin-api.workspace = true

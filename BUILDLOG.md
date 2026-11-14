@@ -244,3 +244,68 @@ Engineering (rules 0.5.0, Theatre `2b2b9e3` P1 recording, `dd820bb` P2 queries, 
   attempts were handed.
 - **Fast-forward:** `llm: false, flow_ms: 500, compose_seconds: 0.001` runs about 54 beats/s on a release server
   (docs/AGENT_GUIDE.md §11, with the admin API and local-run recipes).
+
+## 2026-11-14: sync tracing + fallback context on the engine (Theatre `1741d8f`)
+
+Engineering (rules 0.5.0, Theatre `1741d8f`; follows "engine sync approved" and closes the open requests in
+docs/ENGINE_SYNC.md):
+- **Sync hooks are traced by the core.** `validate_action` (every `SubmitKind`), `on_action_begin`, `on_instant`,
+  `query` and `fallback_outcome` now run inside the match's recording context (run = match id, round, a fresh hook id,
+  `actor = "seat:N"` where a seat acted). The plugin's seed-keyed workaround (`runs`, `remember_run`, `in_run`) is
+  deleted; `slow_begin` / `slow_engaged` / `slow_refused` / `cast_streak` and a fallback beat's rows land under their
+  hook natively. `FinalNight7Plugin` holds only the pantheon now.
+- **`fallback_outcome` gets the `RoundContext`** the failed resolve attempts got (breaking signature). The plugin bills
+  the windows from it; the kept-ctx map (`round_ctx`, `remember_round_ctx`) is deleted. `MediaPlugin`, `Recorded`,
+  the driver and `tests/wrappers.rs` forward and check it.
+- **Fallbacks are explicit in recordings.** The core writes a `fallback_outcome` hook (input round, actions, ctx,
+  resolve_error; state in a `fallback_outcome` snapshot) at every level. `fn7-sim --replay` calls `fallback_outcome`
+  with exactly that input and checks the `fallback_outcome` snapshot too, instead of inferring a fallback from two
+  errored `resolve_round` hooks (that inference also missed timeouts, which leave no errored attempt with a usable
+  input); a recording with failed resolves and no fallback record is refused. `fn7-sim`'s `Recorded` runs the sync
+  hooks in the run's context like the core and records a fallback in the core's shape.
+- **Checked:** a private `fn7-server` (`THEATRE_RECORD=full`, a local fake LLM gateway, resolve timeout 3 s) with a
+  forced fallback (the gateway hung for a few beats, so beat 4's resolve timed out twice) replays with 0 differences
+  (37/37 snapshots, 1 beat via `fallback_outcome`, summary identical); its `slow_begin` / `cast_streak` events sit
+  under their `on_action_begin` / `on_instant` hook ids with `actor = "seat:0"`. `fn7-sim` recordings (scripted LLM
+  at full, rules-only at events, and in-process fallbacks in the tests) replay with 0 differences too.
+
+## 2026-11-14: the bridge agent's role
+
+> The agent should be able to run the simulator API, acting as the intermediary between
+> the teammate who handles UX design and balance, with the team helping on simulation and backend logic
+> storage and so on. We will meet at image, video and character generation.
+
+Engineering: Benito's agent (`#benito-linux/finalnight-linux`, to be renamed `final-night-7-benito-bridge`) is the
+intermediary.
+- **Benito** owns design, balance and the exact UX.
+- **We** own simulation, backend logic and storage.
+- **Shared ground:** image, video and character generation.
+- **What the bridge gets:** the live server (access key), the admin API (timeline, state, fork, replay; admin token),
+  and a server-side simulator API so it can run balance simulations with any settings without building our code.
+
+## 2026-11-14: the `game.*` queries (Theatre `1741d8f`)
+
+Engineering (rules 0.5.0; the state and every pushed payload are unchanged, except `mob.cells` in the society payloads
+now holds `ce:` refs instead of bare numbers):
+- **Eleven queries** in `fn7-plugin/src/queries.rs`, each with an args schema in `server.hello.api.queries`: `globe`
+  (arena, demigods, influence, mods, armies, Entropy, beat, an event page), `region`, `node` (place / crowd / cell /
+  mob), `person` (public subset; the asking seat also gets the allegiance it knows and the memories it can see),
+  `army` (public subset; its owner also gets orders and the chain), `events` (paged by ledger row: `since` → `next`),
+  `me` (seat only: the SeatView), `powers`, `gods`, `standings` (never ordered by health), `piles_final` (an error
+  until the match is over). Public ones are also at `GET /api/rooms/{code}/query/{name}` (args as strings).
+- **Cheap on the room actor.** A query deserializes only the tables it reads (a partial `World`; never the ledger or
+  memory whole), reaches ledger rows by index, tests a row's publicity on a borrowed head before parsing it, scans at
+  most 2000 rows per call, and builds only the requested page. Release, planet, beat 50 (4.4 MB state, 2723 rows,
+  8732 memories): medians 7 µs (`gods`) to 2.2 ms (`me`, `node pl:0` with 100 crowds); a full `world::load` alone is
+  ~4.5 ms (`tests/query_timing.rs`).
+- **Tests:** shapes; `globe` = the PublicView's fields and `me` = `seat_view` exactly; events paged with no gaps or
+  repeats (numeric-string args as over HTTP); crowd and memory pages; refused args; `piles_final` = the summary's
+  piles once over; planted secrets (standing orders, army orders, a private row and memories about it) never reach a
+  public answer, a seat-None (HTTP) answer or another seat's, while their owner sees them; real replies validate
+  strictly against `docs/schemas/query_<name>.schema.json` (which carry `x-args` / `x-public`). The `Army` and
+  `Entity` schemas gained the fields the code already sent (`rogue`, `stance`, `general`, `chain`; `role`, `rank`,
+  cell and mob fields).
+- **Checked** on a private release server (port 8097, no LLM): every query over WebSocket (`server.hello` lists all
+  eleven; `wrong_phase` before the match, `bad_request` / `not_found` with reasons) and every public one with curl
+  (`200`; `403` for `me`, `400` for bad args and for `piles_final` mid-match, `200` after the end).
+

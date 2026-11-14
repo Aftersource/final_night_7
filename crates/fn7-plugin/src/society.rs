@@ -474,17 +474,17 @@ pub fn run_step(w: &mut World, beat: u32, focus: &[Ref], llm_refs: Vec<Ref>, pan
 // Payloads (data contract only)
 // ---------------------------------------------------------------------------------------------------------------------
 
-fn mood_json(m: &Mood) -> Value {
+pub(crate) fn mood_json(m: &Mood) -> Value {
     json!({ "anger": m.anger, "fear": m.fear, "hope": m.hope, "devotion": m.devotion })
 }
 
-fn alleg_json(w: &World, v: &[(DemigodId, f32)]) -> Vec<Value> {
+pub(crate) fn alleg_json(w: &World, v: &[(DemigodId, f32)]) -> Vec<Value> {
     v.iter()
         .filter_map(|(d, x)| w.demigods.get(d.ix()).map(|dg| json!({ "demigod": dg.name, "demigod_ref": Ref::Demigod(*d), "value": x })))
         .collect()
 }
 
-fn who_json(w: &World, c: Option<CharId>) -> Value {
+pub(crate) fn who_json(w: &World, c: Option<CharId>) -> Value {
     match c.and_then(|c| w.characters.get(c.ix())) {
         Some(x) => json!({ "ref": Ref::Char(x.id), "name": x.name, "alive": x.alive,
                             "role": x.life.as_ref().map(|l| l.role), "title": x.life.as_ref().map(|l| l.rank.title.clone()) }),
@@ -553,7 +553,7 @@ pub fn mob_json(w: &World, m: &Mob) -> Value {
     json!({ "ref": Ref::Mob(m.id), "name": m.name, "size": m.size, "action": m.action, "target": m.target,
             "ringleader": who_json(w, m.ringleader), "cause": m.cause, "at": m.pos, "city": Ref::Place(m.city),
             "place": Ref::Place(m.place), "region": crate::payload::region_name(w, m.pos), "side": m.side.map(Ref::Demigod),
-            "anger": m.anger, "fear": m.fear, "cells": m.cells, "formed_beat": m.formed, "ended_beat": m.ended,
+            "anger": m.anger, "fear": m.fear, "cells": m.cells.iter().map(|c| Ref::Cell(*c)).collect::<Vec<_>>(), "formed_beat": m.formed, "ended_beat": m.ended,
             "casualties": m.casualties, "kills": m.kills })
 }
 

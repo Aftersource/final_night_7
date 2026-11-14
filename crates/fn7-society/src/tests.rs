@@ -1484,6 +1484,7 @@ fn planet_setup_regions_cities_and_rules() {
     // The society step appoints the command chain (general, captains, squads) and marches it at most a beat's march.
     let from = w2.clusters[army.ix()].army.as_ref().unwrap().pos;
     w2.meta.beat = 2;
+    let chars_before = w2.characters.len();
     let out = crate::sim::step(&mut w2, 2, &[]);
     let a = w2.clusters[army.ix()].army.clone().unwrap();
     let g = a.general.expect("a general");
@@ -1494,6 +1495,8 @@ fn planet_setup_regions_cities_and_rules() {
     assert_eq!(a.units.iter().map(|u| w2.cells[u.ix()].size).sum::<u32>(), w2.clusters[army.ix()].size);
     assert!(a.order.is_some(), "the order it was raised with reached the general");
     assert!(out.events.iter().any(|e| e.kind == SocKind::GeneralAppointed));
-    assert!(out.new_people.contains(&g));
+    // The general is either a local notable/hero/ringleader of the home city (appoint step 2, an existing person)
+    // or someone who emerged from the crowd this step (step 3, a new person).
+    assert!(out.new_people.contains(&g) || g.ix() < chars_before, "the general is neither new nor an existing local");
     assert!(crate::geo::distance_km(from, a.pos) <= ARMY_KM_PER_BEAT + 1.0);
 }

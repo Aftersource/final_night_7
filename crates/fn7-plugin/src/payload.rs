@@ -72,14 +72,20 @@ pub fn region_name(w: &World, at: LonLat) -> String {
 
 /// A ledger row's geotag: where it happened and the region (planet) or district (city) it was in.
 pub fn geotag(w: &World, r: &LedgerRow) -> (Option<LonLat>, Option<String>) {
+    let (at, region) = geotag_place(w, r);
+    (at, region.map(|p| w.name_of(Ref::Place(p))))
+}
+
+/// [`geotag`] with the region as a place id.
+pub fn geotag_place(w: &World, r: &LedgerRow) -> (Option<LonLat>, Option<PlaceId>) {
     let at = r
         .at
         .or_else(|| r.place.and_then(|p| w.places.get(p.ix()).map(|x| x.center)));
     let region = match (r.place, at) {
         (Some(p), _) if w.places.get(p.ix()).is_some_and(|x| x.kind != PlaceKind::Arena) => {
-            Some(w.name_of(Ref::Place(fn7_society::geo::district_of(w, p))))
+            Some(fn7_society::geo::district_of(w, p))
         }
-        (_, Some(a)) => Some(region_name(w, a)),
+        (_, Some(a)) => Some(fn7_society::geo::region_at(w, a)),
         _ => None,
     };
     (at, region)
@@ -112,18 +118,23 @@ const PUBLIC_VERBS: &[&str] = &[
 /// Is this row a public world event? Casts and their ramifications, armies raised, marching and fighting, freak
 /// weather, world mods, gods wounded, eliminations and revivals.
 pub fn is_public_event(w: &World, r: &LedgerRow) -> bool {
-    if SocKind::of(&r.verb).is_some() {
-        return r.magnitude >= 4;
+    is_public_head(w, &r.verb, r.magnitude, &r.source, r.actor)
+}
+
+/// [`is_public_event`] on the fields it reads (so a query can test a row without deserializing all of it).
+pub fn is_public_head(w: &World, verb: &str, magnitude: u8, source: &Source, actor: Ref) -> bool {
+    if SocKind::of(verb).is_some() {
+        return magnitude >= 4;
     }
-    if PUBLIC_VERBS.contains(&r.verb.as_str()) {
+    if PUBLIC_VERBS.contains(&verb) {
         return true;
     }
     let entropy = w.gods.iter().find(|g| g.name == "Entropy").map(|g| g.id);
-    match r.source {
+    match *source {
         Source::God { god, .. } if Some(god) == entropy => true,
         Source::Rules => {
-            r.magnitude >= 4
-                && match r.actor {
+            magnitude >= 4
+                && match actor {
                     Ref::Cluster(c) => w.clusters.get(c.ix()).is_some_and(|c| c.army.is_some()),
                     Ref::Place(_) => true,
                     Ref::God(g) => Some(g) == entropy,
@@ -140,21 +151,24 @@ pub fn events(w: &World, rows: &[LedgerRow]) -> Vec<Value> {
     rows.iter()
         .filter(|r| is_public_event(w, r))
         .take(40)
-        .map(|r| {
-            let (at, region) = geotag(w, r);
-            let mut refs = vec![r.actor];
-            refs.extend(r.targets.iter().copied().filter(|t| !matches!(t, Ref::Ledger(_))));
-            let mut seen = std::collections::BTreeSet::new();
-            refs.retain(|x| seen.insert(*x));
-            let mut v = json!({ "row": Ref::Ledger(r.id), "kind": r.verb, "text": r.act, "at": at,
-                                "region": region, "refs": refs, "magnitude": r.magnitude });
-            if let Some(p) = image_prompt(w, r, region.as_deref()) {
-                v["image_prompt"] = p.into();
-                v["image_kind"] = "event".into();
-            }
-            v
-        })
+        .map(|r| event_json(w, r))
         .collect()
+}
+
+/// One public event: `{row, kind, text, at, region, refs, magnitude, image_prompt?, image_kind?}`.
+pub fn event_json(w: &World, r: &LedgerRow) -> Value {
+    let (at, region) = geotag(w, r);
+    let mut refs = vec![r.actor];
+    refs.extend(r.targets.iter().copied().filter(|t| !matches!(t, Ref::Ledger(_))));
+    let mut seen = std::collections::BTreeSet::new();
+    refs.retain(|x| seen.insert(*x));
+    let mut v = json!({ "row": Ref::Ledger(r.id), "kind": r.verb, "text": r.act, "at": at,
+                        "region": region, "refs": refs, "magnitude": r.magnitude });
+    if let Some(p) = image_prompt(w, r, region.as_deref()) {
+        v["image_prompt"] = p.into();
+        v["image_kind"] = "event".into();
+    }
+    v
 }
 
 /// An image prompt for a truly big event (a cast, an elimination, anything of magnitude ≥ 8): the subject only (the

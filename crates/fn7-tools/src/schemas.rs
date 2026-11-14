@@ -109,8 +109,8 @@ fn shared_defs() -> Map<String, Value> {
                 ("ref", r("Ref")),
                 ("name", string("Display name.")),
                 ("kind", json!({ "type": "string",
-                    "enum": ["demigod", "character", "cluster", "group", "god", "place", "item", "agent", "ledger"],
-                    "description": "Matches the ref prefix (dg, ch, cl, gr, gd, pl, it, ag, lg)." })),
+                    "enum": ["demigod", "character", "cluster", "group", "god", "place", "item", "agent", "ledger", "cell", "mob"],
+                    "description": "Matches the ref prefix (dg, ch, cl, gr, gd, pl, it, ag, lg, ce, mb)." })),
             ],
             &[
                 ("pos", json!({ "$ref": "#/$defs/LonLat", "description": "Where it is, when it has a position (absent for groups, gods, agents)." })),
@@ -119,6 +119,12 @@ fn shared_defs() -> Map<String, Value> {
                                  "description": "Clusters only: the dominant mood." })),
                 ("alive", boolean("Characters only.")),
                 ("army_of", json!({ "$ref": "#/$defs/Ref", "description": "Clusters that are armies only: the demigod (`dg:<n>`) it marches for." })),
+                ("role", json!({ "$ref": "#/$defs/Role", "description": "Characters with a society sheet only." })),
+                ("rank", json!({ "$ref": "#/$defs/Rank", "description": "Characters with a society sheet only." })),
+                ("action", json!({ "type": "string", "description": "Mobs only: what it is doing (gathering, rioting, looting, attacking, marching, dispersed)." })),
+                ("ringleader", json!({ "anyOf": [{ "$ref": "#/$defs/Ref" }, { "type": "null" }], "description": "Mobs only." })),
+                ("cell_kind", json!({ "type": "string", "description": "Cells only: gang, squad, congregation, crew or militia." })),
+                ("leader", json!({ "anyOf": [{ "$ref": "#/$defs/Ref" }, { "type": "null" }], "description": "Cells only." })),
             ],
         ),
     );
@@ -302,7 +308,13 @@ fn shared_defs() -> Map<String, Value> {
                 ("dest", geo("Where it is headed, or null.")),
                 ("target", json!({ "anyOf": [{ "$ref": "#/$defs/Ref" }, { "type": "null" }], "description": "What it marches on (a place, or a demigod it hunts)." })),
             ],
-            &[("orders", string("Seat view only (your armies): its standing orders."))],
+            &[
+                ("orders", string("Seat view only (your armies): its standing orders.")),
+                ("rogue", boolean("Its general mutinied: it answers to no demigod.")),
+                ("stance", r("Stance")),
+                ("general", json!({ "anyOf": [object("", &[("ref", r("Ref")), ("name", string(""))], &[]), { "type": "null" }], "description": "Its live general." })),
+                ("chain", json!({ "type": "object", "additionalProperties": true, "description": "Its chain of command (general, captains, units, morale, supply, the order as understood; the order's text only for its owner)." })),
+            ],
         ),
     );
     d.insert(
@@ -1085,12 +1097,13 @@ fn match_summary() -> Value {
 pub fn all() -> Vec<(&'static str, Value)> {
     let mut pool = model_defs();
     pool.extend(shared_defs());
+    pool.extend(queries::defs());
     let mut round_private = pool["SeatDelta"].clone();
     round_private["description"] =
         "`round.private.private` (the `SeatDelta`): what only your seat learns from the beat that just resolved. \
          Sent to every human seat, spectators included."
             .into();
-    vec![
+    let mut out = vec![
         ("settings", finish("settings", "Final Night 7 room settings", "room.create.settings, room.settings.settings, match.started.rules, Room.settings", settings_schema(), &pool)),
         ("action_fields", finish("action_fields", "Final Night 7 action fields", "action.submit.fields", action_fields_schema(), &pool)),
         ("round_started_public", finish("round_started_public", "round.started public", "round.started.public, match.snapshot.started", round_started_public(), &pool)),
@@ -1105,7 +1118,30 @@ pub fn all() -> Vec<(&'static str, Value)> {
         ("phase_event", finish("phase_event", "phase.event public", "phase.event.public (pushed at once: who slowed time, a cast's streak)",
             json!({ "description": "`phase.event.public`: an immediate push from the game. `event` says which.",
                     "oneOf": [r("Slowed"), r("Streak")] }), &pool)),
-    ]
+    ];
+    out.extend(query_schemas(&pool));
+    out
+}
+
+/// `query_<name>`: each `game.<name>` reply schema, with the args schema the plugin publishes (`x-args`) and whether
+/// it is served over HTTP (`x-public`).
+fn query_schemas(pool: &Map<String, Value>) -> Vec<(&'static str, Value)> {
+    let specs = fn7_plugin::queries::specs();
+    queries::replies()
+        .into_iter()
+        .map(|(stem, name, body)| {
+            let spec = specs.iter().find(|s| s.name == name).unwrap_or_else(|| panic!("no query {name}"));
+            let applies = format!(
+                "game.{name} reply (WebSocket){}",
+                if spec.public { format!(", GET /api/rooms/{{code}}/query/{name}") } else { String::new() }
+            );
+            let mut s = finish(stem, &format!("game.{name}"), &applies, body, pool);
+            s["x-public"] = spec.public.into();
+            s["x-description"] = spec.description.clone().into();
+            s["x-args"] = spec.args_schema.clone();
+            (stem, s)
+        })
+        .collect()
 }
 
 /// Pretty JSON with a trailing newline (the on-disk form).
@@ -1335,6 +1371,8 @@ fn check(root: &Value, s: &Value, v: &Value, path: &str, strict: bool, errs: &mu
         }
     }
 }
+
+mod queries;
 
 #[cfg(test)]
 mod tests;
