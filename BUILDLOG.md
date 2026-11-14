@@ -1104,3 +1104,25 @@ Engineering:
 - The wheel picks the nearest demigod within 160 px, the enemy first where cards overlap. The scrolls are built once and roll only when their text changes.
 - A revive wish from a fallen player must get a visible ruling with the reason (0.8.1).
 - Meshy: the key is in gitignored runs/lan/meshy.env and __production_steps/ (both ignored). The CLI 0.4.0 and Meshy's skills are installed. API balance 1,300.
+
+## 2026-11-14: the Meshy mannequin, the browser duel lab, panel timing (verbatim)
+
+> That is about correct; that is what the mannequin needs to do, so it needs to get done. Use Meshy for animation and a T-pose mannequin, and make a few texture maps: wood, obsidian, gold, dragonscale, and others, such as a butterfly-themed texture. It is for Unreal Engine. Use the best of this.
+
+> Is the engine and data model that will drive this custom animation finished? It should take the play-by-play output (possibly from a better model) with comic-book-style frame timing, render animation and environment sketches with platonic and basic shapes, then open, animate, and play. Make sure any feedback or Enter presses are accounted for in the upcoming frame generation. Each frame should be slightly shorter in time than the renderer's, so the player is always on the edge of their seat. Confirm understanding.
+
+> Everything will need to be rewound and replayed, including all of this action. Expect parkour-style movement, fully ninja and animated. If custom example framesets are needed, render them ahead of time and get approval before continuing. A new subdirectory can be created with a Three.js version that renders in the browser, so the Unreal engine side is not overloaded, until the work is fully done.
+
+> Send the challenge box concept to the Unreal agent on the designer's side too.
+
+> The intro should feel mystical. More tablet is recommended, but this time use procedural granite or onyx marbling for the login and lobby selector.
+
+> Even at max zoom, when a player's unit is placed next to the opponent's and challenge is double-clicked, a modal may be needed to confirm the expected life loss from teleporting (e.g. a -2 penalty). If already teleported next to them, a short-range teleport (for example within 5 positions on the largest hex) should suffice, so the unit teleports next to the opponent to satisfy game rules, and then the challenge starts. Challenge mode has not been built at all yet, and nothing is happening there.
+
+Engineering:
+- Rules 0.8.1 (challenge mode) merged (00aaf3f, 286 tests, replays clean) and deployed to STABLE at 20:35 UTC. It is gated on state schema 7, so it starts with the next house match.
+- Meshy (174 credits; 1,126 left): a T-pose figure-drawing mannequin rigged to the UE5 mannequin bones, five skins (wood, obsidian, gold, dragonscale, butterfly) on shared UVs, and 33 fight clips named by our pose names.
+- `duel_lab/` (6f578e4): a three.js playback of a duel script. The box opens, a hex stage dressed in basic shapes, the two mannequins, a camera shot per panel, comic captions and bursts, hit flashes, health bars, masked typing, and an input window that locks before each panel ends. It is fully scrubbable (rewind and replay are exact).
+- The panel data model is `duel_lab/duel.json`: play_ms, input_ms (shorter), caption, shot, per-fighter clip segments with hex moves and paths (dash, leap, flip, knock), contacts, flip, hp.
+- Not built yet: the server producing these panels live from the players' lines, and parkour off the props (wall runs, vaults).
+- The Unreal duel stage waits until Chris approves the lab. The client gets a challenge confirm modal (teleport beside the rival first, with the expected loss) and an onyx lobby tablet.
