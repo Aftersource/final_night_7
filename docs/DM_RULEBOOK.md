@@ -711,6 +711,17 @@ Every order gets a visible ruling or a refusal (the match 79fd73bf and f18d76a3 
 +3, hale +1: modifier +4) and rolls 13 against DC 10: success by 7, wit 3: 3 damage. DM: "The line landed on Vex's
 ankle only because the third crow of the morning had been washed in platinum dust at dawn."
 
+### 21.7 Watching the words arrive, and the skins
+
+While a duellist types, the table sees the line grow as a row of stars with only its newest letters showing, the way
+a password field shows the last key (`duel.typing`: the line's length and its newest 1 to 4 characters, relayed the
+moment the server gets them). Read your opponent letter by letter as it flashes past and you know what is coming; look
+away and you are winging it. The relay decides nothing: the line that counts is still the one sent on Enter, and the
+keystrokes are never stored, never replayed to someone who reconnects, never part of a recording's outcome. Each
+fighter also steps into the ring in one of five skins: wood, obsidian, gold, dragonscale, butterfly. A demigod's name
+picks it (the same name is always the same skin, in every match and on every client), unless it carries a thing a god
+granted (dragonscale) or a thing of gold (gold).
+
 ## 22. Appendix: the DM's settings
 
 Room settings (validated in `crates/fn7-plugin/src/settings.rs`, listed by `GET /sim/settings`). The 0.8.0 and 0.8.1 ones:
