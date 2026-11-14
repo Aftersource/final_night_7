@@ -17,12 +17,14 @@ path = "src/bin/sim.rs"
 fn7-plugin.workspace = true
 fn7-model.workspace = true
 fn7-media.workspace = true
+fn7-agents.workspace = true
 fn7-profile = { path = "../fn7-profile" }
 theatre-plugin-api.workspace = true
 theatre-llm.workspace = true
 theatre-server.workspace = true
 theatre-toolkit.workspace = true
 theatre-trace.workspace = true
+theatre-protocol.workspace = true
 tokio.workspace = true
 futures.workspace = true
 async-trait.workspace = true
@@ -34,6 +36,8 @@ dotenvy.workspace = true
 clap.workspace = true
 reqwest.workspace = true
 uuid.workspace = true
+serde.workspace = true
+ring = "0.17"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

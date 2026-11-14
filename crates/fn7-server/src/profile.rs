@@ -171,6 +171,12 @@ impl Profiles {
                 if r.seats.is_empty() {
                     r.seats = live.seats.clone();
                 }
+                // Accounts: the final state's `seats[].account` is the truth for who is bound.
+                for s in r.seats.iter_mut() {
+                    if let Some(l) = live.seats.iter().find(|l| l.seat == s.seat) {
+                        s.account = l.account.clone();
+                    }
+                }
                 r
             }
             None => live,
