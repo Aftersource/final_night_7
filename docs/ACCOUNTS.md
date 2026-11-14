@@ -394,7 +394,8 @@ How a provider would attach (Stripe Checkout + webhooks), when someone decides t
   as the session that made it.
 - **Rate limits** (per minute; `429 rate_limited` with `Retry-After`): sign-in routes and the bind 10 per client
   address; the poll 120 per client address; reads 240, writes 30 and demigod saves 6 per account. The client address
-  is the first hop of `X-Forwarded-For` (the tunnel sets it).
+  is the last hop of `X-Forwarded-For` (the one the tunnel appends, which a client cannot forge); without a tunnel
+  every direct client shares one bucket.
 - **What is logged** (at `info`): account ids, session-less events (`guest account created`, `google sign-in` with
   `created`/`linked`, `logout`, `account deleted` with counts, `engine player bound` with the player id, a demigod
   sheet's verdict, model and fallback reason, a player removed by the name guard), and at `warn` why a Google sign-in
@@ -404,9 +405,15 @@ How a provider would attach (Stripe Checkout + webhooks), when someone decides t
 - **Recordings** hold the account's public id (in `seat_persona` and `seats[].account`), the display name and the
   moderated persona text. Never an email or any token.
 - **The callback page** is fixed text: nothing from the request is echoed into it.
-- **The ngrok gate.** If the public URL sits behind the tunnel's `?key=` gate, Google's redirect must still reach
-  `/api/auth/google/callback`: exempt that one path from the gate (it carries its own proof: an unguessable `state`
-  that only a flow this server started can have).
+- **The tunnel's `?key=` gate.** Where the public URL sits behind it, the client adds `?key=` to these routes as it
+  does to every other one. Google's redirect must still reach `/api/auth/google/callback`. Either exempt that one path
+  from the gate (it carries its own proof: an unguessable `state` that only a flow this server started can have), or
+  set `FN7_GOOGLE_REDIRECT_URI` to the whole URI with the key in it
+  (`https://host/api/auth/google/callback?key=<KEY>`) and register exactly that string with Google, which keeps the
+  query when it redirects. The first is better: the second puts the gate key in the Google console and in the
+  browser's address bar.
+- **Guest names can be squatted.** A guest holds a name for 90 days from a single request (10 a minute per address).
+  Nothing here stops someone taking names they will never play; see § 12.
 
 ## 12. What the designer must provide
 
@@ -415,13 +422,16 @@ How a provider would attach (Stripe Checkout + webhooks), when someone decides t
 
    `<FN7_PUBLIC_URL>/api/auth/google/callback`
 
-   e.g. `https://play.finalnight.example/api/auth/google/callback`. The consent screen needs only the default scopes
+   e.g. `https://play.finalnight.example/api/auth/google/callback` (or the value of `FN7_GOOGLE_REDIRECT_URI` when the
+   tunnel gate needs its key in the URI: § 11). The consent screen needs only the default scopes
    `openid`, `email`, `profile`.
 2. Its **client id** and **client secret**, set on the server as `FN7_GOOGLE_CLIENT_ID` and
    `FN7_GOOGLE_CLIENT_SECRET` (env or the git-ignored `.env`; never committed), and **`FN7_PUBLIC_URL`** (the https
    origin players reach, no trailing slash). A stable public hostname is needed: a redirect URI cannot follow a
    tunnel URL that changes.
-3. A decision on **guest names**: as built, a guest holds its name only while it has a live session (§ 2).
+3. A decision on **guest names**: as built, a guest holds its name while it has a live session (90 days after its
+   last use), and logging out as a guest gives the account up (§ 2). Shorter for guests who never played? Should a
+   guest hold a name at all, or only a Google account?
 4. A decision on **billing**: products and prices, if and when (§ 10).
 
 ## 13. What the Unreal client must build

@@ -150,6 +150,7 @@ struct Flow {
     status: FlowStatus,
 }
 
+#[allow(clippy::large_enum_variant)] // a handful live at once, each for seconds
 enum FlowStatus {
     Pending,
     /// The callback is exchanging the code (a second callback with the same state is a replay).
@@ -159,6 +160,7 @@ enum FlowStatus {
 }
 
 /// What a poll answers.
+#[allow(clippy::large_enum_variant)]
 pub enum Poll {
     Pending,
     Complete { session: NewSession, account: Account, created: bool, linked: bool },
@@ -581,7 +583,7 @@ impl Accounts {
                 tick.tick().await;
                 n += 1;
                 let me2 = me.clone();
-                let prune = n % 240 == 0;
+                let prune = n.is_multiple_of(240);
                 let _ = tokio::task::spawn_blocking(move || {
                     me2.guard_tick();
                     if prune {

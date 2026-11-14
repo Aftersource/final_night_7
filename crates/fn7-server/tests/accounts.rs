@@ -259,7 +259,7 @@ async fn auth_routes_are_rate_limited() {
                 .method("POST")
                 .uri("/api/auth/guest")
                 .header("content-type", "application/json")
-                .header("x-forwarded-for", format!("{ip}, 10.0.0.1"))
+                .header("x-forwarded-for", format!("1.1.1.1, {ip}")) // the first hop is the client's to forge; the last is the tunnel's
                 .body(Body::from(json!({ "display_name": format!("Player {ip} {n}") }).to_string()))
                 .unwrap();
             app.oneshot(req).await.unwrap()
@@ -755,6 +755,7 @@ async fn with_google(store: Arc<ProfileStore>) -> (Oidc, Arc<Accounts>) {
         token_url: format!("{base}/token"),
         jwks_url: format!("{base}/jwks"),
         issuers: vec![base],
+        redirect: None,
     };
     (state, Accounts::new(store, None, Some(google), cfg()))
 }

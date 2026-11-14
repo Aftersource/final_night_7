@@ -24,6 +24,9 @@
 //! with `Retry-After`, 503 `google_not_configured`). Every answer is `Cache-Control: no-store`. Nothing here logs a
 //! token, a secret or an email.
 
+// A handler's early return is the HTTP response itself.
+#![allow(clippy::result_large_err)]
+
 use std::sync::Arc;
 
 use fn7_agents::moderate::{self, Sheet, Verdict};
@@ -102,11 +105,12 @@ fn account_error(e: AccountError) -> Response {
     fail(status, e.code(), e.to_string())
 }
 
-/// Who is asking, for the address-keyed limits: the first hop of `X-Forwarded-For`, else `direct`.
+/// Who is asking, for the address-keyed limits: the last hop of `X-Forwarded-For` (the one the tunnel in front of the
+/// server appended; earlier entries are whatever the client sent), else `direct`.
 fn client(h: &HeaderMap) -> String {
     h.get("x-forwarded-for")
         .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.split(',').next())
+        .and_then(|v| v.split(',').next_back())
         .map(|v| v.trim().to_string())
         .filter(|v| !v.is_empty() && v.len() <= 64)
         .unwrap_or_else(|| "direct".into())

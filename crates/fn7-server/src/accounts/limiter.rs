@@ -8,8 +8,8 @@
 //! | `write` | account | 30 | `PUT /api/me/settings`, logout, delete |
 //! | `moderate` | account | 6 | `PUT /api/me/demigods/{hand}` |
 //!
-//! The client address is the first hop of `X-Forwarded-For` (the tunnel sets it); a request without one shares the
-//! bucket `direct`. A refused request is a 429 with `Retry-After` (seconds). `FN7_AUTH_RATE` scales every limit
+//! The client address is the last hop of `X-Forwarded-For` (the one the tunnel in front of the server appends: a
+//! client cannot forge it); a request without one shares the bucket `direct`. A refused request is a 429 with `Retry-After` (seconds). `FN7_AUTH_RATE` scales every limit
 //! (`2` doubles them, `0` turns limiting off: tests and load runs only).
 
 use std::collections::HashMap;

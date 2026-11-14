@@ -12,7 +12,8 @@
 //!
 //! **Configuration** ([`GoogleConfig::from_env`]): `FN7_GOOGLE_CLIENT_ID`, `FN7_GOOGLE_CLIENT_SECRET` and
 //! `FN7_PUBLIC_URL` (the public https origin of this server, no trailing slash). The redirect URI to register in the
-//! Google Cloud console is exactly `<FN7_PUBLIC_URL>/api/auth/google/callback`. With any of the three unset, Google
+//! Google Cloud console is exactly `<FN7_PUBLIC_URL>/api/auth/google/callback` (or `FN7_GOOGLE_REDIRECT_URI`, when
+//! that is set to the whole URI). With any of the three unset, Google
 //! sign-in is off and the start route says so. The endpoints default to Google's and can be pointed elsewhere
 //! (`FN7_GOOGLE_AUTH_URL`, `FN7_GOOGLE_TOKEN_URL`, `FN7_GOOGLE_JWKS_URL`, `FN7_GOOGLE_ISSUER`): the test suite runs a
 //! local provider behind them.
@@ -37,6 +38,8 @@ pub struct GoogleConfig {
     pub jwks_url: String,
     /// Accepted `iss` values.
     pub issuers: Vec<String>,
+    /// The whole redirect URI, when it is not `<public_url>/api/auth/google/callback` (`FN7_GOOGLE_REDIRECT_URI`).
+    pub redirect: Option<String>,
 }
 
 impl GoogleConfig {
@@ -55,12 +58,15 @@ impl GoogleConfig {
             token_url: get("FN7_GOOGLE_TOKEN_URL").unwrap_or_else(|| "https://oauth2.googleapis.com/token".into()),
             jwks_url: get("FN7_GOOGLE_JWKS_URL").unwrap_or_else(|| "https://www.googleapis.com/oauth2/v3/certs".into()),
             issuers,
+            redirect: get("FN7_GOOGLE_REDIRECT_URI"),
         })
     }
 
-    /// The redirect URI registered with Google.
+    /// The redirect URI registered with Google: `<public_url>/api/auth/google/callback`, unless
+    /// `FN7_GOOGLE_REDIRECT_URI` gives it whole (it must still reach that route; e.g. the same URL with the tunnel
+    /// gate's `?key=…`, which Google keeps when it redirects).
     pub fn redirect_uri(&self) -> String {
-        format!("{}/api/auth/google/callback", self.public_url)
+        self.redirect.clone().unwrap_or_else(|| format!("{}/api/auth/google/callback", self.public_url))
     }
 
     /// The URL the client opens in the system browser.
@@ -401,6 +407,8 @@ mod tests {
         ]))
         .unwrap();
         assert_eq!(cfg.redirect_uri(), "https://play.example.com/api/auth/google/callback");
+        let gated = GoogleConfig { redirect: Some("https://play.example.com/api/auth/google/callback?key=K".into()), ..cfg.clone() };
+        assert!(gated.login_url("s", "n", "c").contains("redirect_uri=https%3A%2F%2Fplay.example.com%2Fapi%2Fauth%2Fgoogle%2Fcallback%3Fkey%3DK"));
         assert_eq!(cfg.issuers.len(), 2);
         let url = cfg.login_url("st 1", "n1", "ch");
         assert!(url.starts_with("https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=id.apps.googleusercontent.com&"));
