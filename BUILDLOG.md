@@ -739,3 +739,25 @@ Engineering:
   - Entropy powers become hex tiles on the board's edge ring (outer ring mega, inner ring mini).
   - A mega pouch at bottom middle pours the mega tiles out and takes them back.
   - The HUD is minimal: your two portrait cards and the will scroll at lower right, with a holographic shiny finish.
+
+## 2026-11-14: Benito: the Dungeon Master's rulebook and four features (relayed via the bridge, verbatim as typed)
+
+> Settlements should visibly grow: a village gets bigger as it levels up. Each piece should carry the player's progress.
+> Story: like the pegs filling a board game car, the playing piece should show what the player has gathered (followers, loot, scars).
+> Wardrobe changes, item holding and similar details are noted here. / 3 Add a physical dice roll: the d20 is already in the rules, but it is never shown as a die tumbling on the table.
+> The die should be seen tumbling on the table, since that moment is half the fun. This was already in the game and was removed by mistake, so it should be restored. / 4
+> Map encounters: marked hexes hold a monster, treasure, trap or stranger that the player finds by stepping onto them.
+> Agreed. Make it fit with what is being built, and generate 20 more like these.
+
+> Skip the 20 more ideas step and implement what was said instead. Take the design details out and make it like a Dungeons and Dragons manual, where the rules are what the dungeon master remembers, including the results of every time the rules are invoked. The game engine should keep a hierarchical memory of these events for specific places and specific times.
+
+> Work on the unmarked item from the previous message, and do not name anything beyond what is listed. All listed items refer to this.
+
+Engineering (rules 0.8.0, server):
+- The Dungeon Master's rulebook (a D&D-manual-style document of the rules the AI DM follows).
+- A hierarchical place×time memory (cell → settlement → region → world × beat), so every DM result stays consistent.
+- The four features, all governed by the rulebook and memory:
+  - growing settlements
+  - each demigod's piece carrying its story
+  - the visible d20 roll event
+  - map encounters, hidden until stepped on and remembered once revealed
