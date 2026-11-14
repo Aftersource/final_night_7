@@ -309,3 +309,155 @@ now holds `ce:` refs instead of bare numbers):
   eleven; `wrong_phase` before the match, `bad_request` / `not_found` with reasons) and every public one with curl
   (`200`; `403` for `me`, `400` for bad args and for `piles_final` mid-match, `200` after the end).
 
+
+## 2026-11-14: shared media spec, backend side (images by reference, visual sheets, the storyboard)
+
+Benito approved `docs/SHARED_MEDIA_SPEC.md` as proposed (no video for the jam: the storyboard animatic; Benito owns the
+house style and the selection list; Chris decides real vs placeholder images). Engineering (rules 0.5.0; the state is
+unchanged; payloads gain fields, nothing removed):
+- **Style config** `data/media_style.json` (spec §4, plus `army` and `item` kinds), `fn7-media/src/style.rs`: loaded
+  from `FN7_MEDIA_STYLE` / `data/media_style.json` / the compiled-in copy and validated at startup (unknown keys, kinds,
+  sizes, magnitudes; the error names the file and field and the server won't start). Prompts are
+  `<framing>: <subject>. Style: <house_style>. Avoid: <avoid>.` at the kind's size (per-request size for OpenAI, priced
+  by size). Image keys include the size; `PROMPT_VERSION` is `fn7-media/2`. The style's version, content hash (sha256
+  of the parsed JSON), source and body are recorded in every match's ruleset as `media_style`
+  (`FinalNight7Plugin::with_media_style`).
+- **Moment cards**: every public event now carries `image_prompt` (the candidate); `fn7_media::annotate` attaches
+  `image` only when `event_selection` picks it (magnitude ≥ `min_magnitude`, or `kind` in `always`, `elimination` =
+  `eliminate`); `max_per_match` caps cards only (storyboard shots and requests by reference are bounded by the
+  budgets). Annotation only enqueues.
+- **Visual sheets** (`fn7-plugin/src/visual.rs`): build, face, outfit, two colors, prop, emblem, picked from the seed,
+  kind, id and name (nothing that changes in a match), `sheet_hash` = sha256(version, ref, traits). On demigods
+  (PublicView, globe, region), `person`, and `media` portraits. Portraits, statues, event prompts ("starring Name
+  (sheet)") and army banners all use it.
+- **`game.media {kind, ref}`** (a public query; `portrait` dg:/ch:, `place` pl:, `event` lg:, `army` cl:): the plugin
+  checks visibility (public things; a person who is public, one of yours, in your view or in a row you know; a private
+  row only if you know it; HTTP public refs only) and writes the subject from the state with partial tables and
+  bounded scans; `MediaPlugin` styles it, applies the per-seat token bucket (`FN7_MEDIA_RATE_PER_MIN`, default 30 new
+  images per minute per match; repeats free) and the budgets, and answers `{kind, ref, name, image, reason?, visual?}`.
+- **Storyboard** (`phases::storyboard`, in `match.ended.summary.storyboard`): a title shot, up to 10 moments
+  (eliminations first, then casts, society turning points, magnitude; in story order; moment prompts = their cards'),
+  and the champion's close-up (its portrait prompt, the final cut's closing lines). Deterministic.
+- **Replay** compares summaries without the server's image objects (`replay::strip_media`), so a recording made with
+  images on replays clean through the bare plugin.
+- Docs: MEDIA.md (style, sheets, `game.media`, storyboard, env vars, cost), CLIENT_API.md (the data contract),
+  SHARED_MEDIA_SPEC.md (agreed; §8 as built), schemas regenerated (`ImageObject`, `Visual`, `StoryboardShot`,
+  `query_media`; `visual` and `storyboard` optional so older recordings still validate).
+- **Tests:** style (validation errors name the field, whitespace-stable hash, another style = other prompts, sizes and
+  hashes, cap from the style), selection (repo style and an alternate one; re-annotation reuses images; a 3 s generator
+  doesn't hold up annotation), requests by reference (idempotent, rate limit per seat/match, budget refusal = `off` +
+  reason, images off), sheets (stable across beats, the same in a replayed match, in globe/person/portrait/statue/
+  event prompts), `game.media` visibility (every private row and private person checked against `knows` /
+  `person_known` for every seat; HTTP public only), storyboard (shape, order, moment prompts = cards', champion =
+  portrait, deterministic), server wrapper (ruleset `media_style`, cards follow selection, storyboard images reuse
+  card and portrait hashes, `strip_media` replay equality). Release query timing gained `media` cases (not run here:
+  disk was too low for a release build).
+- **Checked** on a private debug server (port 18097, `FN7_IMAGES=mock`, no LLM, rate 5/min): a 10-beat 4-player
+  `fn7-agents` match; globe demigods carry sheets; `match.ended` has a 12-shot storyboard (title, 10 moments, champion)
+  with image objects; `game.media` over WebSocket (portrait = the globe's `portrait_image` hash, event, places until
+  the 6th new one is `rate limited`, a repeat still free) and over HTTP (public portrait and event `200`, a private row
+  `400 … not something you can see`); 33 mock images ready in the manifest. Its recording replays with 0 differences
+  (summary identical), a scripted `fn7-sim` too; its client frames validate with 0 errors (442 payloads).
+
+## 2026-11-14: the shared piece gets specced only after both sides pass; use the real Unreal project
+
+> okay, so the specs are needed for the piece that is met in the middle, after it passes the tests on both sides,
+> make sure it uses the proper existing Unreal Engine Final Night, referencing the other Claude Code session
+> on its computer called where were we, which also has the Dropship name of that name, so it can actually recall from
+> its own session ID; prior sessions in that session's conversation about the Unreal Engine work are forgotten over compacts
+
+Engineering: both test suites reported green first. The bridge recovered the Unreal history from where-were-we's
+transcripts on disk (FinalNight.uproject, UE 5.8.4). Then the spec was written: docs/SHARED_MEDIA_SPEC.md.
+
+## 2026-11-14: a calm STABLE for Benito; the bridge pushes only on instruction; a playbook
+
+> again, they should have it solid here to run the UX against; communication with them should be possible so they can
+> assist on their side and push if necessary after our instruction, while otherwise having a calm version that
+> brother uses for UX playtesting and rule design. Confirm understanding. Use a playbook, as in football, and teach it to the other party.
+> the other party will be introduced only after all of this is completely done, well past this point.
+
+Engineering: STABLE runs only announced release tags (playtest-N). docs/PLAYBOOK.md (Plays 1–9) is in both repos.
+
+## 2026-11-14: the platform is The Theatre, the game is Final Night 7 (Benito's client targets it)
+
+> The goal is to make it happen now and get it operational. Is there an attempt to contradict the plan?
+> The stated plan for what is being built should be followed, not contradicted.
+> The whole project is built as a theatre.
+> The game is Final Night 7. Do it now.
+
+Engineering: Benito's "Director's Cut" contract v1 was set aside. His Unreal client was ported to Final Night 7 on The
+Theatre.
+
+## 2026-11-14: Benito's match length (relayed via the bridge)
+
+> a match should feel about 7 minutes, 5-10 depending on how it goes.
+
+Engineering: about 7.5 s per beat with the LLM on, so about 55–60 beats. Human rooms use 12 s beats and 30 beats. The
+balance study targets this.
+
+## 2026-11-14: orchestration: the client follows every engine/server update
+
+> okay, we're ready for actual orchestration now; the Final Night Linux setup should ensure proper updates to
+> the game engine it talks to, so the final-night-unreal build is updated, etc.
+
+Engineering: Play 8 in the playbook. Announce, client ready, deploy, both builders (Windows and Mac) connect, then tag.
+
+## 2026-11-14: commit names and git rules, in the shared playbook and in every memory
+
+> commit messages must not be identical; the same simple abstraction applies, in the style of hypernyms of
+> what is happening should be properly and clearly named.
+
+> When the other session creates the branch, it must be properly named with proper commit messages.
+> The procedure must be remembered after compacts and must be included in the playbook.
+> The playbook and memories must be shared and kept properly.
+
+> Merges must be done properly and directed properly; get it onto main.
+>
+
+Engineering: Play 9 in both repos' playbooks, plus the backend's memory, with every agent told to save it.
+- main is the trunk; pull --rebase before every commit.
+- Commit messages are distinct bracketed names.
+- Branches are owner/topic, only on the backend's instruction.
+- The backend directs every merge.
+
+## 2026-11-14: the shared lobby (set up, not started)
+
+> Nothing is being run right now, but make sure we have: a) the backend running, b) both of the
+> frontends connected; c) Chris is one player and Benito is the other; d) 2 AI players, since there are 2 in the lobby; e) same lobby, same game,
+> different users, connected and logged in through the backend. Confirm understanding.
+
+Engineering:
+- Chris's Mac hosts as "Chris" (FN7HostOnly, no start); Benito's PC joins by code as "Benito".
+- Room settings: players 4 (so 2 built-in AI demigods), beats 30, flow 12 s, LLM on.
+
+## 2026-11-14: the Mac session replicates and readies Chris for playtesting, without halting
+
+> Tell it that it is there to do the replication and prepare for playtesting; it needed some edits.
+> Work out this issue; it is a major landmine, so do not halt.
+
+Engineering: the Mac session works without step-by-step approvals, on main (no branch), and reports hashes to the
+backend.
+
+## 2026-11-14: the primary design, reaffirmed
+
+> Also, what about the primary design where typing slows time and clips off other players' inputs, for players that
+> are actively typing. The god of entropy and the god of time have separate superpowers; where did that go, and was it
+> Is that underdeveloped or underexplained?
+
+Engineering: built server-side (engine windows, private cut replies, Time's bill growing per second; instant casts,
+Entropy always yes). The Unreal client now shows the Time countdown, the cut banner, and the Entropy power bar with
+arm-then-click-the-globe casting.
+
+## 2026-11-14: the table: portraits, dioramas, silhouettes, auras, join/leave
+
+> First, Chris's brother needs to have on screen the portraits and dioramas of the two demigods. He needs to
+> at least see abstract silhouettes of the other 3 players around the table; if a player is human or AI, they should have
+> different auras, and humans should be able to enter or leave at any point. The demigods themselves need to be displayed
+> at least their minifig or diorama on the table itself in front of the other players, rendered in kind, and then the next step
+> The portraits need to actually come through the OpenAI prompting image server. Confirm?
+
+Engineering:
+- Server: portrait_image exists; a diorama_image kind and controller human/ai plus connected on demigods are to be
+  added. Real images need Chris's OpenAI key and budget.
+- Client: silhouettes and auras around the table, and minifigs on the table in front of each player.
+- Engine: mid-match join requested (seat takeover).
