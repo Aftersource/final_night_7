@@ -73,6 +73,9 @@ pub fn specs() -> Vec<QuerySpec> {
         spec("powers", true, "The power palette (casts), then the custom entry.", obj(json!({}), &[])),
         spec("gods", true, "The pantheon: each god's ref, name, slug, domain and health now.", obj(json!({}), &[])),
         spec("standings", true, "Every demigod ranked now: alive first, then who fell last, then score.", obj(json!({}), &[])),
+        spec("present", true,
+             "Exact resume (state schema 8): the present moment: the server's clock, the public events of the instant actions since the last resolve (casts, summonings, challenge.lock, duel.blow) and every open duel in full (fighters, hp, range, initiative, stances, every blow so far with its choreography and stamps, deadline and clock). The same object as match.snapshot.public_state.present. Loads the whole state: ask it when you (re)connect, don't poll it. null in older states.",
+             obj(json!({}), &[])),
         spec("media", true,
              "An image of something in the game, by reference (never a free-text prompt): a portrait of a demigod or person, a demigod's diorama (its miniature on a hex tile, the same in every match), a place, a public event, or an army. Answers at once with `image` (pending, then ready via GET /media/index); the server writes the prompt from the state. Visibility: a seat may ask for what it can see (public things, its own people, events it knows); over HTTP only public refs. Rate-limited per seat and budgeted.",
              obj(json!({ "kind": { "type": "string", "enum": ["portrait", "diorama", "place", "event", "army"], "description": "What to draw." },
@@ -218,7 +221,7 @@ fn dm_lite(state: &Value, want: bool) -> Result<fn7_model::dm::Dm, String> {
     }
     let l: Lite = table(state, "dm", want)?;
     Ok(fn7_model::dm::Dm { memory: vec![], settlements: l.settlements, stories: l.stories, encounters: l.encounters,
-                           loot: l.loot, trails: l.trails, shrines: l.shrines, duels: vec![], wills: l.wills })
+                           loot: l.loot, trails: l.trails, shrines: l.shrines, duels: vec![], wills: l.wills, mark: None })
 }
 
 /// Memory entries passing `keep` (tested on the unparsed entry), oldest first: only those are deserialized.

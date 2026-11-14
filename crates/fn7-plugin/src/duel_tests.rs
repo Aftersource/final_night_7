@@ -6,26 +6,26 @@ use theatre_plugin_api::*;
 use crate::testkit::Failing;
 use crate::*;
 
-fn block<T>(f: impl std::future::Future<Output = T>) -> T {
+pub(crate) fn block<T>(f: impl std::future::Future<Output = T>) -> T {
     futures::executor::block_on(f)
 }
 
 /// Seat 0 is a human; seats 1..3 are Theatre bots.
-fn seats() -> Vec<SeatInfo> {
+pub(crate) fn seats() -> Vec<SeatInfo> {
     (0..4)
         .map(|i| SeatInfo { seat: i, display_name: ["Ash", "Brix", "Cyra", "Dune"][i as usize].into(), is_bot: i != 0 })
         .collect()
 }
 
-struct Table {
-    p: std::sync::Arc<FinalNight7Plugin>,
-    state: Value,
-    me: DemigodId,
-    foe: DemigodId,
+pub(crate) struct Table {
+    pub(crate) p: std::sync::Arc<FinalNight7Plugin>,
+    pub(crate) state: Value,
+    pub(crate) me: DemigodId,
+    pub(crate) foe: DemigodId,
 }
 
 /// A match at beat 2's start with seat 0's Left demigod and seat 1's Left demigod 1 km apart, both at full health.
-fn table(seed: u64, extra: Value) -> Table {
+pub(crate) fn table(seed: u64, extra: Value) -> Table {
     let p = FinalNight7Plugin::new();
     let mut s = json!({ "seed": seed, "beats_total": 30, "llm": false, "dm_encounters_per_beat": 0, "duel_ai_chance": 0.0 });
     if let (Some(o), Some(x)) = (s.as_object_mut(), extra.as_object()) {
@@ -51,7 +51,7 @@ fn table(seed: u64, extra: Value) -> Table {
     Table { p: std::sync::Arc::new(p), state, me, foe }
 }
 
-fn bot_actions(p: &FinalNight7Plugin, state: &Value) -> Vec<Action> {
+pub(crate) fn bot_actions(p: &FinalNight7Plugin, state: &Value) -> Vec<Action> {
     let mut v = vec![p.default_action(state, 0)];
     for seat in 1..4u8 {
         v.push(block(p.bot_action(state, seat, &Failing)).unwrap());
@@ -60,35 +60,35 @@ fn bot_actions(p: &FinalNight7Plugin, state: &Value) -> Vec<Action> {
 }
 
 /// The test's wall clock origin: stamps are offsets from now (the live deadline check reads the real clock).
-fn t0() -> i64 {
+pub(crate) fn t0() -> i64 {
     static T: std::sync::OnceLock<i64> = std::sync::OnceLock::new();
     *T.get_or_init(theatre_trace::now_ms)
 }
 
 /// An instant action stamped `at_ms` after [`t0`] (as the core stamps `seq` and `received_at_ms`).
-fn instant(seat: u8, fields: Value, seq: u64, at_ms: i64) -> Action {
+pub(crate) fn instant(seat: u8, fields: Value, seq: u64, at_ms: i64) -> Action {
     Action { fields, instant: true, seq, received_at_ms: t0() + at_ms, ..Action::new(seat, "") }
 }
 
-fn challenge(t: &Table, level: &str) -> Value {
+pub(crate) fn challenge(t: &Table, level: &str) -> Value {
     json!({ "challenge": { "demigod": Ref::Demigod(t.me), "target": Ref::Demigod(t.foe), "level": level } })
 }
 
-fn line(id: &str, text: &str) -> Value {
+pub(crate) fn line(id: &str, text: &str) -> Value {
     json!({ "duel": { "duel_id": id, "text": text } })
 }
 
 /// Submit as the core does: validate, then on_instant; returns the public event.
-fn submit(t: &Table, a: &Action) -> Result<Value, String> {
+pub(crate) fn submit(t: &Table, a: &Action) -> Result<Value, String> {
     t.p.validate_action(&t.state, a.seat, &a.text, &a.fields, SubmitKind::Instant)?;
     t.p.on_instant(&t.state, a.seat, a).ok_or_else(|| "no event".to_string())
 }
 
-fn resolve(t: &Table, extra: &[Action]) -> RoundOutcome {
+pub(crate) fn resolve(t: &Table, extra: &[Action]) -> RoundOutcome {
     resolve_with(&FinalNight7Plugin::new(), t, extra)
 }
 
-fn resolve_with(p: &FinalNight7Plugin, t: &Table, extra: &[Action]) -> RoundOutcome {
+pub(crate) fn resolve_with(p: &FinalNight7Plugin, t: &Table, extra: &[Action]) -> RoundOutcome {
     let mut actions = bot_actions(p, &t.state);
     actions.extend(extra.iter().cloned());
     block(p.resolve_round(&t.state, 2, &actions, &RoundContext::default(), &Failing, &NoProgress)).unwrap()
@@ -514,13 +514,13 @@ fn an_invoke_costs_a_bolt() {
 }
 
 /// The next beat's table: commit `round`, then start `round + 1` (the same plugin, so its live cache carries on).
-fn next_beat(t: &Table, o: &RoundOutcome, round: u32) -> Table {
+pub(crate) fn next_beat(t: &Table, o: &RoundOutcome, round: u32) -> Table {
     let s = block(t.p.commit_round(&o.state, round, &[], &Failing)).unwrap().state;
     let s = block(t.p.on_round_start(&s, round + 1, &Failing)).unwrap().state;
     Table { p: t.p.clone(), state: s, me: t.me, foe: t.foe }
 }
 
-fn resolve_at(p: &FinalNight7Plugin, t: &Table, round: u32, extra: &[Action]) -> RoundOutcome {
+pub(crate) fn resolve_at(p: &FinalNight7Plugin, t: &Table, round: u32, extra: &[Action]) -> RoundOutcome {
     let mut actions = bot_actions(p, &t.state);
     actions.extend(extra.iter().cloned());
     block(p.resolve_round(&t.state, round, &actions, &RoundContext::default(), &Failing, &NoProgress)).unwrap()

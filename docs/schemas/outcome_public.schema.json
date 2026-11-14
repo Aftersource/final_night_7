@@ -225,6 +225,18 @@
             }
           ]
         },
+        "panels": {
+          "description": "Rules 0.8.2: the rest of its panels, through the outro (`starts_at_ms` may lie ahead: play them out).",
+          "items": {
+            "$ref": "#/$defs/DuelPanel"
+          },
+          "type": "array"
+        },
+        "panels_total": {
+          "description": "Rules 0.8.2: panels in all.",
+          "minimum": 0,
+          "type": "integer"
+        },
         "place": {
           "description": "",
           "type": "string"
@@ -349,6 +361,18 @@
             "$ref": "#/$defs/DuelBlow"
           },
           "type": "array"
+        },
+        "panels": {
+          "description": "Rules 0.8.2: the panels this resolve made due (some may have come live already: key them by `n`).",
+          "items": {
+            "$ref": "#/$defs/DuelPanel"
+          },
+          "type": "array"
+        },
+        "panels_total": {
+          "description": "Rules 0.8.2: panels so far.",
+          "minimum": 0,
+          "type": "integer"
         },
         "range": {
           "enum": [
@@ -621,6 +645,13 @@
     "DuelBlow": {
       "description": "Rules 0.8.1: `phase.event.public` for each duel line, at once (also in the resolve's challenge.open / challenge.end log).",
       "properties": {
+        "also": {
+          "description": "Rules 0.8.2 (live event only): the panels this line's stamp made due. Handle each as its own event.",
+          "items": {
+            "$ref": "#/$defs/DuelPanel"
+          },
+          "type": "array"
+        },
         "anim": {
           "description": "Rules 0.8.1: animation cues for the figures (deterministic, from the rules).",
           "properties": {
@@ -1278,6 +1309,617 @@
         "ko",
         "auto",
         "anim"
+      ],
+      "type": "object"
+    },
+    "DuelPanel": {
+      "description": "Rules 0.8.2: `duel.panel`, one comic panel of a duel: the presentation of the blows of one input window (they are decided by the 0.8.1 rules; a panel decides nothing). Sent in `also[]` of the action that made it due, as the event of a `duel_tick`, in `challenge.open` / `challenge.end`, and all of them in `present.duels[].panels`.",
+      "properties": {
+        "a": {
+          "description": "One fighter's track.",
+          "properties": {
+            "at": {
+              "description": "A stage hex [q, r]: x = 1.732 (q + r/2), z = 1.5 r metres.",
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "auto": {
+              "description": "An automatic counter of its is staged here.",
+              "type": "boolean"
+            },
+            "default": {
+              "description": "It did nothing in the window: the rules default it plays.",
+              "enum": [
+                "guard",
+                "circle",
+                null
+              ],
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "line": {
+              "description": "The last line it typed in the window this panel stages (null: none).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "line_masked_len": {
+              "description": "That line's length in characters (0: none).",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "lines": {
+              "description": "Lines it typed in the window.",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "move_class": {
+              "description": "Its last move's class (strike, heavy, guard, parry, feint, evade, close, retreat, grapple, throw, invoke, command, taunt).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "segs": {
+              "description": "Clip segments in order; their `ms` sum to `play_ms`.",
+              "items": {
+                "additionalProperties": true,
+                "properties": {
+                  "clip": {
+                    "enum": [
+                      "airborne_hit",
+                      "block",
+                      "block_cross",
+                      "bow",
+                      "combo_triple",
+                      "command",
+                      "counter",
+                      "defeat",
+                      "downed",
+                      "evade_roll",
+                      "evade_spin",
+                      "evade_stand",
+                      "grapple_throw_down",
+                      "ground_slam",
+                      "heavy_charged",
+                      "heavy_hammer",
+                      "idle_guard",
+                      "invoke",
+                      "jump_attack",
+                      "kick",
+                      "kneel",
+                      "lunge",
+                      "parry_back",
+                      "parry_high",
+                      "rise",
+                      "run",
+                      "shield_push",
+                      "stagger_back",
+                      "stagger_waist",
+                      "strike_side",
+                      "strike_slash",
+                      "taunt",
+                      "throw_shoulder",
+                      "victory",
+                      "walk"
+                    ],
+                    "type": "string"
+                  },
+                  "face": {
+                    "enum": [
+                      "foe",
+                      "path"
+                    ],
+                    "type": "string"
+                  },
+                  "h": {
+                    "description": "Apex in metres.",
+                    "type": "number"
+                  },
+                  "loop": {
+                    "type": "boolean"
+                  },
+                  "ms": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "on": {
+                    "description": "wallrun, wallkick, mantle: the object id.",
+                    "type": "string"
+                  },
+                  "over": {
+                    "description": "vault: the object id.",
+                    "type": "string"
+                  },
+                  "path": {
+                    "enum": [
+                      "dash",
+                      "leap",
+                      "flip",
+                      "knock",
+                      "vault",
+                      "wallrun",
+                      "wallkick",
+                      "mantle",
+                      "drop",
+                      "slide"
+                    ],
+                    "type": "string"
+                  },
+                  "rise": {
+                    "type": "number"
+                  },
+                  "speed": {
+                    "type": "number"
+                  },
+                  "spin": {
+                    "type": "boolean"
+                  },
+                  "steps": {
+                    "type": "integer"
+                  },
+                  "to": {
+                    "description": "A stage hex [q, r]: x = 1.732 (q + r/2), z = 1.5 r metres.",
+                    "items": {
+                      "type": "number"
+                    },
+                    "maxItems": 2,
+                    "minItems": 2,
+                    "type": "array"
+                  },
+                  "under": {
+                    "description": "slide: the object id.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "clip",
+                  "ms"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "line",
+            "line_masked_len",
+            "lines",
+            "move_class",
+            "default",
+            "auto",
+            "segs",
+            "at"
+          ],
+          "type": "object"
+        },
+        "also": {
+          "description": "Live event only: further panels made due by the same action.",
+          "items": {
+            "$ref": "#/$defs/DuelPanel"
+          },
+          "type": "array"
+        },
+        "b": {
+          "description": "One fighter's track.",
+          "properties": {
+            "at": {
+              "description": "A stage hex [q, r]: x = 1.732 (q + r/2), z = 1.5 r metres.",
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "auto": {
+              "description": "An automatic counter of its is staged here.",
+              "type": "boolean"
+            },
+            "default": {
+              "description": "It did nothing in the window: the rules default it plays.",
+              "enum": [
+                "guard",
+                "circle",
+                null
+              ],
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "line": {
+              "description": "The last line it typed in the window this panel stages (null: none).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "line_masked_len": {
+              "description": "That line's length in characters (0: none).",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "lines": {
+              "description": "Lines it typed in the window.",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "move_class": {
+              "description": "Its last move's class (strike, heavy, guard, parry, feint, evade, close, retreat, grapple, throw, invoke, command, taunt).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "segs": {
+              "description": "Clip segments in order; their `ms` sum to `play_ms`.",
+              "items": {
+                "additionalProperties": true,
+                "properties": {
+                  "clip": {
+                    "enum": [
+                      "airborne_hit",
+                      "block",
+                      "block_cross",
+                      "bow",
+                      "combo_triple",
+                      "command",
+                      "counter",
+                      "defeat",
+                      "downed",
+                      "evade_roll",
+                      "evade_spin",
+                      "evade_stand",
+                      "grapple_throw_down",
+                      "ground_slam",
+                      "heavy_charged",
+                      "heavy_hammer",
+                      "idle_guard",
+                      "invoke",
+                      "jump_attack",
+                      "kick",
+                      "kneel",
+                      "lunge",
+                      "parry_back",
+                      "parry_high",
+                      "rise",
+                      "run",
+                      "shield_push",
+                      "stagger_back",
+                      "stagger_waist",
+                      "strike_side",
+                      "strike_slash",
+                      "taunt",
+                      "throw_shoulder",
+                      "victory",
+                      "walk"
+                    ],
+                    "type": "string"
+                  },
+                  "face": {
+                    "enum": [
+                      "foe",
+                      "path"
+                    ],
+                    "type": "string"
+                  },
+                  "h": {
+                    "description": "Apex in metres.",
+                    "type": "number"
+                  },
+                  "loop": {
+                    "type": "boolean"
+                  },
+                  "ms": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "on": {
+                    "description": "wallrun, wallkick, mantle: the object id.",
+                    "type": "string"
+                  },
+                  "over": {
+                    "description": "vault: the object id.",
+                    "type": "string"
+                  },
+                  "path": {
+                    "enum": [
+                      "dash",
+                      "leap",
+                      "flip",
+                      "knock",
+                      "vault",
+                      "wallrun",
+                      "wallkick",
+                      "mantle",
+                      "drop",
+                      "slide"
+                    ],
+                    "type": "string"
+                  },
+                  "rise": {
+                    "type": "number"
+                  },
+                  "speed": {
+                    "type": "number"
+                  },
+                  "spin": {
+                    "type": "boolean"
+                  },
+                  "steps": {
+                    "type": "integer"
+                  },
+                  "to": {
+                    "description": "A stage hex [q, r]: x = 1.732 (q + r/2), z = 1.5 r metres.",
+                    "items": {
+                      "type": "number"
+                    },
+                    "maxItems": 2,
+                    "minItems": 2,
+                    "type": "array"
+                  },
+                  "under": {
+                    "description": "slide: the object id.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "clip",
+                  "ms"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "line",
+            "line_masked_len",
+            "lines",
+            "move_class",
+            "default",
+            "auto",
+            "segs",
+            "at"
+          ],
+          "type": "object"
+        },
+        "blows": {
+          "description": "The `n` of each duel.blow it stages.",
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "caption": {
+          "description": "",
+          "type": "string"
+        },
+        "contacts": {
+          "description": "",
+          "items": {
+            "additionalProperties": true,
+            "properties": {
+              "at": {
+                "description": "On a fighter: where.",
+                "enum": [
+                  "head",
+                  "chest",
+                  "belly",
+                  "legs",
+                  null
+                ],
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "by": {
+                "enum": [
+                  "a",
+                  "b"
+                ],
+                "type": "string"
+              },
+              "impulse": {
+                "description": "0..1.",
+                "type": "number"
+              },
+              "kind": {
+                "enum": [
+                  "hand",
+                  "kick",
+                  "heavy"
+                ],
+                "type": "string"
+              },
+              "limb": {
+                "enum": [
+                  "hand_l",
+                  "hand_r",
+                  "foot_l",
+                  "foot_r"
+                ],
+                "type": "string"
+              },
+              "miss": {
+                "type": "boolean"
+              },
+              "on": {
+                "description": "`a` / `b` (the fighter hit) or a scene object's id.",
+                "type": "string"
+              },
+              "ranged": {
+                "type": "boolean"
+              },
+              "t_ms": {
+                "description": "From the panel's start.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "text": {
+                "description": "The burst word.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "t_ms",
+              "by",
+              "limb",
+              "kind",
+              "on",
+              "impulse",
+              "text",
+              "miss"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "duel_id": {
+          "description": "",
+          "type": "string"
+        },
+        "event": {
+          "const": "duel.panel"
+        },
+        "flip": {
+          "description": "The initiative changed hands.",
+          "type": "boolean"
+        },
+        "hp": {
+          "description": "After the panel.",
+          "properties": {
+            "a": {
+              "description": "",
+              "type": "number"
+            },
+            "b": {
+              "description": "",
+              "type": "number"
+            }
+          },
+          "required": [
+            "a",
+            "b"
+          ],
+          "type": "object"
+        },
+        "initiative": {
+          "enum": [
+            "a",
+            "b"
+          ],
+          "type": "string"
+        },
+        "input_closes_ms": {
+          "description": "starts_at_ms + play_ms - 700 (the render lead); null: no input (a knockout, the last slot, the outro). Lines stamped up to it feed panel n + 1.",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "input_opens_ms": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "kind": {
+          "enum": [
+            "intro",
+            "exchange",
+            "idle",
+            "ko",
+            "outro"
+          ],
+          "type": "string"
+        },
+        "ko": {
+          "description": "Outro only: the side knocked out.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "n": {
+          "description": "0-based.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "play_ms": {
+          "description": "2400..3600.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "range": {
+          "enum": [
+            "far",
+            "mid",
+            "close",
+            "grapple"
+          ],
+          "type": "string"
+        },
+        "received_at_ms": {
+          "type": "integer"
+        },
+        "seq": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "shot": {
+          "enum": [
+            "wide",
+            "side",
+            "low",
+            "over_a",
+            "over_b",
+            "close_a",
+            "close_b"
+          ],
+          "type": "string"
+        },
+        "starts_at_ms": {
+          "description": "Server epoch ms: the previous panel's end.",
+          "type": "integer"
+        },
+        "winner": {
+          "description": "Outro only.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "event",
+        "duel_id",
+        "n",
+        "kind",
+        "starts_at_ms",
+        "play_ms",
+        "input_opens_ms",
+        "input_closes_ms",
+        "caption",
+        "shot",
+        "a",
+        "b",
+        "contacts",
+        "blows",
+        "flip",
+        "hp",
+        "range",
+        "initiative"
       ],
       "type": "object"
     },
@@ -2493,6 +3135,22 @@
             "vigil"
           ],
           "type": "string"
+        },
+        "near": {
+          "description": "at: a place that satisfied the step when the quest was given (the nearest shrine or settlement of the kind, the remembered spot): where to send the demigod. Any place of the kind will do. Absent for fault lines and coasts.",
+          "properties": {
+            "at": {
+              "$ref": "#/$defs/LonLat"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "at"
+          ],
+          "type": "object"
         },
         "offer": {
           "description": "at: an item whose name carries this word must be in hand there; it is burned.",

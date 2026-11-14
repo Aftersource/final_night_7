@@ -758,6 +758,7 @@ pub fn split_turn(w: &World, seat: u8, lead: DemigodId, input: Input) -> Vec<Tur
                 summons: if is_lead { input.summons.clone() } else { vec![] },
                 god_powers: if is_lead { input.god_powers.clone() } else { vec![] },
                 challenge: None,
+                tick: None,
                 blow: None,
             },
         });
@@ -1063,6 +1064,7 @@ pub async fn resolve(
                 demigod_name: dg.name.clone(),
                 hand: h,
                 persona: w.agents[agent.ix()].persona.clone(),
+                player: dg.persona.clone(),
                 beat,
                 first_intent: IntentId::from_ix(w.intents.len()),
                 place: Some(dg.place),
@@ -1527,6 +1529,7 @@ pub async fn resolve(
             agent: a.id,
             name: a.name.clone(),
             persona: a.persona.clone(),
+            player: demigod.and_then(|d| w.demigods.get(d.ix())).and_then(|d| d.persona.clone()),
             goal: a.goal.clone(),
             beat,
             steps_taken: a.steps,

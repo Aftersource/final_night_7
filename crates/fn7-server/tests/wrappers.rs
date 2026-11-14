@@ -216,6 +216,25 @@ async fn every_wrapper_forwards_every_hook() {
     call_all(&MediaPlugin::new(stub.clone(), fn7_media::Media::off())).await;
     assert_saw_all(&stub, "MediaPlugin");
 
+    // The accounts wrapper (no account holds a name here: every hook goes straight through), alone and as the server
+    // stacks it, inside MediaPlugin.
+    let accounts = fn7_server::accounts::Accounts::new(
+        Arc::new(fn7_profile::ProfileStore::open_in_memory().unwrap()),
+        None,
+        None,
+        Default::default(),
+    );
+    let stub = Stub::default();
+    call_all(&fn7_server::accounts::plugin::AccountsPlugin::new(stub.clone(), accounts.clone())).await;
+    assert_saw_all(&stub, "AccountsPlugin");
+    let stub = Stub::default();
+    call_all(&MediaPlugin::new(
+        fn7_server::accounts::plugin::AccountsPlugin::new(stub.clone(), accounts),
+        fn7_media::Media::off(),
+    ))
+    .await;
+    assert_saw_all(&stub, "MediaPlugin(AccountsPlugin)");
+
     // fn7-sim's recorder alone, and around MediaPlugin, recording at full (sync hooks included).
     let dir = std::env::temp_dir().join(format!("fn7-wrappers-{}", uuid::Uuid::new_v4()));
     let rec = recorder(&dir, theatre_trace::Level::Full).unwrap();
@@ -265,7 +284,7 @@ fn final_night_7_declares_its_queries_through_the_media_wrapper() {
     let names: Vec<String> = p.queries().into_iter().map(|q| q.name).collect();
     assert_eq!(
         names,
-        ["globe", "region", "node", "person", "army", "events", "me", "powers", "gods", "standings", "media", "items", "item", "memory",
+        ["globe", "region", "node", "person", "army", "events", "me", "powers", "gods", "standings", "present", "media", "items", "item", "memory",
          "encounters", "piles_final"]
     );
     assert!(p.query(&json!({}), None, "powers", &json!({})).unwrap()["powers"].is_array());

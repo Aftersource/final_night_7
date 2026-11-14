@@ -42,6 +42,9 @@ pub struct SeatIn {
     pub seat: u8,
     pub display_name: String,
     pub is_bot: bool,
+    /// Accounts: the public id of the account bound to the seat (the state's `seats[].account`, or a recording's
+    /// `seat_persona` event), if any.
+    pub account: Option<String>,
 }
 
 /// Everything the store needs about one match.
@@ -168,6 +171,7 @@ pub fn read_recording_from<R: Read>(
     let mut rules: Option<String> = None;
     let mut last_committed: Option<String> = None;
     let mut elims: Vec<Value> = vec![];
+    let mut accounts: std::collections::BTreeMap<u8, String> = Default::default();
     loop {
         line.clear();
         let n = r.read_line(&mut line)?;
@@ -191,8 +195,17 @@ pub fn read_recording_from<R: Read>(
                     rules = Some(label.to_string());
                 }
             }
-        } else if let Some(k) = event_kind(l, &["round.committed", "elimination"]) {
-            if k == "round.committed" {
+        } else if let Some(k) = event_kind(l, &["round.committed", "elimination", "seat_persona"]) {
+            if k == "seat_persona" {
+                // Accounts: the seat is bound to this account from here on.
+                if let Ok(v) = serde_json::from_str::<Value>(l) {
+                    st.parsed += 1;
+                    let p = &v["data"]["persona"];
+                    if let (Some(seat), Some(acc)) = (p["seat"].as_u64(), p["account"].as_str()) {
+                        accounts.insert(seat as u8, acc.to_string());
+                    }
+                }
+            } else if k == "round.committed" {
                 // Keep the raw line; only the last one is parsed.
                 last_committed = Some(l.to_string());
             } else if let Ok(v) = serde_json::from_str::<Value>(l) {
@@ -221,6 +234,7 @@ pub fn read_recording_from<R: Read>(
                         seat: s["seat"].as_u64()? as u8,
                         display_name: s["display_name"].as_str().unwrap_or_default().to_string(),
                         is_bot: s["is_bot"].as_bool().unwrap_or(false),
+                        account: accounts.get(&(s["seat"].as_u64()? as u8)).cloned(),
                     })
                 })
                 .collect()

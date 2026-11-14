@@ -10,6 +10,9 @@
 //! `game.profile`/`game.history`/`game.library` queries; history rows at every match end. At startup an empty store
 //! (or `FN7_PROFILE_BACKFILL=1`) is backfilled in the background from `FN7_PROFILE_BACKFILL_DIR`, else the recordings
 //! directory (`THEATRE_RECORD_DIR`); recordings are only read.
+//! Accounts (`fn7_server::accounts`, docs/ACCOUNTS.md): `/api/auth/*`, `/api/me*`, `/api/game/bind`, in the same store.
+//! Google sign-in needs `FN7_GOOGLE_CLIENT_ID`, `FN7_GOOGLE_CLIENT_SECRET` and `FN7_PUBLIC_URL` (guests work without);
+//! `FN7_NAME_GUARD=off` stops the name guard; `FN7_MODERATION=rules` judges demigod sheets by rules only.
 
 use std::sync::Arc;
 
@@ -60,13 +63,39 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(db = %db.display(), matches = store.match_count().unwrap_or(0), "profiles");
     // The core records every match (THEATRE_RECORD / THEATRE_RECORD_DIR) and runs every hook in the match's trace
     // context, so the plugin's events, LLM calls and the images' media_* events land in its run.
+    // Exact resume (docs/TIME_TRAVEL.md): the plugin journals every accepted instant action under
+    // `FN7_JOURNAL_DIR` (default `<THEATRE_DATA_DIR>/fn7/journal`) so a restart loses none of them; `FN7_JOURNAL=off`
+    // keeps it in memory only.
+    let game = FinalNight7Plugin::new().with_media_style(media.style().ruleset_json());
+    let journal_off = env("FN7_JOURNAL").is_some_and(|v| matches!(v.trim(), "off" | "0" | "false"));
+    let game = if journal_off {
+        tracing::info!("journal: off (memory only)");
+        game
+    } else {
+        let dir = env("FN7_JOURNAL_DIR").filter(|d| !d.trim().is_empty()).map(std::path::PathBuf::from)
+            .unwrap_or_else(|| cfg.data_dir.join("fn7").join("journal"));
+        tracing::info!(dir = %dir.display(), "journal");
+        game.with_journal(dir)
+    };
+    // Accounts (docs/ACCOUNTS.md): sessions, settings, demigod personalities (moderated by the LLM when there is one,
+    // never by a replayed one), Google sign-in when FN7_GOOGLE_* and FN7_PUBLIC_URL are set.
+    let moderator = (built.label != "none" && cfg.replay_from.is_none()).then(|| built.llm.clone());
+    let accounts = fn7_server::accounts::Accounts::from_env(store.clone(), moderator, env);
+    tracing::info!(google = accounts.google_configured(), moderation = accounts.moderation_label(),
+                   name_guard = accounts.guard_on(), "accounts");
     let plugin: Arc<dyn GamePlugin> =
         Arc::new(fn7_server::media::MediaPlugin::new(
-            FinalNight7Plugin::new().with_media_style(media.style().ruleset_json()),
+            fn7_server::accounts::plugin::AccountsPlugin::new(
+                game,
+                accounts.clone(),
+            ),
             media.clone(),
         ).with_profiles(profiles.clone()));
     let app = AppState::new(cfg.clone(), plugin, built.llm);
     restore(&app);
+    // The accounts layer sees the engine's players (to bind a session to one) and runs the name guard.
+    accounts.attach(Arc::new(fn7_server::accounts::EngineDirectory(app.clone())));
+    accounts.spawn_guard();
     // The always-on house room (THEATRE_HOUSE_ROOM=true): the one game every client joins. No-op when unset.
     theatre_server::start_house(&app)?;
     // The match-end rows read the core's recording of the match (flushed first) for the room code, seats and falls.
@@ -94,12 +123,13 @@ async fn main() -> anyhow::Result<()> {
 
     let listener = TcpListener::bind(cfg.bind).await?;
     tracing::info!(addr = %listener.local_addr()?, game = fn7_plugin::PLUGIN_ID, rules = fn7_plugin::RULES_VERSION,
-                   "final night 7 listening (ws at /ws, images at /media, simulator at /sim, profiles at /api/profiles)");
+                   "final night 7 listening (ws at /ws, images at /media, simulator at /sim, profiles at /api/profiles, accounts at /api/auth and /api/me)");
     // The engine's own serve, with the /media, /sim and /api/profiles routes merged in (engine route extension,
     // theatre 330896e).
     let extra = fn7_media::http::router(media)
         .merge(fn7_server::simapi::router(sim))
-        .merge(fn7_profile::http::router(store, fn7_profile::http::HttpConfig::from_env(env)));
+        .merge(fn7_profile::http::router(store, fn7_profile::http::HttpConfig::from_env(env)))
+        .merge(fn7_server::accounts::http::router(accounts));
     theatre_server::serve_with(listener, app, extra, async {
         let _ = tokio::signal::ctrl_c().await;
     })

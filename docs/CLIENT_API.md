@@ -768,6 +768,224 @@ challenge may follow immediately (during or after the teleport) with the loss al
 `duel_counter_ms` (3000), `duel_ai_chance` (0.02), `duel_ai_reach_km` (2000), `duel_auto_rounds` (2). Ranges in
 `docs/schemas/settings.schema.json` and the rulebook's appendix.
 
+## Duel panels (0.8.2)
+
+Rules **0.8.2** (state **schema 9**; a schema-8 or older match has none of this and replays unchanged) make a duel
+play as comic **panels**, the format of `duel_lab/` (README.md, duel.json). Schemas: `DuelScene`, `DuelPanel` in
+`phase_event`, `outcome_public`, `public_view`; `duel_tick` in `action_fields`.
+
+**Nothing in 0.8.1 changes.** A typed line (`fields.duel`) is still a blow resolved at once and shown as `duel.blow`;
+the d20, the wit and the matrix decide everything. A panel is the *presentation* of the blows of one input window:
+it decides nothing and can always be rebuilt from them. A 0.8.1 client that ignores `also[]`, `duel.panel` and
+`duel.scene` works as before.
+
+### The cycle
+
+| Panel | Starts | Shows |
+|---|---|---|
+| 0 (`kind: intro`) | at the lock's stamp (`challenge.lock.received_at_ms`) | both fighters, the stage |
+| n ≥ 1 (`exchange`, `idle`) | when panel n−1 ends: `starts_at_ms(n−1) + play_ms(n−1)` | the blows stamped in panel n−1's input window |
+| `ko` | same | the window with the knockout; no input |
+| `outro` | right after a `ko`; or the first slot at or past the deadline | who stood. The last panel |
+
+- `play_ms`: 2400 for an idle panel; 600 + 1000 per staged strike (at most 3), so 2400..3600.
+- `input_closes_ms = starts_at_ms + play_ms − 700`. Always before the panel ends: the 700 ms is the **render lead**,
+  the time you have panel n+1 before it starts. `input_opens_ms` is the previous close.
+- A line stamped by the server at or before `input_closes_ms` (and after the previous close) is in panel n+1. A later
+  one is in panel n+2. Type at any time; the blow itself still shows at once.
+- A fighter with no blow in the window plays the rules default (`default`): `circle` when it holds the initiative
+  and nobody struck, else `guard`. (0.8.1 still counters for an AI or a human idle for `duel_counter_ms`: those
+  automatic strikes are staged too, `auto: true`.)
+- A pause (`duel_clock`) moves the schedule: panels not yet computed start that much later.
+
+### Pacing: `fields.duel_tick`
+
+The server has no timer: it computes panels only when something arrives. So **each duellist's client sends a tick
+at every input close**:
+
+```json
+{ "t": "action.submit", "d": { "instant": true, "fields": { "duel_tick": { "duel_id": "duel:s6:0:2" } } } }
+```
+
+- Send it at `input_closes_ms` by the **server's** clock (your offset from `sys.pong.server_time` or
+  `present.server_time_ms`), plus ~30 ms. A tick up to 150 ms early still closes the window (at the tick); earlier
+  than that it does nothing.
+- The first tick that closes a window gets the next panel as its public event (`phase.event.public` =
+  `duel.panel`, to everyone, with `seq` and `received_at_ms`); the other duellist's tick for the same close shows
+  nothing. Either way the reply is `action.received {accepted: true}`.
+- Refusals: `panels_off` (the match is older than 0.8.2), `no_duel` (no such duel, or its outro is out),
+  `not_yours` (only its two duellists tick; viewers never do).
+- If nobody ticks (both clients gone), nothing is lost: the next duel line and every beat's resolve close every
+  window their stamps have passed, and the panels come in `also[]` / `challenge.open.panels`. What a panel shows
+  never depends on when it was computed.
+- It is an instant action (rate limit 2/s, burst 4 per seat): one tick per panel is well inside it.
+
+### Where panels and the scene arrive
+
+| Where | What |
+|---|---|
+| `challenge.lock.also[]` (the live event, and each AI lock in `round.started.public.challenges[]`) | `duel.scene`, then `duel.panel` 0 |
+| a `duel_tick`'s `phase.event` | the panel it made due; more in its `also[]` if several were due |
+| `duel.blow.also[]` (live) | the panels the line's stamp made due (after a silence) |
+| `round.outcome.public.duels_open[].panels` | the panels that beat's resolve made due; `panels_total` |
+| `round.outcome.public.duels[].panels` (`challenge.end`) | the rest, through the outro, when the resolve ends the duel (`starts_at_ms` may lie ahead: play them out) |
+| `match.snapshot.public_state.present.duels[]` / `game.present` | `scene` and **every panel so far** (`panels`), with `server_time_ms`: a reconnect or a viewer joining mid-duel seeks to `server_time_ms − panels[k].starts_at_ms` in the panel that contains it |
+
+`also[]`: one `on_instant` can return one public event, so the extra ones ride in the first one's `also` array. Handle
+every entry exactly as if it had arrived as its own `phase.event`. Key panels by `(duel_id, n)`: the same panel can
+reach you twice (live and in an outcome) and is identical both times.
+
+An AI's challenge with no clock (a simulation; never on the server) has no scene or panels: its duel is fought out
+at one resolve as in 0.8.1.
+
+### `duel.scene`
+
+```json
+{ "event": "duel.scene", "duel_id": "duel:s1:0:1", "source": "rules", "biome": "town", "place": "New York",
+  "time_of_day": "day", "cell": "4:regions:-7:32", "level": "regions", "settlement_level": 3,
+  "backstory": "New York at day. Ash's Left Hand and Brix's Left Hand have chosen this hex.",
+  "hex": { "x": "1.732 (q + r/2)", "z": "1.5 r", "unit": "m" }, "radius": 5, "a_start": [-3, 0], "b_start": [2, 0],
+  "objects": [
+    { "id": "pillar_a", "kind": "pillar", "at": [2, -2], "yaw": 135, "fixed": true,
+      "note": "an old stone pillar, the mortar long gone", "affords": ["wallrun", "wallkick"],
+      "parts": [ { "shape": "box", "size": [0.9, 0.35, 0.9], "offset": [0.0, 0.175, 0.0], "material": "stone" },
+                 { "shape": "cylinder", "size": [0.3, 1.5], "offset": [0.0, 1.1, 0.0], "material": "stone" } ] },
+    { "id": "crate_a", "kind": "crate", "at": [-3, -2], "yaw": 90, "fixed": false,
+      "note": "a crate somebody meant to come back for", "affords": ["vault"],
+      "parts": [ { "shape": "box", "size": [0.85, 0.75, 0.85], "offset": [0.0, 0.375, 0.0], "material": "wood", "fill": 0.12 } ] } ] }
+```
+
+- The duel lab's scene shape: `at` is a stage hex `[q, r]`; `parts[]` are primitives (`box [w,h,d]`, `cylinder` /
+  `cone [r,h]`, `sphere` / `tetra` / `octa` / `ico` / `dodeca [r]`, metres; `offset` = the part's centre above the
+  object's origin on the floor; optional `rot` degrees, `fill`, `glow`); materials from the lab's table (stone,
+  marble, wood, iron, gold, clay, bone, leaf).
+- `source: "rules"`: the deterministic fallback, seeded by the match seed and the duel's hex (the same duel always
+  gets the same scene). 6 to 10 objects of these kinds: `pillar`, `wall`, `crate`, `table`, `boulder`, `rock`,
+  `tree`, `log`, `jar`, `brazier` (night), `altar` (a shrine on the hex), `chest` (loot dropped on the hex), `bones`,
+  `cairn` (one for each of the two newest things the DM remembers of the hex; its `note` is that memory). The kinds
+  come from the place's words (harbour, forest, desert, hills), else a town (settlement level 2+) or the wild.
+- `affords`: the paths that may name the object (`vault`, `slide`, `wallrun`, `wallkick`, `mantle`).
+- An LLM-authored scene (`source: "llm"`) will use the same shape; not built yet.
+
+### `duel.panel`
+
+```json
+{ "event": "duel.panel", "duel_id": "duel:s1:0:1", "n": 1, "kind": "exchange",
+  "starts_at_ms": 1794692897466, "play_ms": 3600, "input_opens_ms": 1794692896766, "input_closes_ms": 1794692900366,
+  "caption": "Ash's Left Hand's words hit Brix's Left Hand's knee only because a goat that licked the moonlight off a wall had been washed in platinum dust at dawn.",
+  "shot": "over_a",
+  "a": { "line": "I kick your knee into the mud", "line_masked_len": 29, "lines": 1, "move_class": "strike",
+         "default": null, "auto": false, "at": [0, 0],
+         "segs": [ { "clip": "run", "ms": 360, "loop": true, "to": [0, 0], "path": "dash", "face": "foe" },
+                   { "clip": "kick", "ms": 840, "face": "foe" },
+                   { "clip": "idle_guard", "ms": 540, "loop": true, "face": "foe" },
+                   { "clip": "stagger_waist", "ms": 660 },
+                   { "clip": "idle_guard", "ms": 1200, "loop": true, "face": "foe" } ] },
+  "b": { "line": "I duck under it and roll away", "line_masked_len": 29, "lines": 1, "move_class": "evade",
+         "default": null, "auto": true, "at": [2, 0],
+         "segs": [ { "clip": "idle_guard", "ms": 738, "loop": true, "face": "foe" }, { "clip": "stagger_waist", "ms": 462 },
+                   { "clip": "strike_side", "ms": 1200, "face": "foe" }, { "clip": "evade_stand", "ms": 1200, "face": "foe" } ] },
+  "contacts": [ { "t_ms": 660, "by": "a", "limb": "foot_r", "kind": "kick", "on": "b", "at": "legs", "impulse": 0.375,
+                  "text": "BAM", "miss": false, "ranged": false },
+                { "t_ms": 1860, "by": "b", "limb": "hand_r", "kind": "hand", "on": "a", "at": "head", "impulse": 0.25,
+                  "text": "SHHK", "miss": false, "ranged": false } ],
+  "blows": [1, 2], "flip": true, "hp": { "a": 9.0, "b": 8.5 }, "range": "close", "initiative": "b" }
+```
+
+| Field | Meaning |
+|---|---|
+| `n`, `kind` | 0-based; `intro`, `exchange`, `idle`, `ko`, `outro` |
+| `starts_at_ms`, `play_ms` | server epoch ms; the panel plays from `starts_at_ms` for `play_ms` |
+| `input_opens_ms`, `input_closes_ms` | the typing window whose blows make panel n+1; both null when the panel takes no input (`ko`, the last slot before the deadline, `outro`) |
+| `caption` | the decisive blow's `flavor` line (rules-templated); a fixed line for idle, intro and outro |
+| `shot` | `wide`, `side`, `low`, `over_a`, `over_b`, `close_a`, `close_b` |
+| `a`, `b` | each fighter's track: `line` (the last line it typed in the window; null: none) and `line_masked_len` (its length: show dots while you don't want the words), `lines` (how many it typed), `move_class` (of its last move), `default` (`guard` / `circle` / null), `auto` (an automatic counter is staged), `at` (the hex it ends on), `segs[]` |
+| `segs[]` | in order; their `ms` sum to `play_ms`. `clip`: one of the lab's 35 clips (`airborne_hit block block_cross bow combo_triple command counter defeat downed evade_roll evade_spin evade_stand grapple_throw_down ground_slam heavy_charged heavy_hammer idle_guard invoke jump_attack kick kneel lunge parry_back parry_high rise run shield_push stagger_back stagger_waist strike_side strike_slash taunt throw_shoulder victory walk`). `loop`, `speed`, `face` (`foe`). A moving seg has `to` (the hex) and `path` |
+| `path` | the vocabulary is `dash leap flip knock vault wallrun wallkick mantle drop slide`. The rules fallback emits `dash` (run-ins, steps, side-steps), `leap` (`h`: a heavy from a range band away), `knock` (`h`, `spin`: a landed heavy blow, a throw, a knockout), `vault` (`over: <object id>`), `slide` (`under: <object id>`) and `wallkick` (`on: <object id>`, `h`) for evasions next to an object that affords them. `flip`, `wallrun`, `mantle`, `drop` are reserved for authored panels |
+| `contacts[]` | `t_ms` from the panel's start; `by` (`a`/`b`); `limb` (`hand_l`, `hand_r`, `foot_l`, `foot_r`); `kind` (`hand`, `kick`, `heavy`); `on`: `a` / `b` (the fighter hit; `at`: `head`/`chest`/`belly`/`legs`) or a scene object's id (a blow that missed and found the scenery); `impulse` 0..1 (damage / 4); `text` (the burst word); `miss` (no hit: no shake); `ranged` (an invoke or a command: no IK) |
+| `blows[]` | the `n` of each `duel.blow` it stages (its full event is in `present.duels[].blows` and the outcome logs). More than 3 strikes in one window: all count, the first 3 are staged |
+| `flip` | the initiative changed hands in this panel |
+| `hp`, `range`, `initiative` | after the panel: exactly the last staged blow's |
+| `winner`, `ko` | outro only: `a` / `b` / null |
+
+## Exact resume: `present` (state schema 8)
+
+A match started by this server (state **schema 8** and up; older matches in flight keep the 0.8.1 behaviour) can be redrawn
+at the exact present from one message. The whole data structure is in [TIME_TRAVEL.md](TIME_TRAVEL.md). Schemas:
+`Present`, `PresentDuel` in `public_view`; `DuelClock` in `round_started_public`; `query_present`.
+
+**Reconnect.** Open a socket, send `auth.resume {resume_token}`. A **seated** player gets `auth.ok`, `room.snapshot`,
+`match.snapshot`. The match snapshot has the core's `round`, `phase`, `deadline`, `window` (the open slow window),
+`started`, `brief`, `outcome`, `you`, and in `public_state`:
+
+- `demigods[]`: every demigod;
+- `rules { version, state_schema, server }`: the rules this match runs on (the server's version is also
+  `server.hello.d.api.rules_version`);
+- `present`:
+
+```json
+"present": {
+  "server_time_ms": 1794690927811, "beat": 2, "live": true, "paused_since_ms": null,
+  "mark": { "at_ms": 0, "seq": 0, "resolved_ms": 1794690925100, "round_ms": 1794690925300 },
+  "events": [ { "event": "summoning", "seq": 5, "received_at_ms": 1794690926350, "beat": 2 },
+              { "event": "challenge.lock", "duel_id": "duel:s6:0:2", "seq": 6, "received_at_ms": 1794690926360, "beat": 2 },
+              { "event": "duel.blow", "duel_id": "duel:s6:0:2", "n": 1, "seq": 7, "received_at_ms": 1794690926371, "beat": 2 } ],
+  "duels": [ { "duel_id": "duel:s6:0:2", "a": {}, "b": {}, "lock": {},
+               "hp": { "a": 10.0, "b": 9.8 }, "range": "close", "initiative": "a",
+               "stances": { "a": "neutral", "b": "off_balance" }, "set": { "a": null, "b": null },
+               "blows": [ { "event": "duel.blow", "n": 1, "at_ms": 1794690926371, "seq": 7 } ],
+               "n": 1, "typed": 1, "ko": null, "opened": false,
+               "started_ms": 1794690926360, "deadline_ms": 1794691166360, "ends_beat": 97, "pauses": [],
+               "clock": { "at_ms": 1794690927811, "elapsed_ms": 1451, "remaining_ms": 238549, "running": true },
+               "over": false } ]
+}
+```
+
+| Field | Use |
+|---|---|
+| `server_time_ms` | the server's clock when the view was built. Your clock offset is `server_time_ms - Date.now()` at receipt (or use `sys.pong.server_time`) |
+| `events[]` | the public `phase.event` payloads of every instant action since the last resolve, in arrival order, each with `seq`, `received_at_ms`, `beat`. Replay them as if they had just arrived (flash a summoning already on its way, etc.) |
+| `duels[]` | every open duel in full. `a`, `b`, `lock`: exactly `challenge.lock`. `blows[]`: every blow so far, in order, each the `duel.blow` it was shown as (die, damage, `hp`, `anim`, `choreo`, `counter`) with `at_ms` (its server stamp) and `seq` |
+| `duels[].clock` | `elapsed_ms`: duel time elapsed, the offset to seek to. `remaining_ms`: until `deadline_ms`. `running: false` while the room stands still |
+| `duels[].pauses` | `[from_ms, to_ms]` spans the duel's clock stood still. A blow's offset in the duel is `at_ms - started_ms` minus the pauses before it |
+| `paused_since_ms` | the room stands still since then (also `match.snapshot.paused`); clocks are frozen at that moment |
+| `live` | false only for a past state (the admin's state at a round) or a fork before its first Start |
+
+`present` is also in every `round.committed.public_state`. `game.present` (public; also
+`GET /api/rooms/{code}/query/present`) returns the same object: use it when you want it again without a resume. It
+reads the whole state: ask it when you (re)connect, don't poll it.
+
+**A viewer** (`room.join {viewer: true}`) gets the same `match.snapshot` (`you: null`) on joining, mid-duel included.
+
+**A viewer who drops is gone.** The core removes a viewer from its room when its socket closes. Its `auth.resume`
+then answers `auth.ok` and **nothing else**: no `room.snapshot`, no `match.snapshot`, no `room.left` (and a socket
+that sends nothing is closed after 60 s). So a viewer client, right after `auth.ok` to a resume, sends
+`room.join {house: true, viewer: true}` (or `{code, viewer: true}`) again; the reply is `room.snapshot` and the
+`match.snapshot` follows at once. Don't wait for a snapshot first. A seated client can use one rule for both cases:
+if no `room.snapshot` arrives within 1 s of `auth.ok`, join again. Send `sys.ping` every 20 s either way.
+
+**Viewers and `round.brief`.** The core sends `round.brief` to seats only. A viewer gets `phase.changed`,
+`phase.event`, `round.started`, `round.outcome`, `round.committed`, `seat.*`, `match.ended`, and reads the brief's
+public part from `match.snapshot.brief` (as of its join) and the board from `round.committed.public_state`.
+
+**After a server restart** the match is restored at its last commit and paused until a human connects. Resume as
+usual. The snapshot has `paused: true`, `resumes_round`, and `present` as it was before the stop: the same duel,
+blows, hp. Instant actions the server had accepted are not lost: they are resolved at the first beat. Text typed
+into the interrupted beat's Compose or slow window IS lost (`you.action` is null, `window` is null): send it again.
+At the first Start every open duel's deadline moves by the time the room stood still:
+
+```json
+"duel_clock": { "event": "duel.clock", "beat": 5, "now_ms": 1794690934100,
+                "pause": { "from_ms": 1794690931063, "to_ms": 1794690934100, "ms": 3037 },
+                "duels": [ { "duel_id": "duel:s6:0:2", "deadline_ms": 1794691169397, "pauses": [[1794690931063, 1794690934100]] } ] }
+```
+
+(`round.started.public.duel_clock`, only when there was a pause of 2 s or more: also after the room paused because
+every human left.)
+
+**Ids across restarts.** The core's `seq` restarts at 1 when the server restarts. Order events by
+`(received_at_ms, seq)`, not by `seq` alone. `duel_id` stays unique within a match (a clash gets `seq + 1000000`).
+
 ## Message flow for one beat
 
 One Theatre **round** is one **beat**, so `round` and `beat` are always the same number. There are no choices: `round.private.choices`
@@ -1711,8 +1929,10 @@ GET /api/rooms/66X6KM/query/media?kind=event&ref=lg:88
 A player's **profile** lasts across matches (design: [`DEMIGODS_AND_ITEMS.md`](DEMIGODS_AND_ITEMS.md) §7–§10). It
 holds their demigods' fixed looks, their match history, a description and an image library.
 - **Key: the display name, normalized.** NFKC, invisible characters dropped, whitespace collapsed, lowercased, at
-  most 40 characters. So "CHRIS", " chris " and "Ｃｈｒｉｓ" are one profile. There are no accounts: anyone who
-  plays as "Chris" writes into Chris's history. `lookalikes` lists other profiles whose names look the same ("Chr1s"),
+  most 40 characters. So "CHRIS", " chris " and "Ｃｈｒｉｓ" are one profile. A name no account holds works as it
+  always did: anyone who plays as "Chris" writes into Chris's history. Once an **account** holds the name
+  ("Accounts, settings and demigod personalities" below), only that account's bound connection does, and only that
+  account can edit the profile. `lookalikes` lists other profiles whose names look the same ("Chr1s"),
   so a client can warn.
 - **Written by the server.** At every match end there's one history row per human seat (bots and AI demigods get
   none). Their library gets the images every seat saw: their demigods' portraits and dioramas, their statue, their
@@ -1810,6 +2030,265 @@ any. From schema 5 each demigod also has `hand` (`left`/`right`).
 ```
 To show an image, find its `hash` in `GET /media/index` (`{hash, url}`) or fetch `/media/<hash>.<ext>`. A hash from
 an older build may no longer be on disk.
+
+## Accounts, settings and demigod personalities
+
+The whole flow, the reasoning and the security notes are in [`ACCOUNTS.md`](ACCOUNTS.md); this section is the
+contract. Schemas: [`account_session`](schemas/account_session.schema.json),
+[`account_me`](schemas/account_me.schema.json), [`account_settings`](schemas/account_settings.schema.json),
+[`account_demigod`](schemas/account_demigod.schema.json),
+[`account_demigod_put`](schemas/account_demigod_put.schema.json),
+[`account_demigod_answer`](schemas/account_demigod_answer.schema.json),
+[`account_entitlements`](schemas/account_entitlements.schema.json),
+[`account_error`](schemas/account_error.schema.json). A scripted client that makes every call below, in order:
+[`clients/fn7_accounts_e2e.mjs`](clients/fn7_accounts_e2e.mjs).
+
+**Conventions.**
+- Plain HTTP on the server's origin (the same host and port as `/ws`), JSON bodies (`Content-Type: application/json`).
+- **A session** is `Authorization: Bearer <session_token>`. The token comes from `POST /api/auth/guest` or from a
+  completed `POST /api/auth/poll`; store it in the OS credential store and send it nowhere else (never on the
+  websocket, never in a URL).
+- **Every error** is `{"error": "<code>", "detail": "<text for a human>"}`. Switch on `error`.
+- Every answer is `Cache-Control: no-store`. Times are Unix epoch milliseconds.
+- **Rate limits** answer `429 {"error": "rate_limited"}` with a `Retry-After` header in seconds. Per minute: the
+  sign-in routes and `/api/game/bind` 10 per client address; `/api/auth/poll` 120 per client address; `GET /api/me…`
+  240, writes 30 and demigod saves 6 per account.
+- Unknown keys in a request body are refused (`400 invalid`).
+
+| Status | `error` | When |
+|---|---|---|
+| 400 | `invalid` | The body is not JSON, has an unknown key, or a value is out of range. `detail` says which. |
+| 400 | `bad_name` | The display name has no usable characters. |
+| 400 | `confirm_required` | `DELETE /api/me` without the right `confirm`. |
+| 401 | `unauthorized` | No session, or it is unknown, expired or revoked. Drop the stored token. |
+| 403 | `profile_claimed` | The name's profile is claimed with a secret: send it as `claim_secret`. |
+| 404 | `not_found` | Unknown poll token, unknown hand, unknown resume token. |
+| 409 | `name_taken` | An active account holds that display name. |
+| 409 | `name_lookalike` | The display name reads like an active account's. |
+| 409 | `name_conflict` | The demigod name reads like someone else's name or demigod, or a built-in one. |
+| 409 | `name_mismatch` | `/api/game/bind`: the websocket logged in under a name that is not the account's. |
+| 409 | `already_linked` | The account already has a Google identity. |
+| 409 | `identity_in_use` | (In a poll's `failed` answer.) That Google account belongs to another account. |
+| 413 | `too_large` | The body is over the route's cap (16 384 bytes for settings, 8 192 elsewhere). |
+| 422 | `refused` | The moderation pass refused a demigod sheet, or a display name broke the content rules. |
+| 429 | `rate_limited` | See above. |
+| 503 | `google_not_configured` | This server has no Google sign-in. Guests work. |
+| 500 | `store`, `internal` | The server failed. Retry later. |
+
+### `GET /api/auth/config`
+No session. What this server offers.
+```json
+{"guest": true, "google": false, "moderation": "rules", "name_guard": true}
+```
+`google`: show the Google button. `moderation`: `"claude-haiku-5-5"` when a model judges demigod sheets, `"rules"` when
+only the rules do.
+
+### `POST /api/auth/guest`
+No session. A guest account and its first session, from a name.
+```json
+{"display_name": "Tess", "device_label": "Tess's PC", "claim_secret": null}
+```
+`display_name`: 1 to 24 characters. `device_label` (optional, ≤ 60 characters): shown in the session list.
+`claim_secret` (optional): only when the name's profile was claimed with a secret.
+
+`201`:
+```json
+{
+  "session_token": "fn7s_<64 hex>",
+  "session": {"id": "ses_<16 hex>", "created_at": 1794692306265, "last_seen_at": 1794692306265, "expires_at": 1802468306265,
+              "device_label": "Tess's PC", "current": true},
+  "account": {"id": "acc_6ae55593577749999b3d1e35", "display_name": "Tess", "guest": true, "profile": "tess",
+              "identities": [{"provider": "guest", "linked_at": 1794692306265}], "created_at": 1794692306265, "updated_at": 1794692306265}
+}
+```
+Errors: `400 invalid` / `bad_name`, `409 name_taken` / `name_lookalike`, `403 profile_claimed`, `422 refused`,
+`413 too_large`, `429`.
+
+### `POST /api/auth/google/start`
+No session: **sign in**. With a session: **link** Google to that (guest) account.
+```json
+{"device_label": "Tess's PC", "display_name": "Tess"}
+```
+Both optional. `display_name` is the name to try first if this sign-in creates an account.
+
+`200`:
+```json
+{"login_url": "https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=…&state=…&nonce=…&code_challenge=…&code_challenge_method=S256&…",
+ "poll_token": "fn7p_<43 characters>", "expires": 1794692906265, "interval_ms": 2000, "linking": false}
+```
+Open `login_url` in the **system browser** (not an embedded web view). Poll with `poll_token` every `interval_ms`
+until `expires`. Errors: `503 google_not_configured`, `401 unauthorized` (a session was sent and is not valid),
+`409 already_linked`, `429`.
+
+### `GET /api/auth/google/callback`
+Google's redirect; the **browser** lands here, not the client. It answers an HTML page ("You are signed in. You can
+close this tab." or why not). The client learns the outcome from the poll.
+
+### `POST /api/auth/poll`
+No session.
+```json
+{"poll_token": "fn7p_…"}
+```
+- `200 {"status": "pending"}`: keep polling.
+- `200 {"status": "complete", "session_token": "fn7s_…", "session": {…}, "account": {…}, "created": true, "linked": false}`:
+  the same `session` and `account` objects as the guest answer; the account has
+  `"guest": false` and `"identities": [{"provider": "google", "email": "you@example.com", "email_verified": true, "linked_at": …}]`.
+  `created`: this sign-in made the account (show its name, offer to change it). `linked`: Google was attached to the
+  account that started the flow; **replace the stored token** (the session that started the link is now revoked).
+- `200 {"status": "failed", "error": "<code>", "detail": "…"}`: `bad_id_token`, `token_exchange_failed`,
+  `provider_keys_unavailable`, `provider_refused` (the user cancelled at Google), `identity_in_use`, `name_taken`.
+- `404 not_found`: unknown, already collected, or older than 10 minutes. Start again.
+
+A `complete` or `failed` answer is given **once**.
+
+### `POST /api/auth/logout`, `POST /api/auth/logout_all`
+Session. `logout` → `204` (no body): this session is revoked. `logout_all` → `200 {"revoked": 3}`: every session of
+the account, this one included. Afterwards the token answers `401`. **A guest that logs out of its last session
+cannot be recovered** (it has no other credential): warn first.
+
+### `GET /api/me`
+Session. `200`:
+```json
+{"account": {…}, "session": {…, "current": true},
+ "sessions": [{"id": "ses_…", "created_at": …, "last_seen_at": …, "expires_at": …, "device_label": "Tess's PC", "current": true}],
+ "google_configured": false}
+```
+`account.past_profiles` (absent when empty) lists the profiles of names held before a rename. Your own email is in
+`account.identities[]` and nowhere else.
+
+### `DELETE /api/me`
+Session.
+```json
+{"confirm": "Tess"}
+```
+`confirm` is the account's display name (any spelling that normalizes to it). `200`:
+```json
+{"deleted": {"account": "acc_…", "sessions": 1, "identities": 1, "profiles": ["tess"], "history_rows": 4, "library_images": 12, "bindings": 0},
+ "remains": ["match recordings (server-side JSONL files, admin access only): …", "images already generated …", "other players' history rows …",
+             "the list of past matches …", "a one-way hash of each profile name you held …"]}
+```
+Show `remains` before asking for the confirmation: ACCOUNTS.md §9 has the five lines in full. Errors:
+`400 confirm_required`.
+
+### `GET /api/me/settings`, `PUT /api/me/settings`
+Session. Both answer `200 {"settings": {…}}`, the full document:
+```json
+{"settings": {
+  "version": 1, "display_name": "Tess", "pronouns": "she",
+  "audio": {"master": 0.8, "music": 0.25, "sfx": 0.8, "voice": 1.0, "mute_when_unfocused": true},
+  "camera": {"pan_speed": 1.0, "zoom_speed": 1.0, "edge_pan": true, "invert_zoom": false},
+  "accessibility": {"aura_palette": "deuteranopia", "reduce_flashing": true, "text_scale": 1.0, "subtitles": true},
+  "content": {"gore": "full", "profanity": "on", "show_player_personas": true},
+  "language": "en",
+  "keybinds": {"camera.pan_left": "A", "cast_bolt": "Ctrl+LeftMouseButton"},
+  "hud": {"layout": "default", "scale": 1.0, "demigod_cards": "lower_left", "show_minimap": true, "show_chat": true, "show_hints": true}
+}}
+```
+`PUT` takes the document itself as the body (not wrapped) and **replaces** the stored one: a key left out goes back to
+its default, so read, change, write back. The values, ranges and defaults are in
+[`account_settings.schema.json`](schemas/account_settings.schema.json) and ACCOUNTS.md §6. Writing a different
+`display_name` renames the account. Errors: `400 invalid` (`"unknown key hud.colour"`,
+`"audio.music must be between 0 and 1"`, `"version 2 is newer than this server's (1)"`), `413 too_large`,
+`409 name_taken` / `name_lookalike`, `403 profile_claimed`, `422 refused`. A refused `PUT` saves nothing.
+
+### `GET /api/me/demigods`, `GET /api/me/demigods/{left|right}`
+Session. One demigod:
+```json
+{"hand": "left", "saved": true, "name": "Ashen Vow", "match_name": "Ashen Vow",
+ "personality": "A sour old   duelist who drinks to much,\nkills without flourish — and hates the gods. ",
+ "style": "Short sentences. Never shouts.", "creed": "Nothing is owed twice.",
+ "moderation": {"verdict": "ok", "reason": "", "model": "claude-haiku-5-5", "at": 1794692306276,
+                "original": {"name": "Ashen Vow", "personality": "…", "style": "…", "creed": "…"}}}
+```
+`match_name` is what the demigod is called in a match: the custom `name`, else `"<display name>'s Left Hand"` /
+`"<display name>'s Right Hand"`. Before the first save: `saved: false`, `name: null`, empty texts, `moderation: null`.
+`GET /api/me/demigods` → `{"left": {…}, "right": {…}, "limits": {"name": 32, "personality": 600, "style": 200, "creed": 200}}`.
+
+### `PUT /api/me/demigods/{left|right}`
+Session. Every key optional (left out = empty; `name: null` or `""` = no custom name):
+```json
+{"name": "Ashen Vow", "personality": "…", "style": "…", "creed": "…"}
+```
+Limits are in characters. Newlines and tabs are allowed in the three texts. Text over a limit or with other control
+characters is **refused, never trimmed** (`400 invalid`). A name loses its surrounding and doubled spaces.
+
+The server runs one moderation pass and answers one of three ways (`verdict`):
+
+**`ok`** (`200`): saved exactly as sent, character for character.
+```json
+{"verdict": "ok", "model": "claude-haiku-5-5", "demigod": {…as GET…}}
+```
+
+**`rephrase`** (`200`): the text broke a content rule; the **minimal rewrite** is saved and both versions are returned.
+```json
+{"verdict": "rephrase", "model": "claude-haiku-5-5",
+ "reason": "Removed the name of a real person; the rest is yours.", "categories": ["harassment"],
+ "original": {"name": null, "personality": "Loyal to a fault. Hates the mayor of Springfield, Joe Quimby, that thieving crook. Patient.", "style": "", "creed": "Debts first."},
+ "final":    {"name": null, "personality": "Loyal to a fault. Hates the mayor, that thieving crook. Patient.", "style": "", "creed": "Debts first."},
+ "demigod": {…as GET, holding `final`…}}
+```
+Show `original` and `final` side by side with `reason`. "Keep" needs no call (it is saved). "Edit" puts `original`
+back in the editor for the player to change and send again.
+
+**`refuse`** (`422`): nothing of the player's meaning survives; **nothing is saved**.
+```json
+{"error": "refused", "detail": "This is only an attack on a real person, so there is nothing to keep.",
+ "verdict": "refuse", "reason": "This is only an attack on a real person, so there is nothing to keep.",
+ "categories": ["harassment"], "model": "claude-haiku-5-5",
+ "original": {"name": null, "personality": "Joe Quimby is a thieving crook.", "style": "", "creed": ""},
+ "demigod": {…what the account still has: the previous sheet, or saved: false…}}
+```
+
+`categories`: `hate`, `sexual`, `harassment`, `instructions` (text that addresses the game's AI or tries to fix
+outcomes), `personal_data`. `model` is `"rules"` when the rules decided (no LLM, a timeout, a junk answer, or personal
+data / forged prompt markers, which are always cut by rule); its reasons read
+`"Removed text that tries to instruct the game or fix its outcomes; the rest is exactly as you wrote it."`.
+The same sheet sent again is answered from the stored record without a new pass.
+
+Other errors: `400 invalid` (`"personality is limited to 600 characters (this is 601)"`), `409 name_conflict`
+(`"Vex is one of the game's own demigods"`, `"another player's demigod has that name, or one that reads the same"`,
+`"your two demigods need different names"`), `404 not_found` (a hand other than `left` / `right`), `429`.
+
+### `GET /api/me/entitlements`
+Session. **Billing is not live.**
+```json
+{"tier": "free", "entitlements": [], "billing": {"live": false, "provider": null, "note": "Billing is not live: nothing can be bought and no payment provider is called."}}
+```
+
+### `POST /api/game/bind`: this websocket is this account
+Session. Call it **right after `auth.ok` and before `room.join`**, once per `auth.login` (not after `auth.resume`).
+```json
+{"resume_token": "<auth.ok.resume_token>"}
+```
+`200`:
+```json
+{"bound": true, "player_id": "e9867dc6-8f66-40f4-8315-bb0624204de4", "display_name": "Tess",
+ "demigods": {"left": {"match_name": "Ashen Vow"}, "right": {"match_name": "Tess's Right Hand"}}}
+```
+Errors: `404 not_found` (no websocket login has that resume token), `409 name_mismatch` (log in on the websocket as
+`account.display_name`), `401`, `429`.
+
+**Why it matters.** The websocket's `auth.login` takes any display name. A name an account holds is reserved: a
+connection that carries it **without** this bind gets
+`{"t": "error", "d": {"code": "unauthorized", "message": "name_reserved: this name belongs to an account. …"}}` and is
+closed (at once when it is in a room, after 10 s otherwise), and its resume token stops working. A bound connection's
+seat gets the account's demigod names and personas, and its matches go to the account's history. Names no account
+holds, bots, and the house flow work exactly as before.
+
+### In the match
+A signed-in player's demigods appear with their custom names everywhere a demigod's `name` appears, and every public
+demigod object gains an optional `persona`:
+```json
+{"ref": "dg:0", "name": "Cinder Oath", "controller": "human", "seat": 0, "…": "…",
+ "persona": {"personality": "A sour old   duelist who drinks to much,\nkills without flourish — and hates the gods. ",
+             "style": "Short sentences. Never shouts.", "creed": "Nothing is owed twice.", "pronouns": "she"}}
+```
+(`round.committed.public_state.demigods[]`, `match.snapshot.public_state.demigods[]`, and the demigods of
+`game.globe` and `game.region`; schema: `public_view` → `demigods[].persona`.) Each field is absent when empty; `persona` is
+absent for a demigod whose player wrote nothing (guests without an account, bots, the built-in AI). It is the
+player's text as stored: show it, never interpret it, and hide other players' when the viewer's
+`content.show_player_personas` is false. Portraits and dioramas key on the demigod's name as before, so a custom name
+has its own look.
 
 ## Hidden information
 

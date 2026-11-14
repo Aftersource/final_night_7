@@ -45,11 +45,110 @@ checks (tests, clippy, replay, schema validation, a live match), updates docs/CL
 `#benito/finalnight` what changed for clients.
 
 ## Open requests to the engine (theatre_worker)
-None. (Sync-hook tracing, `ctx` for `fallback_outcome` and the `fallback_outcome` hook record landed in `1741d8f`;
-`/admin/*` ignoring unknown query params such as the ngrok gate's `?key=` needs no change.)
+
+From the exact-resume audit (2026-11-14; docs/TIME_TRAVEL.md §8 has what each one costs today). Line numbers are
+`theatre` at `3523189` plus its uncommitted work.
+
+1. **Persist the round in progress.** `MatchSnap` (`crates/server/src/persist.rs:58`) holds the plugin state as of the
+   last Commit and `next_seq` (the event log's). Not persisted: `MatchRun.pending` (accepted instant actions,
+   `room.rs` `on_instant_submit`), the Compose `actions`, the open window and its held actions, and
+   `next_action_seq` (`room.rs:339`, reset to 0 by `MatchRun::new` in `restore_room`, `room.rs:703`). Asked: write
+   them with the room snapshot (or an append-only per-room log flushed at each accepted action) and restore them, so
+   a restart resumes inside the beat and `Action.seq` never repeats within a match. Until then FN7 journals instant
+   actions itself and re-feeds them (`fn7-plugin/src/present.rs`), and steps duel ids past a clash.
+2. **Make the recording crash-safe.** `write_loop` (`crates/trace/src/lib.rs:424`) writes through a `BufWriter` and
+   flushes only on `Record::Flush` and at `run_end`: a kill loses the buffered tail (under 8 KiB) and the reopened
+   file continues on the torn line. Asked: flush after each record (or at least after each `event` and `hook`), and
+   write a newline first when appending to a file that does not end with one.
+3. **A timer / hold-window callback** (this replaces `fields.duel_tick`). A plugin runs only on actions and
+   beats, so FN7's duel panels (rules 0.8.2) advance when a duellist's client sends a tick at each input close. The
+   exact facility asked for:
+   - `PhaseControl.wake_at_ms: Option<i64>` (epoch ms; clamped to now + 1 ms ..= now + 10 min), accepted from
+     `on_instant`, `on_action_begin` and from the new hook itself; one pending wake per `key`
+     (`PhaseControl.wake_key: Option<String>`, FN7 would use the duel id), a later one for the same key replaces it.
+   - `fn on_timer(&self, state: &Value, round: u32, key: &str, now_ms: i64) -> PhaseControl` (sync, read-only, on
+     the room actor like `on_instant`, in the match's recording context, recorded as a sync hook with `key` and
+     `now_ms` in its input). Its `PhaseControl.public` goes out as a `phase.event`.
+   - The firing is delivered to the next resolve as an `Action`-like entry (`timer: true`, `key`, `received_at_ms`,
+     `seq`), so the authoritative state sees the same stamp the live hook saw. (Today the tick IS an instant action,
+     which gives exactly this.)
+   - Pending wakes are persisted with the room and cancelled when the match ends.
+   With the room-wide **hold** asked for in 0.8.1 (no beats resolve and phase timers stand still while a hold is
+   open, `PhaseControl.hold: Option<{deadline_in_ms, participants}>`), this is one facility: a hold window with a
+   timer. FN7 flips `duel::ENGINE_HOLDS` and drops the tick when it lands.
+4. **Time and pauses in the hooks.** Asked: `on_round_start` gets `now_ms` and `paused_ms` (how long the room stood
+   still before this round: a pause with nobody connected, a restore, a fork), recorded with the hook's input. FN7
+   measures both itself today and records them as a `duel_clock` event that its replay feeds back.
+5. **Views in the match's context.** `RoomActor::public_view` / `seat_view` (`room.rs:4080`, `4090`) and the admin's
+   `state_at` (`admin.rs:248`) call the plugin outside `with_trace`. Asked: run them inside the match's context (run
+   id, round), or pass the match id to every hook, so a plugin can tell two matches with one seed apart (a fork and
+   its parent) and a live state from a historical one.
+6. **`server_time` in `match.snapshot`**, and **several public events from one `on_instant`**
+   (`Option<Value>` → `Vec<Value>`, each its own `phase.event`). FN7 puts the clock in `public_state.present` and
+   nests extra events in `also[]`.
+7. **Tell a resumed viewer it has no room.** `RoomCmd::Disconnected` removes a viewer and clears its room
+   (`room.rs:1161-1167`); `Gateway::resume` (`gateway.rs:463-513`) then sends `auth.ok` and, with `p.room == None`,
+   nothing else. A client waiting for `room.snapshot` hangs until the 60 s idle close (seen live in the house,
+   2026-11-14 20:51 UTC). Asked: either keep a dropped viewer's place for the resume TTL and send it
+   `room.snapshot` + `match.snapshot` on resume like a seat, or reply to the resume with `room.left {room_id: null,
+   reason: "viewer_dropped"}` so the client knows to join again. (PROTOCOL.md says "A viewer who disconnects is
+   gone"; it does not say the resume is silent.)
+8. **`round.brief` for viewers.** `on_brief` (`room.rs:2091-2103`) sends it per seat only. Asked: also to viewers,
+   with `private: null`, like `round.outcome`. And `rules_version` in `GET /api/house` (`describe`, `room.rs:4373`)
+   next to `rules`; today a client reads `server.hello.d.api.rules_version`.
+### A1. Authenticated login: a session at `auth.login`, the account passed to the plugin (requested 2026-11-14)
+
+**Why.** FN7 now has accounts (`docs/ACCOUNTS.md`). The engine's `auth.login` takes a display name and nothing else,
+and no hook sees a socket, so FN7 binds a session to an engine player beside the websocket
+(`POST /api/game/bind {resume_token}`) and polices names from outside (`fn7-server::accounts`: the name guard). That
+works but is not airtight: between two guard ticks (250 ms) an unbound player can sit in a room under an account's
+name and, in the house, reclaim that name's away seat (`reclaim_by_name` runs before any hook); see ACCOUNTS.md §5
+"What is not airtight". It also makes FN7 depend on engine internals (below).
+
+**The request, exactly.**
+
+1. **Protocol.** `auth.login { display_name, client?, session? }`: `session` is an optional opaque string (at most
+   512 characters) the engine never logs, never persists and never echoes. `auth.ok` gains an optional `account`
+   (string) when the login was authorized to one.
+2. **A host hook on the server** (not on `GamePlugin`: it is about connections, not a match), optional, set at
+   startup; without it logins work as today:
+   ```rust
+   pub struct LoginRequest<'a> { pub display_name: &'a str, pub session: Option<&'a str>, pub client_kind: &'a str }
+   pub struct LoginGrant { pub display_name: String, pub account: Option<String> }
+   pub trait LoginAuthorizer: Send + Sync {
+       /// Called for every `auth.login`, before the player exists. `Ok`: the name the player gets (the host may
+       /// correct its spelling) and the account it belongs to, if any. `Err`: the login is refused with that code
+       /// and message (FN7 answers `unauthorized` "name_reserved: …" for an account's name without its session).
+       fn authorize(&self, req: &LoginRequest<'_>) -> Result<LoginGrant, (ErrorCode, String)>;
+   }
+   impl AppState { pub fn set_login_authorizer(&self, a: Arc<dyn LoginAuthorizer>); }
+   ```
+   The hook is synchronous and must be fast (FN7's is one SQLite read).
+3. **The account travels with the player.** `Player.account: Option<String>` (kept in the sessions file, so it
+   survives `auth.resume` and a restart), and from there into the plugin API as optional, defaulted fields:
+   `SeatInfo.account: Option<String>` and `SeatTakeover.account: Option<String>` (so both are in the recorded hook
+   inputs and a replay needs nothing else to know whose seat it is).
+4. **The house's reclaim by name respects it.** In `reclaim_by_name`, a seat whose player had an `account` is
+   reclaimed only by a player with the same `account`; a player with an `account` never takes, by name alone, a seat
+   that belonged to a different one. Seats and players without an account behave as today.
+5. **A way to end a player's session from the host** (for logout and account deletion while connected):
+   `AppState::end_session(player_id, code, message)`: the error frame, the socket closed, the player and its resume
+   token forgotten, its room told (what the sweep does for an expired player).
+
+**What FN7 removes when A1 lands:** `POST /api/game/bind`, the name guard and its grace period, `seat_auth`'s
+"every player carrying the name" check, the `seat_refused` event, and every read of engine internals listed below.
+The Unreal client then sends its session token in `auth.login` instead of calling the bind route. The `seat_persona`
+event stays (the persona text comes from FN7's store, not from the engine).
+
+**Until then FN7 uses these `theatre-server` items beyond the plugin API** (all `pub` today; please keep them so, or
+tell FN7 before they change): `AppState.players` (`Player.id`, `.display_name`, `.resume_token`, `.conn`, `.room`),
+`AppState.resume_index`, `AppState.rooms` (`RoomHandle.run`), `AppState::room_tx`, `AppState::mark_sessions_dirty`,
+`Conn::send` / `Conn::close`, `room::RoomCmd::Expired`. They are read in one place:
+`crates/fn7-server/src/accounts/mod.rs` (`EngineDirectory`).
 
 ## Guardrails
-- **Wrappers must forward every engine hook.** `MediaPlugin` wraps the game in the server and `fn7-server::record::
+- **Wrappers must forward every engine hook.** `MediaPlugin` wraps the game in the server (around
+  `accounts::plugin::AccountsPlugin`, which wraps the game itself: docs/ACCOUNTS.md §8) and `fn7-server::record::
   Recorded` records it in `fn7-sim`; a test asserts that every `GamePlugin` method is forwarded through both,
   including new hooks and arguments (`SubmitKind`, `next_window_id`, `RoundContext` in `resolve_round` and
   `fallback_outcome`, `queries`/`query`, `on_seat_takeover`).

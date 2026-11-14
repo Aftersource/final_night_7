@@ -512,6 +512,7 @@ pub fn setup(cfg: &SetupConfig, seats: &[(u8, String)], pantheon: &Pantheon) -> 
             side: None,
             player: String::new(),
             sparks: 0,
+            persona: None,
         });
     }
     for (gi, god) in pantheon.gods.iter().enumerate() {

@@ -1204,3 +1204,26 @@ fn a_god_tier_power_arms_your_own_demigod() {
         assert_eq!(crate::items::items_of(&world::load(&o.state).unwrap(), d).len(), 1);
     }
 }
+
+/// A wiped player stays in the Theatre's eyes (the core refuses a seat that is out), so its pleas can arrive.
+#[test]
+fn a_wiped_player_is_not_reported_out_so_it_can_still_plead() {
+    let mut t = table(71, json!({}));
+    let (l, r) = (mine(&t.w(), 0)[0], mine(&t.w(), 0)[1]);
+    let kill = |w: &mut World| {
+        for d in [l, r] {
+            let p = Proposal { source: Source::Rules, intent: None, effect: Effect::Eliminate { who: Ref::Demigod(d), cause: "a test".into() },
+                               act: "it falls".into(), actor: Ref::Demigod(d), magnitude: 9, valence: -5, witnesses: vec![], cause: None };
+            crate::merge::run(w, vec![p], &fn7_pantheon::load(), 2, 4);
+        }
+    };
+    t.edit(kill);
+    let c = block(t.p.commit_round(&t.state, 2, &[], &Failing)).unwrap();
+    assert!(c.eliminated.is_empty(), "{:?}", c.eliminated);
+    assert!(!world::load(&c.state).unwrap().seat_alive(0));
+    // Under the 0.8.x rules the seat is reported out, as before.
+    let mut old = table(71, json!({ "wills_enabled": false }));
+    old.edit(kill);
+    let c = block(old.p.commit_round(&old.state, 2, &[], &Failing)).unwrap();
+    assert_eq!(c.eliminated.len(), 1);
+}

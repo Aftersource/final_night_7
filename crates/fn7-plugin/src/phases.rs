@@ -92,6 +92,7 @@ pub fn new_match(
             zoom: Zoom::District,
             focus: None,
             display_name: if s.demigods_per_player >= 2 { name.clone() } else { String::new() },
+            account: None,
         })
         .collect();
     w
@@ -349,13 +350,31 @@ fn report_eliminations(
         // The player is out (reported to the Theatre) only when every demigod of theirs has fallen, once.
         let sibs = w.siblings(d);
         let seat_out = !w.seat_alive(x.seat) && !w.out_reported.iter().any(|o| sibs.contains(o));
-        let seat = (x.seat < SYNTHETIC_SEAT && seat_out).then_some(x.seat);
+        // Rules 0.9.0: a wiped player is NOT reported out to the Theatre (the core refuses every submission of a seat
+        // that is out, and a wiped player may still plead with Death, ask about quests and make offerings) until the
+        // match is over. Clients read `players[].alive` and their seat view's `alive`; the match still ends by the
+        // plugin's own count, and the beat that ends it reports everyone who is out.
+        let over = match_over(w, beat);
+        let seat = (x.seat < SYNTHETIC_SEAT && seat_out && (over || !crate::wills::on(w))).then_some(x.seat);
         out.push((seat, x.name.clone(), cause));
         if seat.is_some() {
             w.out_reported.push(d);
         }
         if let Some(b) = w.beats.last_mut().filter(|b| b.beat == beat) {
             b.eliminated.push(d);
+        }
+    }
+    // Rules 0.9.0: the beat that ends the match reports the wiped players it had kept in play.
+    if crate::wills::on(w) && match_over(w, beat) {
+        for seat in w.player_seats().into_iter().filter(|s| *s < SYNTHETIC_SEAT) {
+            let bodies: Vec<DemigodId> = w.bodies_of_seat(seat).map(|d| d.id).collect();
+            if w.seat_alive(seat) || bodies.iter().any(|d| w.out_reported.contains(d)) || out.iter().any(|(s, _, _)| *s == Some(seat)) {
+                continue;
+            }
+            let Some(last) = bodies.iter().copied().max_by_key(|d| (w.demigods[d.ix()].eliminated_beat, *d)) else { continue };
+            let x = &w.demigods[last.ix()];
+            out.push((Some(seat), x.name.clone(), x.cause.clone().unwrap_or_else(|| "fate".into())));
+            w.out_reported.push(last);
         }
     }
     out
@@ -714,6 +733,8 @@ pub(crate) fn demigod_public(w: &World, d: &Demigod) -> Value {
                         "diorama_prompt": crate::payload::diorama_prompt(w, d), "diorama_image_kind": "diorama",
                         "visual": crate::visual::demigod(w, d).to_json() });
     crate::table::add_table_fields(w, d, &mut v);
+    // Accounts: the character a signed-in player wrote for this demigod (absent otherwise).
+    crate::persona::add_fields(d, &mut v);
     if w.two_bodies() {
         v["sparks"] = d.sparks.into();
         v["side"] = json!(d.side);

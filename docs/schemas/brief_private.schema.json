@@ -1101,6 +1101,22 @@
           ],
           "type": "string"
         },
+        "near": {
+          "description": "at: a place that satisfied the step when the quest was given (the nearest shrine or settlement of the kind, the remembered spot): where to send the demigod. Any place of the kind will do. Absent for fault lines and coasts.",
+          "properties": {
+            "at": {
+              "$ref": "#/$defs/LonLat"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "at"
+          ],
+          "type": "object"
+        },
         "offer": {
           "description": "at: an item whose name carries this word must be in hand there; it is burned.",
           "type": "string"

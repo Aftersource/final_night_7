@@ -1,0 +1,145 @@
+{
+  "$defs": {
+    "Account": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "type": "integer"
+        },
+        "display_name": {
+          "description": "The name to log in on the websocket with.",
+          "maxLength": 24,
+          "type": "string"
+        },
+        "guest": {
+          "description": "true until a Google identity is linked.",
+          "type": "boolean"
+        },
+        "id": {
+          "description": "The account's public id. Not a secret.",
+          "pattern": "^acc_[0-9a-f]{24}$",
+          "type": "string"
+        },
+        "identities": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "email": {
+                "description": "The owner's own email (Google). Only ever in the account's own answers.",
+                "type": "string"
+              },
+              "email_verified": {
+                "type": "boolean"
+              },
+              "linked_at": {
+                "type": "integer"
+              },
+              "provider": {
+                "enum": [
+                  "guest",
+                  "google"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "provider",
+              "linked_at"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "past_profiles": {
+          "description": "Profiles of names held before a rename. Absent when empty.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "profile": {
+          "description": "The linked profile's key: GET /api/profiles/{profile}.",
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "display_name",
+        "guest",
+        "profile",
+        "identities",
+        "created_at",
+        "updated_at"
+      ],
+      "type": "object"
+    },
+    "Session": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "type": "integer"
+        },
+        "current": {
+          "type": "boolean"
+        },
+        "device_label": {
+          "maxLength": 60,
+          "type": "string"
+        },
+        "expires_at": {
+          "description": "Slides to 90 days after each use.",
+          "type": "integer"
+        },
+        "id": {
+          "description": "Names the session in lists. Not a credential.",
+          "pattern": "^ses_[0-9a-f]{16}$",
+          "type": "string"
+        },
+        "last_seen_at": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "created_at",
+        "last_seen_at",
+        "expires_at",
+        "device_label",
+        "current"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "account_me.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "account": {
+      "$ref": "#/$defs/Account"
+    },
+    "google_configured": {
+      "type": "boolean"
+    },
+    "session": {
+      "$ref": "#/$defs/Session"
+    },
+    "sessions": {
+      "description": "The account's live sessions, most recently used first.",
+      "items": {
+        "$ref": "#/$defs/Session"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "account",
+    "session",
+    "sessions",
+    "google_configured"
+  ],
+  "title": "GET /api/me",
+  "type": "object"
+}

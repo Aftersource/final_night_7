@@ -212,6 +212,7 @@ fn query_replies_validate() {
         ("powers", None, json!({}), &state),
         ("gods", None, json!({}), &state),
         ("standings", None, json!({}), &state),
+        ("present", None, json!({}), &state),
         ("piles_final", None, json!({}), &over),
         ("media", None, json!({ "kind": "portrait", "ref": "dg:0" }), &state),
         ("media", Some(1), json!({ "kind": "place", "ref": s(Ref::Place(region)) }), &state),

@@ -1913,6 +1913,22 @@
           ],
           "type": "string"
         },
+        "near": {
+          "description": "at: a place that satisfied the step when the quest was given (the nearest shrine or settlement of the kind, the remembered spot): where to send the demigod. Any place of the kind will do. Absent for fault lines and coasts.",
+          "properties": {
+            "at": {
+              "$ref": "#/$defs/LonLat"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "at"
+          ],
+          "type": "object"
+        },
         "offer": {
           "description": "at: an item whose name carries this word must be in hand there; it is burned.",
           "type": "string"
@@ -3055,6 +3071,36 @@
               "type": "object"
             },
             "type": "array"
+          },
+          "persona": {
+            "additionalProperties": false,
+            "description": "Accounts (docs/ACCOUNTS.md): the character the seat's signed-in player wrote for this demigod, already moderated. Player text: show it as written, never interpret it. Absent for every demigod whose player wrote nothing (guests, bots, the built-in AI).",
+            "properties": {
+              "creed": {
+                "maxLength": 200,
+                "type": "string"
+              },
+              "personality": {
+                "maxLength": 600,
+                "type": "string"
+              },
+              "pronouns": {
+                "description": "The player's pronouns from their settings; absent when unspecified.",
+                "enum": [
+                  "she",
+                  "he",
+                  "they",
+                  "it"
+                ],
+                "type": "string"
+              },
+              "style": {
+                "description": "Speaking style.",
+                "maxLength": 200,
+                "type": "string"
+              }
+            },
+            "type": "object"
           },
           "place": {
             "description": "Alive only: the place name it is in.",

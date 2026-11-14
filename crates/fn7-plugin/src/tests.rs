@@ -857,7 +857,8 @@ async fn instant_orders_pay_a_flat_toll() {
 #[tokio::test(flavor = "multi_thread")]
 async fn revive_returns_the_seat_to_play() {
     let p = FinalNight7Plugin::new();
-    let settings = json!({"seed": 4, "beats_total": 30, "clusters": 40, "players": 2, "llm": false});
+    // Pinned to the 0.8.x reporting (0.9.0 keeps a wiped player in play so it can plead: `wills::tests`).
+    let settings = json!({"seed": 4, "beats_total": 30, "clusters": 40, "players": 2, "llm": false, "wills_enabled": false});
     let r = play(settings, &Failing, humans(2), Some(1)).await;
     let mut w = load(&r.last);
     // Rules 0.7.0: Brix (seat 1) has two demigods, dg:1 (Left) and dg:3 (Right). One falling isn't the seat's end.

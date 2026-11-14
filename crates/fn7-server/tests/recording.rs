@@ -430,3 +430,160 @@ async fn sync_hook_events_land_in_the_run() {
     }
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// Time travel (docs/TIME_TRAVEL.md, c): one recorded match with summonings, challenges, duels that last across beats
+/// and end in knockouts, a mid-match join and a fallen player's will, driven hook by hook as the core drives it
+/// (instant actions validated and shown on arrival, then delivered to the next resolve). The recording holds every
+/// instant action with its arrival stamp (`on_instant` and the resolve's input), a duel's timeline can be rebuilt from
+/// it to the millisecond, and replay reproduces every snapshot.
+#[tokio::test(flavor = "multi_thread")]
+async fn duels_summons_a_will_and_a_join_replay_with_zero_differences() {
+    use fn7_model::{DemigodId, Ref};
+    let dir = temp_dir("timetravel");
+    let rec = recorder(&dir, theatre_trace::Level::Full).unwrap();
+    let run = uuid::Uuid::new_v4().to_string();
+    let p = Recorded::new(FinalNight7Plugin::new(), rec.run(run.clone()));
+    let llm = traced(Arc::new(Failing));
+    let llm = llm.as_ref();
+    let mut seats: Vec<SeatInfo> = [("Ash", false), ("Brix", false), ("Cyra", true), ("Dune", true)]
+        .iter().enumerate().map(|(i, (n, bot))| SeatInfo { seat: i as u8, display_name: n.to_string(), is_bot: *bot }).collect();
+    let settings = p.validate_settings(&json!({ "seed": 77, "beats_total": 80, "llm": false, "duel_ai_chance": 0.0,
+        "dm_encounters_per_beat": 0, "duel_damage_scale": 0.8, "duel_counter_ms": 60000, "summon_loss_scale": 0.0 })).unwrap();
+    let mut state = p.on_match_start(&seats, &settings, llm).await.unwrap();
+    let t0 = theatre_trace::now_ms();
+    let says = ["I kick your knee into the mud then smash your jaw", "I grab your wrist and slam your ribs on the stone wall",
+                 "I sweep your ankle by the river and stomp your shin", "I hook your chin then jab your nose in the rain",
+                 "I headbutt your temple and whip your ear with wind", "I punch your gut then kick your hip into the dust",
+                 "I smash your elbow on the rock and twist your arm", "I stab at your shoulder and slash your thigh in the fog"];
+    let (mut seq, mut said, mut out, mut sent, mut will_round, mut locks) = (0u64, 0usize, Vec::<u8>::new(), Vec::<(u64, i64)>::new(), None::<u32>, 0u32);
+    let mut poked: Vec<String> = vec![];
+    let mut round = 0u32;
+    while round < 60 {
+        round += 1;
+        if round == 4 {
+            // The core completes a mid-match join at the boundary: a human takes over the bot Cyra's seat.
+            let t = SeatTakeover { seat: 2, display_name: "Joan".into(), round, new_seat: false, previous_name: Some("Cyra".into()) };
+            state = p.on_seat_takeover(&state, &t).expect("the bot's seat is taken over");
+            seats[2] = SeatInfo { seat: 2, display_name: "Joan".into(), is_bot: false };
+        }
+        let start = p.on_round_start(&state, round, llm).await.unwrap();
+        state = start.state.clone();
+        out.extend(start.eliminated.iter().map(|e| e.0));
+        if p.is_match_over(&state, round - 1) {
+            break;
+        }
+        let mut actions = vec![];
+        for s in seats.iter().filter(|s| !out.contains(&s.seat)) {
+            actions.push(if s.is_bot { p.bot_action(&state, s.seat, llm).await.unwrap() } else { p.default_action(&state, s.seat) });
+        }
+        // An instant action as the core takes it: validate, stamp, show (`on_instant`), queue for the resolve.
+        let mut k = 0i64;
+        let mut instant = |state: &Value, seat: u8, fields: Value, seq: &mut u64, queue: &mut Vec<Action>, sent: &mut Vec<(u64, i64)>| -> Option<Value> {
+            p.validate_action(state, seat, "", &fields, SubmitKind::Instant).ok()?;
+            *seq += 1;
+            k += 1;
+            let a = Action { fields, instant: true, seq: *seq, received_at_ms: t0 + round as i64 * 3000 + k * 700, ..Action::new(seat, "") };
+            let ev = p.on_instant(state, seat, &a);
+            sent.push((a.seq, a.received_at_ms));
+            queue.push(a);
+            ev
+        };
+        let w = fn7_plugin::world::load(&state).unwrap();
+        let mine: Option<DemigodId> = w.bodies_of_seat(0).find(|d| d.alive).map(|d| d.id);
+        let foe: Option<DemigodId> = w.bodies_of_seat(1).find(|d| d.alive).map(|d| d.id);
+        let mut ctx = RoundContext::default();
+        let mut queue = vec![];
+        match (mine, foe) {
+            (Some(me), Some(foe)) => {
+                let open = w.dm.duels.first().and_then(|d| d["duel"]["id"].as_str()).map(str::to_string);
+                let id = match open {
+                    Some(id) => Some(id),
+                    None => {
+                        let (a, b) = (w.demigods[me.ix()].pos, w.demigods[foe.ix()].pos);
+                        if (a[0] - b[0]).abs() + (a[1] - b[1]).abs() > 0.5 {
+                            let near = json!([b[0] + 0.004, b[1]]);
+                            instant(&state, 0, json!({ "summon": { "demigod": Ref::Demigod(me), "target": near } }), &mut seq, &mut queue, &mut sent);
+                        }
+                        let lock = instant(&state, 0, json!({ "challenge": { "demigod": Ref::Demigod(me), "target": Ref::Demigod(foe), "level": "people" } }),
+                                           &mut seq, &mut queue, &mut sent);
+                        if lock.is_some() {
+                            locks += 1;
+                        }
+                        lock.and_then(|l| l["duel_id"].as_str().map(str::to_string))
+                    }
+                };
+                if let Some(id) = id {
+                    // Brix answers once (so nobody counters for it), then Ash types.
+                    if !poked.contains(&id) {
+                        poked.push(id.clone());
+                        instant(&state, 1, json!({ "duel": { "duel_id": id, "text": "hm" } }), &mut seq, &mut queue, &mut sent);
+                    }
+                    for _ in 0..2 {
+                        said += 1;
+                        instant(&state, 0, json!({ "duel": { "duel_id": id, "text": says[said % says.len()] } }), &mut seq, &mut queue, &mut sent);
+                    }
+                }
+            }
+            (_, None) if will_round.is_none() => {
+                // Brix has fallen. The text it typed in a slow window opened while it still stood arrives now.
+                seq += 1;
+                let at = t0 + round as i64 * 3000 + 900;
+                let mut a = fn7_plugin::actions::action(1, "my guys come back to life!", "", None);
+                (a.windowed, a.window_id, a.seq, a.received_at_ms) = (true, Some(9), seq, at);
+                queue.push(a);
+                ctx.windows_closed.push(ClosedWindow {
+                    info: WindowInfo { window_id: 9, by_seat: 1, opened_ms: at - 2500, deadline_ms: at + 20_000, engaged: vec![1] },
+                    closed_ms: at, reason: "submitted".into(), by_seat: Some(1), submitted: vec![1], dropped: vec![],
+                });
+                will_round = Some(round);
+            }
+            _ => {}
+        }
+        let _ = &mut instant;
+        actions.extend(queue);
+        let outcome = p.resolve_round(&state, round, &actions, &ctx, llm, &NoProgress).await.unwrap();
+        let committed = p.commit_round(&outcome.state, round, &[], llm).await.unwrap();
+        state = committed.state.clone();
+        out.extend(committed.eliminated.iter().map(|e| e.0));
+        if will_round.is_some_and(|r| round > r) || mine.is_none() {
+            break;
+        }
+    }
+    p.summarize(&state, llm).await.unwrap();
+    rec.flush();
+    assert!(will_round.is_some(), "Brix fell within {round} beats ({locks} duels)");
+    let path = dir.join(format!("{run}.jsonl"));
+    let ls = lines(&path);
+    let ev = |k: &str| of(&ls, "event").filter(|e| e["kind"] == k).count();
+    assert!(locks >= 2 && ev("duel_lock") as u32 == locks, "two demigods, a duel each: {locks} locks, {} recorded", ev("duel_lock"));
+    assert!(ev("summon_streak") >= 1 && ev("fallen_will") == 1 && ev("seat_takeover") == 1, "summons {}, wills {}, joins {}",
+            ev("summon_streak"), ev("fallen_will"), ev("seat_takeover"));
+    // Every instant action is in the recording twice with its arrival stamp: as it arrived, and as it was resolved.
+    let arrived: Vec<(u64, i64)> = of(&ls, "hook").filter(|h| h["hook"] == "on_instant")
+        .map(|h| (h["input"]["action"]["seq"].as_u64().unwrap(), h["input"]["action"]["received_at_ms"].as_i64().unwrap())).collect();
+    assert_eq!(arrived, sent, "on_instant: every instant action with its arrival stamp, in order");
+    let resolved: Vec<(u64, i64)> = of(&ls, "hook").filter(|h| h["hook"] == "resolve_round")
+        .flat_map(|h| h["input"]["actions"].as_array().cloned().unwrap_or_default())
+        .filter(|a| a["instant"] == true).map(|a| (a["seq"].as_u64().unwrap(), a["received_at_ms"].as_i64().unwrap())).collect();
+    assert_eq!(resolved, sent, "resolve_round: the same actions, the same stamps");
+    // A duel's timeline to the millisecond: the typed blows a state holds are exactly the recorded lines' stamps.
+    let snap = of(&ls, "snapshot").filter(|s| s["label"] == "commit_round" && s["state"]["dm"]["duels"][0]["blows"].is_array()).last()
+        .expect("a commit with an open duel");
+    let bout = &snap["state"]["dm"]["duels"][0];
+    let id = bout["duel"]["id"].as_str().unwrap();
+    let typed: Vec<(i64, String)> = of(&ls, "hook").filter(|h| h["hook"] == "on_instant" && h["input"]["action"]["fields"]["duel"]["duel_id"] == id)
+        .map(|h| (h["input"]["action"]["received_at_ms"].as_i64().unwrap(), h["input"]["action"]["fields"]["duel"]["text"].as_str().unwrap().to_string()))
+        .filter(|(at, _)| *at <= snap["state"]["dm"]["mark"]["at_ms"].as_i64().unwrap()).collect();
+    let kept: Vec<(i64, String)> = bout["blows"].as_array().unwrap().iter()
+        .map(|b| (b["at_ms"].as_i64().unwrap(), b["text"].as_str().unwrap().to_string())).collect();
+    assert!(!kept.is_empty());
+    assert_eq!(kept, typed, "the duel's timeline rebuilt from the recording's instant actions");
+    assert_eq!(bout["duel"]["started_ms"].as_i64(), of(&ls, "hook").find(|h| h["hook"] == "on_instant" && h["output"]["duel_id"] == id
+        && h["output"]["event"] == "challenge.lock").and_then(|h| h["input"]["action"]["received_at_ms"].as_i64()), "its lock's stamp");
+    let rep = fn7_server::replay::verify(&path, |l| eprintln!("{l}")).await.unwrap();
+    eprintln!("time travel replay: {} snapshots over {} beats, {} identical, {} joins, {} duels, differences {:?}",
+              rep.snapshots, rep.beats, rep.identical, rep.takeovers, locks, rep.differences);
+    assert!(rep.differences.is_empty(), "{:?}", rep.differences);
+    assert_eq!((rep.takeovers, rep.identical, rep.summary_identical), (1, rep.snapshots, Some(true)));
+    let _ = std::fs::remove_dir_all(dir);
+}

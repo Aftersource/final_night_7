@@ -1784,9 +1784,9 @@ fn takeable(w: &World, i: &Intent) -> bool {
     Kind::of_verb(&i.verb).is_some() || matches!(classify(&i.verb), ActClass::Other) || PLEA.contains(&i.verb.trim().to_lowercase().as_str())
 }
 
-/// Is "wills that matter" on in this world (cheap: no settings parse)? The room setting, on a schema-7+ state.
+/// Is "wills that matter" on in this world (cheap: no settings parse)? The room setting, on a schema-10+ state.
 pub fn on(w: &World) -> bool {
-    w.challenge_rules() && w.meta.settings.get("wills_enabled").and_then(Value::as_bool) == Some(true)
+    w.wills_rules() && w.meta.settings.get("wills_enabled").and_then(Value::as_bool) == Some(true)
         && w.meta.settings.get("rules_0_8_1").and_then(Value::as_bool) == Some(true)
 }
 
