@@ -204,26 +204,48 @@ pub fn event_subject(w: &World, r: &LedgerRow, region: Option<&str>) -> String {
 
 /// A demigod's portrait prompt: its name and visual sheet plus the demigod pose, stable for the whole match (no
 /// health, place or state words), so it is one image per demigod.
-pub fn portrait_prompt(_w: &World, d: &Demigod) -> String {
-    portrait_prompt_for(&d.name)
+pub fn portrait_prompt(w: &World, d: &Demigod) -> String {
+    portrait_prompt_in(w, &d.name)
+}
+
+/// [`portrait_prompt_for`] in a schema-7 state; before, the name and sheet as they were (a `" (n)"` suffix kept).
+pub fn portrait_prompt_in(w: &World, name: &str) -> String {
+    if w.challenge_rules() {
+        portrait_prompt_for(name)
+    } else {
+        portrait_prompt_with(name, &crate::visual::demigod_by_name_unstripped(name))
+    }
 }
 
 /// A demigod's portrait prompt from its name alone (identity only: the name and its name-keyed visual sheet), so the
 /// same demigod is the same image in every match.
 pub fn portrait_prompt_for(name: &str) -> String {
+    portrait_prompt_with(crate::visual::image_name(name), &crate::visual::demigod_by_name(name))
+}
+
+fn portrait_prompt_with(name: &str, v: &crate::visual::Visual) -> String {
     format!(
         "{}, a demigod: {}; a larger-than-life figure with two glowing orchestrator hands floating at their sides and \
          lightning crackling between their fingers",
-        crate::visual::image_name(name),
-        crate::visual::demigod_by_name(name).brief()
+        name,
+        v.brief()
     )
 }
 
 /// A demigod's diorama prompt: the demigod as a tiny geometric miniature on a single hex diorama tile with its
 /// signature prop, in its colors. Identity only (the name and its visual sheet; no home region, beat or health), so it
 /// is one image per demigod across every match.
-pub fn diorama_prompt(_w: &World, d: &Demigod) -> String {
-    diorama_prompt_for(&d.name)
+pub fn diorama_prompt(w: &World, d: &Demigod) -> String {
+    diorama_prompt_in(w, &d.name)
+}
+
+/// [`diorama_prompt_for`] in a schema-7 state; before, the name and sheet as they were.
+pub fn diorama_prompt_in(w: &World, name: &str) -> String {
+    if w.challenge_rules() {
+        diorama_prompt_for(name)
+    } else {
+        diorama_prompt_with(name, &crate::visual::demigod_by_name_unstripped(name))
+    }
 }
 
 /// A hand's name as setup gives it (`"<demigod>'s Left Hand"` / `"<demigod>'s Right Hand"`), for prewarming.
@@ -233,8 +255,10 @@ pub fn hand_names(demigod: &str) -> [String; 2] {
 
 /// [`diorama_prompt`] from the name alone.
 pub fn diorama_prompt_for(name: &str) -> String {
-    let v = crate::visual::demigod_by_name(name);
-    let name = crate::visual::image_name(name);
+    diorama_prompt_with(crate::visual::image_name(name), &crate::visual::demigod_by_name(name))
+}
+
+fn diorama_prompt_with(name: &str, v: &crate::visual::Visual) -> String {
     format!(
         "{}, a demigod: {}; as a tiny geometric miniature figure standing on a single raised hexagonal diorama tile, its \
          signature prop, {}, built into the scene at its feet, trimmed in {} and {}",
@@ -488,9 +512,9 @@ pub fn seat_hand(w: &World, h: AgentId) -> SeatHand {
         name: a.name.clone(),
         live: a.is_live(),
         subagents: subagents(w, h, &BTreeMap::new()),
-        portrait_prompt: portrait_prompt_for(&a.name),
-        diorama_prompt: diorama_prompt_for(&a.name),
-        visual: Some(crate::visual::demigod_by_name(&a.name).to_json()),
+        portrait_prompt: portrait_prompt_in(w, &a.name),
+        diorama_prompt: diorama_prompt_in(w, &a.name),
+        visual: Some(crate::visual::demigod_by_name_in(w, &a.name).to_json()),
         demigod: None,
         side: None,
         health: None,
