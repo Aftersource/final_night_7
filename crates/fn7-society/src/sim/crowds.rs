@@ -28,6 +28,61 @@ const HARDSHIPS: &[(&str, f32, f32)] = &[
     ("the bridges are down and the roads washed out", 0.3, 0.0),
 ];
 
+/// A demigod's landing (setup, after the nodes exist): the city they land in hoards and panics (its supply drops, its
+/// crowds boil over: angry and afraid past the mob thresholds) and the streets around it stir, so the society's first
+/// events happen in the first beats and around the demigods.
+pub fn stir_homes(w: &mut World) {
+    let reach = if w.is_planet() { crate::sim::mobs::NEAR_DEMIGOD_KM } else { w.meta.arena_radius_km * 0.2 };
+    let homes: Vec<(LonLat, Option<PlaceId>)> = w
+        .demigods
+        .iter()
+        .map(|d| {
+            let p = crate::geo::place_at(w, d.pos);
+            // The city they land in (or, off the map of cities, the nearest one).
+            let city = city_of(w, p).or_else(|| {
+                supply_homes(w)
+                    .into_iter()
+                    .min_by(|a, b| {
+                        let (x, y) = (distance_km(w.places[a.ix()].center, d.pos), distance_km(w.places[b.ix()].center, d.pos));
+                        x.total_cmp(&y).then(a.cmp(b))
+                    })
+            });
+            (d.pos, city)
+        })
+        .collect();
+    for (i, (pos, city)) in homes.into_iter().enumerate() {
+        if let Some(n) = city.and_then(|c| w.nodes.get_mut(c.ix())) {
+            n.supply = n.supply.min(0.55);
+        }
+        for k in 0..w.clusters.len() {
+            let c = &w.clusters[k];
+            if c.army.is_some() || c.size == 0 {
+                continue;
+            }
+            let home = city.is_some() && city_of(w, c.place) == city;
+            let near = distance_km(w.places[c.place.ix()].center, pos) <= reach;
+            if !home && !near {
+                continue;
+            }
+            let x = fn7_model::seed::Rng::derive(w.meta.seed, &[hash_str("stir"), i as u64, k as u64]).f64() as f32;
+            let c = &mut w.clusters[k];
+            let m = &mut c.mood;
+            if home {
+                m.anger = clamp01(m.anger.max(MOB_ANGER_STIR.max(c.baseline.anger + 0.24) + 0.08 * x));
+                m.fear = clamp01(m.fear.max(1.04 - m.anger + 0.06 * x));
+            } else {
+                m.anger = clamp01(m.anger + 0.1 + 0.08 * x);
+                m.fear = clamp01(m.fear + 0.1);
+            }
+            c.stance = crate::sim::hier::stance_of(&c.mood);
+        }
+    }
+    crate::sim::hier::rollup(w);
+}
+
+/// The anger a demigod's landing raises their city's crowds to (at least; just past [`crate::sim::mobs::MOB_ANGER`]).
+const MOB_ANGER_STIR: f32 = 0.66;
+
 /// Supply-holding places: cities (planet) or districts (a city arena).
 fn supply_homes(w: &World) -> Vec<PlaceId> {
     w.places.iter().filter(|p| city_of(w, p.id) == Some(p.id)).map(|p| p.id).collect()

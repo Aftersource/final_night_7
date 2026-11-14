@@ -123,10 +123,28 @@ fn default_faith_chance() -> f32 {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NameLists {
+    /// The fallback pool (places no culture claims) and the old families' surnames.
     pub given: Vec<String>,
     pub surnames: Vec<String>,
+    /// Name pools by culture: people get names from the culture of the place they come from (see `crate::names`).
+    #[serde(default)]
+    pub cultures: Vec<NameCulture>,
     pub quirks: Vec<String>,
     pub paladin: Vec<String>,
+}
+
+/// One culture's names (single-token given names and surnames, so "Given Surname" splits cleanly).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NameCulture {
+    pub key: String,
+    /// Country names (Natural Earth) this culture names people in; checked before `subregions`.
+    #[serde(default)]
+    pub countries: Vec<String>,
+    /// UN subregions it covers when no culture claims the country.
+    #[serde(default)]
+    pub subregions: Vec<String>,
+    pub given: Vec<String>,
+    pub surnames: Vec<String>,
 }
 
 /// The compiled-in template (parsed once).

@@ -412,8 +412,7 @@ pub fn setup(cfg: &SetupConfig, seats: &[(u8, String)], pantheon: &Pantheon) -> 
                 .get(n % a.notables.len().max(1))
                 .cloned()
                 .unwrap_or_else(|| "local figure".into());
-            let given = rng.pick(&t.names.given).cloned().unwrap_or_default();
-            let surname = rng.pick(&t.names.surnames).cloned().unwrap_or_default();
+            let name = crate::names::pick_name(&w, d.place, &mut rng, None);
             let from = rng.pick(&local).copied();
             let (groups, mut traits) = match from {
                 Some(c) => {
@@ -429,7 +428,7 @@ pub fn setup(cfg: &SetupConfig, seats: &[(u8, String)], pantheon: &Pantheon) -> 
             let id = CharId::from_ix(w.characters.len());
             w.characters.push(Character {
                 id,
-                name: format!("{given} {surname}"),
+                name,
                 aliases: vec![format!("the {role} of {}", dp.name), format!("the {role}")],
                 origin: Origin::Seeded,
                 place: d.place,
@@ -562,6 +561,8 @@ pub fn setup(cfg: &SetupConfig, seats: &[(u8, String)], pantheon: &Pantheon) -> 
         w.meta.arena_radius_km = start;
     }
     crate::sim::hier::init_nodes(&mut w);
+    // The demigods' landing stirs the streets around them (the society's first events happen there).
+    crate::sim::crowds::stir_homes(&mut w);
     w
 }
 

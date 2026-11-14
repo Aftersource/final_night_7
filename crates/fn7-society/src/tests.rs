@@ -1500,3 +1500,114 @@ fn planet_setup_regions_cities_and_rules() {
     assert!(out.new_people.contains(&g) || g.ix() < chars_before, "the general is neither new nor an existing local");
     assert!(crate::geo::distance_km(from, a.pos) <= ARMY_KM_PER_BEAT + 1.0);
 }
+
+/// A world-only planet run of the society by its own rules (the step, then drift and Time's circle, as the plugin's
+/// beat does), returning the world and every society event with its beat.
+fn society_run(seed: u64, beats: u32) -> (World, Vec<(u32, crate::sim::SocEvent)>) {
+    let cfg = SetupConfig { seed, arena: ArenaKind::Planet, ..SetupConfig::default() };
+    let seats: Vec<(u8, String)> = ["Ash", "Brix", "Cyra", "Dune"].iter().enumerate().map(|(i, s)| (i as u8, s.to_string())).collect();
+    let mut w = setup(&cfg, &seats, &pantheon());
+    let mut events = vec![];
+    for beat in 1..=beats {
+        w.meta.beat = beat;
+        let out = crate::sim::step(&mut w, beat, &[]);
+        events.extend(out.events.into_iter().map(|e| (beat, e)));
+        drift(&mut w, beat);
+        let _ = shrink_arena(&mut w);
+    }
+    (w, events)
+}
+
+/// The society's cast and its stories (100 beats, planet): mobs are fewer and live longer under persistent
+/// ringleaders, so ringleaders are a minority of the people who emerge (captains, heroes and prophets outnumber them);
+/// nobody shares a full name and few share a surname; mobs, hosts and battles start in the first beats around the
+/// demigods; the text says what happened; the state stays small; and it all replays exactly.
+#[test]
+fn society_cast_names_and_early_events() {
+    let t = Instant::now();
+    let (w, events) = society_run(21, 100);
+    let ms = t.elapsed().as_secs_f64() * 1000.0;
+    // Role mix: by how people emerged.
+    let named: Vec<&Character> = w.characters.iter().filter(|c| c.life.is_some()).collect();
+    let emerged = |r: Role| named.iter().filter(|c| c.life.as_deref().unwrap().emerged_as == r).count();
+    let ringleaders = emerged(Role::Ringleader);
+    let others = emerged(Role::Captain) + emerged(Role::Hero) + emerged(Role::Prophet) + emerged(Role::General);
+    println!("society_run: {ms:.0} ms, {} named, {ringleaders} ringleaders, {others} captains/heroes/prophets/generals, {} mobs", named.len(), w.mobs.len());
+    assert!(named.len() >= 40, "{} named people", named.len());
+    assert!(ringleaders * 10 <= named.len() * 4, "ringleaders {ringleaders} of {}", named.len());
+    assert!(others > ringleaders, "{others} vs {ringleaders}");
+    // Fewer, longer-lived mobs; ringleaders come back for the next riot in their city.
+    let cities = w.places.iter().filter(|p| p.kind == PlaceKind::Site).count();
+    assert!(!w.mobs.is_empty() && w.mobs.len() <= cities, "{} mobs for {cities} cities", w.mobs.len());
+    let age = |m: &Mob| m.ended.unwrap_or(100).saturating_sub(m.formed) as f32;
+    let mean_age = w.mobs.iter().map(age).sum::<f32>() / w.mobs.len() as f32;
+    assert!(mean_age >= 8.0, "mobs live {mean_age} beats on average");
+    assert!(w.mobs.iter().all(|m| m.ringleader.is_some()));
+    // Names: no full name twice; surnames mostly distinct (a family shares one on purpose).
+    let mut full: Vec<&str> = w.characters.iter().map(|c| c.name.as_str()).collect();
+    full.sort_unstable();
+    let n = full.len();
+    full.dedup();
+    assert_eq!(full.len(), n, "a full name repeats");
+    let mut sur: std::collections::BTreeMap<&str, usize> = Default::default();
+    for c in &w.characters {
+        *sur.entry(crate::sim::people::surname(&c.name)).or_default() += 1;
+    }
+    assert!(sur.len() * 10 >= n * 6, "{} surnames for {n} people", sur.len());
+    assert!(sur.values().all(|k| *k <= 4), "{:?}", sur.iter().filter(|x| *x.1 > 4).collect::<Vec<_>>());
+    // Early relevance: the first mob, host and battle come in the first beats, the first mob near a demigod.
+    let first = |k: SocKind| events.iter().find(|(_, e)| e.kind == k);
+    let (mob_beat, mob) = first(SocKind::MobFormed).expect("a mob");
+    assert!(*mob_beat <= 5, "first mob at beat {mob_beat}");
+    assert!(crate::sim::mobs::near_demigod(&w, mob.at) || w.demigods.iter().any(|d| crate::geo::distance_km(d.pos, mob.at) <= 2000.0));
+    assert!(first(SocKind::HostRaised).is_some_and(|x| x.0 <= 5), "no early host");
+    assert!(first(SocKind::Battle).is_some_and(|x| x.0 <= 10), "first battle at {:?}", first(SocKind::Battle).map(|x| x.0));
+    // Clear text: mobs are named by place and cause; allegiance is phrased as such; revenge says what happened.
+    assert!(w.mobs.iter().all(|m| m.name.ends_with(" riot") && !m.name.contains(" for ")), "{:?}", w.mobs.iter().map(|m| &m.name).collect::<Vec<_>>());
+    for (_, e) in &events {
+        assert!(!e.text.contains("settle a grudge") && !e.text.contains(" mob for "), "{}", e.text);
+    }
+    // Small state; the same seed is the same society.
+    let json = serde_json::to_string(&w).unwrap();
+    assert!(json.len() < 4_000_000, "{} bytes", json.len());
+    let (w2, _) = society_run(21, 100);
+    assert_eq!(json, serde_json::to_string(&w2).unwrap());
+}
+
+/// People are named by the culture of where they come from: a Tokyo crowd gives Japanese names, a Lagos crowd West
+/// African ones; no full name is handed out twice.
+#[test]
+fn names_follow_the_culture_of_the_place() {
+    let cfg = SetupConfig { seed: 3, arena: ArenaKind::Planet, ..SetupConfig::default() };
+    let mut w = setup(&cfg, &seats(4), &pantheon());
+    let t = template::template();
+    let mut checked = 0;
+    for (city, culture) in [("Tokyo", "japanese"), ("Lagos", "west_african"), ("Mexico City", "latin"), ("Paris", "french")] {
+        let Some(site) = w.places.iter().find(|p| p.kind == PlaceKind::Site && p.name == city).map(|p| p.id) else {
+            continue;
+        };
+        let c = crate::names::culture_for(&w, site).map(|c| c.key.as_str());
+        assert_eq!(c, Some(culture), "{city}");
+        let pool = t.names.cultures.iter().find(|x| x.key == culture).unwrap();
+        let crowd = w
+            .clusters
+            .iter()
+            .find(|k| crate::geo::city_of(&w, k.place) == Some(site) && k.size > 50 && !k.groups.as_slice().iter().any(|g| w.groups[g.ix()].kind == GroupKind::Family))
+            .map(|k| k.id);
+        let Some(crowd) = crowd else { continue };
+        checked += 1;
+        for i in 0..20 {
+            let id = materialize(&mut w, crowd, &mention("someone", None), i, None);
+            let name = w.characters[id.ix()].name.clone();
+            let (given, sur) = name.split_once(' ').unwrap();
+            assert!(pool.given.iter().any(|g| g == given), "{name} ({city})");
+            assert!(pool.surnames.iter().any(|s| sur.split('-').any(|p| p == s)), "{name} ({city})");
+        }
+    }
+    assert!(checked >= 3, "only {checked} cities checked");
+    let mut names: Vec<&str> = w.characters.iter().map(|c| c.name.as_str()).collect();
+    let n = names.len();
+    names.sort_unstable();
+    names.dedup();
+    assert_eq!(names.len(), n);
+}

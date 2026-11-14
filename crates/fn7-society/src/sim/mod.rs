@@ -129,6 +129,24 @@ impl Ctx {
     }
 }
 
+/// What to call where something happens: its city, else the nearest city within 1,500 km (planet; any in a city arena),
+/// else the place itself (a region of the open map).
+pub fn near_name(w: &World, pos: LonLat) -> String {
+    let p = crate::geo::place_at(w, pos);
+    if let Some(c) = crate::geo::city_of(w, p) {
+        return w.name_of(Ref::Place(c));
+    }
+    let reach = if w.is_planet() { 1500.0 } else { f64::INFINITY };
+    w.places
+        .iter()
+        .filter(|x| crate::geo::city_of(w, x.id) == Some(x.id))
+        .map(|x| (crate::geo::distance_km(x.center, pos), x.id))
+        .filter(|x| x.0 <= reach)
+        .min_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)))
+        .map(|x| w.name_of(Ref::Place(x.1)))
+        .unwrap_or_else(|| w.name_of(Ref::Place(p)))
+}
+
 /// Round to 3 decimals (keeps the state's JSON short and stable).
 pub fn r3(x: f32) -> f32 {
     (x * 1000.0).round() / 1000.0

@@ -20,6 +20,70 @@ pub const MOB_SUM: f32 = 1.0;
 pub const MOBS_PER_CITY: usize = 1;
 /// Biggest a mob grows.
 pub const MOB_MAX: u32 = 6000;
+/// Beats a city rests after a mob ends before the next one can form.
+pub const MOB_COOLDOWN: u32 = 16;
+/// Per-beat chance that a city's free gangs merge into a mob (and near a demigod, whose arrival stirs the streets).
+pub const MOB_FORM_P: f32 = 0.08;
+pub const MOB_FORM_P_NEAR: f32 = 0.6;
+/// A mob is "near" a demigod within this distance (planet; a city arena uses a fifth of its radius).
+pub const NEAR_DEMIGOD_KM: f64 = 900.0;
+/// A mob older than this may tire (per beat, [`MOB_TIRED_P`]); below [`MOB_SPENT`] anger it breaks up.
+pub const MOB_TIRED_AGE: u32 = 12;
+pub const MOB_TIRED_P: f32 = 0.08;
+pub const MOB_SPENT: f32 = 0.4;
+
+/// Why a mob ends (the `mob_dissolved` event's `why`).
+pub const FEW: &str = "too few are left to matter";
+pub const SPENT: &str = "its anger is spent";
+pub const LEADERLESS: &str = "nobody is left to follow";
+pub const TIRED: &str = "the rioters are tired, hungry and going home";
+pub const SCATTERED: &str = "scattered by soldiers";
+pub const MARCHED_OFF: &str = "its ringleader marched it off to war";
+
+/// Is `pos` near a living demigod (their arrival stirs the streets around them)?
+pub fn near_demigod(w: &World, pos: LonLat) -> bool {
+    let reach = if w.is_planet() { NEAR_DEMIGOD_KM } else { w.meta.arena_radius_km * 0.2 };
+    w.demigods.iter().any(|d| d.alive && distance_km(d.pos, pos) <= reach)
+}
+
+/// "The Lagos bread riot", "the second Lagos bread riot": named by place and cause, numbered when the city has seen one
+/// for the same cause before.
+fn mob_name(w: &World, city: PlaceId, cause_word: &str) -> String {
+    let cname = w.name_of(Ref::Place(city));
+    let noun = match cause_word {
+        "bread" => "bread riot",
+        "panic" => "panic riot",
+        "zealot" => "zealot riot",
+        _ => "street riot",
+    };
+    let base = format!("{cname} {noun}");
+    let before = w.mobs.iter().filter(|m| m.city == city && m.name.ends_with(&base)).count();
+    let ord = match before {
+        0 => "",
+        1 => "second ",
+        2 => "third ",
+        3 => "fourth ",
+        _ => "latest ",
+    };
+    format!("the {ord}{base}")
+}
+
+/// ", rioting in Dune's name" for a mob that rallies behind a living demigod (else empty).
+fn banner(w: &World, side: Option<DemigodId>) -> String {
+    side.and_then(|d| w.demigods.get(d.ix()))
+        .filter(|d| d.alive)
+        .map(|d| format!(", rioting in {}'s name", d.name))
+        .unwrap_or_default()
+}
+
+/// Upper-case the first letter (mob names start lower-case: "the Lagos bread riot").
+pub fn cap(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        Some(f) => f.to_uppercase().chain(c).collect(),
+        None => String::new(),
+    }
+}
 
 const GANG_ADJ: &[&str] = &["Red", "Hungry", "Black", "Broken", "Lantern", "Iron", "Barefoot", "Ash", "Salt", "Rag"];
 const GANG_NOUN: &[&str] = &["Boys", "Sisters", "Crew", "Hands", "Brigade", "Knives", "Choir", "Dogs", "Mothers", "Lot"];
@@ -33,7 +97,7 @@ fn angry(c: &Cluster) -> bool {
 fn grievance(w: &World, c: &Cluster) -> (&'static str, String) {
     let n = &c.need;
     if n.food >= 0.45 && n.food >= n.safety {
-        ("bread", format!("hunger in {}", w.name_of(Ref::Place(city_of(w, c.place).unwrap_or(c.place)))))
+        ("bread", format!("empty bellies and empty granaries in {}", w.name_of(Ref::Place(city_of(w, c.place).unwrap_or(c.place)))))
     } else if n.safety >= 0.45 {
         ("panic", "fear of what is coming".into())
     } else if n.faith >= 0.5 {
@@ -87,10 +151,18 @@ pub fn dissolve(w: &mut World, cx: &mut Ctx, mi: usize, why: &str) {
     let mut refs = vec![Ref::Mob(m.id)];
     let leader = alive(w, m.ringleader);
     refs.extend(leader.map(Ref::Char));
+    let age = cx.beat.saturating_sub(m.formed);
+    let mut toll = format!(" after {age} beat{}", if age == 1 { "" } else { "s" });
+    if m.casualties > 0 {
+        toll += &format!(", {} of its own dead", m.casualties);
+    }
+    if m.kills > 0 {
+        toll += &format!(", {} killed by it", m.kills);
+    }
     cx.emit(
         w,
         SocKind::MobDissolved,
-        format!("{} melts away: {why}", m.name),
+        format!("{} breaks up{toll}: {why}", cap(&m.name)),
         Ref::Place(m.city),
         refs,
         m.pos,
@@ -98,18 +170,41 @@ pub fn dissolve(w: &mut World, cx: &mut Ctx, mi: usize, why: &str) {
         4,
         0,
         json!({ "mob": Ref::Mob(m.id), "why": why, "casualties": m.casualties, "kills": m.kills,
-                "ringleader": leader.map(Ref::Char), "age": cx.beat.saturating_sub(m.formed) }),
+                "ringleader": leader.map(Ref::Char), "age": age }),
     );
     let Some(r) = leader else { return };
     if let Some(l) = life_mut(w, r) {
         l.mob = None;
     }
+    if why == MARCHED_OFF {
+        return;
+    }
     let (ambition, comp) = people::life(w, r).map(|l| (l.ambition, l.competence)).unwrap_or((0.3, 0.3));
     let x = cx.roll("ringleader_fate", r.0 as u64);
     if why.contains("soldiers") && x < 0.3 {
-        let name = w.characters[r.ix()].name.clone();
-        people::kill(w, cx, r, &format!("hanged after {} was broken", m.name), None);
-        let _ = name;
+        people::kill(w, cx, r, &format!("hanged in the square after {} was broken", m.name), None);
+        return;
+    }
+    // A fall: a ringleader whose riot fizzled out is abandoned (the crowd remembers who led it nowhere).
+    if (why == SPENT || why == TIRED) && x > 0.75 + 0.2 * comp {
+        let rname = w.characters[r.ix()].name.clone();
+        if let Some(l) = life_mut(w, r) {
+            l.role = Role::Commoner;
+            l.goal = Goal::Survive;
+            l.rank = Rank { level: Level::Person, of: None, title: format!("once ringleader of {}", m.name) };
+        }
+        cx.emit(
+            w,
+            SocKind::MobDissolved,
+            format!("{rname} is jeered off the cart and nobody follows them again: {} died with a whimper", m.name),
+            Ref::Char(r),
+            vec![Ref::Char(r), Ref::Mob(m.id)],
+            m.pos,
+            Some(m.place),
+            4,
+            -1,
+            json!({ "mob": Ref::Mob(m.id), "ringleader": Ref::Char(r), "fall": true }),
+        );
         return;
     }
     // Ambition: offer the mob's people to the demigod their crowds love.
@@ -241,9 +336,11 @@ fn form(w: &mut World, cx: &mut Ctx) {
             }
             continue;
         }
-        // A city that just saw a mob broken or spent needs a few beats before the next one.
-        let recent = w.mobs.iter().any(|m| m.city == city && m.ended.is_some_and(|e| e + 10 > cx.beat));
-        if recent || mobs.len() >= MOBS_PER_CITY || cx.roll("mob", city.0 as u64) >= 0.2 {
+        // A city that just saw a mob broken or spent needs a while before the next one; near a demigod the streets boil
+        // over much sooner (their arrival is the story).
+        let recent = w.mobs.iter().any(|m| m.city == city && m.ended.is_some_and(|e| e + MOB_COOLDOWN > cx.beat));
+        let p = if near_demigod(w, w.places[city.ix()].center) { MOB_FORM_P_NEAR } else { MOB_FORM_P };
+        if recent || mobs.len() >= MOBS_PER_CITY || cx.roll("mob", city.0 as u64) >= p {
             continue;
         }
         new_mob(w, cx, city, free);
@@ -262,7 +359,6 @@ fn new_mob(w: &mut World, cx: &mut Ctx, city: PlaceId, cells: Vec<CellId>) {
     let crowd = w.cells[lead_cell.ix()].crowd;
     let cl = w.clusters[crowd.ix()].clone();
     let (cause_word, cause) = grievance(w, &cl);
-    let cname = w.name_of(Ref::Place(city));
     // Who they rally behind (if anyone): the demigod their crowds love most.
     let side = cl
         .allegiance
@@ -270,10 +366,7 @@ fn new_mob(w: &mut World, cx: &mut Ctx, city: PlaceId, cells: Vec<CellId>) {
         .filter(|(d, x)| *x >= 0.4 && w.demigods.get(d.ix()).is_some_and(|d| d.alive))
         .max_by(|a, b| a.1.total_cmp(&b.1).then(b.0.cmp(&a.0)))
         .map(|x| x.0);
-    let name = match side {
-        Some(d) => format!("the {cname} mob for {}", w.demigods[d.ix()].name),
-        None => format!("the {cname} {cause_word} mob"),
-    };
+    let name = mob_name(w, city, cause_word);
     let id = MobId::from_ix(w.mobs.len());
     let place = cl.place;
     let pos = w.places[place.ix()].center;
@@ -308,7 +401,12 @@ fn new_mob(w: &mut World, cx: &mut Ctx, city: PlaceId, cells: Vec<CellId>) {
     cx.emit(
         w,
         SocKind::MobFormed,
-        format!("{size} of the {} pour into the streets of {cname}: {cause}", cl.label),
+        format!(
+            "{} begins: {size} of the {} take to the streets, driven by {cause}{}",
+            cap(&name),
+            cl.label,
+            banner(w, side)
+        ),
         Ref::Cluster(crowd),
         vec![Ref::Mob(id), Ref::Cluster(crowd)],
         pos,
@@ -318,42 +416,65 @@ fn new_mob(w: &mut World, cx: &mut Ctx, city: PlaceId, cells: Vec<CellId>) {
         json!({ "mob": Ref::Mob(id), "name": name, "size": size, "cells": cells, "cause": cause,
                 "side": side.map(Ref::Demigod), "city": Ref::Place(city) }),
     );
-    // The ringleader steps out (structural: a mob always has one).
-    let mut spec = Spec::new(
-        Role::Ringleader,
-        Level::Cell,
-        Some(Ref::Mob(id)),
-        format!("ringleader of {name}"),
-        format!("the ringleader of {name}"),
-    );
-    spec.ambition = 0.4;
-    spec.courage = 0.3;
-    spec.cruelty = 0.2;
-    if let Some(r) = emerge(w, cx, crowd, spec, true) {
-        w.mobs[id.ix()].ringleader = Some(r);
-        w.cells[lead_cell.ix()].leader = Some(r);
-        if let Some(l) = life_mut(w, r) {
-            l.mob = Some(id);
-            l.cell = Some(lead_cell);
+    // The ringleader: a veteran of the city's last riots takes the cart again if one is free, else someone steps out of
+    // the angriest crowd (structural: a mob always has one).
+    let veteran = people::veteran(w, city, &[Role::Ringleader], side);
+    let (r, back) = match veteran {
+        Some(r) => {
+            let title = format!("ringleader of {name}");
+            let before = people::life(w, r).map(|l| l.rank.title.clone()).unwrap_or_default();
+            let ch = &mut w.characters[r.ix()];
+            if !ch.aliases.contains(&title) {
+                ch.aliases.push(title.clone());
+            }
+            if let Some(l) = life_mut(w, r) {
+                l.rank = Rank { level: Level::Cell, of: Some(Ref::Mob(id)), title };
+                l.deeds += 1;
+            }
+            (Some(r), Some(before))
         }
-        if let Some(d) = side {
-            bump(&mut w.characters[r.ix()].allegiance, d, 0.2, -1.0, 1.0);
+        None => {
+            let mut spec = Spec::new(
+                Role::Ringleader,
+                Level::Cell,
+                Some(Ref::Mob(id)),
+                format!("ringleader of {name}"),
+                format!("the ringleader of {name}"),
+            );
+            spec.ambition = 0.4;
+            spec.courage = 0.3;
+            spec.cruelty = 0.2;
+            (emerge(w, cx, crowd, spec, true), None)
         }
-        w.clusters[crowd.ix()].leader = Some(r);
-        let rname = w.characters[r.ix()].name.clone();
-        cx.emit(
-            w,
-            SocKind::RingleaderEmerged,
-            format!("{rname} climbs onto a cart and takes charge of {name}"),
-            Ref::Char(r),
-            vec![Ref::Char(r), Ref::Mob(id)],
-            pos,
-            Some(place),
-            5,
-            -1,
-            json!({ "mob": Ref::Mob(id), "ringleader": Ref::Char(r), "name": rname }),
-        );
+    };
+    let Some(r) = r else { return };
+    w.mobs[id.ix()].ringleader = Some(r);
+    w.cells[lead_cell.ix()].leader = Some(r);
+    if let Some(l) = life_mut(w, r) {
+        l.mob = Some(id);
+        l.cell = Some(lead_cell);
     }
+    if let Some(d) = side {
+        bump(&mut w.characters[r.ix()].allegiance, d, 0.2, -1.0, 1.0);
+    }
+    w.clusters[crowd.ix()].leader = Some(r);
+    let rname = w.characters[r.ix()].name.clone();
+    let text = match back.filter(|t| t.starts_with("ringleader of ")) {
+        Some(t) => format!("{rname}, who was {t}, climbs back onto the cart and takes charge of {name}"),
+        None => format!("{rname} climbs onto a cart and takes charge of {name}"),
+    };
+    cx.emit(
+        w,
+        SocKind::RingleaderEmerged,
+        text,
+        Ref::Char(r),
+        vec![Ref::Char(r), Ref::Mob(id)],
+        pos,
+        Some(place),
+        5,
+        -1,
+        json!({ "mob": Ref::Mob(id), "ringleader": Ref::Char(r), "name": rname, "veteran": veteran.is_some() }),
+    );
 }
 
 /// One beat of a live mob: swell, move, act (riot, loot, attack a rival crowd or a hated demigod nearby), dissolve.
@@ -381,21 +502,55 @@ fn act(w: &mut World, cx: &mut Ctx, mi: usize) {
     // Dissolve: spent, too small, old and tired, or leaderless.
     let leaderless = alive(w, m.ringleader).is_none();
     if m.size < 20
-        || anger < 0.45
-        || (age >= 6 && cx.roll("mob_tired", m.id.0 as u64) < 0.25)
-        || (leaderless && cx.roll("mob_leaderless", m.id.0 as u64) < 0.5)
+        || anger < MOB_SPENT
+        || (age >= MOB_TIRED_AGE && cx.roll("mob_tired", m.id.0 as u64) < MOB_TIRED_P)
+        || (leaderless && cx.roll("mob_leaderless", m.id.0 as u64) < 0.3)
     {
         let why = if m.size < 20 {
-            "too few left"
-        } else if anger < 0.45 {
-            "its anger spent"
+            FEW
+        } else if anger < MOB_SPENT {
+            SPENT
         } else if leaderless {
-            "nobody left to follow"
+            LEADERLESS
         } else {
-            "tired, hungry and going home"
+            TIRED
         };
         dissolve(w, cx, mi, why);
         return;
+    }
+    // A rise: an ambitious, able ringleader of a mob that rallies behind a demigod marches it off to war as a
+    // volunteer host, with themselves as its general.
+    if let (Some(r), Some(d)) = (alive(w, m.ringleader), m.side.filter(|d| w.demigods.get(d.ix()).is_some_and(|x| x.alive))) {
+        let (ambition, comp) = people::life(w, r).map(|l| (l.ambition, l.competence)).unwrap_or((0.0, 0.0));
+        let crowd = m.cells.first().map(|c| w.cells[c.ix()].crowd);
+        if age >= 3
+            && ambition >= 0.5
+            && crowd.is_some_and(|k| w.clusters[k.ix()].size >= 1500)
+            && crate::sim::armies::armies_of(w, d) < crate::sim::armies::MAX_ARMIES_PER_DEMIGOD
+            && cx.roll("mob_to_war", m.id.0 as u64) < 0.04 + 0.12 * comp
+        {
+            let k = crowd.expect("checked");
+            if let Some(army) = crate::sim::armies::raise_host(w, cx, k, d, Some(r)) {
+                let (rname, label) = (w.characters[r.ix()].name.clone(), w.clusters[army.ix()].label.clone());
+                let dname = w.demigods[d.ix()].name.clone();
+                w.soc.promotions += 1;
+                cx.emit(
+                    w,
+                    SocKind::Promotion,
+                    format!("{rname} marches {} off to war for {dname}: the ringleader is General of {label} now", m.name),
+                    Ref::Char(r),
+                    vec![Ref::Char(r), Ref::Mob(m.id), Ref::Cluster(army), Ref::Demigod(d)],
+                    m.pos,
+                    Some(m.place),
+                    6,
+                    1,
+                    json!({ "person": Ref::Char(r), "from": "ringleader", "to": "general", "mob": Ref::Mob(m.id),
+                            "army": Ref::Cluster(army), "how": "the mob went to war" }),
+                );
+                dissolve(w, cx, mi, MARCHED_OFF);
+                return;
+            }
+        }
     }
     // Swell: angry crowds' free gangs were joined in `form`; a hot mob also pulls people straight off the street.
     if anger > 0.7 && m.size < MOB_MAX {
@@ -468,7 +623,7 @@ fn act(w: &mut World, cx: &mut Ctx, mi: usize) {
                     source: Source::Rules,
                     intent: None,
                     effect: Effect::Damage { who: Ref::Demigod(d), amount, cause: format!("torn at by {}", m.name) },
-                    act: format!("{who} goes for {dname} with stones and torches"),
+                    act: format!("{} goes for {dname} with stones and torches", cap(&who)),
                     actor: Ref::Place(city),
                     magnitude: 6,
                     valence: -3,
@@ -478,7 +633,7 @@ fn act(w: &mut World, cx: &mut Ctx, mi: usize) {
                 let dead = ((m.size as f32) * 0.03).ceil() as u32;
                 casualties(w, mi, dead);
                 refs.push(Ref::Demigod(d));
-                cx.emit(w, SocKind::Riot, format!("{who} storms {dname} in {cname}"), Ref::Place(city), refs, pos, Some(place), 6, -3,
+                cx.emit(w, SocKind::Riot, format!("{} storms {dname} in {cname} with stones and torches: {dead} rioters fall", cap(&who)), Ref::Place(city), refs, pos, Some(place), 6, -3,
                         json!({ "mob": Ref::Mob(m.id), "target": Ref::Demigod(d), "amount": amount, "dead": dead }));
             }
             Some(Ref::Cluster(k)) => {
@@ -504,7 +659,7 @@ fn act(w: &mut World, cx: &mut Ctx, mi: usize) {
                     }
                 }
                 refs.push(Ref::Cluster(k));
-                cx.emit(w, SocKind::Riot, format!("{who} falls on the {label}: {theirs} dead, {ours} of the mob"),
+                cx.emit(w, SocKind::Riot, format!("{} falls on the {label}: {theirs} of them dead, {ours} rioters with them", cap(&who)),
                         Ref::Place(city), refs, pos, Some(place), if theirs + ours >= 100 { 5 } else { 4 }, -3,
                         json!({ "mob": Ref::Mob(m.id), "target": Ref::Cluster(k), "dead": theirs, "mob_dead": ours }));
             }
@@ -528,7 +683,7 @@ fn act(w: &mut World, cx: &mut Ctx, mi: usize) {
             }
             w.soc.deaths += dead as u64;
             let news = m.action != MobAction::Looting || age.is_multiple_of(3);
-            cx.emit(w, SocKind::Looting, format!("{who} breaks open the granaries of {cname}"), Ref::Place(city), refs, pos,
+            cx.emit(w, SocKind::Looting, format!("{} breaks open the granaries of {cname}: the city's stores fall to {}%", cap(&who), (100.0 * w.nodes.get(city.ix()).map(|n| n.supply).unwrap_or(0.0)).round()), Ref::Place(city), refs, pos,
                     Some(place), if m.size >= 1000 && news { 4 } else { 3 }, -2,
                     json!({ "mob": Ref::Mob(m.id), "supply_taken": r3(took), "dead": dead }));
         }
@@ -542,7 +697,7 @@ fn act(w: &mut World, cx: &mut Ctx, mi: usize) {
             w.soc.deaths += dead as u64;
             crate::sim::hier::push_down(w, city, Mood { anger: 0.0, fear: 0.03, hope: -0.02, devotion: 0.0 }, 1.0);
             let news = m.action != MobAction::Rioting || age.is_multiple_of(3);
-            cx.emit(w, SocKind::Riot, format!("{who} riots through {cname}; {dead} trampled"), Ref::Place(city), refs, pos,
+            cx.emit(w, SocKind::Riot, format!("{} tears through {cname}: {dead} trampled in the crush, shops burned", cap(&who)), Ref::Place(city), refs, pos,
                     Some(place), if m.size >= 1500 && news { 4 } else { 3 }, -2, json!({ "mob": Ref::Mob(m.id), "dead": dead }));
         }
     }

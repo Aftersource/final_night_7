@@ -180,27 +180,18 @@ pub fn materialize(
     let c = w.clusters[cluster.ix()].clone();
     let index = c.materialized;
     let mut rng = Rng::derive(c.seed, &[index as u64]);
-    let given = rng
-        .pick(&t.names.given)
-        .cloned()
-        .unwrap_or_else(|| "Nameless".into());
-    // A family cluster gives its surname.
+    // A family cluster gives its surname (on purpose: kin share it); otherwise the culture of the crowd's home names
+    // them, with no full name repeated in the match.
     let fam = c
         .groups
         .as_slice()
         .iter()
         .filter_map(|g| w.groups.get(g.ix()))
-        .find(|g| g.kind == GroupKind::Family);
-    let rolled = rng.pick(&t.names.surnames).cloned().unwrap_or_default();
-    let surname = fam
-        .and_then(|g| {
-            t.names
-                .surnames
-                .iter()
-                .find(|s| g.name.contains(s.as_str()))
-                .cloned()
-        })
-        .unwrap_or(rolled);
+        .find(|g| g.kind == GroupKind::Family)
+        .and_then(|g| t.names.surnames.iter().find(|s| g.name.contains(s.as_str())));
+    // Soldiers are named for where their army was raised, not where it marches.
+    let home = c.army.as_ref().and_then(|a| w.clusters.get(a.from.ix())).map(|f| f.place).unwrap_or(c.place);
+    let name = crate::names::pick_name(w, home, &mut rng, fam.map(String::as_str));
     let mut traits = crate::util::sample(&mut rng, &c.traits, 2);
     if let Some(q) = rng.pick(&t.names.quirks) {
         traits.push(q.clone());
@@ -211,7 +202,6 @@ pub fn materialize(
         .map(|p| (p.center, p.radius_km))
         .unwrap_or(([0.0, 0.0], 0.0));
     let pos = random_in(&mut rng, center.0, center.1 * 0.8);
-    let name = format!("{given} {surname}");
     let mut aliases = vec![];
     let txt = m.text.trim();
     if !txt.is_empty() && normalize(txt) != normalize(&name) {

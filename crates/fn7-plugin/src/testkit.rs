@@ -58,6 +58,8 @@ pub fn scripted_reply(req: &LlmRequest, n: u64) -> Option<Value> {
         ]})
     } else if s.contains("NARRATOR of FINAL NIGHT 7, a battle royale") {
         json!({ "caption": format!("Beat chaos number {n}."), "callouts": ["Consequence is taking notes."] })
+    } else if s.contains("You are a GENERAL in FINAL NIGHT 7") {
+        json!({ "reading": "obey", "target": null, "stance": "fight", "speech": "Form up. We hold the line.", "defect_to": null })
     } else if s.contains("give one ordinary person") {
         json!({ "flavor": "Paint-flecked overalls, hums sea shanties, wants to be left alone." })
     } else if s.contains("compress memories") {

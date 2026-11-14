@@ -15,6 +15,7 @@
 mod effects;
 pub mod geo;
 mod mention;
+pub mod names;
 mod rules;
 mod setup;
 pub mod sim;

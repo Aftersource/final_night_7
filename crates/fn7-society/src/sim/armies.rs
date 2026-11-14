@@ -23,6 +23,13 @@ pub const STRAIN_DECISION: f32 = 0.6;
 pub const HOST_ALLEGIANCE: f32 = 0.35;
 /// Most live armies per demigod the society will raise volunteer hosts for.
 pub const MAX_ARMIES_PER_DEMIGOD: usize = 4;
+/// A crowd this close to a demigod with no army yet raises a first host for them with this extra chance a beat.
+pub const HOST_NEAR_KM: f64 = 1200.0;
+pub const FIRST_HOST_P: f32 = 0.2;
+/// Generals on their own go after a hostile mob within this range (planet), when no hostile army is nearer.
+pub const MOB_HUNT_KM: f64 = 1500.0;
+/// With nothing nearer to do, a general seeks out a hostile army this far away (planet).
+pub const FAR_SEEK_KM: f64 = 6000.0;
 
 const VAGUE: &[&str] = &[
     "something", "deal with", "handle", "take care", "whatever", "do your thing", "sort out", "make it happen", "go",
@@ -41,6 +48,22 @@ fn has(text: &str, words: &[&str]) -> bool {
 /// Does this demigod still command an army (alive, not rogue)?
 fn serves(w: &World, a: &Army) -> bool {
     !a.rogue && w.demigods.get(a.demigod.ix()).is_some_and(|d| d.alive)
+}
+
+/// A mob an army will put down: live, not rallying behind the army's demigod, and either rallying behind a rival or
+/// looting or attacking.
+pub fn hostile_mob(w: &World, a: &Army, m: &Mob) -> bool {
+    !a.rogue
+        && m.ended.is_none()
+        && m.size > 0
+        && m.side != Some(a.demigod)
+        && (m.side.is_some_and(|d| w.demigods.get(d.ix()).is_some_and(|x| x.alive))
+            || matches!(m.action, MobAction::Looting | MobAction::Attacking))
+}
+
+/// Live armies `d` commands (not rogue).
+pub fn armies_of(w: &World, d: DemigodId) -> usize {
+    w.clusters.iter().filter(|c| c.size > 0 && c.army.as_ref().is_some_and(|a| a.demigod == d && !a.rogue)).count()
 }
 
 fn hostile(w: &World, a: &Army, b: &Army) -> bool {
@@ -305,8 +328,10 @@ pub fn judge(
     }
 }
 
-/// Where a general goes on their own: the nearest hostile army within 3,000 km, else the nearest rival demigod within
-/// 4,000 km, else the nearest city leaning to a rival within 1,500 km, else (outside Time's circle) the arena center.
+/// Where a general goes on their own: the nearest hostile army within 3,000 km, else a hostile mob within
+/// [`MOB_HUNT_KM`], else the nearest rival demigod within 4,000 km, else (planet) the nearest hostile army within
+/// [`FAR_SEEK_KM`], else
+/// the nearest city leaning to a rival within 1,500 km, else (outside Time's circle) the arena center.
 pub fn initiative_target(w: &World, army: ClusterId) -> Option<Ref> {
     let cl = w.clusters.get(army.ix())?;
     let a = cl.army.as_ref()?;
@@ -316,12 +341,23 @@ pub fn initiative_target(w: &World, army: ClusterId) -> Option<Ref> {
             *best = Some((d, r));
         }
     }
+    let far = if w.is_planet() { FAR_SEEK_KM } else { 3000.0 };
+    let mut far_army: Option<(f64, Ref)> = None;
     for o in w.clusters.iter().filter(|o| o.id != army && o.size > 0) {
         if let Some(b) = o.army.as_ref() {
             if hostile(w, a, b) {
                 consider(&mut best, distance_km(a.pos, b.pos), Ref::Cluster(o.id), 3000.0);
+                consider(&mut far_army, distance_km(a.pos, b.pos), Ref::Cluster(o.id), far);
             }
         }
+    }
+    if best.is_some() {
+        return best.map(|b| b.1);
+    }
+    // A hostile mob nearby: put it down.
+    let hunt = if w.is_planet() { MOB_HUNT_KM } else { 3000.0 };
+    for m in w.mobs.iter().filter(|m| hostile_mob(w, a, m)) {
+        consider(&mut best, distance_km(a.pos, m.pos), Ref::Mob(m.id), hunt);
     }
     if best.is_some() {
         return best.map(|b| b.1);
@@ -331,6 +367,10 @@ pub fn initiative_target(w: &World, army: ClusterId) -> Option<Ref> {
     }
     if best.is_some() {
         return best.map(|b| b.1);
+    }
+    // Nothing near: armies seek each other out across the map (the war comes to a head instead of idling).
+    if far_army.is_some() {
+        return far_army.map(|b| b.1);
     }
     for n in w.nodes.iter().filter(|n| n.level == Level::City || (!w.is_planet() && n.level == Level::District)) {
         let lean = n
@@ -498,7 +538,10 @@ fn appoint(w: &mut World, cx: &mut Ctx, army: ClusterId) {
             let s = |c: &CharId| life(w, *c).map(|l| l.competence + l.courage).unwrap_or(0.0);
             s(x).total_cmp(&s(y)).then(y.cmp(x))
         });
-    let general = if let Some(c) = captain {
+    let kept = alive(w, a.general);
+    let general = if kept.is_some() {
+        kept
+    } else if let Some(c) = captain {
         set_role(w, c, Role::General, Level::Crowd, Some(Ref::Cluster(army)), title.clone(), cx.beat);
         let name = w.characters[c.ix()].name.clone();
         w.soc.promotions += 1;
@@ -526,7 +569,7 @@ fn appoint(w: &mut World, cx: &mut Ctx, army: ClusterId) {
             .filter(|c| get(&c.allegiance, a.demigod) >= -0.1)
             .filter(|c| match c.life.as_deref() {
                 None => matches!(c.origin, Origin::Seeded),
-                Some(l) => l.army.is_none() && matches!(l.role, Role::Ringleader | Role::Hero | Role::Notable),
+                Some(l) => l.army.is_none() && l.mob.is_none() && matches!(l.role, Role::Ringleader | Role::Hero | Role::Notable),
             })
             .max_by(|x, y| {
                 let s = |c: &Character| c.life.as_ref().map(|l| l.competence).unwrap_or(0.55) + get(&c.allegiance, a.demigod);
@@ -587,10 +630,38 @@ fn appoint(w: &mut World, cx: &mut Ctx, army: ClusterId) {
                 "loyalty": r3(get(&w.characters[g.ix()].allegiance, a.demigod)) }),
     );
     if fresh {
-        // Captains (2, or 3 for big armies) and 3–5 squads.
-        let n_capt = if cl.size > 20_000 { 3 } else { 2 };
+        // Captains (3, or 4 for big armies; a free veteran of the home city, a ringleader or a hero, takes the first
+        // commission) and 3–5 squads.
+        let n_capt = if cl.size > 20_000 { 4 } else { 3 };
         let mut captains = vec![];
-        for k in 0..n_capt {
+        let home = w.clusters.get(a.from.ix()).and_then(|c| city_of(w, c.place));
+        if let Some(v) = home.and_then(|h| people::veteran(w, h, &[Role::Ringleader, Role::Hero], Some(a.demigod))) {
+            let before = life(w, v).map(|l| l.rank.title.clone()).unwrap_or_default();
+            set_role(w, v, Role::Captain, Level::Cell, Some(Ref::Cluster(army)), format!("captain in {label}"), cx.beat);
+            if let Some(l) = life_mut(w, v) {
+                l.army = Some(army);
+                l.deeds += 1;
+            }
+            bump(&mut w.characters[v.ix()].allegiance, a.demigod, 0.3, -1.0, 1.0);
+            w.characters[v.ix()].pos = a.pos;
+            captains.push(v);
+            w.soc.promotions += 1;
+            let vname = w.characters[v.ix()].name.clone();
+            let was = if before.is_empty() { String::new() } else { format!(", once {before},") };
+            cx.emit(
+                w,
+                SocKind::Promotion,
+                format!("{vname}{was} takes a captain's commission in {label} under General {}", people::surname(&w.characters[g.ix()].name)),
+                Ref::Char(v),
+                vec![Ref::Char(v), Ref::Cluster(army)],
+                a.pos,
+                Some(cl.place),
+                5,
+                1,
+                json!({ "person": Ref::Char(v), "to": "captain", "army": Ref::Cluster(army), "how": "veteran" }),
+            );
+        }
+        for k in captains.len()..n_capt {
             let mut spec = Spec::new(
                 Role::Captain,
                 Level::Cell,
@@ -710,19 +781,31 @@ fn volunteer_hosts(w: &mut World, cx: &mut Ctx) {
                 .then_some((c.id, d.id))
         })
         .collect();
+    // At most one host a beat, plus one for each demigod who has no army yet: the people around a demigod who just
+    // landed arm themselves early (a crowd near them is far likelier to), so armies are in the field in the first beats.
+    let mut first_for: Vec<DemigodId> = vec![];
     for (c, d) in cands {
-        if raised >= 1 {
-            break;
-        }
-        let fervor = {
-            let k = &w.clusters[c.ix()];
-            (k.mood.devotion + k.mood.anger + k.need.safety) / 3.0 + 0.5 * get(&k.allegiance, d)
-        };
-        if cx.roll("host", c.0 as u64) >= 0.01 + 0.1 * (fervor - 0.5).max(0.0) {
+        let unarmed = per[d.ix()] == 0 && !first_for.contains(&d);
+        if raised >= 1 && !unarmed {
             continue;
         }
-        raise_host(w, cx, c, d, None);
-        raised += 1;
+        let (fervor, near) = {
+            let k = &w.clusters[c.ix()];
+            let at = w.places[k.place.ix()].center;
+            let near = w.demigods.get(d.ix()).is_some_and(|x| distance_km(x.pos, at) <= HOST_NEAR_KM.min(w.meta.arena_radius_km * 0.3));
+            ((k.mood.devotion + k.mood.anger + k.need.safety) / 3.0 + 0.5 * get(&k.allegiance, d), near)
+        };
+        let p = 0.01 + 0.1 * (fervor - 0.5).max(0.0) + if unarmed && near { FIRST_HOST_P } else { 0.0 };
+        if cx.roll("host", c.0 as u64) >= p {
+            continue;
+        }
+        if raise_host(w, cx, c, d, None).is_some() {
+            if unarmed {
+                first_for.push(d);
+            } else {
+                raised += 1;
+            }
+        }
     }
 }
 
@@ -737,8 +820,14 @@ pub fn raise_host(w: &mut World, cx: &mut Ctx, c: ClusterId, d: DemigodId, leade
     let city = city_of(w, cl.place).unwrap_or(cl.place);
     let cname = w.name_of(Ref::Place(city));
     let dname = w.demigods[d.ix()].name.clone();
-    let n = w.clusters.iter().filter(|x| x.army.as_ref().is_some_and(|a| a.demigod == d)).count();
-    let name = format!("the Volunteers of {cname} for {dname}{}", if n > 0 { format!(" ({})", n + 1) } else { String::new() });
+    // "the Volunteers of Lagos for Dune", then "the Second Volunteers of Lagos for Dune".
+    let base = format!("Volunteers of {cname} for {dname}");
+    let n = w.clusters.iter().filter(|x| x.army.is_some() && x.label.ends_with(&base)).count();
+    const NTH: &[&str] = &["", "Second ", "Third ", "Fourth ", "Fifth ", "Sixth ", "Seventh ", "Eighth ", "Ninth ", "Tenth "];
+    let name = match NTH.get(n) {
+        Some(o) => format!("the {o}{base}"),
+        None => format!("the {}th {base}", n + 1),
+    };
     let army = create_army(w, d, c, size, &name, "", cx.beat, true).ok()?;
     w.soc.hosts += 1;
     if let Some(l) = leader.filter(|l| w.characters[l.ix()].alive) {
@@ -869,7 +958,15 @@ pub fn step(w: &mut World, cx: &mut Ctx) {
         let target_ok = a.target.is_some_and(|t| crate::util::is_alive(w, t) && !matches!(t, Ref::Cluster(c) if w.clusters[c.ix()].size == 0));
         let stale = a.order.as_ref().is_none_or(|o| cx.beat > o.beat + 12 && o.why != "order")
             || a.dest.is_some_and(|d| distance_km(a.pos, d) < 5.0 && a.stance != Stance::Holding);
-        if a.order.as_ref().is_none_or(|o| o.beat != cx.beat) && (!target_ok || (stale && a.order.as_ref().is_none_or(|o| o.why != "order"))) {
+        // A hostile army coming within reach makes a general on their own initiative turn to face it.
+        let threat = !matches!(a.target, Some(Ref::Cluster(_)))
+            && a.order.as_ref().is_none_or(|o| o.why != "order")
+            && w.clusters.iter().any(|o| {
+                o.id != id && o.size > 0 && o.army.as_ref().is_some_and(|b| hostile(w, &a, b) && distance_km(a.pos, b.pos) <= 3000.0)
+            });
+        if a.order.as_ref().is_none_or(|o| o.beat != cx.beat)
+            && (!target_ok || threat || (stale && a.order.as_ref().is_none_or(|o| o.why != "order")))
+        {
             let j = judge(w, id, "", None, a.demigod, "initiative", cx.beat);
             if j.target != a.target || !target_ok {
                 let _ = apply_orders(w, id, a.demigod, "", &j, "initiative", false, cx.beat);
@@ -1002,9 +1099,12 @@ fn battles(w: &mut World, cx: &mut Ctx, ids: &[ClusterId]) {
         if slipped {
             continue;
         }
-        // Armies that fought last beat regroup half the time instead of fighting again at once.
-        let fought_last = |k: ClusterId| w.battles.iter().rev().take_while(|b| b.beat + 1 >= cx.beat).any(|b| b.beat + 1 == cx.beat && b.sides.iter().any(|s| s.who == Ref::Cluster(k)));
-        if (fought_last(x) || fought_last(y)) && cx.roll("regroup", (x.0 as u64) << 20 | y.0 as u64) < 0.5 {
+        // Armies that fought in the last few beats mostly regroup (bury the dead, gather stragglers) instead of
+        // fighting again at once.
+        let fought_last = |k: ClusterId| {
+            w.battles.iter().rev().take_while(|b| b.beat + 3 >= cx.beat).any(|b| b.beat < cx.beat && b.sides.iter().any(|s| s.who == Ref::Cluster(k)))
+        };
+        if (fought_last(x) || fought_last(y)) && cx.roll("regroup", (x.0 as u64) << 20 | y.0 as u64) < 0.8 {
             continue;
         }
         fought.push(x);
@@ -1102,7 +1202,9 @@ fn battle(w: &mut World, cx: &mut Ctx, x: ClusterId, y: ClusterId) {
             }
         }
         // A hero (usually on the winning side), a coward (usually on the losing side).
-        let p_hero = if won { 0.6 } else if winner.is_none() { 0.35 } else { 0.15 };
+        // Big battles make legends (a skirmish rarely does); a captain is the likelier hero.
+        let big = (sides[0].losses + sides[1].losses) >= 400;
+        let p_hero = if !big { 0.05 } else if won { 0.35 } else if winner.is_none() { 0.15 } else { 0.05 };
         if cx.roll("hero", ks[k].0 as u64) < p_hero {
             let pick = a
                 .captains
@@ -1111,7 +1213,7 @@ fn battle(w: &mut World, cx: &mut Ctx, x: ClusterId, y: ClusterId) {
                 .filter(|c| w.characters[c.ix()].alive && !fallen.contains(c))
                 .find(|c| life(w, *c).is_some_and(|l| l.courage >= 0.6));
             let hero = match pick {
-                Some(c) if cx.roll("hero_who", c.0 as u64) < 0.5 => Some(c),
+                Some(c) if cx.roll("hero_who", c.0 as u64) < 0.7 => Some(c),
                 _ => {
                     let mut spec = Spec::new(
                         Role::Hero,
@@ -1137,7 +1239,7 @@ fn battle(w: &mut World, cx: &mut Ctx, x: ClusterId, y: ClusterId) {
                 heroes.push(h);
             }
         }
-        let p_coward = if won { 0.08 } else { 0.4 };
+        let p_coward = if won { 0.02 } else if big { 0.2 } else { 0.05 };
         if cx.roll("coward", ks[k].0 as u64) < p_coward {
             let pick = a
                 .captains
@@ -1187,16 +1289,16 @@ fn battle(w: &mut World, cx: &mut Ctx, x: ClusterId, y: ClusterId) {
         .iter()
         .map(|s| s.general.map(|g| format!(" under {}", w.characters[g.ix()].name)).unwrap_or_default())
         .collect();
-    let where_ = w.name_of(Ref::Place(city.unwrap_or(place)));
+    let where_ = crate::sim::near_name(w, at);
     let text = match winner {
         Some(k) => format!(
             "{}{} beats {}{} near {where_}: {} and {} fall",
-            names[k as usize], gnames[k as usize], names[1 - k as usize], gnames[1 - k as usize],
+            crate::sim::mobs::cap(&names[k as usize]), gnames[k as usize], names[1 - k as usize], gnames[1 - k as usize],
             sides[k as usize].losses, sides[1 - k as usize].losses
         ),
         None => format!(
             "{}{} and {}{} bleed each other near {where_}: {} and {} fall",
-            names[0], gnames[0], names[1], gnames[1], sides[0].losses, sides[1].losses
+            crate::sim::mobs::cap(&names[0]), gnames[0], names[1], gnames[1], sides[0].losses, sides[1].losses
         ),
     };
     let id = w.soc.battles;
@@ -1233,7 +1335,7 @@ fn battle(w: &mut World, cx: &mut Ctx, x: ClusterId, y: ClusterId) {
             cx.emit(
                 w,
                 SocKind::Casualties,
-                format!("{} loses {} near {where_}", names[k], s.losses),
+                format!("{} loses {} dead near {where_}", crate::sim::mobs::cap(&names[k]), s.losses),
                 Ref::Place(city.unwrap_or(place)),
                 vec![Ref::Cluster(ks[k])],
                 at,
@@ -1310,8 +1412,16 @@ fn suppress_mobs(w: &mut World, cx: &mut Ctx, ids: &[ClusterId]) {
             continue;
         }
         let here = city_of(w, place_at(w, a.pos));
+        // A hostile mob (rallying behind a rival, looting, attacking) is put down; a mob that is only angry is put down
+        // when the general hunted it, else now and then (an army in town doesn't always charge the crowd).
         let Some(mi) = w.mobs.iter().position(|m| {
-            m.ended.is_none() && Some(m.city) == here && m.side != Some(a.demigod) && m.size > 0
+            m.ended.is_none()
+                && Some(m.city) == here
+                && m.side != Some(a.demigod)
+                && m.size > 0
+                && (hostile_mob(w, &a, m)
+                    || a.target == Some(Ref::Mob(m.id))
+                    || cx.roll("suppress", (id.0 as u64) << 20 | m.id.0 as u64) < 0.25)
         }) else {
             continue;
         };
@@ -1336,10 +1446,11 @@ fn suppress_mobs(w: &mut World, cx: &mut Ctx, ids: &[ClusterId]) {
         }
         let gname = g.map(|g| w.characters[g.ix()].name.clone()).unwrap_or_else(|| w.clusters[id.ix()].label.clone());
         let massacre = cruelty > 0.4;
+        let rl = alive(w, m.ringleader).map(|r| format!(" under {}", w.characters[r.ix()].name)).unwrap_or_default();
         let text = if massacre {
-            format!("{gname} turns the soldiers loose on {}: {dead} dead in the streets", m.name)
+            format!("{gname} turns the soldiers loose on {}{rl}: {dead} rioters cut down in the streets, {army_loss} soldiers lost", m.name)
         } else {
-            format!("{gname}'s soldiers break up {} ({dead} dead)", m.name)
+            format!("{gname}'s soldiers break up {}{rl}: {dead} rioters dead, {army_loss} soldiers lost", m.name)
         };
         let id_b = w.soc.battles;
         w.soc.battles += 1;
@@ -1369,7 +1480,7 @@ fn suppress_mobs(w: &mut World, cx: &mut Ctx, ids: &[ClusterId]) {
         if let (Some(r), Some(g)) = (alive(w, m.ringleader), g) {
             people::grudge(w, r, Ref::Char(g));
         }
-        crate::sim::mobs::dissolve(w, cx, mi, "scattered by soldiers");
+        crate::sim::mobs::dissolve(w, cx, mi, crate::sim::mobs::SCATTERED);
     }
 }
 

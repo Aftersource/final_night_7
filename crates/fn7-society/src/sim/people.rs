@@ -155,6 +155,59 @@ pub fn alive(w: &World, c: Option<CharId>) -> Option<CharId> {
     c.filter(|c| w.characters.get(c.ix()).is_some_and(|x| x.alive))
 }
 
+/// A free veteran of `city` (alive, holding one of `roles`, leading no mob and serving in no army, not a god's, not
+/// possessed, not hostile to `side`): the most storied first (deeds, then competence). Persistent people come back
+/// instead of new ones stepping out every time.
+pub fn veteran(w: &World, city: PlaceId, roles: &[Role], side: Option<DemigodId>) -> Option<CharId> {
+    w.characters
+        .iter()
+        .filter(|c| c.alive && c.serves.is_none() && c.possessed_by.is_none())
+        .filter(|c| c.life.as_deref().is_some_and(|l| roles.contains(&l.role) && l.mob.is_none() && l.army.is_none()))
+        .filter(|c| city_of(w, c.place) == Some(city))
+        .filter(|c| side.is_none_or(|d| crate::util::get(&c.allegiance, d) >= -0.1))
+        .max_by(|x, y| {
+            let s = |c: &Character| c.life.as_deref().map(|l| (l.deeds, l.competence)).unwrap_or((0, 0.0));
+            let (a, b) = (s(x), s(y));
+            a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)).then(y.id.cmp(&x.id))
+        })
+        .map(|c| c.id)
+}
+
+/// Why `me` holds a grudge against `target`, as a phrase ("for the riot their soldiers broke"), from what the two have
+/// been to each other.
+pub fn grudge_reason(w: &World, me: CharId, target: Ref) -> String {
+    let l = life(w, me);
+    let my_role = l.map(|l| l.role).unwrap_or_default();
+    let was_ringleader = l.is_some_and(|l| l.emerged_as == Role::Ringleader);
+    match target {
+        Ref::Char(t) => {
+            let tl = life(w, t);
+            let t_role = tl.map(|l| l.role).unwrap_or_default();
+            let same_army = l.and_then(|l| l.army).is_some() && l.and_then(|l| l.army) == tl.and_then(|l| l.army);
+            match (my_role, t_role) {
+                (Role::Captain, Role::General) if same_army => "for the command they stole".into(),
+                (Role::Coward, Role::General) => "for the shame of the rout they were blamed for".into(),
+                (Role::Deserter, Role::General) => "for the treason they would not follow".into(),
+                (Role::General, _) if same_army => "for the coup that cost them the army".into(),
+                (_, Role::General) if was_ringleader => "for the riot their soldiers broke".into(),
+                (Role::Ringleader, Role::Ringleader) | (Role::Prophet, _) | (_, Role::Prophet) => {
+                    "for the street fight between their people".into()
+                }
+                (_, Role::Avenger) => "for the blood they spilled".into(),
+                _ => "for an old wrong between their families".into(),
+            }
+        }
+        Ref::Demigod(d) => {
+            let dn = w.demigods.get(d.ix()).map(|x| x.name.clone()).unwrap_or_default();
+            match w.characters.get(me.ix()).and_then(|c| c.serves) {
+                Some(g) => format!("in the name of {}, who has turned against {dn}", w.gods.get(g.ix()).map(|x| x.name.as_str()).unwrap_or("a god")),
+                None => format!("for what {dn}'s war did to their home"),
+            }
+        }
+        _ => "over an old score".into(),
+    }
+}
+
 /// Give someone a role (an addressed person promoted, a soldier made captain).
 pub fn set_role(w: &mut World, c: CharId, role: Role, level: Level, of: Option<Ref>, title: String, beat: u32) {
     let Some(ch) = w.characters.get_mut(c.ix()) else { return };
@@ -247,6 +300,9 @@ pub fn kill(w: &mut World, cx: &mut Ctx, c: CharId, cause: &str, by: Option<Ref>
 
 /// Add a grudge (deduplicated, at most 4, newest kept).
 pub fn grudge(w: &mut World, c: CharId, against: Ref) {
+    if against == Ref::Char(c) {
+        return;
+    }
     if let Some(l) = life_mut(w, c) {
         if !l.grudges.contains(&against) {
             l.grudges.push(against);
@@ -437,6 +493,8 @@ fn revenge_attempt(w: &mut World, cx: &mut Ctx, id: CharId, target: Ref) -> bool
         return false;
     }
     let tname = w.name_of(target);
+    let why = grudge_reason(w, id, target);
+    let cname = crate::sim::near_name(w, my_pos);
     match target {
         Ref::Demigod(d) => {
             let amount = r3(0.5 + comp);
@@ -448,7 +506,7 @@ fn revenge_attempt(w: &mut World, cx: &mut Ctx, id: CharId, target: Ref) -> bool
                     amount,
                     cause: format!("{name}'s revenge"),
                 },
-                act: format!("{name} gets close enough to {tname} to settle a grudge"),
+                act: format!("{name} slips through {tname}'s guard near {cname} with a blade, {why}"),
                 actor: Ref::Char(id),
                 magnitude: 6,
                 valence: -3,
@@ -462,14 +520,14 @@ fn revenge_attempt(w: &mut World, cx: &mut Ctx, id: CharId, target: Ref) -> bool
             cx.emit(
                 w,
                 SocKind::Revenge,
-                format!("{name} strikes at {tname} to settle a grudge"),
+                format!("{name} slips through {tname}'s guard near {cname} and draws blood, {why}"),
                 Ref::Char(id),
                 vec![Ref::Char(id), target],
                 my_pos,
                 Some(my_place),
                 6,
                 -3,
-                json!({ "avenger": Ref::Char(id), "target": target, "amount": amount }),
+                json!({ "avenger": Ref::Char(id), "target": target, "amount": amount, "why": why }),
             );
             true
         }
@@ -480,9 +538,9 @@ fn revenge_attempt(w: &mut World, cx: &mut Ctx, id: CharId, target: Ref) -> bool
                 w,
                 SocKind::Revenge,
                 if win {
-                    format!("{name} settles a grudge with {tname}")
+                    format!("{name} ambushes {tname} in {cname} and kills them, {why}")
                 } else {
-                    format!("{name} tries to settle a grudge with {tname} and pays for it")
+                    format!("{name} goes for {tname} with a knife in {cname}, {why}, and is cut down by {tname}'s people")
                 },
                 Ref::Char(id),
                 vec![Ref::Char(id), target],
@@ -490,10 +548,10 @@ fn revenge_attempt(w: &mut World, cx: &mut Ctx, id: CharId, target: Ref) -> bool
                 Some(my_place),
                 6,
                 -3,
-                json!({ "avenger": Ref::Char(id), "target": target, "won": win }),
+                json!({ "avenger": Ref::Char(id), "target": target, "won": win, "why": why }),
             );
             if win {
-                kill(w, cx, t, &format!("killed by {name} over an old grudge"), Some(Ref::Char(id)));
+                kill(w, cx, t, &format!("ambushed by {name} in {cname}, {why}"), Some(Ref::Char(id)));
                 if let Some(l) = life_mut(w, id) {
                     l.kills += 1;
                     l.deeds += 1;
@@ -501,7 +559,7 @@ fn revenge_attempt(w: &mut World, cx: &mut Ctx, id: CharId, target: Ref) -> bool
                     l.role = Role::Avenger;
                 }
             } else {
-                kill(w, cx, id, &format!("cut down trying to kill {tname}"), Some(target));
+                kill(w, cx, id, &format!("cut down by {tname}'s people while trying to kill them"), Some(target));
             }
             true
         }
