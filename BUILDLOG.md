@@ -1058,3 +1058,24 @@ Engineering: the remaining pillars are the studio's own demigod map markers ("He
 - **Meshy:** check the balance via the MCP after a restart (Chris's screenshot shows 2,275 credits) and plan the duel rigs.
 - **Also:** seat fairness (χ² 16.7) needs a follow-up; Benito's side is silent since 11:26; rotate all keys after the jam.
 - **Read first next session:** BUILDLOG.md, docs/DM_RULEBOOK.md, docs/PLAYBOOK.md (Plays 9-11), docs/CLIENT_API.md, final_night_7_unreal docs/BACKLOG.md + docs/design/screen_map_v4.png.
+
+## 2026-11-14: stable scrolls, wheel zoom centred on demigods, zoom that animates, the pouch off the portraits (relayed by the Mac session, verbatim)
+
+> The world and title scrolls keep scrolling up for some reason. Keep them stable.
+
+> Zooming in near any demigod's portrait should zoom to that demigod's exact position.
+
+> The zoom keeps popping out of nowhere. It should expand and contract instead. The pouch must sit another 30px or 60px over, because it is blocking the portrait.
+
+> The [image] research is too far from the challenge. This needs to be fixed.
+
+> Why have the graphics styles that were pointed out not been addressed?
+
+Engineering:
+- Unreal main c9f3f45 merges mac/integration and mac/meshy-notes: the ring at join, the WILL block always hidden, the challenge range fixed at 120 km at any zoom, the WORLD feed and header as scrolls, the YOU panel as a stone tablet, and docs/MESHY.md.
+- Next on mac/integration:
+  - Open scrolls size to their content, so they stop collapsing on each HUD refresh.
+  - The mouse wheel over a demigod zooms centred on its exact lat/lon.
+  - Every view change animates through the studio's own zoom path (~0.4 s grow, shrink or slide), never an instant pop.
+  - The pouch moves further along the right rim, off the rival's diorama box.
+- The server's challenge range matches the client's: within 120 km (the regions hex), whatever the zoom.
