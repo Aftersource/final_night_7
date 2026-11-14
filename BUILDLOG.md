@@ -924,3 +924,12 @@ Engineering: the head-tracking follow starts the instant the pointer moves but p
 > Make sure the demigods are included as well.
 
 Engineering: the summon drag ships in the same mac/perf merge (press your demigod, drag it, drop it on the board or globe to send fields.summon), with a local preview until the 0.8.0 server answers.
+
+## 2026-11-14: easy-to-click portraits in front of buildings; double-click into challenge mode
+
+> [image] Portraits sit in front of buildings, and clicking on portraits should be easy. Remember to send the notes
+> to the Final Night 7 Dropship session for any gameplay or design work. Make them easy to click. If the player double
+> clicks one and is in the same grid area, they should be able to reach challenge mode. Ask main about
+> challenge mode and Archon.
+
+Engineering: board pieces draw in front of buildings, with large hit targets. Double-clicking a rival demigod that shares your demigod's grid area opens CHALLENGE MODE (contract v1 below, in DM_RULEBOOK "Challenge mode").
