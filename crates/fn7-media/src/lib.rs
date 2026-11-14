@@ -1,6 +1,7 @@
 //! # fn7-media
 //!
-//! Images for Final Night 7: portraits (demigods, memorized characters), items, big events and end-of-match statues.
+//! Images for Final Night 7: portraits (demigods, memorized characters), demigod dioramas (the table minifigs), items,
+//! big events and end-of-match statues.
 //!
 //! - [`prompt`]: house-style prompts, deterministic, engine ids scrubbed.
 //! - [`generator`]: the [`ImageGenerator`] trait, [`MockGenerator`] (free SVG placeholders) and [`OpenAiImages`]
@@ -11,7 +12,8 @@
 //!   generator); generation runs on a bounded background queue, and finished images show up in the manifest
 //!   ([`Media::manifest`], served as `GET /media/index?since=<cursor>`).
 //! - [`annotate`]: walks an outgoing payload and adds an `image` object next to every `image_prompt` (and
-//!   `statue_image` next to `statue_prompt`).
+//!   `statue_image` next to `statue_prompt`, `portrait_image` / `diorama_image` next to `portrait_prompt` /
+//!   `diorama_prompt`).
 //! - [`http`]: the axum routes `GET /media/index` and `GET /media/<key>.<ext>`.
 //!
 //! Every request, cache hit, refusal, success and failure is recorded through `theatre_trace` (`media_*` events, and an

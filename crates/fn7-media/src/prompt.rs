@@ -30,16 +30,19 @@ pub enum ImageKind {
     Place,
     /// An army (requested by reference).
     Army,
+    /// A demigod as a collectible minifig on a small diorama base themed on its home region (the table piece).
+    Diorama,
 }
 
 impl ImageKind {
-    pub const ALL: [ImageKind; 6] = [
+    pub const ALL: [ImageKind; 7] = [
         Self::Portrait,
         Self::Item,
         Self::Event,
         Self::Statue,
         Self::Place,
         Self::Army,
+        Self::Diorama,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -50,6 +53,7 @@ impl ImageKind {
             Self::Statue => "statue",
             Self::Place => "place",
             Self::Army => "army",
+            Self::Diorama => "diorama",
         }
     }
 
@@ -61,7 +65,7 @@ impl ImageKind {
 
     /// Images that want a transparent background where the model supports it.
     pub fn wants_transparency(self) -> bool {
-        matches!(self, Self::Item | Self::Statue)
+        matches!(self, Self::Item | Self::Statue | Self::Diorama)
     }
 }
 

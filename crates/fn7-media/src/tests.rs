@@ -433,3 +433,31 @@ async fn requests_by_reference_are_rate_limited_budgeted_and_idempotent() {
     let (r, why) = off.request_by_ref(&p(9), Some("m"), "public").unwrap();
     assert_eq!((r.status, why.as_deref()), ("off", Some("images are off")));
 }
+
+#[tokio::test]
+async fn annotates_demigod_dioramas() {
+    let media = Media::start(cfg(&temp_dir(), 0.0, 0.0), mock(0.0));
+    let mut public = json!({ "demigods": [ {
+        "ref": "dg:0", "name": "Rook", "image_kind": "portrait", "diorama_image_kind": "diorama",
+        "portrait_prompt": "Rook, a demigod: wiry, crimson and gold",
+        "diorama_prompt": "Rook, a demigod: wiry; as a collectible minifig on a base themed on Western Africa (dg:0)",
+    } ] });
+    assert_eq!(media.annotate(&mut public, Some("m")), 2, "a portrait and a diorama");
+    let d = &public["demigods"][0];
+    assert_eq!(d["portrait_image"]["kind"], "portrait");
+    let img = &d["diorama_image"];
+    assert_eq!(img["kind"], "diorama");
+    let prompt = img["prompt"].as_str().unwrap();
+    assert!(prompt.contains("minifig") && prompt.contains("diorama base") && !prompt.contains("dg:0"), "{prompt}");
+    // The style file's framing and a square size.
+    let style = MediaStyle::builtin();
+    let k = style.kind(ImageKind::Diorama);
+    assert_eq!(k.size, "1024x1024");
+    assert!(prompt.to_lowercase().starts_with(&k.framing[..40]), "{prompt}");
+    assert!(style.kinds.contains_key(&ImageKind::Diorama), "data/media_style.json lists diorama");
+    assert_eq!(ImageKind::parse("diorama"), Some(ImageKind::Diorama));
+    // Annotating again adds nothing new (the image objects are skipped) and the same prompt is the same image.
+    let mut again = public.clone();
+    media.annotate(&mut again, Some("m"));
+    assert_eq!(again["demigods"][0]["diorama_image"]["hash"], public["demigods"][0]["diorama_image"]["hash"]);
+}

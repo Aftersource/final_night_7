@@ -31,6 +31,10 @@ use crate::prompt::ImageKind;
 /// The compiled-in style (the repo's `data/media_style.json` at build time).
 pub const BUILTIN_STYLE_JSON: &str = include_str!("../../../data/media_style.json");
 
+/// The diorama's framing (also in `data/media_style.json`).
+const DIORAMA_FRAMING: &str = "the demigod as a collectible minifig standing on a small square themed diorama base that \
+reflects its home region and shows off its signature prop, three-quarter view from slightly above, centered, square";
+
 /// Fallback framing and size for a kind the style file doesn't list.
 fn builtin_kind(kind: ImageKind) -> KindStyle {
     let (framing, size) = match kind {
@@ -43,6 +47,7 @@ fn builtin_kind(kind: ImageKind) -> KindStyle {
         ImageKind::Statue => ("amiibo-style figure on a round base atop a pile of its items", "1024x1024"),
         ImageKind::Place => ("establishing shot", "1536x1024"),
         ImageKind::Army => ("wide cinematic, a marching host seen from a low angle, banners raised", "1536x1024"),
+        ImageKind::Diorama => (DIORAMA_FRAMING, "1024x1024"),
     };
     KindStyle {
         framing: framing.into(),

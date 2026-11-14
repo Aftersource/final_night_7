@@ -7,7 +7,8 @@
     "statue": { "framing": "amiibo-style figure on a round base atop a pile of its items", "size": "1024x1024" },
     "place": { "framing": "establishing shot", "size": "1536x1024" },
     "army": { "framing": "wide cinematic, a marching host seen from a low angle, banners raised", "size": "1536x1024" },
-    "item": { "framing": "a single item shown alone like a loot icon, centered, three-quarter view, plain background", "size": "1024x1024" }
+    "item": { "framing": "a single item shown alone like a loot icon, centered, three-quarter view, plain background", "size": "1024x1024" },
+    "diorama": { "framing": "the demigod as a collectible minifig standing on a small square themed diorama base that reflects its home region and shows off its signature prop, three-quarter view from slightly above, centered, square", "size": "1024x1024" }
   },
   "avoid": ["text", "logos", "real people's likenesses", "gore close-ups"],
   "event_selection": { "min_magnitude": 8, "always": ["cast", "elimination", "general_appointed", "mutiny"], "max_per_match": 12 }

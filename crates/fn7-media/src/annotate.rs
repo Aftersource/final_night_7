@@ -5,6 +5,7 @@
 //! | `image_prompt: string` | `image` | `image_kind` if given, else inferred (below) |
 //! | `statue_prompt: string` (when no `image_prompt`) | `statue_image` | statue |
 //! | `portrait_prompt: string` | `portrait_image` | portrait |
+//! | `diorama_prompt: string` | `diorama_image` | diorama |
 //!
 //! Inference when `image_kind` is absent: `statue` inside `piles`/`statues` or next to a `statue_prompt`; `portrait`
 //! under a key containing "portrait" or on an object whose `ref`/`demigod`/`character` is a `dg:`/`ch:` ref; `item` on
@@ -68,7 +69,7 @@ impl Media {
                     }
                 }
                 for (k, x) in o.iter_mut() {
-                    if matches!(k.as_str(), "image" | "statue_image" | "portrait_image") {
+                    if matches!(k.as_str(), "image" | "statue_image" | "portrait_image" | "diorama_image") {
                         continue;
                     }
                     self.walk(x, k, interim, match_id, n);
@@ -105,6 +106,9 @@ impl Media {
         }
         if let Some(text) = s("portrait_prompt") {
             out.push(("portrait_image", self.prompt(ImageKind::Portrait, text)));
+        }
+        if let Some(text) = s("diorama_prompt") {
+            out.push(("diorama_image", self.prompt(ImageKind::Diorama, text)));
         }
         if interim && out.is_empty() && !o.contains_key("image") && !o.contains_key("image_prompt") {
             if parent == "omens" {
