@@ -32,6 +32,7 @@ pub mod items;
 pub mod occupancy;
 pub mod merge;
 pub mod payload;
+pub mod persona;
 pub mod phases;
 pub mod queries;
 pub mod settings;
@@ -166,6 +167,7 @@ fn sample_hand_prompt(w: &World, pantheon: &Pantheon) -> String {
         demigod_name: d.name.clone(),
         hand: Hand::Left,
         persona: a.persona.clone(),
+        player: None,
         beat: 1,
         first_intent: IntentId(0),
         place: Some(d.place),
@@ -224,6 +226,7 @@ fn sample_step_prompt(kind: fn7_agents::step::StepKind) -> String {
         agent: AgentId(0),
         name: "<NAME>".into(),
         persona: "<PERSONA>".into(),
+        player: None,
         goal: "<GOAL>".into(),
         beat: 1,
         steps_taken: 0,

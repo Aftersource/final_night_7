@@ -92,6 +92,7 @@ pub fn new_match(
             zoom: Zoom::District,
             focus: None,
             display_name: if s.demigods_per_player >= 2 { name.clone() } else { String::new() },
+            account: None,
         })
         .collect();
     w
