@@ -37,10 +37,10 @@
 //! the fixed [`POSES`] vocabulary, 600–1400 ms per exchange. Deterministic (seeded by the strike's query).
 
 use fn7_model::seed::{hash_str, Rng};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Range {
     Far,
@@ -65,7 +65,7 @@ impl Range {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Stance {
     Neutral,
@@ -76,7 +76,7 @@ pub enum Stance {
     Downed,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MoveClass {
     Strike,
@@ -85,6 +85,8 @@ pub enum MoveClass {
     Parry,
     Feint,
     Evade,
+    /// `"close"` on the wire (step in a range band).
+    #[serde(rename = "close")]
     CloseIn,
     Retreat,
     Grapple,
@@ -95,7 +97,7 @@ pub enum MoveClass {
 }
 
 /// The duel's state between blows.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Flow {
     pub range: Range,
     /// The side (0 = a, 1 = b) holding the momentum.
@@ -486,12 +488,18 @@ pub fn choreo_json(seed: u64, query: &str, f: &Flow, x: &Exchange, side: usize, 
     // The defender reacts one beat after the attacker's strike pose.
     let strike_t = step * (atk.len().saturating_sub(if ko { 2 } else { 1 })).min(n) as u32;
     let contact = (dmg > 0.0).then(|| json!({ "limb": striking_limb(text, x.class), "target_limb": target_limb(text), "t_ms": strike_t }));
-    let atk_json = json!({ "move_class": x.class, "pose_keys": keys(&atk, 0), "contact": contact, "stance_after": x.after.stance[side] });
+    let atk_json = json!({ "move_class": x.class, "pose_keys": keys(&atk, 0), "contact": contact.clone(), "stance_after": x.after.stance[side] });
     let def_json = json!({ "move_class": f.set[1 - side], "pose_keys": keys(&def, strike_t + step / 2),
                            "contact": Value::Null, "stance_after": if ko { Stance::Downed } else { x.after.stance[1 - side] } });
     let (a, b) = if side == 0 { (atk_json, def_json) } else { (def_json, atk_json) };
     let side_name = |s: usize| if s == 0 { "a" } else { "b" };
-    json!({ "range_before": f.range, "range_after": x.after.range,
+    // Every contact of the exchange (who hits, with which limb, which body part of the other, when).
+    let contacts: Vec<Value> = contact
+        .iter()
+        .map(|c| json!({ "by": side_name(side), "limb": c["limb"], "on": side_name(1 - side), "target_limb": c["target_limb"],
+                         "t_ms": c["t_ms"] }))
+        .collect();
+    json!({ "range_before": f.range, "range_after": x.after.range, "contacts": contacts,
             "initiative_before": side_name(f.initiative), "initiative_after": side_name(x.after.initiative),
             "flip": f.initiative != x.after.initiative, "result": x.result, "a": a, "b": b, "camera": camera,
             "duration_ms": duration })
