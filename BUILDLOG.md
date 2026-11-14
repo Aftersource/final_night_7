@@ -1032,3 +1032,7 @@ Engineering:
   - a choreography per blow: a pose vocabulary, contacts, timing
 - The client draws a procedural wooden 15-joint mannequin per duellist (a pose library with Full Body IK). Meshy-rigged figures later.
 - Research: Unreal Control Rig/FBIK, Meshy's rigging and 500+ preset animation library, text-to-motion AI (NVIDIA ARDY and MotionBricks, Tencent Motus) as a stretch.
+
+> The poles still appear in front of the portraits. Use z-ordering properly.
+
+Engineering: the remaining pillars are the studio's own demigod map markers ("Hero" pillar, disc and ball), which stand at the same lat/lon as the kit's cards. They are hidden while the kit's pieces stand, so the only thing at a demigod's spot is its card, and the cards draw on top.
