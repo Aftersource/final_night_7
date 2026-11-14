@@ -1,0 +1,247 @@
+{
+  "$id": "account_settings.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "GET/PUT /api/me/settings. Every key is optional on PUT and takes its default when left out; unknown keys are refused; the body is at most 16384 bytes.",
+  "properties": {
+    "accessibility": {
+      "additionalProperties": false,
+      "description": "Accessibility.",
+      "properties": {
+        "aura_palette": {
+          "default": "default",
+          "description": "The colour-blind palette for demigod auras.",
+          "enum": [
+            "default",
+            "deuteranopia",
+            "protanopia",
+            "tritanopia",
+            "high_contrast"
+          ],
+          "type": "string"
+        },
+        "reduce_flashing": {
+          "default": false,
+          "description": "Tone down lightning flashes, the challenge lock's flashes and screen shakes.",
+          "type": "boolean"
+        },
+        "subtitles": {
+          "default": true,
+          "description": "Show narration as text.",
+          "type": "boolean"
+        },
+        "text_scale": {
+          "default": 1.0,
+          "description": "UI text scale.",
+          "maximum": 2.0,
+          "minimum": 0.75,
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "audio": {
+      "additionalProperties": false,
+      "description": "Volumes, each 0 to 1.",
+      "properties": {
+        "master": {
+          "default": 0.8,
+          "description": "Master volume.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        "music": {
+          "default": 0.6,
+          "description": "Music volume.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        "mute_when_unfocused": {
+          "default": true,
+          "description": "Mute while the window is in the background.",
+          "type": "boolean"
+        },
+        "sfx": {
+          "default": 0.8,
+          "description": "Effects volume.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        "voice": {
+          "default": 1.0,
+          "description": "Narration and voice volume.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "camera": {
+      "additionalProperties": false,
+      "description": "Camera feel.",
+      "properties": {
+        "edge_pan": {
+          "default": true,
+          "description": "Pan when the pointer touches a screen edge.",
+          "type": "boolean"
+        },
+        "invert_zoom": {
+          "default": false,
+          "description": "Invert the zoom direction.",
+          "type": "boolean"
+        },
+        "pan_speed": {
+          "default": 1.0,
+          "description": "Camera pan speed multiplier.",
+          "maximum": 5.0,
+          "minimum": 0.1,
+          "type": "number"
+        },
+        "zoom_speed": {
+          "default": 1.0,
+          "description": "Zoom speed multiplier.",
+          "maximum": 5.0,
+          "minimum": 0.1,
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "content": {
+      "additionalProperties": false,
+      "description": "Content preferences (applied by the client).",
+      "properties": {
+        "gore": {
+          "default": "full",
+          "description": "How much of the cartoon gore the client shows.",
+          "enum": [
+            "full",
+            "reduced",
+            "off"
+          ],
+          "type": "string"
+        },
+        "profanity": {
+          "default": "on",
+          "description": "Mask profanity in text the client shows.",
+          "enum": [
+            "on",
+            "masked"
+          ],
+          "type": "string"
+        },
+        "show_player_personas": {
+          "default": true,
+          "description": "Show other players' demigod personality text.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "display_name": {
+      "description": "The account's display name (the name on the websocket's auth.login). Writing a different one renames the account: 409 name_taken / name_lookalike / profile_claimed if it cannot. Default: the current name.",
+      "maxLength": 24,
+      "minLength": 1,
+      "type": "string",
+      "x-format": "display_name"
+    },
+    "hud": {
+      "additionalProperties": false,
+      "description": "HUD layout.",
+      "properties": {
+        "demigod_cards": {
+          "default": "lower_left",
+          "description": "Where the two demigod cards sit.",
+          "enum": [
+            "lower_left",
+            "lower_right"
+          ],
+          "type": "string"
+        },
+        "layout": {
+          "default": "default",
+          "description": "The HUD layout preset.",
+          "enum": [
+            "default",
+            "compact",
+            "minimal"
+          ],
+          "type": "string"
+        },
+        "scale": {
+          "default": 1.0,
+          "description": "HUD scale.",
+          "maximum": 2.0,
+          "minimum": 0.5,
+          "type": "number"
+        },
+        "show_chat": {
+          "default": true,
+          "description": "Show room chat.",
+          "type": "boolean"
+        },
+        "show_hints": {
+          "default": true,
+          "description": "Show control hints.",
+          "type": "boolean"
+        },
+        "show_minimap": {
+          "default": true,
+          "description": "Show the minimap.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "keybinds": {
+      "additionalProperties": {
+        "maxLength": 40,
+        "minLength": 1,
+        "pattern": "^[A-Za-z0-9+_-]{1,40}$",
+        "type": "string"
+      },
+      "default": {},
+      "description": "Keybind overrides: action name (lower_snake, dots allowed: camera.pan_left) to a key chord as the client names it (Ctrl+Shift+A, SpaceBar, LeftMouseButton). Only overrides are stored; an action left out uses the client's default.",
+      "maxProperties": 64,
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_.]{0,39}$"
+      },
+      "type": "object",
+      "x-format": "keybinds"
+    },
+    "language": {
+      "default": "en",
+      "description": "UI language as a BCP 47 tag (en, pt-BR, zh-Hant).",
+      "maxLength": 35,
+      "minLength": 2,
+      "pattern": "^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$",
+      "type": "string",
+      "x-format": "language"
+    },
+    "pronouns": {
+      "default": "unspecified",
+      "description": "How narration and your demigods' minds refer to you. unspecified: by name.",
+      "enum": [
+        "unspecified",
+        "she",
+        "he",
+        "they",
+        "it"
+      ],
+      "type": "string"
+    },
+    "version": {
+      "default": 1,
+      "description": "The document version. Send the one you read.",
+      "maximum": 1,
+      "minimum": 1,
+      "type": "integer"
+    }
+  },
+  "title": "Account settings",
+  "type": "object"
+}

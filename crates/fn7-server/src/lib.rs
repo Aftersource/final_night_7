@@ -4,6 +4,7 @@
 //! `GamePlugin` trait, recorded in the core's JSONL format ([`record`]), and replay verification of a core recording
 //! ([`replay`]).
 
+pub mod accounts;
 pub mod anthropic;
 pub mod llm;
 pub mod media;

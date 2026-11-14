@@ -1,0 +1,75 @@
+{
+  "$defs": {},
+  "$id": "account_entitlements.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "billing": {
+      "additionalProperties": false,
+      "properties": {
+        "live": {
+          "const": false
+        },
+        "note": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "live",
+        "provider",
+        "note"
+      ],
+      "type": "object"
+    },
+    "entitlements": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "expires_at": {
+            "type": "integer"
+          },
+          "granted_at": {
+            "type": "integer"
+          },
+          "sku": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "past_due",
+              "canceled",
+              "expired"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "sku",
+          "status",
+          "source",
+          "granted_at"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "tier": {
+      "description": "free, or the sku of an active entitlement.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "tier",
+    "entitlements",
+    "billing"
+  ],
+  "title": "GET /api/me/entitlements (billing is not live)",
+  "type": "object"
+}

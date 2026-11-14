@@ -1,0 +1,224 @@
+{
+  "$defs": {
+    "Demigod": {
+      "additionalProperties": false,
+      "properties": {
+        "creed": {
+          "description": "The creed the match uses.",
+          "maxLength": 200,
+          "type": "string"
+        },
+        "hand": {
+          "enum": [
+            "left",
+            "right"
+          ],
+          "type": "string"
+        },
+        "match_name": {
+          "description": "The name the demigod carries in a match: the custom name, else \"<display name>'s Left Hand\" / \"<display name>'s Right Hand\".",
+          "type": "string"
+        },
+        "moderation": {
+          "additionalProperties": false,
+          "description": "The pass that judged the saved sheet; null until saved.",
+          "properties": {
+            "at": {
+              "description": "Epoch ms.",
+              "type": "integer"
+            },
+            "model": {
+              "description": "claude-haiku-5-5, or rules when the rules decided.",
+              "type": "string"
+            },
+            "original": {
+              "additionalProperties": false,
+              "description": "What the player submitted.",
+              "properties": {
+                "creed": {
+                  "description": "The creed.",
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                "name": {
+                  "description": "The custom name, or null.",
+                  "maxLength": 32,
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "personality": {
+                  "description": "The personality text.",
+                  "maxLength": 600,
+                  "type": "string"
+                },
+                "style": {
+                  "description": "The speaking style.",
+                  "maxLength": 200,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "personality",
+                "style",
+                "creed"
+              ],
+              "type": "object"
+            },
+            "reason": {
+              "description": "Empty for ok.",
+              "type": "string"
+            },
+            "verdict": {
+              "enum": [
+                "ok",
+                "rephrase"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "verdict",
+            "reason",
+            "model",
+            "at",
+            "original"
+          ],
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "The custom name, or null.",
+          "maxLength": 32,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "personality": {
+          "description": "The personality the match uses.",
+          "maxLength": 600,
+          "type": "string"
+        },
+        "saved": {
+          "description": "false until the account saves this demigod (every text is then empty).",
+          "type": "boolean"
+        },
+        "style": {
+          "description": "The speaking style the match uses.",
+          "maxLength": 200,
+          "type": "string"
+        }
+      },
+      "required": [
+        "hand",
+        "saved",
+        "name",
+        "match_name",
+        "personality",
+        "style",
+        "creed",
+        "moderation"
+      ],
+      "type": "object"
+    },
+    "Sheet": {
+      "additionalProperties": false,
+      "description": "A demigod sheet.",
+      "properties": {
+        "creed": {
+          "description": "The creed.",
+          "maxLength": 200,
+          "type": "string"
+        },
+        "name": {
+          "description": "The custom name, or null.",
+          "maxLength": 32,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "personality": {
+          "description": "The personality text.",
+          "maxLength": 600,
+          "type": "string"
+        },
+        "style": {
+          "description": "The speaking style.",
+          "maxLength": 200,
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "personality",
+        "style",
+        "creed"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "account_demigod_answer.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "categories": {
+      "items": {
+        "enum": [
+          "hate",
+          "sexual",
+          "harassment",
+          "instructions",
+          "personal_data"
+        ],
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "demigod": {
+      "$ref": "#/$defs/Demigod"
+    },
+    "detail": {
+      "description": "refuse only: the same text as reason.",
+      "type": "string"
+    },
+    "error": {
+      "const": "refused",
+      "description": "refuse only."
+    },
+    "final": {
+      "$ref": "#/$defs/Sheet"
+    },
+    "model": {
+      "description": "claude-haiku-5-5, or rules.",
+      "type": "string"
+    },
+    "original": {
+      "$ref": "#/$defs/Sheet"
+    },
+    "reason": {
+      "description": "rephrase and refuse: one sentence for the player.",
+      "type": "string"
+    },
+    "verdict": {
+      "description": "ok: saved exactly as sent. rephrase: saved as `final`; show `original`, `final` and `reason` and let the player edit and send again. refuse (HTTP 422): nothing saved.",
+      "enum": [
+        "ok",
+        "rephrase",
+        "refuse"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "verdict",
+    "model",
+    "demigod"
+  ],
+  "title": "PUT /api/me/demigods/{left|right}: the moderation answer (200 for ok and rephrase, 422 for refuse)",
+  "type": "object"
+}

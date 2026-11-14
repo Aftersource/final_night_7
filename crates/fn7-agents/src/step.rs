@@ -38,6 +38,8 @@ pub struct StepCtx {
     pub agent: AgentId,
     pub name: String,
     pub persona: String,
+    /// Accounts: the character the player wrote for the demigod this agent works for (untrusted; `None` = none).
+    pub player: Option<fn7_model::PlayerPersona>,
     pub goal: String,
     pub beat: u32,
     pub steps_taken: u32,
@@ -148,7 +150,7 @@ the body's own voice and abilities; it cannot do the impossible.",
     };
     format!(
         "FINAL NIGHT 7: a battle royale of demigods. You are {role}\n\
-Persona: {persona}\n\n\
+Persona: {persona}\n{player}\n\
 Rules:\n\
 - Take ONE step toward the goal this beat (about 6 seconds): 0-2 concrete actions, each at most 12 words.\n\
 - Act only on entities in your scope (if a scope is given) or in view.\n\
@@ -158,6 +160,7 @@ Rules:\n\
 - {labels}\n\
 - {untrusted}\n\n{voice}",
         persona = line(&ctx.persona, 300),
+        player = player_persona_block(ctx.player.as_ref()),
         labels = LABEL_RULE,
         untrusted = UNTRUSTED_RULE,
         voice = VOICE,

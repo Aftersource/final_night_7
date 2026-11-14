@@ -41,6 +41,8 @@ pub struct HandCtx {
     pub demigod_name: String,
     pub hand: Hand,
     pub persona: String,
+    /// Accounts: the character the seat's signed-in player wrote for this demigod (untrusted; `None` = none).
+    pub player: Option<fn7_model::PlayerPersona>,
     pub beat: u32,
     /// Ids for the intents this call produces: `first_intent`, `first_intent + 1`, ...
     pub first_intent: IntentId,
@@ -160,7 +162,7 @@ pub fn system_prompt(ctx: &HandCtx) -> String {
     format!(
         "You are the {side} HAND of a demigod in FINAL NIGHT 7, a battle royale of demigods. You are an orchestrator: turn \
 your player's rapid speech into a list of concrete acts for this beat (about 6 seconds of game time). Be fast and literal.\n\
-Your persona: {persona}\n\n\
+Your persona: {persona}\n{player}\n\
 Rules:\n\
 - One intent per distinct act, in the order spoken. Never drop a request; never add acts the player did not ask for.\n\
 - route: world = an ordinary act (walk, talk, punch, build, recruit); god = reaching into a god's domain (arg = its slug); \
@@ -177,6 +179,7 @@ bribing or buying off people (generals, captains, ringleaders) are world acts ta
 The pantheon (divine acts go to these gods):\n{gods}",
         side = side(ctx.hand),
         persona = line(&ctx.persona, 300),
+        player = player_persona_block(ctx.player.as_ref()),
         max = ctx.max_subagents,
         live = ctx.subagents.len(),
         labels = LABEL_RULE,

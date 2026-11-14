@@ -12,6 +12,10 @@
 //! their own check too ([`HttpConfig::key`], from `FN7_PROFILE_KEY` or the tunnel's key): when set, a request without
 //! the matching `key` query parameter is refused with 403, so the LAN port is gated as well. Nothing private is ever
 //! served: profiles hold only what every seat saw at match end, never a `player_id`, resume token or claim hash.
+//!
+//! **Accounts** (docs/ACCOUNTS.md): a profile whose name an active account holds can only be written by that account.
+//! `PUT …/description` and `POST …/claim` then need `Authorization: Bearer <session token>` of the holder (403
+//! `account_profile` otherwise); the holder's description edit needs no secret. Profiles nobody holds work as before.
 //! Writes are not rate-limited here (they are rare and small, and the store caps text sizes); the server may add a
 //! limiter at integration.
 
@@ -108,6 +112,38 @@ fn err(e: ProfileError) -> Response {
     finish((code, Json(serde_json::json!({ "error": msg, "detail": detail }))).into_response())
 }
 
+/// Who may write `name`'s profile: `Ok(true)` = the request's session is the account that holds the name (no secret
+/// needed), `Ok(false)` = nobody holds it (the secret rules apply), `Err` = an account holds it and this isn't it.
+fn holder_check(s: &ProfileStore, name: &str, bearer: Option<&str>) -> crate::Result<std::result::Result<bool, ()>> {
+    let unwrap = |e: crate::accounts::AccountError| match e {
+        crate::accounts::AccountError::Store(e) => e,
+        other => ProfileError::Invalid(other.to_string()),
+    };
+    let Some(holder) = s.name_holder(name).map_err(unwrap)? else {
+        return Ok(Ok(false));
+    };
+    let me = match bearer {
+        Some(t) => s.session_account(t).map_err(unwrap)?.map(|(a, _)| a.id),
+        None => None,
+    };
+    Ok(if me.as_deref() == Some(holder.account_id.as_str()) { Ok(true) } else { Err(()) })
+}
+
+fn bearer(h: &axum::http::HeaderMap) -> Option<String> {
+    h.get(header::AUTHORIZATION)?.to_str().ok()?.strip_prefix("Bearer ").map(|t| t.trim().to_string())
+}
+
+fn not_holder() -> Response {
+    finish(
+        (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": "account_profile",
+                "detail": "this name belongs to an account: send that account's session as Authorization: Bearer" })),
+        )
+            .into_response(),
+    )
+}
+
 fn gate(st: &AppState, q: &Q) -> Option<Response> {
     let want = st.cfg.key.as_deref()?;
     match q.key.as_deref() {
@@ -174,13 +210,24 @@ async fn description(
     State(st): State<AppState>,
     Path(name): Path<String>,
     Query(q): Query<Q>,
+    headers: axum::http::HeaderMap,
     Json(b): Json<DescriptionBody>,
 ) -> Response {
     if let Some(r) = gate(&st, &q) {
         return r;
     }
-    match blocking(&st, move |s| s.set_description(&name, &b.text, b.secret.as_deref())).await {
-        Ok(p) => finish(Json(p).into_response()),
+    let token = bearer(&headers);
+    match blocking(&st, move |s| {
+        Ok(match holder_check(s, &name, token.as_deref())? {
+            Ok(true) => Some(s.set_description_owner(&name, &b.text)?),
+            Ok(false) => Some(s.set_description(&name, &b.text, b.secret.as_deref())?),
+            Err(()) => None,
+        })
+    })
+    .await
+    {
+        Ok(Some(p)) => finish(Json(p).into_response()),
+        Ok(None) => not_holder(),
         Err(e) => err(e),
     }
 }
@@ -189,13 +236,23 @@ async fn claim(
     State(st): State<AppState>,
     Path(name): Path<String>,
     Query(q): Query<Q>,
+    headers: axum::http::HeaderMap,
     Json(b): Json<ClaimBody>,
 ) -> Response {
     if let Some(r) = gate(&st, &q) {
         return r;
     }
-    match blocking(&st, move |s| s.claim(&name, &b.secret, b.old_secret.as_deref())).await {
-        Ok(()) => finish(StatusCode::NO_CONTENT.into_response()),
+    let token = bearer(&headers);
+    match blocking(&st, move |s| {
+        Ok(match holder_check(s, &name, token.as_deref())? {
+            Ok(_) => Some(s.claim(&name, &b.secret, b.old_secret.as_deref())?),
+            Err(()) => None,
+        })
+    })
+    .await
+    {
+        Ok(Some(())) => finish(StatusCode::NO_CONTENT.into_response()),
+        Ok(None) => not_holder(),
         Err(e) => err(e),
     }
 }
