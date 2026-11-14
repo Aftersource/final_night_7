@@ -613,3 +613,16 @@ Engineering:
   look, portrait and diorama, and falls or revives independently. A player is out when both have fallen. Rules 0.7.0.
 - Benito's rule (via the bridge): no two players may occupy the same hex at the people level unless engaging. Every entity
   carries a shared people-level hex id, using the client's cube-sphere axial formula on real Earth (R = 6,371,000 m).
+
+## 2026-11-14: one game, always, from the server
+
+> make the corners a little more rectangular, improve the start on our side, and make sure that
+> the actual server is also on Benito's side, which is respected. There is one game, and one game is running at every
+> moment. There is one game.
+
+Engineering:
+- The server hosts a single always-on house game: AI seats, mid-match join always on, and it restarts itself after
+  each match. Every client joins it through GET /api/house; clients no longer create rooms for normal play.
+- A native engine "house room" has been requested from theatre_worker.
+- The style kit's corners are tightened: panel 6, card 8.
+- A START overlay with a "JOIN THE GAME" button that captures clicks.
