@@ -906,3 +906,12 @@ Engineering: this is the DM rulebook's governing principle.
 > is elsewhere, and the demigods do not appear to be draggable.
 
 Engineering: the camera's pointer-follow lean (FNPlayerController::PlayerTick) must react within about 0.2 s, framerate-independent. Dragging demigods is the summon feature: it isn't built yet (the Mac's hooks first, then Benito's input).
+
+> The scroll should not flash when expanded. Ask main how to move and display the demigods from the selection.
+
+Engineering: the contract for selecting, moving and displaying demigods:
+- Selecting is client-only, with a camera swoop.
+- SUMMON is an instant action: a public `summoning` on accept, then `summoned {from, to, deed, health_lost, roll}` plus a dice.rolled event at the resolve.
+- Walking comes from l:/r: orders, with each commit's pos tweened over the beat.
+- The client shows a column of light, an arc, the arrival burst, the deed banner and the health loss.
+- The scroll gets no foil or flash while expanded.
