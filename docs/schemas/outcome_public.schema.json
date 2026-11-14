@@ -2738,9 +2738,298 @@
       "minItems": 2,
       "type": "array"
     },
+    "LookChanged": {
+      "description": "Gear looks (state schema 11): a human player's demigod's loadout changed (a major acquisition, or a loss). Flash `gained` (\"NEW: Butterfly Wing Blade\") and swap the card to `portrait_image` / `diorama_image` (now, or when `pending` resolves).",
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/LonLat"
+        },
+        "base_diorama": {
+          "description": "Server input (images off only).",
+          "type": "string"
+        },
+        "base_portrait": {
+          "description": "Server input (images off only): the identity portrait subject.",
+          "type": "string"
+        },
+        "beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "demigod": {
+          "$ref": "#/$defs/Ref"
+        },
+        "diorama_image": {
+          "$ref": "#/$defs/ImageObject"
+        },
+        "diorama_subject": {
+          "description": "Server input (images off only).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "event": {
+          "const": "look.changed"
+        },
+        "fallback": {
+          "description": "Server input (images off only): earlier gear looks, newest first.",
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "gained": {
+          "description": "The best item newly in the loadout (null: something was lost, or only the picture caught up).",
+          "properties": {
+            "art": {
+              "description": "The picture's key (its normalized descriptor's hash).",
+              "type": "string"
+            },
+            "icon": {
+              "description": "",
+              "type": "string"
+            },
+            "image": {
+              "$ref": "#/$defs/ImageObject"
+            },
+            "image_kind": {
+              "const": "item"
+            },
+            "image_prompt": {
+              "description": "State schema 11: the item picture's subject (only an item granted a picture has it).",
+              "type": "string"
+            },
+            "item": {
+              "$ref": "#/$defs/Ref"
+            },
+            "kind": {
+              "description": "",
+              "type": "string"
+            },
+            "name": {
+              "description": "",
+              "type": "string"
+            },
+            "tier": {
+              "description": "",
+              "type": "string"
+            }
+          },
+          "required": [
+            "item",
+            "name",
+            "icon",
+            "tier",
+            "kind"
+          ],
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "gear": {
+          "description": "",
+          "type": "boolean"
+        },
+        "image_change": {
+          "description": "Its images change with this event (false: debounced or capped, see `kept`).",
+          "type": "boolean"
+        },
+        "image_loadout_hash": {
+          "description": "",
+          "type": "string"
+        },
+        "kept": {
+          "description": "Why the images stayed.",
+          "enum": [
+            "debounced",
+            "capped"
+          ],
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "loadout": {
+          "description": "",
+          "items": {
+            "description": "One line of a loadout.",
+            "properties": {
+              "art": {
+                "description": "The picture's key (its normalized descriptor's hash).",
+                "type": "string"
+              },
+              "blessed_by": {
+                "description": "The god whose blessing it carries.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "icon": {
+                "description": "",
+                "enum": [
+                  "sword",
+                  "ranged",
+                  "armor",
+                  "banner_army",
+                  "vehicle",
+                  "beast",
+                  "structure",
+                  "relic",
+                  "artifact",
+                  "phenomenon",
+                  "thing"
+                ],
+                "type": "string"
+              },
+              "image": {
+                "$ref": "#/$defs/ImageObject"
+              },
+              "image_kind": {
+                "const": "item"
+              },
+              "image_prompt": {
+                "description": "State schema 11: the item picture's subject (only an item granted a picture has it).",
+                "type": "string"
+              },
+              "item": {
+                "$ref": "#/$defs/Ref"
+              },
+              "kind": {
+                "description": "",
+                "type": "string"
+              },
+              "material": {
+                "description": "Gear only.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "description": "",
+                "type": "string"
+              },
+              "slot": {
+                "description": "The slot it fills (the best item of that slot), or `extra`: another major item (relic tier and up, god-blessed, or the first of its kind).",
+                "enum": [
+                  "weapon",
+                  "armor",
+                  "charm",
+                  "extra"
+                ],
+                "type": "string"
+              },
+              "tier": {
+                "description": "",
+                "type": "string"
+              }
+            },
+            "required": [
+              "slot",
+              "item",
+              "name",
+              "icon",
+              "tier",
+              "kind",
+              "material",
+              "blessed_by"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "loadout_hash": {
+          "description": "",
+          "type": "string"
+        },
+        "memory": {
+          "description": "The DM memory entry.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "description": "",
+          "type": "string"
+        },
+        "pending": {
+          "description": "Images on, while a new gear image renders: the image(s) on the way. Show `portrait_image` / `diorama_image` (the previous look) and swap when these are ready (GET /media/index, or the `ready` event).",
+          "properties": {
+            "diorama_image": {
+              "$ref": "#/$defs/ImageObject"
+            },
+            "loadout_hash": {
+              "description": "The loadout they show.",
+              "type": "string"
+            },
+            "portrait_image": {
+              "$ref": "#/$defs/ImageObject"
+            }
+          },
+          "required": [
+            "loadout_hash"
+          ],
+          "type": "object"
+        },
+        "player": {
+          "description": "",
+          "type": "string"
+        },
+        "portrait_image": {
+          "$ref": "#/$defs/ImageObject"
+        },
+        "portrait_subject": {
+          "description": "Server input (images off only): the gear portrait subject, null for the base look.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ready": {
+          "description": "Images on: this is the second sending of an event whose images were pending; they exist now.",
+          "type": "boolean"
+        },
+        "since_beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "text": {
+          "description": "One line.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event",
+        "demigod",
+        "name",
+        "player",
+        "beat",
+        "loadout",
+        "loadout_hash",
+        "image_loadout_hash",
+        "since_beat",
+        "gear",
+        "gained",
+        "image_change",
+        "kept",
+        "text",
+        "memory",
+        "at"
+      ],
+      "type": "object"
+    },
     "Manifestation": {
       "description": "Rules 0.7.0: one manifestation attempt (made or not).",
       "properties": {
+        "art": {
+          "description": "State schema 11: the made item's picture key (with image_prompt).",
+          "type": "string"
+        },
         "at": {
           "anyOf": [
             {
@@ -2910,8 +3199,7 @@
         "at",
         "region",
         "public",
-        "image_prompt",
-        "image_kind"
+        "image_prompt"
       ],
       "type": "object"
     },
@@ -3477,7 +3765,7 @@
       "type": "array"
     },
     "dm_events": {
-      "description": "Rules 0.8.0: the DM's public decisions this beat (at most 40): settlements growing, encounters, loot, roads, shrines, scars, the time of day.",
+      "description": "Rules 0.8.0: the DM's public decisions this beat (at most 40): settlements growing, encounters, loot, roads, shrines, scars, the time of day. State schema 11: a `look.changed` here is the full LookChanged object.",
       "items": {
         "$ref": "#/$defs/DmEvent"
       },
@@ -3525,6 +3813,13 @@
       "description": "Rules 0.8.0: god-tier powers settled this beat (each then ruled on by its god: see `omens`).",
       "items": {
         "$ref": "#/$defs/GodPowerLine"
+      },
+      "type": "array"
+    },
+    "looks": {
+      "description": "State schema 11 (gear looks): this beat's `look.changed` events (never cut by the dm_events cap). With images on, the server also puts here, once, each earlier event whose images have arrived since (`ready: true`); round.started and round.brief publics may carry such a `looks` list too.",
+      "items": {
+        "$ref": "#/$defs/LookChanged"
       },
       "type": "array"
     },

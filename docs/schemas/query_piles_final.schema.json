@@ -94,6 +94,10 @@
             "items": {
               "description": "",
               "properties": {
+                "art": {
+                  "description": "State schema 11: the item picture's key.",
+                  "type": "string"
+                },
                 "count": {
                   "description": "",
                   "type": "number"
@@ -103,6 +107,9 @@
                 },
                 "image": {
                   "$ref": "#/$defs/ImageObject"
+                },
+                "image_kind": {
+                  "const": "item"
                 },
                 "image_prompt": {
                   "type": [

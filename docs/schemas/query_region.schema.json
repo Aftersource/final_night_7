@@ -743,6 +743,10 @@
     "Item": {
       "description": "Rules 0.7.0: an item (a manifested thing, or one an older path made).",
       "properties": {
+        "art": {
+          "description": "State schema 11: the item picture's key (sha256 of its normalized descriptor: kind, material, tier, name stem, blessing): the same key is the same picture in every match.",
+          "type": "string"
+        },
         "at": {
           "anyOf": [
             {
@@ -865,7 +869,7 @@
           "const": "item"
         },
         "image_prompt": {
-          "description": "The item image subject (`image_kind` item).",
+          "description": "The item image subject (`image_kind` item). State schema 11: only an item granted a picture has it (a notable item a human player's demigod holds or that lies in a loot pile, within item_art_per_match); every other item shows its `icon`.",
           "type": "string"
         },
         "kind": {
@@ -981,9 +985,7 @@
         "created_beat",
         "manifestation",
         "at",
-        "banner",
-        "image_prompt",
-        "image_kind"
+        "banner"
       ],
       "type": "object"
     },
@@ -1085,9 +1087,200 @@
       "minItems": 2,
       "type": "array"
     },
+    "Look": {
+      "description": "Gear looks (state schema 11): a demigod's loadout and the images to show for it NOW. `portrait_image` / `diorama_image` (images on) are the ones to draw: the gear images of the loadout `image_loadout_hash` once they exist, until then the previous look's (or the base identity images), with `pending`. Only a human player's demigod gets gear images; the built-in AI's keep the base ones (`gear: false`) whatever their loadout.",
+      "properties": {
+        "base_diorama": {
+          "description": "Server input (images off only).",
+          "type": "string"
+        },
+        "base_portrait": {
+          "description": "Server input (images off only): the identity portrait subject.",
+          "type": "string"
+        },
+        "diorama_image": {
+          "$ref": "#/$defs/ImageObject"
+        },
+        "diorama_subject": {
+          "description": "Server input (images off only).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fallback": {
+          "description": "Server input (images off only): earlier gear looks, newest first.",
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "gear": {
+          "description": "Its images show gear.",
+          "type": "boolean"
+        },
+        "image_loadout_hash": {
+          "description": "The loadout its images show (\"\" = the base identity images). Differs from loadout_hash while a new picture is debounced or the per-match cap is reached.",
+          "type": "string"
+        },
+        "loadout": {
+          "description": "Its notable gear now, in a stable order: weapon, armor, charm, then extras.",
+          "items": {
+            "description": "One line of a loadout.",
+            "properties": {
+              "art": {
+                "description": "The picture's key (its normalized descriptor's hash).",
+                "type": "string"
+              },
+              "blessed_by": {
+                "description": "The god whose blessing it carries.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "icon": {
+                "description": "",
+                "enum": [
+                  "sword",
+                  "ranged",
+                  "armor",
+                  "banner_army",
+                  "vehicle",
+                  "beast",
+                  "structure",
+                  "relic",
+                  "artifact",
+                  "phenomenon",
+                  "thing"
+                ],
+                "type": "string"
+              },
+              "image": {
+                "$ref": "#/$defs/ImageObject"
+              },
+              "image_kind": {
+                "const": "item"
+              },
+              "image_prompt": {
+                "description": "State schema 11: the item picture's subject (only an item granted a picture has it).",
+                "type": "string"
+              },
+              "item": {
+                "$ref": "#/$defs/Ref"
+              },
+              "kind": {
+                "description": "",
+                "type": "string"
+              },
+              "material": {
+                "description": "Gear only.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "description": "",
+                "type": "string"
+              },
+              "slot": {
+                "description": "The slot it fills (the best item of that slot), or `extra`: another major item (relic tier and up, god-blessed, or the first of its kind).",
+                "enum": [
+                  "weapon",
+                  "armor",
+                  "charm",
+                  "extra"
+                ],
+                "type": "string"
+              },
+              "tier": {
+                "description": "",
+                "type": "string"
+              }
+            },
+            "required": [
+              "slot",
+              "item",
+              "name",
+              "icon",
+              "tier",
+              "kind",
+              "material",
+              "blessed_by"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "loadout_hash": {
+          "description": "sha256 of the loadout's normalized item descriptors (never item ids): the same gear is the same hash in every match. \"\" = nothing notable.",
+          "type": "string"
+        },
+        "looks_cap": {
+          "description": "The setting look_images_per_demigod.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "looks_made": {
+          "description": "Gear pictures made for it this match.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "pending": {
+          "description": "Images on, while a new gear image renders: the image(s) on the way. Show `portrait_image` / `diorama_image` (the previous look) and swap when these are ready (GET /media/index, or the `ready` event).",
+          "properties": {
+            "diorama_image": {
+              "$ref": "#/$defs/ImageObject"
+            },
+            "loadout_hash": {
+              "description": "The loadout they show.",
+              "type": "string"
+            },
+            "portrait_image": {
+              "$ref": "#/$defs/ImageObject"
+            }
+          },
+          "required": [
+            "loadout_hash"
+          ],
+          "type": "object"
+        },
+        "portrait_image": {
+          "$ref": "#/$defs/ImageObject"
+        },
+        "portrait_subject": {
+          "description": "Server input (images off only): the gear portrait subject, null for the base look.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "since_beat": {
+          "description": "The beat its images became these (0: never changed).",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "loadout",
+        "loadout_hash",
+        "image_loadout_hash",
+        "since_beat",
+        "gear",
+        "looks_made",
+        "looks_cap"
+      ],
+      "type": "object"
+    },
     "LootToken": {
       "description": "Rules 0.8.0: an item token lying on a hex.",
       "properties": {
+        "art": {
+          "description": "",
+          "type": "string"
+        },
         "at": {
           "$ref": "#/$defs/LonLat"
         },
@@ -1097,6 +1290,20 @@
         },
         "icon": {
           "description": "",
+          "type": "string"
+        },
+        "image": {
+          "$ref": "#/$defs/ImageObject"
+        },
+        "image_kind": {
+          "const": "item"
+        },
+        "image_prompt": {
+          "description": "State schema 11: a relic-tier or blessed item on the ground has a picture.",
+          "type": "string"
+        },
+        "name": {
+          "description": "State schema 11.",
           "type": "string"
         },
         "pile": {
@@ -1111,6 +1318,10 @@
           "description": "",
           "minimum": 0,
           "type": "integer"
+        },
+        "tier": {
+          "description": "State schema 11.",
+          "type": "string"
         }
       },
       "required": [
@@ -1126,6 +1337,10 @@
     "Manifestation": {
       "description": "Rules 0.7.0: one manifestation attempt (made or not).",
       "properties": {
+        "art": {
+          "description": "State schema 11: the made item's picture key (with image_prompt).",
+          "type": "string"
+        },
         "at": {
           "anyOf": [
             {
@@ -1295,8 +1510,7 @@
         "at",
         "region",
         "public",
-        "image_prompt",
-        "image_kind"
+        "image_prompt"
       ],
       "type": "object"
     },
@@ -2351,16 +2565,30 @@
           "type": "integer"
         },
         "items": {
-          "description": "Items it holds now (pegs). Rules 0.9.0: gear pegs say what they do.",
+          "description": "Items it holds now (pegs). Rules 0.9.0: gear pegs say what they do. State schema 11: every peg has `name` and `tier`, and one with a picture has `image_prompt` / `image`.",
           "items": {
             "description": "",
             "properties": {
+              "art": {
+                "description": "The picture's key (its normalized descriptor's hash).",
+                "type": "string"
+              },
               "does": {
                 "description": "What it does, in one line.",
                 "type": "string"
               },
               "icon": {
                 "description": "",
+                "type": "string"
+              },
+              "image": {
+                "$ref": "#/$defs/ImageObject"
+              },
+              "image_kind": {
+                "const": "item"
+              },
+              "image_prompt": {
+                "description": "State schema 11: the item picture's subject (only an item granted a picture has it).",
                 "type": "string"
               },
               "mods": {
@@ -3052,6 +3280,10 @@
               "$ref": "#/$defs/Item"
             },
             "type": "array"
+          },
+          "look": {
+            "$ref": "#/$defs/Look",
+            "description": "Gear looks (state schema 11): its loadout and the images to show for it now."
           },
           "manifests": {
             "items": {
