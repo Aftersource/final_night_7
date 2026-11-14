@@ -150,6 +150,18 @@ pub fn signature(w: &World, pantheon: &Pantheon, ruling: &Ruling, intent: &Inten
     let p = |effect: Effect, act: String| crate::beat::god_prop(ruling, intent, effect, act);
     let god = def.name.clone();
     let mut out = vec![];
+    // Rules 0.9.0: aimed at one of the caster's own standing demigods, a god-tier power also ARMS it: god-blessed
+    // gear, a tier up, with that god's signature (once per god per demigod). Death arms instead of striking its own.
+    let own = match target {
+        Some(Ref::Demigod(t)) if crate::wills::on(w) && w.same_player(t, d) && w.demigods[t.ix()].alive => Some(t),
+        _ => None,
+    };
+    if let Some(t) = own {
+        out.extend(crate::wills::god_arms(w, ruling, intent, t));
+        if def.slug == "death" {
+            return out;
+        }
+    }
     match def.slug.as_str() {
         "time" => match target.filter(|r| r.is_actor()) {
             Some(r) => out.push(p(Effect::Rewind { target: r, beats: 2 }, format!("{god} winds {} back two beats", w.name_of(r)))),

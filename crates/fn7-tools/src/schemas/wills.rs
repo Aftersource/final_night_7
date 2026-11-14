@@ -71,7 +71,9 @@ pub fn defs() -> Map<String, Value> {
             "place": { "type": "string", "enum": ["shrine", "settlement", "fault", "coast", "point"] },
             "phase": { "type": "string", "enum": PHASES },
             "offer": { "type": "string", "description": "at: an item whose name carries this word must be in hand there; it is burned." },
-            "word": { "type": "string", "description": "hold: the word the item's name must carry." }
+            "word": { "type": "string", "description": "hold: the word the item's name must carry." },
+            "near": { "type": "object", "description": "at: a place that satisfied the step when the quest was given (the nearest shrine or settlement of the kind, the remembered spot): where to send the demigod. Any place of the kind will do. Absent for fault lines and coasts.",
+                      "properties": { "name": { "type": "string" }, "at": { "$ref": "#/$defs/LonLat" } }, "required": ["name", "at"] }
         },
         "required": ["step", "kind", "text", "done", "done_beat"]
     }));

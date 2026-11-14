@@ -143,6 +143,16 @@ pub struct Step {
     /// Why it is not done yet, as of the last check ("you stand there, but it is not dawn").
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub progress: String,
+    /// A place that satisfied an `at` step when the quest was given (the nearest shrine or settlement of the kind
+    /// asked for, the remembered spot): where a client may send the demigod. Any place of the kind will do.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub near: Option<Near>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Near {
+    pub name: String,
+    pub at: LonLat,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -374,6 +384,7 @@ pub fn give(w: &mut World, book: &mut Book, beat: u32, a: Ask, st: &Settings) ->
                     text: format!("Hold {ing_phrase} (any item with \"{ing_word}\" in its name: will your demigod to gather or make it, or win an encounter)."),
                     done_beat: None,
                     progress: String::new(),
+                    near: None,
                 });
                 frags.push(ing_phrase.clone());
             }
@@ -395,18 +406,30 @@ pub fn give(w: &mut World, book: &mut Book, beat: u32, a: Ask, st: &Settings) ->
                     (None, Some(t)) => format!("your shadow laid down {t} {mystic}"),
                     (None, None) => format!("your shadow laid down {mystic}"),
                 });
-                steps.push(Step { kind: StepKind::At { req, phase, offer }, text, done_beat: None, progress: String::new() });
+                let near = match &req {
+                    PlaceReq::Shrine { of } => w
+                        .dm
+                        .shrines
+                        .iter()
+                        .filter(|s| s.demigod == *of)
+                        .min_by(|x, y| distance_km(x.at, anchor).total_cmp(&distance_km(y.at, anchor)).then(x.id.cmp(&y.id)))
+                        .map(|s| Near { name: s.name.clone(), at: s.at }),
+                    PlaceReq::Settlement { level } => nearest_settlement(w, anchor, *level).map(|(at, name)| Near { name, at }),
+                    PlaceReq::Point { at, name } => Some(Near { name: name.clone(), at: *at }),
+                    PlaceReq::Fault | PlaceReq::Coast => None,
+                };
+                steps.push(Step { kind: StepKind::At { req, phase, offer }, text, done_beat: None, progress: String::new(), near });
             }
             K::Encounter => {
-                steps.push(Step { kind: StepKind::Encounter, text: "Win an encounter on a marked hex (a success or better).".into(), done_beat: None, progress: String::new() });
+                steps.push(Step { kind: StepKind::Encounter, text: "Win an encounter on a marked hex (a success or better).".into(), done_beat: None, progress: String::new(), near: None });
                 frags.push("the thing that waits on a marked hex bested and thanked".into());
             }
             K::Shrine => {
-                steps.push(Step { kind: StepKind::Shrine, text: "Raise a new shrine (will it: \"raise a shrine to me here\").".into(), done_beat: None, progress: String::new() });
+                steps.push(Step { kind: StepKind::Shrine, text: "Raise a new shrine (will it: \"raise a shrine to me here\").".into(), done_beat: None, progress: String::new(), near: None });
                 frags.push("a new shrine raised by the hands that ask".into());
             }
             K::Duel => {
-                steps.push(Step { kind: StepKind::Duel, text: "Come out of a duel alive.".into(), done_beat: None, progress: String::new() });
+                steps.push(Step { kind: StepKind::Duel, text: "Come out of a duel alive.".into(), done_beat: None, progress: String::new(), near: None });
                 frags.push("a duel walked away from on both feet".into());
             }
             K::Sparks => {
@@ -416,6 +439,7 @@ pub fn give(w: &mut World, book: &mut Book, beat: u32, a: Ask, st: &Settings) ->
                     text: format!("Offer {nsp} spark{} (will it: \"offer the sparks to the quest\"; a bolt breaks into {}).", if nsp == 1 { "" } else { "s" }, st.will_spark_per_bolt),
                     done_beat: None,
                     progress: String::new(),
+                    near: None,
                 });
                 frags.push(format!("{nsp} spark{} fed to the dark between two heartbeats", if nsp == 1 { "" } else { "s" }));
             }
@@ -432,6 +456,7 @@ pub fn give(w: &mut World, book: &mut Book, beat: u32, a: Ask, st: &Settings) ->
                     text: format!("Have General {surname} bring {label} within {ARMY_KM:.0} km of {name}."),
                     done_beat: None,
                     progress: String::new(),
+                    near: None,
                 });
                 frags.push(format!("General {surname}'s banners planted in sight of {name}"));
             }
@@ -444,8 +469,9 @@ pub fn give(w: &mut World, book: &mut Book, beat: u32, a: Ask, st: &Settings) ->
                     text: if times == 1 { format!("Wait for the next {phase}.") } else { format!("Keep vigil until {phase} has come {times} times.") },
                     done_beat: None,
                     progress: String::new(),
+                    near: None,
                 });
-                frags.push(if times == 1 { format!("and then nothing at all until the next {phase}") } else { format!("and then nothing at all while {phase} comes {times} times") });
+                frags.push(if times == 1 { format!("nothing at all until the next {phase}") } else { format!("nothing at all while {phase} comes {times} times") });
             }
         }
     }
@@ -456,7 +482,7 @@ pub fn give(w: &mut World, book: &mut Book, beat: u32, a: Ask, st: &Settings) ->
         Goal::Boon { .. } => format!("only then will the blessing settle on {who}"),
         Goal::Temper { .. } => format!("only then will {who}'s gear take its true temper"),
         Goal::Arm { name, .. } => format!("only then will the {name} consent to exist"),
-        Goal::BreakCurse { curse_kind, .. } => format!("only then will {} lift from {who}", curse_kind.title().trim_start_matches("a ")),
+        Goal::BreakCurse { curse_kind, .. } => format!("only then will the {} lift from {who}", curse_kind.title().trim_start_matches("a ")),
         Goal::Raise { .. } => format!("only then will {who} get up"),
     };
     // The lens: a settled fact about the place, when the memory holds one.
@@ -589,6 +615,9 @@ pub fn steps_json(q: &Quest) -> Vec<Value> {
             v["text"] = s.text.clone().into();
             v["done"] = s.done_beat.is_some().into();
             v["done_beat"] = json!(s.done_beat);
+            if let Some(n) = &s.near {
+                v["near"] = json!(n);
+            }
             if !s.progress.is_empty() && s.done_beat.is_none() {
                 v["progress"] = s.progress.clone().into();
             }

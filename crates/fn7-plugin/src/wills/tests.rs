@@ -1013,8 +1013,8 @@ fn butterfly_wings_burned_at_dawn_on_the_cursers_shrine() {
         b.quests.push(quests::Quest {
             id: 0, seat: 0, helpers: vec![], demigod: d, goal: Goal::BreakCurse { curse: 0, curse_kind: CurseKind::Hex }, god: GodId(4),
             steps: vec![
-                quests::Step { kind: StepKind::Hold { word: "butterfly".into() }, text: "Hold the wings of a butterfly.".into(), done_beat: None, progress: String::new() },
-                quests::Step { kind: StepKind::At { req: PlaceReq::Shrine { of: curser }, phase: Some("dawn".into()), offer: Some("butterfly".into()) }, text: "Burn them at dawn on the shrine of the one who cursed you.".into(), done_beat: None, progress: String::new() },
+                quests::Step { kind: StepKind::Hold { word: "butterfly".into() }, text: "Hold the wings of a butterfly.".into(), done_beat: None, progress: String::new(), near: None },
+                quests::Step { kind: StepKind::At { req: PlaceReq::Shrine { of: curser }, phase: Some("dawn".into()), offer: Some("butterfly".into()) }, text: "Burn them at dawn on the shrine of the one who cursed you.".into(), done_beat: None, progress: String::new(), near: None },
             ],
             text: "the wings of a butterfly that has crossed the Sunda Strait, burned at dawn on the shrine of the one who cursed you".into(),
             given_beat: 3, since: 3, expires_beat: None, done_beat: None, failed: None, failed_beat: None, public: false, waiting: String::new(),
@@ -1172,4 +1172,35 @@ fn the_built_in_ai_wills_and_quests() {
     assert!(w.dm.memory.iter().any(|e| e.query.as_deref().is_some_and(|q| q.contains(":heal:"))), "the AI healed");
     assert!(!b.quests.is_empty() || !b.curses.is_empty(), "quests or curses came of it: {kinds:?}");
     assert_eq!(play(&FinalNight7Plugin::new()).0, state, "replay");
+}
+
+/// A god-tier power aimed at your own demigod arms it: god-blessed wonder gear with that god's signature (once per
+/// god); Death arms its own instead of striking it.
+#[test]
+fn a_god_tier_power_arms_your_own_demigod() {
+    let mut t = table(61, json!({}));
+    let d = mine(&t.w(), 0)[0];
+    t.edit(|w| purse(w, 0, 8, 5));
+    let cast = |t: &Table, power: &str| {
+        let mut acts = quiet(&t.p, &t.state);
+        acts[0] = Action { fields: json!({ "cast": { "power": power, "tier": "god", "target": Ref::Demigod(d) } }), instant: true, seq: 1, ..Action::new(0, "") };
+        block(t.p.resolve_round(&t.state, t.round, &acts, &RoundContext::default(), &Failing, &NoProgress)).unwrap()
+    };
+    let o = cast(&t, "god_death");
+    let w2 = world::load(&o.state).unwrap();
+    let death = fn7_pantheon::load().id_of("death").unwrap();
+    let ruling = w2.rulings.iter().rev().find(|r| r.god == death).expect("Death ruled");
+    assert_ne!(ruling.verdict, Verdict::Refuse, "the rules god grants a paid power");
+    {
+        assert_eq!(w2.demigods[d.ix()].health, 10.0, "Death arms its own instead of striking it");
+        let gear = crate::items::items_of(&w2, d);
+        assert_eq!(gear.len(), 1, "{gear:?}");
+        assert_eq!((gear[0]["tier"].as_str(), gear[0]["blessed_by"].as_str(), gear[0]["power"]["id"].as_str()), (Some("wonder"), Some("Death"), Some("last_stand")), "{}", gear[0]);
+        assert!(gear[0]["name"].as_str().unwrap().ends_with("of Death"));
+        // Once per god: a second Pale Verdict on it adds nothing.
+        t.state = block(t.p.on_round_start(&block(t.p.commit_round(&o.state, 2, &[], &Failing)).unwrap().state, 3, &Failing)).unwrap().state;
+        t.round = 3;
+        let o = cast(&t, "god_death");
+        assert_eq!(crate::items::items_of(&world::load(&o.state).unwrap(), d).len(), 1);
+    }
 }

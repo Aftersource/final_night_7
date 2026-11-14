@@ -1012,6 +1012,30 @@ pub fn forge_now(w: &mut World, beat: u32, holder: DemigodId, kind: ItemKind, ti
     (w.items.len() > before).then(|| ItemId::from_ix(before))
 }
 
+/// Rules 0.9.0: a god-tier power aimed at the caster's own standing demigod arms it: wonder-tier gear (a relic, a
+/// tier up for the blessing) in the slot it lacks, carrying that god's signature. `None` when it already holds gear
+/// that god blessed.
+pub fn god_arms(w: &World, ruling: &Ruling, intent: &Intent, holder: DemigodId) -> Option<Proposal> {
+    let me = Ref::Demigod(holder);
+    let held: Vec<&Item> = w.items.iter().filter(|i| i.holders.last() == Some(&me) && i.ext.state == ItemState::Held).collect();
+    if held.iter().any(|i| arms::blessed_by(w, i) == Some(ruling.god)) {
+        return None;
+    }
+    let has = |slot: &str| held.iter().any(|i| arms::slot_of(i.ext.kind) == Some(slot));
+    let (kind, noun) = if !has("weapon") {
+        (ItemKind::Weapon, "Blade")
+    } else if !has("armor") {
+        (ItemKind::Armor, "Plate")
+    } else {
+        (ItemKind::Relic, "Talisman")
+    };
+    let mut rng = Rng::derive(w.meta.seed, &[WILL_SALT, intent.id.0 as u64, holder.0 as u64, 0x60D]);
+    let m = arms::MATERIALS[rng.below(arms::MATERIALS.len() as u64) as usize].0;
+    let name = format!("{} {noun} of {}", title(&m.replace('-', " ")), w.name_of(Ref::God(ruling.god)));
+    Some(forge_prop(w, intent.beat, intent.demigod, holder, Some(intent.id), kind, Tier::Relic, Some(Tier::Wonder), &name, ruling.god, true, None,
+                    vec!["willed: a god-tier power".to_string()], &intent.span, 8))
+}
+
 /// The gear a will asks for, for `holder`: its kind and name (the noun the words give, else the slot it lacks).
 fn gear_for(w: &World, c: &Ctx, holder: DemigodId, n: usize) -> (ItemKind, String) {
     let me = Ref::Demigod(holder);
@@ -1717,6 +1741,31 @@ fn gather_part(w: &mut World, b: &mut Book, c: &Ctx, note: &mut WillNote) {
 // The beat
 // ---------------------------------------------------------------------------------------------------------------------
 
+/// Every will's result goes into the DM's memory (`will.ruled`, private: its seat's), at the place of the demigod
+/// that willed it.
+fn remember_will(w: &mut World, beat: u32, note: &WillNote) {
+    let pos = w.demigods[note.by.ix()].pos;
+    let wh = dm::locate(w, pos, HexLevel::People);
+    let parts: Vec<Value> = note
+        .parts
+        .iter()
+        .map(|p| json!({ "part": p["part"], "target": p["target"], "outcome": p["outcome"], "result": p["result"], "quest": p["quest"]["ref"] }))
+        .collect();
+    let text = format!(
+        "{} willed: {}",
+        w.name_of(Ref::Demigod(note.by)),
+        note.parts.iter().filter_map(|p| p["result"].as_str()).collect::<Vec<_>>().join("; ")
+    );
+    dm::remember(w, beat, &wh, Decision {
+        scope: Scope::Cell,
+        kind: "will.ruled",
+        query: None,
+        public: false,
+        text,
+        data: json!({ "seat": note.seat, "seats": [note.seat], "by": Ref::Demigod(note.by), "parts": parts, "at": pos, "cell": wh.cell, "beat": beat }),
+    });
+}
+
 /// May this intent be taken wholly by the wills (it had no other meaning)? Never a journey, a strike, a parley, a
 /// subagent, a possession, a zoom, a recall, a manifestation or an army act.
 fn takeable(w: &World, i: &Intent) -> bool {
@@ -1871,6 +1920,7 @@ pub fn resolve(
                 out.handled.insert(x.id);
             }
         }
+        remember_will(w, beat, &note);
         event("will", Some(Ref::Demigod(actor).to_string()),
               json!({ "beat": beat, "seat": seat, "text": speech, "parts": note.parts, "handled": out.handled.iter().map(|i| i.0).collect::<Vec<_>>() }));
         out.notes.push(note);
@@ -1918,6 +1968,7 @@ pub fn resolve(
                 }
             }
         }
+        remember_will(w, beat, &note);
         event("fallen_will", Some(format!("seat:{}", will.seat)), json!({ "beat": beat, "seat": will.seat, "seq": will.seq, "text": will.text, "parts": note.parts }));
         out.notes.push(note);
     }
@@ -2060,7 +2111,7 @@ pub fn ai_line(w: &World, d: DemigodId, beat: u32, st: &Settings) -> Option<Stri
     if k.arms.is_empty() && purse >= st.arm_price_artifact && roll(&mut rng, 0.5) {
         return Some("arm me".into());
     }
-    if purse >= st.curse_price_sparks + 2 && roll(&mut rng, 0.15) {
+    if purse >= st.curse_price_sparks + 2 && roll(&mut rng, 0.3) {
         let rival = w.demigods.iter().filter(|x| x.alive && x.seat != me.seat).min_by(|x, y| distance_km(x.pos, me.pos).total_cmp(&distance_km(y.pos, me.pos)).then(x.id.cmp(&y.id)))?;
         let kind = ["wither", "hex", "bind", "silence"][rng.below(4) as usize];
         return Some(format!("curse {} with a {kind}", rival.name));
