@@ -719,3 +719,23 @@ Merged to main (through 9d3daf7), all in Source/FinalNight/UI unless noted: the 
 In progress: mac/bolts-and-sparks c0dcc31 (local, not pushed): MEGA/MINI rows per the powers contract, bolt/spark pips and counts; the cast needs a tier argument.
 Next for the Mac session, in order: (1) a real lobby (mac/lobby; Chris reports there is no lobby yet); (2) Chris's relayout: powers on the lower right, Will tucked away, the scroll unrolling along the edge of the table's hexes with pieces that slide like game pieces, level-1 distance over the globe. That needs the 3D table (FNStudio*), currently off-limits, so either an explicit go-ahead or a screen-space version anchored to the board edge; (3) mac/net-viewer (JoinHouse(bViewer), CastAt tier); (4) mac/unity-names in SFNRootWidget.cpp; (5) finish bolts-and-sparks; (6) the 0.7.0 HUD (two demigods per player, the final wish, Entropy and Time-bill meters).
 Rules learned: build with -NoHotReload; never stop play while Chris is in a match (I cut off 88T7RM once); full-screen captures stay local; mac/* pushes are approved by Chris.
+
+## 2026-11-14: gods on pedestals with shapes and auras, demigod dioramas, edge-hex powers, the pouch, the shiny will
+
+> entropy powers, major and minor, are on the edge of the board, as hexes at the edge (populous style). It does not show
+> where the players on the pedestals sitting on the table. Also, the characters of the gods need to have, as stated,
+> initially auras and shapes, actual shapes. The portrait can be a photo, but the players' shapes are wanted. Demigods need
+> their dioramas. Where did that go? None of this is optional; redraw this now.
+
+> yes, and if the mega powers should be hidden, a small pouch at the bottom middle that they can pour out of could work, and
+> The will scroll in the lower right should have a tantalizing, shiny colour.
+
+Engineering:
+- Screen map v2 (final_night_7_unreal docs/design/screen_map_v2.png).
+- The studio (Benito's side):
+  - The players are gods on pedestals around the table: a distinct 3D shape each, with an aura in the player's colour (human steady, AI flickering, out grey).
+  - Each god has its two demigod dioramas on hex bases in front of it, and the same figures stand on the board.
+- The Mac kit:
+  - Entropy powers become hex tiles on the board's edge ring (outer ring mega, inner ring mini).
+  - A mega pouch at bottom middle pours the mega tiles out and takes them back.
+  - The HUD is minimal: your two portrait cards and the will scroll at lower right, with a holographic shiny finish.
