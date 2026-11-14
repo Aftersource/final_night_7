@@ -38,7 +38,7 @@ fn duel_keys_are_validated() {
         (json!({ "duel_keys": { "duel_id": "d", "len": -1, "tail": "" } }), "bad_len"),
         (json!({ "duel_keys": { "duel_id": "d", "len": 2.5, "tail": "" } }), "bad_len"),
         (json!({ "duel_keys": { "duel_id": "d", "len": "3", "tail": "" } }), "bad_len"),
-        (keys("d", 9, "knees"), "bad_tail"),
+        (keys("d", 12, "kneesknee"), "bad_tail"),
         (keys("d", 2, "kne"), "bad_tail"),
         (keys("d", 0, "k"), "bad_tail"),
         (keys("d", 9, "a\nb"), "bad_tail"),

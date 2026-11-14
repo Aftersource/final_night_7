@@ -435,8 +435,8 @@
               "type": "integer"
             },
             "tail": {
-              "description": "The newest characters typed since your last duel_keys (0 to 4, never more than `len`; empty after a deletion). No control or invisible format characters.",
-              "maxLength": 4,
+              "description": "The newest characters typed since your last duel_keys (0 to 8, never more than `len`; empty after a deletion). No control or invisible format characters.",
+              "maxLength": 8,
               "type": "string"
             }
           },

@@ -724,7 +724,7 @@ ankle only because the third crow of the morning had been washed in platinum dus
 ### 21.7 Watching the words arrive, and the skins
 
 While a duellist types, the table sees the line grow as a row of stars with only its newest letters showing, the way
-a password field shows the last key (`duel.typing`: the line's length and its newest 1 to 4 characters, relayed the
+a password field shows the last key (`duel.typing`: the line's length and its newest 0 to 8 characters, relayed the
 moment the server gets them). Read your opponent letter by letter as it flashes past and you know what is coming; look
 away and you are winging it. The relay decides nothing: the line that counts is still the one sent on Enter, and the
 keystrokes are never stored, never replayed to someone who reconnects, never part of a recording's outcome. Each

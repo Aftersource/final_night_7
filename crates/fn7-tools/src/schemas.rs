@@ -955,7 +955,7 @@ fn action_fields_schema() -> Value {
                 "properties": {
                     "duel_id": { "type": "string" },
                     "len": { "type": "integer", "minimum": 0, "maximum": 120, "description": "Characters in the line being typed now." },
-                    "tail": { "type": "string", "maxLength": 4, "description": "The newest characters typed since your last duel_keys (0 to 4, never more than `len`; empty after a deletion). No control or invisible format characters." }
+                    "tail": { "type": "string", "maxLength": 8, "description": "The newest characters typed since your last duel_keys (0 to 8, never more than `len`; empty after a deletion). No control or invisible format characters." }
                 },
                 "required": ["duel_id", "len"]
             }] },

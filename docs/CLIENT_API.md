@@ -962,7 +962,7 @@ rules version and no state schema: a server from before it accepts the action an
 |---|---|
 | `duel_id` | the duel you are in |
 | `len` | integer 0..120: the characters in your line **now** (it goes down when the player deletes; 0 = the line is empty) |
-| `tail` | string, 0 to 4 characters: the **newest** characters typed since your last `duel_keys` (the last 4 if more were typed; `""` after a deletion). Never longer than `len`. No control characters (tab, newline, ...) and no invisible format characters (zero-width, bidi overrides) |
+| `tail` | string, 0 to 8 characters: the **newest** characters typed since your last `duel_keys` (the last 8 if more were typed; `""` after a deletion). Never longer than `len`. No control characters (tab, newline, ...) and no invisible format characters (zero-width, bidi overrides) |
 
 The reply is `action.received {accepted: true}`, or `accepted: false` with `reason`: `bad_len`, `bad_tail`,
 `no_duel` (no `duel_id`, no such duel under way, or its outro is out), `not_yours` (only its two duellists type;
@@ -979,7 +979,7 @@ the two shape ones.
 - `by`: the side typing (`a` = the challenger); `demigod`: its ref. `at_ms`: the server's receive stamp; `seq`: the
   action's room-wide arrival number. Order by `(at_ms, seq)` and drop a frame older than the one you already drew.
 - **Draw** side `by`'s line as `len` characters: stars, with the last `tail.length` of them replaced by `tail`.
-  Letters from an earlier frame turn into stars. When more than 4 characters were typed between two frames, the ones
+  Letters from an earlier frame turn into stars. When more than 8 characters were typed between two frames, the ones
   in between were never sent: they are stars from the start.
 - **Your own line**: draw it from your own keyboard at once, with the same mask; you get your own `duel.typing` back
   like everyone else (use it or ignore it).
@@ -1028,7 +1028,7 @@ The relay itself is fast: from the sender's `send` to the viewer's receipt, medi
    every 5 s: bursts at 450 ms after a pause, about one per 750 ms in steady typing) with nothing limited, and ticks and lines never waited.
 
 Either way: **never retry a limited `duel_keys`** (the next one supersedes it), and always send lines and ticks
-first. At these rates a fast typist (more than about 5 characters per second) outruns the 4-character `tail`: some
+first. At these rates a fast typist (more than about 10 characters per second) outruns the 8-character `tail`: some
 letters only ever show as stars. That is the design's "otherwise, you're winging it"; `len` is always exact.
 
 ## Exact resume: `present` (state schema 8)

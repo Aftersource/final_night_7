@@ -30,7 +30,7 @@ use crate::actions::MAX_DUEL_CHARS;
 /// The action field.
 pub const FIELD: &str = "duel_keys";
 /// Longest `tail` (characters).
-pub const MAX_TAIL: usize = 4;
+pub const MAX_TAIL: usize = 8;
 /// Lengths not refreshed for this long are dropped from the cache when it grows (a duel lasts seconds to minutes).
 const STALE_MS: i64 = 10 * 60 * 1000;
 
@@ -51,7 +51,7 @@ fn hidden(c: char) -> bool {
 }
 
 /// Parse `fields.duel_keys`. Refusals: `no_duel` (no id), `bad_len` (not an integer 0..=120), `bad_tail` (not a
-/// string, longer than 4 characters, longer than `len`, or with a control or invisible format character).
+/// string, longer than 8 characters, longer than `len`, or with a control or invisible format character).
 pub fn keys_of(fields: &Value) -> Result<Option<KeysOrder>, String> {
     let Some(v) = fields.get(FIELD).filter(|v| !v.is_null()) else { return Ok(None) };
     let o = v.as_object().ok_or("no_duel")?;
