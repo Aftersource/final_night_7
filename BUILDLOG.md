@@ -886,3 +886,8 @@ Engineering:
   - It loses 1–2 health. The chance and amount grow with current health (recklessness), so at full health it's about 20% of its health.
   - All of it is set by settings.
 - Next discussion: CHALLENGE MODE, a Mega Man X-style double lock-in of both demigods' diorama portraits when they engage (more than two is to be designed).
+
+> The power tiles are not yet tilted up to face the player, and the bag still looks shiny when it is empty. It should look empty
+> after empty, and the tiles should be tilted toward the player.
+
+Engineering: the empty pouch sags and goes dull (no glow, no motes, a dark gem) once the tiles are out; the tilted hexes reach Chris's editor with mac/terrace-aoe.
