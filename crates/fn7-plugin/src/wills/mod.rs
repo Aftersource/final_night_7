@@ -873,7 +873,12 @@ fn heal_part(w: &mut World, b: &mut Book, c: &Ctx, kind: Kind, note: &mut WillNo
                     format!("healed {name} {healed} of {full_heal}; a quest will complete it (+{rest})")
                 }
                 .into();
-                p["why"] = format!("rolled {} against DC {}: {}", r.total, r.target_dc, pick(w, &format!("s{}:{}", c.intent.0, t.0), SHORTFALL)).into();
+                p["why"] = if fizzle {
+                    format!("rolled a natural 1: {}", pick(w, &format!("s{}:{}", c.intent.0, t.0), SHORTFALL))
+                } else {
+                    format!("rolled {} against DC {}: {}", r.total, r.target_dc, pick(w, &format!("s{}:{}", c.intent.0, t.0), SHORTFALL))
+                }
+                .into();
                 quest_fields(w, b, q, &mut p);
                 said.push(format!("{name}'s mending waits on a quest"));
                 worst = Verdict::Bargain;
@@ -1463,8 +1468,11 @@ pub fn remember_curse(w: &mut World, beat: u32, c: &Curse, kind: &'static str, t
     data["at"] = json!(pos);
     data["cell"] = wh.cell.clone().into();
     data["beat"] = beat.into();
-    data["seats"] = json!([w.demigods[c.target.ix()].seat, c.owner_seat]);
-    data["quest"] = qref(c.quest).into();
+    // A public fact carries the public face only: never who cast it (not even by seat), never its counter.
+    if !public {
+        data["seats"] = json!([w.demigods[c.target.ix()].seat, c.owner_seat]);
+        data["quest"] = qref(c.quest).into();
+    }
     dm::remember(w, beat, &wh, Decision { scope: Scope::Cell, kind, query: None, public, text, data });
 }
 

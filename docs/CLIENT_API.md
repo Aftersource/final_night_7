@@ -986,6 +986,178 @@ every human left.)
 **Ids across restarts.** The core's `seq` restarts at 1 when the server restarts. Order events by
 `(received_at_ms, seq)`, not by `seq` alone. `duel_id` stays unique within a match (a clash gets `seq + 1000000`).
 
+## Wills that matter (0.9.0)
+
+Room setting `wills_enabled` (default true; needs state schema 10). Rules: DM_RULEBOOK chapters 23-27. Everything
+here is additive; a match without it sends none of these fields. There are **no new actions**: wills are the text
+you already send (`fields.left` / `fields.right`). What changes is what comes back.
+
+**What a will can now do** (say it in your own words; the hand and the rules split it into parts):
+
+| Say | Part | What happens |
+|---|---|---|
+| "heal my demigods", "heal me fully" | `heal` | each of your own: a d20 vs DC 6 + magnitude/4; heals 1-3.5; a fail is a token heal plus a quest |
+| "bless me" | `bless` | a boon: +1 on that demigod's d20s for 6 beats |
+| "arm my demigods", "they get rocket launchers", "Nature, arm us with holy spears" | `arm` | real gear per demigod, with `mods` and a `power`; a god named or "holy / divine / god powers" blesses it (a tier up, the god's signature) |
+| "my demigods come back to life", "revive the other demigods" | `raise` | Death's price in sparks and max-health years, or a quest; a wiped player may plead |
+| "curse X with withering", "no resurrection for X", "bind X", "silence X", "hex X", "Death, wither X forever" | `curse` | a seal or curse on a rival's demigod; its bearer always gets a counter-quest |
+| "what does my quest need?", "how do I break the curse?" | `ask` | your open quests' steps and progress, and the curses on you |
+| "offer the sparks to the quest" | `offer` | pays a quest's sparks step |
+| "gather the butterfly wings for the quest" | `gather` | makes the ingredient a quest's step is waiting on |
+
+Prices are in sparks; a bolt breaks into 5 sparks (the change stays in your purse); what you can't pay is lent as a
+debt while your open debt is under 3, else the effect shrinks or becomes a quest.
+
+### `round.private.wills[]`: every will's answer
+
+One entry per text box you used this beat (or per plea, when you are wiped). Real frame (trimmed to one heal and one
+arming of the four parts):
+
+```json
+{ "text": "heal and arm my demigods", "by": "dg:0", "by_name": "Chris's Left Hand",
+  "routed_to": "Nature", "gods": ["Nature", "Death"], "verdict": "granted",
+  "speech": "Nature: \"Granted: Chris's Left Hand mends, Chris's Right Hand mends, because a ferryman overpaid his toll in a year nobody remembers.\" Death: \"Granted: Chris's Left Hand is armed, Chris's Right Hand is armed, because the third crow of the morning landed on the right side of the road.\"",
+  "reason": "healed Chris's Left Hand 2; healed Chris's Right Hand 2; forged a Butterfly Wing Blade (artifact): +1 to strikes, +1 to journeys, +0.5 damage, +1 in duels; forged a Struck Oak Blade (artifact): +1 to strikes, +0.5 damage, +1 in duels",
+  "parts": [
+    { "part": "heal", "target": "dg:0", "target_name": "Chris's Left Hand", "god": "Nature",
+      "roll": { "die": "d20", "roll": 8, "modifier": 1, "total": 9, "target_dc": 7, "verdict": "success",
+                "mods": [{ "name": "paid in full", "value": 1 }] },
+      "paid": { "price_sparks": 2, "sparks": 2, "bolts_broken": 0, "short_sparks": 0, "debt": 0.0 },
+      "outcome": "success", "healed": 2.0, "result": "healed Chris's Left Hand 2" },
+    { "part": "arm", "target": "dg:0", "target_name": "Chris's Left Hand", "god": "Death",
+      "asked_tier": "artifact", "blessed": false,
+      "roll": { "die": "d20", "roll": 14, "modifier": 0, "total": 14, "target_dc": 8, "verdict": "success", "mods": [] },
+      "paid": { "price_sparks": 2, "sparks": 2, "bolts_broken": 0, "short_sparks": 0, "debt": 0.0 },
+      "outcome": "success",
+      "result": "forged a Butterfly Wing Blade (artifact): +1 to strikes, +1 to journeys, +0.5 damage, +1 in duels",
+      "item": { "ref": "it:0", "name": "Butterfly Wing Blade", "kind": "weapon", "tier": "artifact", "slot": "weapon",
+                "material": "butterfly-wing", "mods": { "strike": 1, "journey": 1, "damage": 0.5, "duel": 1 },
+                "power": null, "blessed_by": null, "holder": "dg:0",
+                "does": "+1 to strikes, +1 to journeys, +0.5 damage, +1 in duels" } } ] }
+```
+
+And a part that fell short (a natural 1 on a heal): it says why and what would work.
+
+```json
+{ "part": "heal", "target": "dg:0", "target_name": "Chris's Left Hand", "god": "Nature",
+  "roll": { "die": "d20", "roll": 1, "modifier": 1, "total": 2, "target_dc": 7, "verdict": "crit_fail",
+            "mods": [{ "name": "paid in full", "value": 1 }] },
+  "paid": { "price_sparks": 2, "sparks": 2, "bolts_broken": 0, "short_sparks": 0, "debt": 0.0 },
+  "outcome": "fizzle", "healed": 0.0,
+  "result": "the mending of Chris's Left Hand fizzled (a natural 1); a quest will complete it (+2)",
+  "why": "rolled a natural 1: the ferryman kept the change",
+  "next": "quest q:0: 1. Hold a thread pulled from a general's banner (any item with \"thread\" in its name: will your demigod to gather or make it, or win an encounter).",
+  "quest": { … Quest … } }
+```
+
+- `verdict`: `granted` (every part as willed), `partial` (something fell short: read the parts), `refused`.
+- `parts[].outcome`: `crit`, `success`, `partial` (a token now and a quest, or gear a tier low), `fizzle` (a natural
+  1: a quest), `quest` (nothing could be paid: a quest), `blocked` (withered), `raised`, `sealed`, `refused`,
+  `unpaid`, `cast`, `backfired` (the curse lies on its caster), `told`, `offered`, `gathered`.
+- Always show `result`; when present show `why` and `next`. `roll.mods[]` names every modifier.
+- The gods' words are also in `omens[]`. Schema: `Will`, `WillPart`, `WillRoll`, `WillPaid` in
+  [round_private](schemas/round_private.schema.json).
+
+### Gear: what an item does
+
+Every `Item` that is gear (a held weapon, armour, relic or artifact) gains `slot` (`weapon` / `armor` / `charm`),
+`material`, `mods` (`strike`, `journey`, `deed`: d20 modifiers; `damage`, `guard`, `regen`, `thorns`: health;
+`duel`; `resist`: a damage type), `power` (`{id: smite | last_stand | second_wind, name, text, used}` or null),
+`blessed_by` and `does` (one line to show). It is in `seat_view.demigods[].items`, `my_items`, the new
+`round.private.demigods[].items`, `game.item(s)`, and on every public demigod's `story.items[]` pegs
+(`{ref, icon, name, slot, tier, mods, power, does}`). A demigod uses its best item per slot.
+
+### Quests: `quests[]`
+
+In the seat view and in `round.private` (your own quests, the public ones, and the counters of curses you cast; open
+ones, and closed ones for 8 beats); the open public ones (raisings, seals' counters) are also in
+`round.outcome.public.quests` and `public_state.quests`.
+
+```json
+{ "ref": "q:1", "for": "dg:3", "for_name": "Chris's Right Hand", "seat": 0, "helpers": [],
+  "goal": { "kind": "break_curse", "curse": 0, "curse_kind": "wither" }, "god": "Death",
+  "text": "Death has ruled: 4 sparks fed to the dark between two heartbeats, then your shadow laid down by night where the ground remembers being two grounds; only then will the curse of withering lift from Chris's Right Hand. (The engine's reason, as near as the DM can read it: Chris's Right Hand has 1000+ followers)",
+  "steps": [
+    { "step": 1, "kind": "sparks", "n": 4, "text": "Offer 4 sparks (will it: \"offer the sparks to the quest\"; a bolt breaks into 5).",
+      "done": false, "done_beat": null, "progress": "4 sparks not offered yet" },
+    { "step": 2, "kind": "at", "place": "fault", "phase": "night", "text": "Stand within 150 km of a fault line by night.",
+      "done": false, "done_beat": null } ],
+  "steps_done": 0, "status": "open", "given_beat": 11, "expires_beat": null, "done_beat": null,
+  "failed": null, "failed_beat": null, "public": false, "waiting": null }
+```
+
+- Steps are done in order. `kind`: `at` (`place`: `shrine {of}` / `settlement {level}` / `fault` / `coast` /
+  `point {at, name}`; optional `phase`; optional `offer`: the ingredient burned there; `near {name, at}`: a place of
+  that kind to send the demigod to, when the server knows one), `hold {word}`, `encounter`, `shrine`, `duel`,
+  `sparks {n}`, `army {at, name, general}`, `vigil {phase, times, seen}`.
+- `progress` says why the current step is not done yet, as of the last beat.
+- `goal.kind`: `heal`, `boon`, `temper`, `arm`, `break_curse`, `raise`. `status`: `open`, `done`, `failed`
+  (`failed`: `expired` or `moot`). `waiting`: every step is done but a seal still holds the raising back.
+
+### Curses: `curses[]`
+
+On every public demigod (`demigods[].curses`), in `round.outcome.public.curses` and `public_state.curses`: the
+**public face**. In your seat view and `round.private`: the same list, with the private fields on the curses that
+lie on your demigods or that you cast.
+
+```json
+{ "ref": "cu:0", "kind": "wither", "title": "a curse of withering", "does": "no healing reaches it",
+  "target": "dg:3", "target_name": "Chris's Right Hand", "strength": 2, "cast_beat": 11, "until_beat": 311,
+  "god_tier": false, "god": null, "counter": "a mystic quest", "broken_beat": null, "broken_how": "",
+  "owner": "dg:1", "owner_name": "Benito's Left Hand", "yours": false, "on_you": true, "paid_sparks": 5,
+  "quest": { … the counter-quest … } }
+```
+
+The last line (`owner` … `quest`) is private. `kind`: `seal` (no resurrection), `wither` (no healing), `silence`
+(its player's wills cost double), `bind` (a summon of it is refused with `bound:<quest ref>`), `hex` (minus its
+strength on its d20s). `until_beat: null` = until countered. `broken_how`: `countered` or `faded`.
+
+### Events
+
+Public, in `round.outcome.public.dm_events[]` (shape as every DmEvent: `event`, `text`, `memory`, plus):
+
+| `event` | Fields | When |
+|---|---|---|
+| `curse.cast` | the curse's public face, `at`, `cell` | a seal or curse lands (never who cast it) |
+| `curse.broken` | the public face (`broken_how`: `countered` / `faded`) | its counter-quest is done, or its time ran out |
+| `demigod.raised` | `demigod`, `name`, `by`, `by_player`, `by_seat`, `how` (`paid` / `on credit` / `quest q:N`), `years`, `at`, `cell`, `at_shrine` | a fallen demigod rises |
+| `quest.given` / `quest.step` / `quest.done` / `quest.failed` | `quest`, `goal`, `demigod`, `name`, `seat`, `god`, `steps[]`, `step`?, `how`?, `result`?, `why`? | a **public** quest (a raising, a seal's counter) |
+| `arms.power` | `demigod`, `item`, `power` | a Last Stand held |
+
+The same quest events of your **private** quests (a heal's, an arming's, a curse's counter) arrive only for you (and
+a curse's owner) in `round.private.will_events[]`, same shapes. `round.outcome.public.wills[]` carries one-liners of
+this beat's public wills: `{event: "will.raised", by, by_name, target, target_name, text}` and
+`{event: "will.curse", target, target_name, curse, text}`. A real raising:
+
+```json
+{ "event": "demigod.raised", "demigod": "dg:3", "name": "Chris's Right Hand", "by": "dg:0", "by_player": "Chris",
+  "by_seat": 0, "how": "paid", "years": 1.0, "at": [-43.68, -21.58], "at_shrine": false, "beat": 22,
+  "cell": "0:people:-783704:-774517", "memory": 448,
+  "text": "Chris's Right Hand rises where it fell, raised by Chris's plea to Death (paid)" }
+```
+
+### Also in the seat view and `round.private`
+
+`boons[]` (`{demigod, bonus, until_beat, from}`), `raises {granted, cap}`, and each of your demigods in
+`round.private.demigods[]` now carries `items[]` and `curses[]`.
+
+### A wiped player keeps the will box
+
+With `wills_enabled`, **`seat.eliminated` is not sent when your last demigod falls**: the Theatre refuses every
+submission of a seat that is out, and a wiped player may still plead ("my demigods come back to life"), ask and
+offer. Read `players[].alive` and your seat view's `alive` for "all my demigods are down"; keep the WILL box open.
+The beat that ends the match reports everyone who is out, as before. Anything else a wiped player wills is answered
+in `wills[]` with `verdict: "refused"` and what they can do.
+
+### Settings
+
+`wills_enabled`, `will_spark_per_bolt`, `will_own_dc`, `will_debt_cap`, `will_debt_per_spark`,
+`will_entropy_per_spark`, `heal_price_sparks`, `heal_token`, `heal_scale`, `boon_beats`, `boon_bonus`,
+`arm_price_artifact`, `arm_price_relic`, `arm_bless_sparks`, `arms_scale`, `raise_price_sparks`, `raise_stale_beats`,
+`raise_cap`, `raise_years`, `raise_health_fraction`, `curse_price_sparks`, `curse_god_price_sparks`, `curse_beats`,
+`curse_dc`, `curse_max_per_player`, `curse_entropy`, `quest_steps_max`, `quest_expire_beats`, `quest_spark_step`,
+`wills_ai_chance`: DM_RULEBOOK chapter 22, [settings](schemas/settings.schema.json), `GET /sim/settings`.
+
 ## Message flow for one beat
 
 One Theatre **round** is one **beat**, so `round` and `beat` are always the same number. There are no choices: `round.private.choices`

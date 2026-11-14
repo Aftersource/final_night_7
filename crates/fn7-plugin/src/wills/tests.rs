@@ -777,7 +777,7 @@ fn a_curse_has_a_public_face_a_price_and_always_a_counter() {
     assert_eq!((face["kind"].as_str(), face["target"].clone(), face["counter"].as_str()), (Some("wither"), json!(Ref::Demigod(c.target)), Some("a mystic quest")));
     assert!(face.get("owner").is_none() && face.get("quest").is_none(), "{face}");
     let ev = o.public["dm_events"].as_array().unwrap().iter().find(|e| e["event"] == "curse.cast").expect("curse.cast");
-    assert!(ev.get("owner").is_none() && !ev.to_string().contains("Benito"), "{ev}");
+    assert!(ev.get("owner").is_none() && ev.get("seats").is_none() && ev.get("quest").is_none() && !ev.to_string().contains("Benito"), "{ev}");
     assert!(!o.public["wills"][0].to_string().contains("Benito"));
     let pv = crate::phases::public_view(&w);
     let piece = pv["demigods"].as_array().unwrap().iter().find(|d| d["ref"] == json!(Ref::Demigod(c.target))).unwrap();
