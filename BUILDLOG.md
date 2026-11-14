@@ -891,3 +891,13 @@ Engineering:
 > after empty, and the tiles should be tilted toward the player.
 
 Engineering: the empty pouch sags and goes dull (no glow, no motes, a dark gem) once the tiles are out; the tilted hexes reach Chris's editor with mac/terrace-aoe.
+
+## 2026-11-14: history as lenses; the DM's Rube Goldberg mysticism
+
+> Yes, history and its consequences act like lenses. For all of the rules, imagine an algorithm that does
+> all of that, and then returns its answer, however ludicrous, and make it make mystical sense that fits with
+> the world, in a very Rube Goldberg-like mystical way, such as needing to wash a stone in platinum dust.
+
+Engineering: this is the DM rulebook's governing principle.
+- History and consequence are lenses the DM looks through.
+- The rules are an imagined algorithm that has already decided; the DM accepts its answer however ludicrous and explains it with mystical, Rube Goldberg causality that fits the world (rituals, chains of omens, absurd material requirements: "wash the stone in platinum dust").
