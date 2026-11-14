@@ -61,8 +61,8 @@ fn public_state() -> Value {
 
 fn seats() -> Vec<SeatIn> {
     vec![
-        SeatIn { seat: 0, display_name: "Chris".into(), is_bot: false },
-        SeatIn { seat: 1, display_name: "Benito".into(), is_bot: false },
+        SeatIn { seat: 0, display_name: "Chris".into(), is_bot: false, account: None },
+        SeatIn { seat: 1, display_name: "Benito".into(), is_bot: false, account: None },
     ]
 }
 
@@ -231,7 +231,7 @@ fn champions_and_bots() {
     let mut sum = summary(Some(1));
     sum["champions"] = json!([{ "demigod": "dg:1", "name": "Benito", "seat": 1 }]);
     m.summary = Some(sum);
-    m.seats.push(SeatIn { seat: 2, display_name: "Bot Brix".into(), is_bot: true });
+    m.seats.push(SeatIn { seat: 2, display_name: "Bot Brix".into(), is_bot: true, account: None });
     s.record_match(&m).unwrap();
     let b = s.profile("benito").unwrap().unwrap();
     assert_eq!(b.totals.champion, 1);
@@ -420,7 +420,7 @@ fn live_path_from_the_example_frame() {
         .as_array()
         .unwrap()
         .iter()
-        .filter_map(|s| Some(SeatIn { seat: s["seat"].as_u64()? as u8, display_name: s["name"].as_str()?.into(), is_bot: false }))
+        .filter_map(|s| Some(SeatIn { seat: s["seat"].as_u64()? as u8, display_name: s["name"].as_str()?.into(), is_bot: false, account: None }))
         .collect();
     let m = MatchInput::from_match_ended(seat_names, &frame, Some(1)).unwrap();
     let s = ProfileStore::open_in_memory().unwrap();

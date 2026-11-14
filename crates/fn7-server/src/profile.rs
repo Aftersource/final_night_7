@@ -260,6 +260,7 @@ pub fn seats_from_state(state: &Value) -> Vec<SeatIn> {
                 seat,
                 display_name: name,
                 is_bot: s["is_bot"].as_bool().unwrap_or(false),
+                account: s["account"].as_str().map(str::to_string),
             })
         })
         .collect()

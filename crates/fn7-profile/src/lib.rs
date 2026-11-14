@@ -20,15 +20,20 @@
 //! ([`default_path`]). Every write is idempotent per match id, so the live path and a backfill
 //! ([`ingest::read_recording`]) can both run over the same match.
 
+pub mod accounts;
 pub mod ingest;
 pub mod normalize;
 pub mod schema;
+pub mod settings;
 
 #[cfg(feature = "http")]
 pub mod http;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod accounts_tests;
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -314,6 +319,10 @@ pub struct RecordReport {
     pub images: usize,
     /// The match was already stored as ended and this input was unfinished: nothing changed.
     pub skipped: bool,
+    /// Seats left out: the name belongs to an account and the seat was not bound to it (docs/ACCOUNTS.md "The game
+    /// connection"), or the name's profile was deleted with its account after this match.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub left_out: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -466,6 +475,22 @@ impl ProfileStore {
         self.profile(name)?.ok_or(ProfileError::NotFound)
     }
 
+    /// Set the description as the account that holds the name (no secret: the session proved the account).
+    pub fn set_description_owner(&self, name: &str, text: &str) -> Result<Profile> {
+        let key = normalize_name(name).ok_or(ProfileError::BadName)?;
+        {
+            let conn = self.lock();
+            let n = conn.execute(
+                "UPDATE profiles SET description_user = ?2, updated_at = ?3 WHERE key = ?1",
+                params![key, clean_text(text, MAX_DESCRIPTION), now_ms()],
+            )?;
+            if n == 0 {
+                return Err(ProfileError::NotFound);
+            }
+        }
+        self.profile(name)?.ok_or(ProfileError::NotFound)
+    }
+
     /// Claim a profile with a secret (first come, first served), or change the secret given the old one. Protects the
     /// description; it doesn't stop anyone playing under the name (see the design doc).
     pub fn claim(&self, name: &str, secret: &str, old_secret: Option<&str>) -> Result<()> {
@@ -553,6 +578,17 @@ impl ProfileStore {
             let Some(key) = normalize_name(&p.display_name) else {
                 continue;
             };
+            // Accounts: a name an account holds accrues history only from seats bound to that account (matches that
+            // began before the account took the name are the name's old history and stay); a profile deleted with its
+            // account is never rebuilt from older matches.
+            let began = m.started_at.or(m.ended_at).unwrap_or(now);
+            let seat_account = m.seats.iter().find(|s| s.seat == p.seat).and_then(|s| s.account.as_deref());
+            let unbound = Self::linked_tx(&tx, &key)?
+                .is_some_and(|(owner, linked_at)| began >= linked_at && seat_account != Some(owner.as_str()));
+            if unbound || Self::tombstoned_tx(&tx, &key, began)? {
+                report.left_out.push(key);
+                continue;
+            }
             upsert_profile_tx(&tx, &key, &normalize::display_name(&p.display_name), at)?;
             tx.execute(
                 "INSERT OR REPLACE INTO match_players (match_id, seat, profile_key, display_name, champion, placement,
