@@ -18,6 +18,14 @@
           "minimum": 0,
           "type": "integer"
         },
+        "fault_factor": {
+          "description": "Rules 0.8.0, megas only: the fault rule's damage multiplier (radius and magnitude scale with it).",
+          "type": "number"
+        },
+        "fault_km": {
+          "description": "Rules 0.8.0, megas only: distance (km) from where it struck to the nearest fault line.",
+          "type": "number"
+        },
         "fizzled": {
           "description": "Why it fizzled (not enough bolts, no such target); nothing was spent.",
           "type": "string"
@@ -111,6 +119,111 @@
       ],
       "type": "object"
     },
+    "DayPhase": {
+      "description": "Rules 0.8.0: the phase of the game day.",
+      "enum": [
+        "dawn",
+        "day",
+        "dusk",
+        "night"
+      ],
+      "type": "string"
+    },
+    "DiceRolled": {
+      "description": "Rules 0.8.0: one d20 the DM rolled (seeded, recorded: the same question always gives the same roll).",
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/LonLat"
+        },
+        "beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cell": {
+          "description": "People-level hex.",
+          "type": "string"
+        },
+        "die": {
+          "const": "d20"
+        },
+        "event": {
+          "const": "dice.rolled"
+        },
+        "modifier": {
+          "description": "",
+          "type": "integer"
+        },
+        "reason": {
+          "description": "What it was for, in public words (\"a strike\", \"a monster encounter\", \"manifesting a relic\").",
+          "type": "string"
+        },
+        "roll": {
+          "description": "The face.",
+          "maximum": 20,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "target_dc": {
+          "description": "",
+          "type": "integer"
+        },
+        "total": {
+          "description": "roll + modifier.",
+          "type": "integer"
+        },
+        "verdict": {
+          "description": "A natural 1 is crit_fail, a natural 20 crit_success, else total vs DC.",
+          "enum": [
+            "crit_fail",
+            "fail",
+            "success",
+            "crit_success"
+          ],
+          "type": "string"
+        },
+        "who": {
+          "$ref": "#/$defs/Ref"
+        }
+      },
+      "required": [
+        "event",
+        "who",
+        "die",
+        "roll",
+        "modifier",
+        "total",
+        "target_dc",
+        "verdict",
+        "reason",
+        "at",
+        "cell",
+        "beat"
+      ],
+      "type": "object"
+    },
+    "DmEvent": {
+      "additionalProperties": true,
+      "description": "Rules 0.8.0: one public decision of the DM this beat: `event` (settlement.grew, settlement.shrank, settlement.building, encounter.marked, encounter.revealed, encounter.faded, loot.dropped, loot.taken, road.formed, road.faded, shrine.built, shrine.level, story.scar, story.wardrobe, story.followers, time.phase), `text` (one line), `memory` (its memory entry id) and the decision's own fields (docs/CLIENT_API.md).",
+      "properties": {
+        "event": {
+          "type": "string"
+        },
+        "memory": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "event",
+        "text",
+        "memory"
+      ],
+      "type": "object"
+    },
     "Entropy": {
       "description": "The world's Entropy meter. Every bolt spent anywhere raises it; thresholds make the world wackier (20 weather, 40 physics, 60 riots, 80 godfall); at `max` heat death makes that beat the Final Night.",
       "properties": {
@@ -167,6 +280,82 @@
         "text",
         "next_at",
         "heat_death"
+      ],
+      "type": "object"
+    },
+    "GodPowerLine": {
+      "description": "Rules 0.8.0: a god-tier power this beat. A fizzled one has `fizzled` and nothing was spent.",
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/LonLat"
+        },
+        "by": {
+          "description": "",
+          "type": "string"
+        },
+        "by_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "cost": {
+          "description": "Bolts.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fizzled": {
+          "description": "",
+          "type": "string"
+        },
+        "god": {
+          "description": "",
+          "type": "string"
+        },
+        "god_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "place": {
+          "description": "",
+          "type": "string"
+        },
+        "power": {
+          "description": "god_<slug>",
+          "type": "string"
+        },
+        "power_name": {
+          "description": "",
+          "type": "string"
+        },
+        "region_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "seq": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tier": {
+          "const": "god"
+        }
+      },
+      "required": [
+        "by",
+        "by_ref",
+        "power",
+        "power_name",
+        "tier",
+        "god",
+        "god_ref",
+        "cost",
+        "seq"
       ],
       "type": "object"
     },
@@ -533,6 +722,39 @@
       ],
       "type": "string"
     },
+    "TimeOfDay": {
+      "description": "Rules 0.8.0: the time of day (`beats_per_day` beats a day).",
+      "properties": {
+        "beat_in_day": {
+          "description": "1..beats_per_day.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "beats_per_day": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "day": {
+          "description": "Game day, from 1.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "light": {
+          "description": "0 (midnight) .. 1 (noon); 0.5 at dawn and dusk.",
+          "type": "number"
+        },
+        "phase": {
+          "$ref": "#/$defs/DayPhase"
+        }
+      },
+      "required": [
+        "day",
+        "phase",
+        "light"
+      ],
+      "type": "object"
+    },
     "WorldEvent": {
       "description": "A public, geotagged world event (one ledger row): casts and their ramifications, armies raised, marching and fighting, freak weather, world mods, wounded gods, eliminations.",
       "properties": {
@@ -654,6 +876,20 @@
       },
       "type": "array"
     },
+    "dice": {
+      "description": "Rules 0.8.0: every d20 the DM rolled this beat (at most 60), in order.",
+      "items": {
+        "$ref": "#/$defs/DiceRolled"
+      },
+      "type": "array"
+    },
+    "dm_events": {
+      "description": "Rules 0.8.0: the DM's public decisions this beat (at most 40): settlements growing, encounters, loot, roads, shrines, scars, the time of day.",
+      "items": {
+        "$ref": "#/$defs/DmEvent"
+      },
+      "type": "array"
+    },
     "eliminated": {
       "description": "Names of demigods that fell during this beat's resolve.",
       "items": {
@@ -665,9 +901,23 @@
       "$ref": "#/$defs/Entropy"
     },
     "events": {
-      "description": "Public geotagged world events this beat, in order (<= 40).",
+      "description": "Public geotagged world events this beat, in order (<= 40). Rules 0.8.0: a summoning adds its `summoned` event here too (`kind` and `event` \"summoned\", `at` its landing; see DmEvent).",
       "items": {
-        "$ref": "#/$defs/WorldEvent"
+        "anyOf": [
+          {
+            "$ref": "#/$defs/WorldEvent"
+          },
+          {
+            "$ref": "#/$defs/DmEvent"
+          }
+        ]
+      },
+      "type": "array"
+    },
+    "god_powers": {
+      "description": "Rules 0.8.0: god-tier powers settled this beat (each then ruled on by its god: see `omens`).",
+      "items": {
+        "$ref": "#/$defs/GodPowerLine"
       },
       "type": "array"
     },
@@ -715,6 +965,19 @@
         "object",
         "null"
       ]
+    },
+    "summons": {
+      "description": "Rules 0.8.0: the `summoned` events of this beat (also in dm_events): {demigod, from {pos, cell}, to {pos, cell}, deed, health_lost}.",
+      "items": {
+        "$ref": "#/$defs/DmEvent"
+      },
+      "type": "array"
+    },
+    "time_of_day": {
+      "$ref": "#/$defs/TimeOfDay"
+    },
+    "time_of_day_phase": {
+      "$ref": "#/$defs/DayPhase"
     },
     "timing": {
       "description": "Server-side wall-clock timings of the resolve (diagnostics).",

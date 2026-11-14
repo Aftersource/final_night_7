@@ -149,11 +149,10 @@ vicinities. Everything else is numbers. Any late call is replaced by its rules f
 exactly one demigod is left standing. Every demigod gets a pile and a statue, as in Final Night.
 
 ## 5. Battle royale rules
-- 4 demigods, health 10, Final Night's 0–10 damage scale.
-- You win by being the last demigod alive. You can kill directly, through paladins turned against a rival, through riots, or
-  through a rival's own unpaid debts.
-- Clusters and characters can be recruited, worshipped by, turned and lost. A demigod with no followers loses favor fast.
-- Hidden information is per seat: you see what your hands and subagents saw, what your followers know, and public omens.
+
+Moved to the Dungeon Master's rulebook, [`docs/DM_RULEBOOK.md`](docs/DM_RULEBOOK.md) (rules 0.8.0): the single rules
+reference the AI DM follows (winning, harm and the killers, hidden information, gods and powers, the d20, the place ×
+time memory and its features).
 
 ## 6. Running it on the Theatre
 

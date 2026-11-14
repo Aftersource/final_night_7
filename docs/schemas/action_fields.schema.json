@@ -41,6 +41,7 @@
                   "enum": [
                     "mega",
                     "mini",
+                    "god",
                     null
                   ],
                   "type": [
@@ -69,10 +70,11 @@
                   ]
                 },
                 "tier": {
-                  "description": "Rules 0.7.0: mega (a lightning bolt, map scale, every other god gains a bolt) or mini (a spark, the board). Default mini, so old clients never burn bolts. `scale` is accepted as an alias.",
+                  "description": "Rules 0.7.0: mega (a lightning bolt, map scale, every other god gains a bolt) or mini (a spark, the board). Default mini, so old clients never burn bolts. `scale` is accepted as an alias. Rules 0.8.0: god (a god-tier power `god_<slug>`: god_power_cost bolts, resolved as that god's ruling).",
                   "enum": [
                     "mega",
                     "mini",
+                    "god",
                     null
                   ],
                   "type": [
@@ -133,6 +135,7 @@
                 "enum": [
                   "mega",
                   "mini",
+                  "god",
                   null
                 ],
                 "type": [
@@ -161,10 +164,11 @@
                 ]
               },
               "tier": {
-                "description": "Rules 0.7.0: mega (a lightning bolt, map scale, every other god gains a bolt) or mini (a spark, the board). Default mini, so old clients never burn bolts. `scale` is accepted as an alias.",
+                "description": "Rules 0.7.0: mega (a lightning bolt, map scale, every other god gains a bolt) or mini (a spark, the board). Default mini, so old clients never burn bolts. `scale` is accepted as an alias. Rules 0.8.0: god (a god-tier power `god_<slug>`: god_power_cost bolts, resolved as that god's ruling).",
                 "enum": [
                   "mega",
                   "mini",
+                  "god",
                   null
                 ],
                 "type": [
@@ -222,6 +226,7 @@
               "enum": [
                 "mega",
                 "mini",
+                "god",
                 null
               ],
               "type": [
@@ -250,10 +255,11 @@
               ]
             },
             "tier": {
-              "description": "Rules 0.7.0: mega (a lightning bolt, map scale, every other god gains a bolt) or mini (a spark, the board). Default mini, so old clients never burn bolts. `scale` is accepted as an alias.",
+              "description": "Rules 0.7.0: mega (a lightning bolt, map scale, every other god gains a bolt) or mini (a spark, the board). Default mini, so old clients never burn bolts. `scale` is accepted as an alias. Rules 0.8.0: god (a god-tier power `god_<slug>`: god_power_cost bolts, resolved as that god's ruling).",
               "enum": [
                 "mega",
                 "mini",
+                "god",
                 null
               ],
               "type": [
@@ -297,6 +303,7 @@
             "enum": [
               "mega",
               "mini",
+              "god",
               null
             ],
             "type": [
@@ -325,10 +332,11 @@
             ]
           },
           "tier": {
-            "description": "Rules 0.7.0: mega (a lightning bolt, map scale, every other god gains a bolt) or mini (a spark, the board). Default mini, so old clients never burn bolts. `scale` is accepted as an alias.",
+            "description": "Rules 0.7.0: mega (a lightning bolt, map scale, every other god gains a bolt) or mini (a spark, the board). Default mini, so old clients never burn bolts. `scale` is accepted as an alias. Rules 0.8.0: god (a god-tier power `god_<slug>`: god_power_cost bolts, resolved as that god's ruling).",
             "enum": [
               "mega",
               "mini",
+              "god",
               null
             ],
             "type": [
@@ -361,6 +369,39 @@
       "type": [
         "string",
         "null"
+      ]
+    },
+    "summon": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "description": "Rules 0.8.0: summon one of your demigods there, this beat (an instant action, any phase).",
+          "properties": {
+            "demigod": {
+              "description": "One of your two demigods.",
+              "pattern": "^dg:\\d+$",
+              "type": "string"
+            },
+            "target": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/LonLat"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "[lon, lat] or a hex cell key."
+            }
+          },
+          "required": [
+            "demigod",
+            "target"
+          ],
+          "type": "object"
+        }
       ]
     },
     "zoom": {

@@ -1,0 +1,238 @@
+{
+  "$defs": {
+    "Encounter": {
+      "description": "Rules 0.8.0: a marked hex. Hidden: only `id`, `cell`, `marked`. Revealed: its type and outcome, forever.",
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/LonLat"
+        },
+        "cell": {
+          "description": "People- or house-level hex.",
+          "type": "string"
+        },
+        "faded_beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "marked": {
+          "const": true
+        },
+        "night": {
+          "description": "Placed at night.",
+          "type": "boolean"
+        },
+        "outcome": {
+          "description": "Revealed only.",
+          "properties": {
+            "beat": {
+              "description": "",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "by": {
+              "$ref": "#/$defs/Ref"
+            },
+            "by_name": {
+              "description": "",
+              "type": "string"
+            },
+            "character": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Ref"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "damage": {
+              "description": "",
+              "type": "number"
+            },
+            "item": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Ref"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "item_icon": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "modifier": {
+              "description": "",
+              "type": "integer"
+            },
+            "roll": {
+              "description": "",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "sparks": {
+              "description": "",
+              "type": "integer"
+            },
+            "target_dc": {
+              "description": "",
+              "type": "integer"
+            },
+            "text": {
+              "description": "",
+              "type": "string"
+            },
+            "total": {
+              "description": "",
+              "type": "integer"
+            },
+            "verdict": {
+              "description": "",
+              "enum": [
+                "crit_fail",
+                "fail",
+                "success",
+                "crit_success"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "beat",
+            "by",
+            "by_name",
+            "roll",
+            "modifier",
+            "total",
+            "target_dc",
+            "verdict",
+            "text",
+            "damage",
+            "item",
+            "item_icon",
+            "character",
+            "sparks"
+          ],
+          "type": "object"
+        },
+        "region_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "revealed": {
+          "description": "",
+          "type": "boolean"
+        },
+        "type": {
+          "description": "",
+          "enum": [
+            "monster",
+            "treasure",
+            "trap",
+            "stranger",
+            "undead",
+            "ghost",
+            "thief"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "cell",
+        "marked"
+      ],
+      "type": "object"
+    },
+    "LonLat": {
+      "description": "[longitude, latitude] in degrees (WGS84). Note the order: longitude first.",
+      "items": {
+        "type": "number"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+    },
+    "Ref": {
+      "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row, ce cell, mb mob. Stable for the whole match.",
+      "examples": [
+        "ch:12"
+      ],
+      "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg|ce|mb):\\d+$",
+      "type": "string"
+    }
+  },
+  "$id": "query_encounters.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "`game.encounters` (rules 0.8.0): the encounter hexes on the board.",
+  "properties": {
+    "beat": {
+      "description": "",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "encounters": {
+      "description": "Hidden ones only as {id, cell, marked}.",
+      "items": {
+        "$ref": "#/$defs/Encounter"
+      },
+      "type": "array"
+    },
+    "hidden": {
+      "description": "",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "region": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Ref"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "As asked (null: the whole board)."
+    },
+    "revealed": {
+      "description": "",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "beat",
+    "region",
+    "hidden",
+    "revealed",
+    "encounters"
+  ],
+  "title": "game.encounters",
+  "type": "object",
+  "x-applies-to": "game.encounters reply (WebSocket), GET /api/rooms/{code}/query/encounters",
+  "x-args": {
+    "additionalProperties": true,
+    "description": "Over HTTP every arg is a query-string parameter (numbers as numeric strings). Unknown args are ignored.",
+    "properties": {
+      "region": {
+        "description": "Only encounters in this region.",
+        "pattern": "^pl:\\d+$",
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "x-description": "Rules 0.8.0: the encounter hexes on the board: hidden ones only as {id, cell, marked}; revealed ones with their type and outcome. Optionally one region's.",
+  "x-public": true
+}

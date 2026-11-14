@@ -170,6 +170,317 @@ radius_km, score, why}`, the region's most dynamic area over the last 5 beats (p
 unrest, demigods present), or `null` where nothing happens. Open zoom level 2 centred on it when the globe is clicked.
 The built-in AI drifts toward hotspots, so the action gathers there.
 
+## DM rulebook features (0.8.0)
+
+Rules **0.8.0** (state schema **6**) add the Dungeon Master: a rulebook ([`docs/DM_RULEBOOK.md`](DM_RULEBOOK.md), the
+single rules reference the AI DM follows), a hierarchical **place × time memory** that keeps every DM result
+consistent, and the eight features it governs. Everything below is absent from schema-4/5 matches and recordings. All
+of it is public unless it says otherwise. The examples come from offline matches (no LLM); the shapes are exact
+(`docs/schemas/`: `DiceRolled`, `DmEvent`, `Story`, `Settlement`, `Encounter`, `LootToken`, `Road`, `Shrine`,
+`MemoryEntry`, `HexState`, `TimeOfDay`).
+
+| Feature | Where it shows |
+|---|---|
+| The d20, visible | `round.outcome.public.dice[]` (`dice.rolled`) |
+| Every DM decision | `round.outcome.public.dm_events[]`; `game.memory` |
+| 1 Growing settlements | `settlement` on every city node (`game.region.cities[]`, `game.node`); `settlement.grew` / `settlement.shrank` events |
+| 2 Your piece carries its story | `public_state.demigods[].story` (and `game.globe`, `game.region`, `seat_view.demigods[]`) |
+| 3 The d20 | `dice[]` |
+| 4 Map encounters | `game.encounters`; `encounters[]` on `game.region` / `game.node`; `encounter.*` events |
+| 5 Loot left behind | `loot[]` on `game.region` / `game.node`; `loot.dropped` / `loot.taken` events |
+| 6 Day and night | `time_of_day` + `time_of_day_phase` on `round.brief.public`, `round.outcome.public`, `public_state`, `game.globe`, `game.region`, `game.node` |
+| 7 Paths wear in | `roads[]` on `game.region` / `game.node` / `game.globe`; `road.formed` / `road.faded` events |
+| 8 Shrines | `shrines[]` on `game.region` / `game.node` / `game.globe` / `public_state`; `shrine.built` / `shrine.level` events |
+| Zooming in | `game.node {cell}` (a hex's state, observed or extrapolated); `observed_beat`, `extrapolated` |
+| Fault lines | `fault_km`, `fault_factor` on a mega's streak (`phase.event`) and its `casts[]` line |
+| Summoning | `fields.summon`; `phase.event {event: "summoning"}`; `round.outcome.public.summons[]` (`summoned`) |
+| God-tier powers | `powers[]` with `tier: "god"`; `fields.cast {tier: "god"}`; `round.outcome.public.god_powers[]` |
+
+### The d20: `dice.rolled`
+
+Every d20 the DM rolls (an act's check, a manifestation, an encounter, keeping hold in a fight) is one entry of
+`round.outcome.public.dice[]` (at most 60 a beat), in the order rolled. Animate a die tumbling on the table at `cell`.
+
+```json
+{ "event": "dice.rolled", "who": "dg:0", "die": "d20", "roll": 4, "modifier": 3, "total": 7, "target_dc": 11,
+  "verdict": "fail", "reason": "a journey", "at": [135.55, 34.67], "cell": "1:people:-1888595:1371607", "beat": 1 }
+```
+
+- `verdict`: `crit_fail` (a natural 1, whatever the total), `fail`, `success`, `crit_success` (a natural 20).
+- `reason` names only the act's class ("a strike", "a parley", "a threat", "a journey", "a making", "a deed"), an
+  encounter ("a trap encounter") or a manifestation ("manifesting a relic"): never the order's words.
+- Rolls are seeded and remembered: the same question always gives the same roll, and each is shown once.
+
+### DM events: `dm_events[]`
+
+`round.outcome.public.dm_events[]` (at most 40 a beat): every other public decision the DM made this beat. Each has
+`event`, `text` (one line, show it in the feed), `memory` (its id in `game.memory`) and the decision's fields:
+
+```json
+{ "event": "settlement.grew", "place": "pl:3", "name": "Melbourne", "from": 3, "to": 4, "size": 2029458,
+  "center_cell": "1:people:-188404:-1341958", "settlement_cells": ["1:villages:-188:-1342", "1:villages:-189:-1341", "…"],
+  "text": "Melbourne grows to level 4", "memory": 139 }
+{ "event": "settlement.building", "place": "pl:66", "acts": 1, "text": "builders are at work in Madrid", "memory": 74 }
+{ "event": "encounter.marked", "id": 0, "cell": "0:people:329189:-79048", "marked": true,
+  "text": "a marked hex appears near Middle Africa", "memory": 9 }
+{ "event": "encounter.revealed", "id": 15, "cell": "0:people:334914:-80126", "type": "trap", "by": "dg:3", "verdict": "fail",
+  "roll": 3, "text": "a snare on the marked hex catches Dune's Left Hand", "damage": 1.0, "item": null, "character": null,
+  "sparks": 0, "memory": 926 }
+{ "event": "encounter.faded", "id": 0, "cell": "0:people:329189:-79048", "text": "a marked hex fades, unfound", "memory": 583 }
+{ "event": "loot.dropped", "pile": 0, "cell": "5:people:471324:1283153", "from": "dg:0",
+  "items": [{ "ref": "it:3", "icon": "sword" }], "why": "a death", "text": "Ash's Left Hand's things lie on the ground after a death", "memory": 410 }
+{ "event": "loot.taken", "pile": 0, "cell": "5:people:471324:1283153", "by": "dg:5", "items": ["it:3"],
+  "text": "Brix's Right Hand takes what Ash's Left Hand left on the ground", "memory": 431 }
+{ "event": "road.formed", "from_ref": "pl:27", "to_ref": "pl:28", "from_cell": "2:people:575759:593958",
+  "to_cell": "2:people:805405:635211", "wear": 5.27, "text": "a road wears in between Kyiv and Bucharest", "memory": 696 }
+{ "event": "shrine.built", "shrine": 0, "cell": "5:houses:47132:128315", "owner": "dg:2", "power": "spark",
+  "text": "the Shrine of Cyra's Left Hand is raised (spark)", "memory": 512 }
+{ "event": "shrine.level", "shrine": 0, "level": 2, "worshippers": 1430, "text": "the Shrine of Cyra's Left Hand reaches level 2", "memory": 530 }
+{ "event": "story.scar", "demigod": "dg:0", "scar": { "beat": 4, "cause": "Cyra's Left Hand casts meteor on Ash's Left Hand in Eastern Asia",
+  "place": "Eastern Asia", "cell": "5:people:471324:1283153" }, "text": "Ash's Left Hand is scarred: …", "memory": 281 }
+{ "event": "story.wardrobe", "demigod": "dg:2", "stage": 1, "name": "marked", "text": "Cyra's Left Hand now wears marked", "memory": 363 }
+{ "event": "story.followers", "demigod": "dg:0", "followers": 29959, "milestone": 10000,
+  "text": "Ash's Left Hand has 10000+ followers", "memory": 12 }
+{ "event": "time.phase", "day": 1, "phase": "dawn", "light": 0.5, "text": "Dawn breaks on day 1", "memory": 8 }
+```
+
+Other kinds: `settlement.shrank` (as `grew`), `road.faded` (as `formed`).
+
+### 1. Growing settlements
+
+Every city node (`game.region.cities[]`, `game.node` on a city, `children[]`) carries `settlement`, plus
+`observed_beat` and `extrapolated` (always the beat now and `false`: cities are simulated every beat):
+
+```json
+"settlement": { "level": 3, "size": 1443128, "prosperity": 0.5, "target": 3, "since_beat": 30,
+                "center_cell": "0:people:391266:-111087",
+                "settlement_cells": ["0:villages:391:-111", "0:villages:390:-110", "…19 hexes at level 3"] }
+```
+
+`level` 1 hamlet, 2 village, 3 town, 4 city, 5 great city (6–7 legendary). `settlement_cells` are village-level hexes:
+the centre plus rings out to level − 1 (1, 7, 19, 37, 61), so draw the village bigger as it levels up. `target` is
+where the rules are taking it (one step at a time).
+
+### 2. Your piece carries its story
+
+`public_state.demigods[].story` (also on every demigod in `game.globe`, `game.region` and `seat_view.demigods[]`):
+
+```json
+"story": { "followers": 50990, "items": [{ "ref": "it:7", "icon": "sword" }],
+           "wardrobe": { "stage": 2, "name": "adorned", "condition": "scorched" },
+           "scars": [{ "beat": 4, "cause": "Cyra's Left Hand casts meteor on Ash's Left Hand in Eastern Asia",
+                       "place": "Eastern Asia", "cell": "5:people:471324:1283153" }],
+           "deeds": 9.0 }
+```
+
+- `items`: every item it holds now, as pegs (`icon` from the item icon set).
+- `wardrobe.stage` 0 plain, 1 marked, 2 adorned, 3 regalia, 4 mythic (never goes down); `condition` `scorched` (hit by
+  fire this beat), `ragged` (health 3 or less) or `null`. Health stays private: `ragged` is visible damage, by design.
+- `scars`: the newest 12, oldest first.
+
+### 4. Map encounters
+
+`game.encounters {region?}` (public; `region` a `pl:` ref):
+
+```json
+{ "beat": 40, "region": null, "hidden": 10, "revealed": 1, "encounters": [
+  { "id": 12, "cell": "1:people:34935:-1120114", "marked": true },
+  { "id": 15, "cell": "0:people:334914:-80126", "marked": true, "revealed": true, "type": "trap", "night": true,
+    "at": [13.52, -3.15], "region_ref": "pl:33",
+    "outcome": { "beat": 39, "by": "dg:3", "by_name": "Dune's Left Hand", "roll": 3, "modifier": -1, "total": 2,
+                 "target_dc": 13, "verdict": "fail", "text": "a snare on the marked hex catches Dune's Left Hand",
+                 "damage": 1.0, "item": null, "item_icon": null, "character": null, "sparks": 0 } } ] }
+```
+
+- Hidden: only `{id, cell, marked: true}`. Draw a marked hex; never its type. The `cell` is people- or house-level.
+- Revealed: `type` (`monster`, `treasure`, `trap`, `stranger`; at night `undead`, `ghost`, `thief`) and `outcome`,
+  forever. Faded ones leave the list.
+- A demigod **steps on** it when its move passes within `dm_reach_km` (30 km on the planet) of it; the reveal comes with
+  its `dice.rolled` and an `encounter.revealed` event in the same outcome.
+- `game.region` and `game.node` (a place) carry the same `encounters[]` for that place.
+
+### 5. Loot left behind
+
+`game.region.loot` / `game.node.loot` (a place): one entry per item token lying on a hex:
+
+```json
+"loot": [{ "ref": "it:3", "icon": "sword", "cell": "5:people:471324:1283153", "since_beat": 31, "pile": 0, "at": [116.4, 39.9] }]
+```
+
+A death drops everything the demigod carried; a fight's loser may drop its newest item. The next demigod to step there
+takes the pile (`loot.taken`).
+
+### 6. Day and night
+
+`round.brief.public` (the coming beat), `round.outcome.public` (the beat that resolved), `public_state`, `game.globe`,
+`game.region` and `game.node`:
+
+```json
+"time_of_day": { "day": 1, "phase": "night", "light": 0.15, "beat_in_day": 6, "beats_per_day": 8 },
+"time_of_day_phase": "night"
+```
+
+`phase` is `dawn`, `day`, `dusk` or `night`; `light` 0 (midnight) .. 1 (noon), 0.5 at dawn and dusk. `beats_per_day`
+is a room setting (8). Night brings undead, ghosts and thieves.
+
+### 7. Paths wear in
+
+`game.region.roads`, `game.node.roads` (a place: roads with an end under it) and `game.globe.roads` (all):
+
+```json
+"roads": [{ "from_cell": "2:people:575759:593958", "to_cell": "2:people:805405:635211", "wear": 5.27, "since_beat": 33,
+            "from_ref": "pl:27", "to_ref": "pl:28", "from_name": "Kyiv", "to_name": "Bucharest",
+            "path": [[30.52, 50.45], [26.1, 44.43]] }]
+```
+
+A road runs between two settlements' centre hexes; `path` is the two centres (draw a line or a hex path). `wear`
+grows with traffic and decays when unused; a faded road leaves the list (`road.faded`).
+
+### 8. Shrines to your demigod
+
+`game.region.shrines`, `game.node.shrines`, `game.globe.shrines` and `public_state.shrines`:
+
+```json
+"shrines": [{ "id": 0, "cell": "5:houses:47132:128315", "owner_seat": 2, "side": "left", "worshippers": 1430,
+              "power": "spark", "level": 2, "owner": "dg:2", "owner_name": "Cyra's Left Hand", "player": "Cyra",
+              "name": "Shrine of Cyra's Left Hand", "at": [116.4, 39.9], "region_ref": "pl:9", "built_beat": 12,
+              "owner_alive": true }]
+```
+
+`power`: `spark` (+1 spark to its player every few beats), `heal` (heals its player's demigods nearby) or `ward`
+(wounds rivals nearby, a little). Raise one with an order such as "raise a shrine to me here" (a making verb and a
+shrine word) or by manifesting a structure. `owner_seat` is `null` for the built-in AI.
+
+### The memory: `game.memory {place, until_beat?, limit?}`
+
+Public. `place`: a hex key, a `pl:` ref (settlement or region) or `"world"`. Returns the DM's public decisions about it,
+or anything above or below it, at or before `until_beat` (default: now), newest first (`limit` 50, at most 200):
+
+```json
+{ "place": "pl:33", "ancestors": ["world"], "until_beat": 40, "beat": 40, "observed_beat": 40, "extrapolated": false,
+  "items": [{ "id": 933, "beat": 39, "scope": "region", "place": "pl:33", "up": ["world"], "kind": "memory.rollup",
+              "query": "rollup:pl:33:39", "text": "in Middle Africa: a snare on the marked hex catches Dune's Left Hand",
+              "data": { "counts": { "dice.rolled": 2, "encounter.revealed": 1 }, "facts": 3,
+                        "notable": ["a snare on the marked hex catches Dune's Left Hand"],
+                        "state": { "population": 3905636, "stance": "fleeing", "supply": 1.01 } } }] }
+```
+
+- `memory.rollup` entries are the **integrated** truth of everything beneath a place at a beat (counts by kind, up to
+  three notable events, its state). `game.region.memory_summary` is the region's latest one.
+- For a hex, the reply adds `state` (as `game.node {cell}` below), at `until_beat`.
+
+### Zooming in: `game.node {cell}`
+
+`game.node` takes `cell` (a hex key, any level) instead of `ref`. The server doesn't simulate every 3 m hex every beat:
+a hex is **extrapolated** from its last observation (or from its genesis) by its parent's changes since, and recorded
+as a fact when the DM observes it (a demigod arrives there, a seat zooms on something there, the DM decides something
+there). The same hex at the same beat is the same for everyone.
+
+```json
+{ "kind": "hex", "cell": "2:houses:36707:58825", "beat": 40, "observed_beat": null, "extrapolated": true,
+  "node": { "cell": "2:houses:36707:58825", "level": "houses", "center": [37.613637, 55.754198],
+            "settlement": "pl:26", "region": "pl:25", "people": 1, "buildings": 11, "parent_population": 4217477,
+            "settlement_level": 4, "terrain": "in Moscow, Russia; at the center, on land", "encounters": [],
+            "loot_items": 0, "shrines": [], "on_road": true, "weather": "overcast",
+            "time_of_day": { "day": 5, "phase": "night", "light": 0.15 },
+            "changes_since": ["Moscow grows to level 5", "Moscow shrinks to level 4"] } }
+```
+
+`observed_beat`: the DM's last observation (`null`: never); `extrapolated`: `false` when observed this beat.
+`game.region` and place `game.node` replies carry `observed_beat` (now) and `extrapolated: false`.
+
+### Fault lines (megas)
+
+A mega's strength follows its distance to the nearest plate boundary (rulebook chapter 13). The streak
+(`phase.event`, top level and each `casts[]` entry) and the resolved `casts[]` line add:
+
+```json
+{ "tier": "mega", "power": "volcano", "radius_km": 1500.0, "fault_km": 42, "fault_factor": 1.6 }
+```
+
+`fault_km` is the great-circle distance; `fault_factor` the damage multiplier (1.6 within 150 km .. 0.6 beyond
+1,500 km, linear between; magnitude and radius scale the same way). Show the fault lines only while a mega is armed
+(the client's copy of `data/geo/PB2002_boundaries.json`). Credit: "Plate boundaries: Bird, P. (2002), PB2002; GeoJSON
+by Hugo Ahlenius, Nordpil (ODC-BY 1.0)."
+
+### Summoning your demigod (drag it onto the board)
+
+Send an **instant** action (any phase) with `fields.summon`:
+
+```json
+{ "t": "action.submit", "d": { "round": 12, "instant": true,
+  "fields": { "summon": { "demigod": "dg:0", "target": [-21.94, 64.15] } } } }
+```
+
+`target` is `[lon, lat]` or a hex key (`"2:people:679163:-256291"`). A refusal is `action.received {accepted: false,
+reason}` with `reason` one of `not_yours` (not one of your demigods), `fallen`, `cooldown` (summoned within
+`summon_cooldown_beats`, 1: once per demigod per beat), `bad_target`, or `summon_disabled` (room setting
+`summon_enabled: false`). On accept everyone gets a `phase.event` at once (flash and whoosh now; it lands at the next
+resolve):
+
+```json
+{ "event": "summoning", "demigod": "dg:0", "from": [134.012498, 37.414668], "to": [-21.94, 64.15], "by_seat": 0,
+  "by": "Ash", "by_ref": "dg:0",
+  "summons": [{ "demigod": "dg:0", "to": [-21.94, 64.15], "cell": "2:people:679163:-256291" }],
+  "god_powers": [], "seq": 99, "received_at_ms": 1763140000000 }
+```
+
+At the resolve it lands **this beat** (nudged off an occupied people-level hex), with its mishap d20 in `dice[]`
+(`reason: "a summoning"`) and the `summoned` event in `round.outcome.public.events[]` (with `kind: "summoned"` and `at`
+its landing), in `round.outcome.public.summons[]` and in `dm_events[]`. `public_state.demigods[].pos` / `cell` show the
+new place at the commit.
+
+```json
+{ "event": "summoned", "kind": "summoned", "demigod": "dg:0",
+  "from": { "pos": [134.012498, 37.414668], "cell": "2:people:-1779194:1331058" },
+  "to": { "pos": [-21.94, 64.15], "cell": "2:people:679163:-256291" }, "at": [-21.94, 64.15],
+  "deed": "Mid-go to Western Europe in Eastern Asia, Ash's Left Hand was folded into a paper airplane by an impatient god and bounced twice off a tram before it stuck the landing in Northern Europe.",
+  "health_lost": 2.0, "roll": 7, "text": "…the deed…", "memory": 136 }
+```
+
+Ordered travel by `l:` / `r:` text is unchanged; a summoned demigod's own travel that beat is void and its standing
+orders end.
+
+The deed is also a tale on its piece: `story.tales[] = [{beat, kind: "summoned", text}]`. A mishap costs 1–2 health,
+likelier the healthier it is (85% at full health; never below 2.5 health).
+
+### God-tier powers
+
+`round.brief.public.powers[]` (and `game.powers`) lists seven more powers with `tier: "god"`:
+
+```json
+{ "slug": "god_death", "name": "The Pale Verdict", "icon": "god_death", "cost": 3, "radius_km": 0.0, "target": "unit",
+  "magnitude": 8, "damage": null, "tags": ["god", "death"], "tier": "god", "god": "death", "god_ref": "gd:3",
+  "blurb": "raise the fallen or strike the living" }
+```
+
+Cast one like any power, as an instant action:
+
+```json
+{ "fields": { "cast": { "power": "god_death", "tier": "god", "target": "dg:5" } } }
+```
+
+It costs `god_power_cost` (3) bolts and gives every other player a bolt (like a mega). At the next resolve it is
+**that god's ruling**: the god's verdict and speech arrive in `omens[]` as for any invocation, and unless it refuses,
+its signature effect lands (rulebook chapter 20). `round.outcome.public.god_powers[]`:
+
+```json
+{ "by": "Ash", "by_ref": "dg:0", "power": "god_entropy", "power_name": "The Chaos Burst", "tier": "god",
+  "god": "entropy", "god_ref": "gd:6", "cost": 3, "seq": 99, "at": [134.01, 37.41], "target": null,
+  "place": "Eastern Asia", "region_ref": "pl:9" }
+```
+
+A god-tier power that can't be paid has `fizzled` (nothing spent). The accept-time push is `phase.event`
+`{event: "god_power", ...}` (the `summoning` shape with `god_powers[]` filled).
+
+### Settings
+
+`beats_per_day`, `dm_reach_km`, `dm_encounters_per_beat`, `dm_encounters_max`, `dm_encounter_fade_beats`,
+`dm_encounter_damage_scale`, `dm_settlement_step_beats`, `dm_road_wear`, `dm_road_decay`, `dm_shrines_per_demigod`,
+`dm_shrine_spark_every`, `dm_shrine_heal`, `dm_shrine_ward`, `dm_memory_lines` and the eight `fault_*` settings
+`summon_enabled`, `summon_cooldown_beats`, `summon_loss_scale`, `god_power_cost`, `god_power_gift` (defaults and
+ranges in the rulebook's appendix and `docs/schemas/settings.schema.json`).
+
 ## Message flow for one beat
 
 One Theatre **round** is one **beat**, so `round` and `beat` are always the same number. There are no choices: `round.private.choices`
@@ -844,7 +1155,7 @@ Unknown args are ignored, including the ngrok gate's `?key=`.
 |---|---|---|---|
 | `globe` | yes | `since?`, `limit?` (30, ≤ 200) | The globe in one call: arena, demigods, players, regions with hotspots, influence, mods, armies, Entropy, beat, an event page |
 | `region` | yes | `ref` (a region `pl:`), `cursor?`, `limit?` (10, ≤ 50) | One region: node, hotspot, cities, crowds (paged, with piece `pos`/`cell`), mobs (`pos`, `cell`, `ringleader_ref`), armies, demigods, mods, influence, recent events |
-| `node` | yes | `ref` (`pl:` / `cl:` / `ce:` / `mb:`), `cursor?`, `limit?` (20, ≤ 100) | One hierarchy node and what is under it |
+| `node` | yes | `ref` (`pl:` / `cl:` / `ce:` / `mb:`) or `cell` (a hex key, rules 0.8.0), `cursor?`, `limit?` (20, ≤ 100) | One hierarchy node and what is under it; a hex zoomed into (observed or extrapolated) |
 | `person` | yes (subset) | `ref` (`ch:`), `cursor?`, `limit?` (20, ≤ 100) | Role, rank, place; for your seat: allegiance you know, memories you can see |
 | `army` | yes (subset) | `ref` (`cl:` of an army) | General, captains, size, position, morale; its owner also gets orders and the full chain |
 | `events` | yes | `since?`, `limit?` (50, ≤ 200), `region?` (`pl:`) | An event page (+ `beat`) |
@@ -854,6 +1165,8 @@ Unknown args are ignored, including the ngrok gate's `?key=`.
 | `standings` | yes | none | Every demigod ranked now; rules 0.7.0 adds `players[]` (each player ranked, both demigods' state, never health) and `players_alive` |
 | `items` | yes (public items; your own in full) | `holder?` (`dg:`), `state?`, `min_tier?`, `cursor?`, `limit?` (20, ≤ 100) | Rules 0.7.0: a page of items, most recent first |
 | `item` | yes (public items; your own) | `ref` (`it:`) | Rules 0.7.0: one item, its manifestation (your own with the verdict) and custody history |
+| `memory` | yes | `place` (hex key / `pl:` / `"world"`), `until_beat?`, `limit?` (50, ≤ 200) | Rules 0.8.0: the DM's decisions about a place and everything above and below it ("DM rulebook features (0.8.0)") |
+| `encounters` | yes | `region?` (`pl:`) | Rules 0.8.0: the encounter hexes (hidden ones only as marked) |
 | `piles_final` | yes | none | The end-of-match piles; an error until the match is over |
 | `media` | yes (public refs) | `kind` (`portrait` / `place` / `event` / `army`), `ref` | An image of that thing, by reference: an image object at once (pending, then ready via the manifest) |
 | `profile` | yes | `name?` (default: your seat's name) | A player's persistent profile (see "Profiles, history and library") |
@@ -1244,7 +1557,9 @@ lets humans join while the match runs; humans can also leave at any time. Withou
    (`round.started.private`, `round.brief.private`, `round.private.private`, `round.private_state.state`) are `null`
    until they have a demigod, so guard for it.
 3. **At the boundary** (before the next beat's Start) the game binds the seat to a demigod:
-   - a taken-over **bot seat** keeps its demigod, now `controller: "human"`;
+   - a taken-over **bot seat** keeps its demigod, now `controller: "human"`; rules 0.8.0 renames its two demigods
+     `"<joiner>'s Left Hand"` / `"<joiner>'s Right Hand"` (same refs; their portraits and dioramas switch to the
+     joiner's prewarmed ones) and remembers it (`seat.takeover`: "Benito took up the mantle of Brix's Left Hand");
    - a **new seat** takes over one of the **built-in AI demigods** still alive, the one with the most health (then the
      lowest id): its `seat` changes from `null` to the new seat and its `controller` to `"human"`;
    - if no built-in AI demigod is alive, the joiner gets **no demigod and spectates**: their seat is `active` to the

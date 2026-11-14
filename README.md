@@ -4,6 +4,7 @@ A real-time battle royale of demigods, played through orchestrator agents in a w
 spoken to. A game plugin for [The Theatre](https://github.com/Aftersource/theatre).
 
 - `DESIGN.md`: the game
+- `docs/DM_RULEBOOK.md`: the Dungeon Master's rulebook, the single rules reference the AI DM follows (rules 0.8.0)
 - `docs/DATA_MODEL.md`: every table, every recorded event, the SQL projection
 - `docs/CLIENT_API.md` (+ `docs/schemas/`, `docs/examples/`, `docs/AGENT_GUIDE.md`): every client payload. Payloads are
   built in `crates/fn7-plugin/src/payload.rs` (shared shapes, float rounding) and `phases.rs` / `beat.rs`; after changing

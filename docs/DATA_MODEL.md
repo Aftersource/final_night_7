@@ -46,6 +46,7 @@ document explains them and pins down everything that gets recorded.
 | `slow` | `SlowWindow` | always `None` since theatre faa7220 (the core owns the live window and hands closed ones to the resolve); kept for older states | at most one |
 | `slow_settled` | `SettledWindow` | the last 16 settled windows (window_id, begun_ms = the core's opened_ms) | ≤ 16 |
 | `out_reported` | `DemigodId` | seated demigods reported eliminated to the Theatre and not yet revived (a revive reports them back: `seat.revived`) | small |
+| `dm` | `fn7_model::dm::Dm` | Schema 6 (rules 0.8.0, docs/DM_RULEBOOK.md): `memory` (`DmEntry`: id, beat, scope cell/settlement/region/world, place key, up, kind, query, public, text, data; append-only), `settlements` (level, size, prosperity, target, since_beat, cell), `stories` (followers, wardrobe, deeds, condition, scars), `encounters` (kind, cell, at, region, settlement, placed/faded beat, outcome with its d20), `loot` (piles: cell, items, since/taken), `trails` (settlement pairs, wear, road_since), `shrines` (cell, owner, worshippers, level, power). Absent from the JSON when empty (older schemas) | every beat |
 
 **Field notes (schema 2).**
 - `max_health` (default 10) is per body. `Price { kind: Life }` lowers it (health clamps to it; a cap of 0 kills), and

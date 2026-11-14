@@ -46,6 +46,16 @@
       ],
       "type": "object"
     },
+    "DayPhase": {
+      "description": "Rules 0.8.0: the phase of the game day.",
+      "enum": [
+        "dawn",
+        "day",
+        "dusk",
+        "night"
+      ],
+      "type": "string"
+    },
     "Entropy": {
       "description": "The world's Entropy meter. Every bolt spent anywhere raises it; thresholds make the world wackier (20 weather, 40 physics, 60 riots, 80 godfall); at `max` heat death makes that beat the Final Night.",
       "properties": {
@@ -162,6 +172,39 @@
         "opened_beat"
       ],
       "type": "object"
+    },
+    "TimeOfDay": {
+      "description": "Rules 0.8.0: the time of day (`beats_per_day` beats a day).",
+      "properties": {
+        "beat_in_day": {
+          "description": "1..beats_per_day.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "beats_per_day": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "day": {
+          "description": "Game day, from 1.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "light": {
+          "description": "0 (midnight) .. 1 (noon); 0.5 at dawn and dusk.",
+          "type": "number"
+        },
+        "phase": {
+          "$ref": "#/$defs/DayPhase"
+        }
+      },
+      "required": [
+        "day",
+        "phase",
+        "light"
+      ],
+      "type": "object"
     }
   },
   "$id": "brief_public.schema.json",
@@ -272,6 +315,10 @@
       "items": {
         "description": "One power of the palette (data/powers.json), or the custom entry.",
         "properties": {
+          "blurb": {
+            "description": "Rules 0.8.0: what it does.",
+            "type": "string"
+          },
           "cost": {
             "description": "Bolts; null for custom (priced by magnitude).",
             "minimum": 0,
@@ -285,6 +332,20 @@
             "type": [
               "number",
               "null"
+            ]
+          },
+          "god": {
+            "description": "Rules 0.8.0: the god's slug.",
+            "type": "string"
+          },
+          "god_ref": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Ref"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "icon": {
@@ -386,6 +447,10 @@
               "unit"
             ],
             "type": "string"
+          },
+          "tier": {
+            "const": "god",
+            "description": "Rules 0.8.0: a god-tier power (cast with `tier: \"god\"`; `cost` in bolts)."
           }
         },
         "required": [
@@ -462,6 +527,12 @@
     "rules": {
       "description": "A one-paragraph reminder of the action format (for LLM players).",
       "type": "string"
+    },
+    "time_of_day": {
+      "$ref": "#/$defs/TimeOfDay"
+    },
+    "time_of_day_phase": {
+      "$ref": "#/$defs/DayPhase"
     },
     "title": {
       "description": "\"Beat <n> of <total>\" (\"The Final Wish: beat 1 of <total>\" on the Final Wish).",

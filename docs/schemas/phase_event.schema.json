@@ -144,6 +144,14 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "fault_factor": {
+                "description": "Rules 0.8.0, megas only: the damage multiplier the fault rule gives (1.6 near a fault .. 0.6 far).",
+                "type": "number"
+              },
+              "fault_km": {
+                "description": "Rules 0.8.0, megas only: great-circle distance (km) from the aim to the nearest fault line.",
+                "type": "number"
+              },
               "fizzled": {
                 "description": "Its target doesn't exist (it will fizzle).",
                 "type": "string"
@@ -224,6 +232,14 @@
         "event": {
           "const": "streak"
         },
+        "fault_factor": {
+          "description": "Rules 0.8.0: first cast, a mega: the fault rule's damage multiplier.",
+          "type": "number"
+        },
+        "fault_km": {
+          "description": "Rules 0.8.0: first cast, a mega: distance (km) to the nearest fault line.",
+          "type": "number"
+        },
         "icon": {
           "description": "First cast: icon key.",
           "type": "string"
@@ -288,6 +304,128 @@
         "cost"
       ],
       "type": "object"
+    },
+    "Summoning": {
+      "description": "Rules 0.8.0: `phase.event.public` the moment a summoning or a god-tier power is accepted (it lands at the next resolve).",
+      "properties": {
+        "by": {
+          "description": "",
+          "type": "string"
+        },
+        "by_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "by_seat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "demigod": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "event": {
+          "description": "",
+          "enum": [
+            "summoning",
+            "god_power"
+          ],
+          "type": "string"
+        },
+        "from": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LonLat"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "god_powers": {
+          "description": "",
+          "items": {
+            "description": "",
+            "properties": {
+              "power": {
+                "description": "",
+                "type": "string"
+              },
+              "tier": {
+                "const": "god"
+              }
+            },
+            "required": [
+              "power",
+              "tier"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "received_at_ms": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "seq": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "summons": {
+          "description": "",
+          "items": {
+            "description": "",
+            "properties": {
+              "cell": {
+                "description": "",
+                "type": "string"
+              },
+              "demigod": {
+                "$ref": "#/$defs/Ref"
+              },
+              "to": {
+                "$ref": "#/$defs/LonLat"
+              }
+            },
+            "required": [
+              "demigod",
+              "to",
+              "cell"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "to": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LonLat"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "event",
+        "by",
+        "by_ref",
+        "by_seat",
+        "summons",
+        "god_powers",
+        "seq",
+        "received_at_ms"
+      ],
+      "type": "object"
     }
   },
   "$id": "phase_event.schema.json",
@@ -299,6 +437,9 @@
     },
     {
       "$ref": "#/$defs/Streak"
+    },
+    {
+      "$ref": "#/$defs/Summoning"
     }
   ],
   "title": "phase.event public",

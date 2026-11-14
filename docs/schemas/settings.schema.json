@@ -53,6 +53,13 @@
       "minimum": 500,
       "type": "integer"
     },
+    "beats_per_day": {
+      "default": 8,
+      "description": "Rules 0.8.0: beats in one game day (dawn, day, dusk, night).",
+      "maximum": 200,
+      "minimum": 2,
+      "type": "integer"
+    },
     "beats_total": {
       "default": 60,
       "description": "The Final Night falls on this beat (or earlier: heat death, or nobody standing). One Theatre round = one beat.",
@@ -119,6 +126,97 @@
       "minimum": 1,
       "type": "integer"
     },
+    "dm_encounter_damage_scale": {
+      "default": 1.0,
+      "description": "Rules 0.8.0: multiplier on encounter damage.",
+      "maximum": 10.0,
+      "minimum": 0.0,
+      "type": "number"
+    },
+    "dm_encounter_fade_beats": {
+      "default": 20,
+      "description": "Rules 0.8.0: beats an unfound encounter stays marked.",
+      "maximum": 1000,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "dm_encounters_max": {
+      "default": 10,
+      "description": "Rules 0.8.0: most hidden encounter hexes at once.",
+      "maximum": 64,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "dm_encounters_per_beat": {
+      "default": 1,
+      "description": "Rules 0.8.0: encounter hexes the DM may mark per beat.",
+      "maximum": 8,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "dm_memory_lines": {
+      "default": 6,
+      "description": "Rules 0.8.0: most memory lines in one LLM DM prompt.",
+      "maximum": 30,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "dm_reach_km": {
+      "default": 30.0,
+      "description": "Rules 0.8.0: the step radius (km): a demigod steps on a hex when its move passes this close (planet; a city arena uses a hundredth).",
+      "maximum": 2000.0,
+      "minimum": 0.1,
+      "type": "number"
+    },
+    "dm_road_decay": {
+      "default": 0.05,
+      "description": "Rules 0.8.0: wear an unused path loses per beat.",
+      "maximum": 10.0,
+      "minimum": 0.0,
+      "type": "number"
+    },
+    "dm_road_wear": {
+      "default": 4.0,
+      "description": "Rules 0.8.0: traffic wear at which a path becomes a road.",
+      "maximum": 1000.0,
+      "minimum": 0.5,
+      "type": "number"
+    },
+    "dm_settlement_step_beats": {
+      "default": 6,
+      "description": "Rules 0.8.0: beats a settlement holds its level before another step.",
+      "maximum": 100,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "dm_shrine_heal": {
+      "default": 0.15,
+      "description": "Rules 0.8.0: a heal shrine's healing per level per beat.",
+      "maximum": 5.0,
+      "minimum": 0.0,
+      "type": "number"
+    },
+    "dm_shrine_spark_every": {
+      "default": 6,
+      "description": "Rules 0.8.0: a spark shrine's interval in beats (one fewer per level above 1, at least 2).",
+      "maximum": 100,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "dm_shrine_ward": {
+      "default": 0.1,
+      "description": "Rules 0.8.0: a ward shrine's damage per level per beat to rivals within reach.",
+      "maximum": 5.0,
+      "minimum": 0.0,
+      "type": "number"
+    },
+    "dm_shrines_per_demigod": {
+      "default": 3,
+      "description": "Rules 0.8.0: most shrines per demigod.",
+      "maximum": 20,
+      "minimum": 0,
+      "type": "integer"
+    },
     "entropy_per_mega": {
       "default": 10.0,
       "description": "Rules 0.7.0: Entropy a mega cast adds (x entropy_scale).",
@@ -140,6 +238,62 @@
       "minimum": 0,
       "type": "number"
     },
+    "fault_far_damage": {
+      "default": 0.6,
+      "description": "Rules 0.8.0: damage multiplier far from any fault line.",
+      "maximum": 10.0,
+      "minimum": 0.0,
+      "type": "number"
+    },
+    "fault_far_km": {
+      "default": 1500.0,
+      "description": "Rules 0.8.0: a mega this far from any fault line gets the full far penalty.",
+      "maximum": 20000.0,
+      "minimum": 1.0,
+      "type": "number"
+    },
+    "fault_far_magnitude": {
+      "default": -2.0,
+      "description": "Rules 0.8.0: magnitude added far from any fault line.",
+      "maximum": 10.0,
+      "minimum": -10.0,
+      "type": "number"
+    },
+    "fault_far_radius": {
+      "default": 1.0,
+      "description": "Rules 0.8.0: radius multiplier far from any fault line.",
+      "maximum": 10.0,
+      "minimum": 0.1,
+      "type": "number"
+    },
+    "fault_near_damage": {
+      "default": 1.6,
+      "description": "Rules 0.8.0: damage multiplier near a fault line.",
+      "maximum": 10.0,
+      "minimum": 0.0,
+      "type": "number"
+    },
+    "fault_near_km": {
+      "default": 150.0,
+      "description": "Rules 0.8.0: a mega this close to a fault line gets the full near bonus.",
+      "maximum": 5000.0,
+      "minimum": 0.0,
+      "type": "number"
+    },
+    "fault_near_magnitude": {
+      "default": 3.0,
+      "description": "Rules 0.8.0: magnitude added near a fault line.",
+      "maximum": 10.0,
+      "minimum": -10.0,
+      "type": "number"
+    },
+    "fault_near_radius": {
+      "default": 1.5,
+      "description": "Rules 0.8.0: radius multiplier near a fault line.",
+      "maximum": 10.0,
+      "minimum": 0.1,
+      "type": "number"
+    },
     "final_wish_magnitude": {
       "default": 2,
       "description": "Rules 0.7.0: magnitude added to every act of the Final Wish (beat 1).",
@@ -152,6 +306,20 @@
       "description": "Flow beat length in ms: the world's action runs in beats this long whether or not anyone types. compose_seconds defaults to flow_ms / 1000.",
       "maximum": 120000,
       "minimum": 500,
+      "type": "integer"
+    },
+    "god_power_cost": {
+      "default": 3,
+      "description": "Rules 0.8.0: bolts a god-tier power costs.",
+      "maximum": 20,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "god_power_gift": {
+      "default": 1,
+      "description": "Rules 0.8.0: bolts every other player gains per god-tier power.",
+      "maximum": 10,
+      "minimum": 0,
       "type": "integer"
     },
     "instant_order_debt": {
@@ -295,6 +463,25 @@
       "maximum": 99,
       "minimum": 0,
       "type": "integer"
+    },
+    "summon_cooldown_beats": {
+      "default": 1,
+      "description": "Rules 0.8.0: beats between two summonings of one demigod.",
+      "maximum": 100,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "summon_enabled": {
+      "default": true,
+      "description": "Rules 0.8.0: players may summon their demigods (fields.summon).",
+      "type": "boolean"
+    },
+    "summon_loss_scale": {
+      "default": 1.0,
+      "description": "Rules 0.8.0: multiplier on a reckless summoning's health cost.",
+      "maximum": 10.0,
+      "minimum": 0.0,
+      "type": "number"
     }
   },
   "title": "Final Night 7 room settings",

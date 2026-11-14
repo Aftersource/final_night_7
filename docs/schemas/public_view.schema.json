@@ -172,6 +172,16 @@
       ],
       "type": "object"
     },
+    "DayPhase": {
+      "description": "Rules 0.8.0: the phase of the game day.",
+      "enum": [
+        "dawn",
+        "day",
+        "dusk",
+        "night"
+      ],
+      "type": "string"
+    },
     "Entropy": {
       "description": "The world's Entropy meter. Every bolt spent anywhere raises it; thresholds make the world wackier (20 weather, 40 physics, 60 riots, 80 godfall); at `max` heat death makes that beat the Final Night.",
       "properties": {
@@ -847,6 +857,34 @@
       "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg|ce|mb):\\d+$",
       "type": "string"
     },
+    "Scar": {
+      "description": "Rules 0.8.0: a scar.",
+      "properties": {
+        "beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cause": {
+          "description": "",
+          "type": "string"
+        },
+        "cell": {
+          "description": "",
+          "type": "string"
+        },
+        "place": {
+          "description": "",
+          "type": "string"
+        }
+      },
+      "required": [
+        "beat",
+        "cause",
+        "place"
+      ],
+      "type": "object"
+    },
     "SeatHand": {
       "description": "One hand in the seat view.",
       "properties": {
@@ -925,6 +963,106 @@
       ],
       "type": "object"
     },
+    "Shrine": {
+      "description": "Rules 0.8.0: a shrine to a demigod.",
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/LonLat"
+        },
+        "built_beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cell": {
+          "description": "House-level hex.",
+          "type": "string"
+        },
+        "id": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "level": {
+          "description": "1..5",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "description": "",
+          "type": "string"
+        },
+        "owner": {
+          "$ref": "#/$defs/Ref"
+        },
+        "owner_alive": {
+          "description": "",
+          "type": "boolean"
+        },
+        "owner_name": {
+          "description": "",
+          "type": "string"
+        },
+        "owner_seat": {
+          "description": "",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "player": {
+          "description": "",
+          "type": "string"
+        },
+        "power": {
+          "description": "",
+          "enum": [
+            "spark",
+            "heal",
+            "ward"
+          ],
+          "type": "string"
+        },
+        "region_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "side": {
+          "enum": [
+            "left",
+            "right",
+            null
+          ],
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "worshippers": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "cell",
+        "owner_seat",
+        "side",
+        "worshippers",
+        "power",
+        "level",
+        "owner",
+        "owner_name",
+        "player",
+        "name",
+        "at",
+        "region_ref",
+        "built_beat",
+        "owner_alive"
+      ],
+      "type": "object"
+    },
     "SlowState": {
       "description": "The open slow-time window as of the last resolve (public: who opened it, never who else is typing). The live window is the Theatre's: `window.opened` / `window.closed` and `match.snapshot.window`.",
       "properties": {
@@ -983,6 +1121,100 @@
         "rogue"
       ],
       "type": "string"
+    },
+    "Story": {
+      "description": "Rules 0.8.0: what a demigod's piece carries.",
+      "properties": {
+        "deeds": {
+          "description": "The wardrobe's input.",
+          "type": "number"
+        },
+        "followers": {
+          "description": "Its Following's headcount.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "items": {
+          "description": "Items it holds now (pegs).",
+          "items": {
+            "description": "",
+            "properties": {
+              "icon": {
+                "description": "",
+                "type": "string"
+              },
+              "ref": {
+                "$ref": "#/$defs/Ref"
+              }
+            },
+            "required": [
+              "ref",
+              "icon"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "scars": {
+          "description": "Newest last, at most 12.",
+          "items": {
+            "$ref": "#/$defs/Scar"
+          },
+          "type": "array"
+        },
+        "tales": {
+          "description": "Rules 0.8.0: the newest 8 tales (summonings), oldest first.",
+          "items": {
+            "$ref": "#/$defs/Tale"
+          },
+          "type": "array"
+        },
+        "wardrobe": {
+          "description": "Its outfit.",
+          "properties": {
+            "condition": {
+              "enum": [
+                "scorched",
+                "ragged",
+                null
+              ],
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "name": {
+              "description": "",
+              "enum": [
+                "plain",
+                "marked",
+                "adorned",
+                "regalia",
+                "mythic"
+              ],
+              "type": "string"
+            },
+            "stage": {
+              "maximum": 4,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "stage",
+            "name",
+            "condition"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "followers",
+        "items",
+        "wardrobe",
+        "scars"
+      ],
+      "type": "object"
     },
     "SubagentKind": {
       "description": "What kind of agent a subagent line is: a subagent, a possession (steers a body) or a paladin (a god's champion).",
@@ -1060,6 +1292,30 @@
       ],
       "type": "object"
     },
+    "Tale": {
+      "description": "Rules 0.8.0: a deed the DM told.",
+      "properties": {
+        "beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "description": "",
+          "type": "string"
+        },
+        "text": {
+          "description": "",
+          "type": "string"
+        }
+      },
+      "required": [
+        "beat",
+        "kind",
+        "text"
+      ],
+      "type": "object"
+    },
     "TimeBill": {
       "description": "Rules 0.7.0: Time's bill for a window the player opened now: debt(t) = min(debt_cap, debt_base + debt_per_second × t) plus one bolt.",
       "properties": {
@@ -1112,6 +1368,39 @@
         "debt_per_10s",
         "debt_cap",
         "instant_order_debt"
+      ],
+      "type": "object"
+    },
+    "TimeOfDay": {
+      "description": "Rules 0.8.0: the time of day (`beats_per_day` beats a day).",
+      "properties": {
+        "beat_in_day": {
+          "description": "1..beats_per_day.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "beats_per_day": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "day": {
+          "description": "Game day, from 1.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "light": {
+          "description": "0 (midnight) .. 1 (noon); 0.5 at dawn and dusk.",
+          "type": "number"
+        },
+        "phase": {
+          "$ref": "#/$defs/DayPhase"
+        }
+      },
+      "required": [
+        "day",
+        "phase",
+        "light"
       ],
       "type": "object"
     },
@@ -1501,6 +1790,10 @@
             "minimum": 0,
             "type": "integer"
           },
+          "story": {
+            "$ref": "#/$defs/Story",
+            "description": "Rules 0.8.0: what its piece carries (followers, items, wardrobe, scars)."
+          },
           "visual": {
             "$ref": "#/$defs/Visual",
             "description": "Its visual sheet (stable all match). Always present since the media release; absent in older recordings."
@@ -1578,6 +1871,13 @@
       "minimum": 0,
       "type": "integer"
     },
+    "shrines": {
+      "description": "Rules 0.8.0: every shrine on the board.",
+      "items": {
+        "$ref": "#/$defs/Shrine"
+      },
+      "type": "array"
+    },
     "slow": {
       "anyOf": [
         {
@@ -1595,6 +1895,12 @@
         "object",
         "null"
       ]
+    },
+    "time_of_day": {
+      "$ref": "#/$defs/TimeOfDay"
+    },
+    "time_of_day_phase": {
+      "$ref": "#/$defs/DayPhase"
     }
   },
   "required": [

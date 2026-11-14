@@ -167,255 +167,34 @@ feeds the action and never gates it, and every "turn-ism" (slowing time, the Ent
 
 ## 3. The game rules as built
 
-The authoritative list is `MECHANICS` in `crates/fn7-plugin/src/lib.rs`. It's recorded with every match. Rules
-version **0.7.0** (`RULES_VERSION`), state schema **5** (`STATE_SCHEMA` in `crates/fn7-model/src/lib.rs`). The client
-contract is `docs/CLIENT_API.md`.
+**The rules live in one place: [`docs/DM_RULEBOOK.md`](DM_RULEBOOK.md), the Dungeon Master's rulebook** (rules
+**0.8.0**, `RULES_VERSION`; state schema **6**, `STATE_SCHEMA` in `crates/fn7-model/src/lib.rs`). It is written like a
+D&D Dungeon Master's Guide and is what the AI DM follows; its core is embedded in the game master's and the gods'
+prompts for schema-6 matches. `MECHANICS` in `crates/fn7-plugin/src/lib.rs` is the machine list recorded with every
+match. The client contract is `docs/CLIENT_API.md`.
 
-**Rules 0.7.0 in one list** (details in `MECHANICS`, `docs/CLIENT_API.md` "Two demigods per player" and
-`docs/DEMIGODS_AND_ITEMS.md`):
-- **Two demigods per player.** The Left and Right hands are two `Demigod` rows per seat (`side`, `player`), each with
-  its own health, position, items and elimination. A player is out when both fall. Bolts are a per-player purse;
-  debts are per body. Every per-demigod rule (Time's circle, armies, accidents, casts' area, Life prices, revive,
-  Entropy flinging, possession) applies per body; siblings are never rivals.
-- **Final Night:** exactly one *player* survives: the most total standing (health minus debt), then start-of-beat
-  health, then the lowest id.
-- **Item engine:** manifest orders are judged by rules (tier, cost, odds, one seeded roll); the LLM only names. Every
-  attempt is an `mf:` row; made things are items with `ItemExt`; hosts take the field as armies.
-- **People-level hex occupancy** (Benito's rule) with the client's exact hex indexing (`fn7-model/src/hexgrid.rs`).
-- **The Final Wish** (beat 1), **hotspots** per region, AI drift toward hotspots, aura colours, the live Time bill.
-- **Mega and mini powers, the 1:5 economy:** bolts (megas, also Time's toll and gods' prices) and sparks (minis),
-  starting 1 : 5; a mega gives every other player a bolt; Entropy +10 per mega, +1 per mini.
-- **Gated on the schema:** every rule change reads `World::two_bodies()` (`meta.schema >= 5`), so schema-4 recordings
-  replay byte for byte.
+Where each part of the rules went (this section used to hold them):
 
-### 3.1 The beat
-**One Theatre round = one beat.** The round number is the beat number. There is no Choose phase.
+| Was | Now in the rulebook |
+|---|---|
+| 3.1 The beat | ch. 17 The beat, the Final Night and winning; ch. 5 Time |
+| 3.2 Flow vs slow (text entry) | ch. 12.2 Text entry: Time's slow windows |
+| 3.3 Intents and routing | ch. 1 duties, ch. 2 rolls, `MECHANICS` "Intake", "Route" |
+| 3.4 Gods and prices | ch. 12.1 The pantheon |
+| 3.5 Consequence's debts | ch. 14 Combat, harm and the killers |
+| 3.6 Entropy levels and heat death | ch. 12.4 Entropy |
+| 3.7 Casts (god powers) | ch. 12.3 Casts; ch. 13 Fault lines |
+| 3.8 Armies and command chains | ch. 14 |
+| 3.9 Society rules | `MECHANICS` "World rules", `fn7-society/src/sim/mod.rs` |
+| 3.10 The Final Night, eliminations, revives | ch. 17, ch. 14 |
+| 3.11 Piles and statues | ch. 16, `MECHANICS` "Match ends" |
+| 3.12 Hidden information | ch. 15 The table |
+| (new in 0.8.0) the governing principle: the Lens and the Engine | ch. 0 |
+| (new in 0.8.0) memory, d20, settlements, stories, encounters, loot, day/night, roads, shrines | ch. 2–11 |
+| (new in 0.8.0) fault lines, summoning, god-tier powers | ch. 13, 19, 20 |
 
-```
-Start ──► Brief ──► Compose (flow_ms) ──► Resolve ──► Reveal ──► Commit ──► next beat
-  │                    │                     │                      │
-  │ Time's clock       │ Compose orders;     │ Time's bills →       │ heat-death collections,
-  │ shrinks the arena, │ windows and casts   │ casts (seq order) →  │ eliminations,
-  │ outside = 0.5–3 dmg│ work in ANY phase   │ hands → mentions →   │ Final Night survivor rule
-  │ debts due queued;  │                     │ route → ONE batch of │
-  │ agents expire;     │                     │ minds → merge +      │
-  │ rewind frame       │                     │ world rules →        │
-  │                    │                     │ society step →       │
-  │                    │                     │ consequence          │
-```
-
-- **Flow beats.** Compose lasts `flow_ms` (the core's `compose_seconds`). Then the world resolves whether or not
-  anyone submitted. A beat where nobody spoke or cast makes **no LLM call** and resolves in milliseconds.
-- **Compose ends early** once every active seat has submitted a Compose action. Windowed and instant actions don't
-  count. That's why clients must not submit when idle.
-- **The narrator runs one beat late and off the critical path.** Beat N's caption is written during beat N+1 and
-  delivered as `previous_caption` (`caption_beat` = N). The last caption is in `match.ended.summary.last_caption`.
-  Captions that contradict the engine (a fallen demigod acting, a survivor dying) are replaced by a template.
-- **Every LLM call has a rules fallback.** A late call (past `mind_timeout_ms`), a failed one or junk takes its
-  fallback, and the beat never waits.
-
-### 3.2 Flow vs slow: text entry (the God of Time interaction)
-Built on the Theatre's **action windows** (engine v2.2, `bdf7e2e`):
-
-1. **Begin.** A client sends `action.begin` when its player starts typing. If the demigod is alive and holds at least
-   1 bolt, the plugin opens a window (one per room) lasting up to `slow_ms` (default 30 s), closed by the opener's own
-   submit. Everyone gets `window.opened` and a `Slowed` `phase.event` ("<name> slowed time"). A fallen or boltless
-   demigod gets only the `ack`.
-2. **The world keeps moving.** Flow beats go on resolving during the window: standing orders, armies, casts, Entropy
-   and the AI.
-3. **Others may type.** Another seat's `action.begin` only registers it as engaged, which is never shown. Its submit
-   with the `window_id` is held, hidden.
-4. **Enter.** The opener's submit closes the window at once (`window.closed {reason: "submitted"}`). Orders submitted
-   before it go through at the next resolve, in arrival order. Anyone who submits after it gets a **private**
-   `action.received {accepted: false, reason: "cut"}`, and nobody else learns they tried. If the opener never presses
-   Enter, the window closes at its deadline.
-5. **Time's bill**, settled at the first resolve after the close, from the core's `RoundContext.windows_closed`:
-   - Time takes **1 bolt** as a **toll**: since rules 0.6.0 (R3) nobody else gains from it. It still counts as a bolt
-     spent for Entropy (+0.4).
-   - **Debt** = `0.5 × (1 + seconds_open/10) × (1 + 0.5 × opener's slows in the last 20 beats)`, doubled if the bolt
-     can't be paid (cap 10), due in `debt_due_beats`.
-   - **Entropy** rises by `0.5 + seconds_open/30`.
-   - Seconds open are real time, from the window's opening to the Enter's arrival, or to the deadline. A window that
-     times out bills its opener the full `slow_ms`, even if nobody submitted.
-6. **Orders without a window** (a Compose submit: bots, the built-in AI, clients that skip `action.begin`) are an
-   **instant order** (rules 0.6.0, R1): the same toll and Entropy as a zero-second window, but a **flat debt of
-   `instant_order_debt`** (default 0.5) with no repeat factor and no seconds factor, doubled if the bolt can't be paid.
-   They still count as slows in a later real window's repeat factor.
-
-Orders from a window open at least one flow beat get up to `max_intents_per_window` acts per hand (12); others get
-`max_intents_per_hand` (6).
-
-### 3.3 Intents and routing
-A hand turns its player's speech into **intents**, in the order spoken (`fn7-agents/src/hand.rs`). Each intent is one
-of these:
-
-| Kind | Example | Handled by |
-|---|---|---|
-| Ordinary act | walk, talk, fight, recruit, build, at any zoom | The **world resolver**, one per active district or region (Final Night's game master pattern) |
-| Army act | "raise an army from the dockworkers", "march my host on Cairo" | Rules |
-| God invocation | "slow time", "raise the dead", "make them forget" | The owning god's mind; routed by keyword first (`fn7-pantheon`), the LLM for ambiguous cases |
-| Spawn | "send a scout to spy on Vex" | A subagent, at most `max_subagents_per_hand` live per hand |
-| Possession, zoom, recall | "possess Ada the baker" | Agents and views |
-
-- **Mentions.** People resolve to an existing character by fuzzy name or alias, or are **memorized** from the
-  best-matching crowd (at most `max_memorize_per_beat`). A memorized person inherits what their crowd knew, and a
-  `materialize` mind writes their flavor.
-- **Standing orders.** Each hand keeps its last two ordinary acts as standing orders and carries them out by rules every
-  other beat while its player is silent, with no LLM call.
-- **One concurrent batch.** Resolvers, gods, subagent steps, flavor and ramifications run as one concurrent batch.
-
-### 3.4 Gods and prices
-`data/pantheon.json` (version recorded per match). Gods are numbered by pantheon index:
-
-| Ref | God | Domain (abridged) | Precedence | Rivals |
-|---|---|---|---|---|
-| `gd:0` | Time | slowing, hastening, rewinding, time travel; the arena clock | 50 | Consequence, Nature, Entropy |
-| `gd:1` | Nature | weather, beasts, plants, terrain, physics, anything summoned once loose | 30 | Death, Time |
-| `gd:2` | Consequence | debts: every act's bill, collected as Final Destination-style accidents | 40 | Time, Chance |
-| `gd:3` | Death | raising the dead, killing at a distance, souls | 45 | Nature |
-| `gd:4` | Chance | luck, tricks, coin flips | 10 | Consequence |
-| `gd:5` | Memory | forgetting, false memories, learning what a crowd knows | 20 | Consequence, Time |
-| `gd:6` | Entropy | chaos, overload, infinite magic power; the world's Entropy | 35 | Time |
-
-- **Invocation cost.** `1 + magnitude/5` bolts, paid unless the god refuses. A god whose price you can't pay twists or
-  refuses.
-- **Entropy** charges nothing, always says yes, **gives the invoker 2 bolts** and raises the meter. Invocations of a god
-  that isn't in the match go to Entropy.
-- **Time can cool Entropy** by `4 + 1.2 × magnitude`, for its price.
-- **Verdicts:** grant, refuse, bargain or twist (`Ruling.verdict`). Prices include **Life**: Time's "years of your
-  life" lowers `max_health`, and a cap of 0 kills. Gods keep **favor** per demigod.
-- **Merge precedence** (`MECHANICS`, "Merge"):
-  - Time's Delay beats Consequence's Collect on the same debt; the debt grows 50% and moves.
-  - A Time Rewind overrules Nature and Chance on its target that beat, but never debts or prices.
-  - When gods pull one target opposite ways, higher precedence wins, and Chance's seeded coin breaks ties.
-  - Several damage proposals on one target become one hit at the median.
-
-### 3.5 Consequence's debts
-- **Per-act bill:** per demigod per beat, `debt_scale × Σ debt_for(magnitude, words this beat)` over its acts that
-  landed, due in `debt_due_beats` (default 50 since rules 0.6.0; was 6).
-- **Time's bill** for orders (§3.2) is also a debt, due on the same schedule.
-- Due debts are queued at the beat's Start as Consequence's collections, so a Time Delay in the same beat can beat them.
-- **[measured]** `docs/BALANCE_REPORT_1.md` found that about 97% of all debt was Time's order bill, and debt caused
-  about two thirds of eliminations at the old defaults. Rules 0.6.0 (R1: flat instant orders; R3: no gift on Time's
-  toll) and the new defaults answer it; `docs/BALANCE_REPORT_2.md` has the re-measurement.
-
-### 3.6 Entropy levels and heat death
-The meter runs 0–100 (`fn7-society/src/world_rules.rs`, `ENTROPY_LEVELS`). Every rise is multiplied by
-`entropy_scale`.
-
-| Level key | At | Effect |
-|---|---|---|
-| `calm` | 0 | The world is holding together, mostly |
-| `weather` | 20 | Freak weather |
-| `physics` | 40 | Unreliable physics: demigods flung, a third of casts land 50–400 km off target |
-| `riots` | 60 | Riots and worship |
-| `godfall` | 80 | The gods take wounds (`Effect::Wound`) |
-| heat death | 100 | That beat becomes the **Final Night at once**: every outstanding debt is collected at its commit, then the survivor rule |
-
-What raises it: +0.4 per bolt spent, +0.2 per bolt Entropy hands out, `0.5 + seconds/30` per slow window, and
-Entropy's own invocations.
-
-### 3.7 Casts (god powers)
-- **Instant actions** (`instant: true`, any phase; rate limit 2/s, burst 4 per seat). They're validated on arrival
-  against the last commit: a known power, a valid target, enough bolts. An accepted cast is shown to everyone at once
-  as a `Streak` `phase.event`.
-- **Payment** happens at the start of the next resolve, in arrival order (the plugin's AI first, then the core's
-  `seq`). Cost in bolts; every other live demigod gains 2 per bolt; Entropy +0.4 per bolt. A cast the caster can no
-  longer pay **fizzles**.
-- **The palette** is `data/powers.json`:
-
-  | Power | Bolts | Radius km | Target | Magnitude | Damage |
-  |---|---|---|---|---|---|
-  | lightning | 1 | 30 | unit | 6 | 1.0 |
-  | storm_clouds | 1 | 400 | region | 4 | 0.3 |
-  | volcano | 3 | 150 | point | 9 | 2.0 |
-  | earthquake | 2 | 250 | point | 7 | 1.0 |
-  | flood | 2 | 300 | point | 7 | 0.7 |
-  | wildfire | 2 | 200 | point | 7 | 1.0 |
-  | meteor | 4 | 100 | point | 10 | 2.5 |
-  | raise_land | 2 | 200 | point | 6 | 0.3 |
-  | sink_land | 3 | 200 | point | 8 | 1.2 |
-  | grow_forest | 1 | 200 | point | 3 | 0.0 |
-  | swarm | 2 | 150 | point | 6 | 0.6 |
-  | `custom` | `1 + magnitude/3` (max 4) | | free text ≤ 200 chars | 0–10 | |
-
-- **Ramifications.** One LLM call per region with casts that beat (`ramify`), with N = `1 + cost + magnitude/3` per
-  cast, at most 10. It produces geotagged ledger rows, `events`, news, and **world mods**: at most 24 live, and the same
-  name in the same region stacks up to 5. Mods have per-beat effects (harm, heal, anger, fear, hope, devotion) and may
-  expire.
-
-### 3.8 Armies and command chains
-- **Raising.** A hand raises an army by splitting a crowd (`Effect::RaiseArmy`). The society also raises **volunteer
-  hosts** for demigods it loves.
-- **World rules each beat:**
-  - Armies march up to 900 km toward their target.
-  - Rival armies within 300 km clash, and each loses 8–16% of the other's size.
-  - An army within 200 km of a rival demigod strikes it.
-- **The chain:** demigod → general → captains → units (squad cells), in `fn7-society/src/sim/armies.rs`.
-  - Orders go to the general, who acts on them by their own judgment. Competence, loyalty, ambition and cruelty shape
-    it, and vague orders get misread.
-  - The `general` mind (LLM) is used at decision points, at most `general_calls_per_beat`, and always for orders a hand
-    gives.
-  - Battles resolve by rules, with casualties, heroes, cowards and fallen officers. Strain leads to mutiny (an army
-    with stance `rogue`) or defection.
-
-### 3.9 Society rules (schema 4)
-`fn7-society/src/sim/mod.rs` runs once per beat after the merge, all by rules, deterministic, every level every beat:
-
-1. **needs and moods:** supply, hunger, danger, faith; mood dynamics from war, famine, Time's blight outside the arena,
-   world mods and nearby demigods.
-2. **migrate:** people leave danger and hunger for safety and allegiance.
-3. **cults:** worship movements around gods and demigods, with prophets (and paladins).
-4. **mobs:** angry crowds throw off gangs, gangs merge into mobs under a ringleader, and mobs riot, loot, attack and
-   dissolve. An ambitious ringleader may offer what's left to a demigod as a host.
-5. **clashes:** crowd-on-crowd violence between rival allegiances and faiths.
-6. **armies:** the command chain (§3.8).
-7. **people:** petty humans pursue their goals (promotion, revenge, flight, preaching).
-8. **roll-up:** totals roll up the tree, and stances settle.
-
-People who emerge from the simulation (ringleaders, generals, captains, heroes, cowards, witnesses, prophets,
-paladins) are permanent and carry a `Life` sheet: role, rank, competence, ambition, cruelty, courage, grudges, needs
-and goal. **Level of detail:** fidelity (rules vs LLM) depends on focus, not on existence. Lower-magnitude events are
-recorded only in focus, and each beat has an emergence budget and an event cap.
-
-News spreads one hop per beat along **group overlaps** (the Venn sets), weighted by permeability. Moods, allegiance and
-worship drift. Old memories fold into summaries.
-
-### 3.10 The Final Night, eliminations, revives
-- **Elimination:** health reaches 0 from combat, an accident chain, Time's clock, an army and so on. Everyone gets
-  `seat.eliminated` and then `room.updated`. The fallen become spectators.
-- **Revive:** Death's raise-the-dead, or the survivor rule. A revived seat gets `seat.revived` and plays again.
-- **The Final Night** falls on `beats_total`, or at heat death, or on any beat that would end with nobody standing.
-  **Exactly one player survives** (rules 0.7.0): the most total standing over its demigods (health minus outstanding
-  debt), then the most total health at the beat's start, then the lowest demigod id. Its standing demigods stand; if
-  none does, its demigod with the most start-of-beat health is revived at that health. (Schema-4 matches: exactly one
-  demigod, by the lowest outstanding debt, then the most health, then start-of-beat health.)
-- **Match end:** at `beats_total`, or when at most one demigod stands. Use `summary.champion_seat` and
-  `summary.champions`; the core's `winners` is `[]` when a built-in AI wins.
-- **Time's circle** shrinks around the convergence city, from the whole globe (20,037.5 km) to 1,500 km by beat
-  `arena_close_beats`, on an ease-out curve (`ARENA_EASE` 1.8: a third of the way by a quarter of its schedule). Since
-  rules 0.6.0 (R2) that is its **own schedule, independent of `beats_total`**: a circle scheduled past the Final Night
-  is still closing when it falls. Bodies outside take `0.5 + 1.5 × progress + 4 × overshoot` damage (0.5–3) at each
-  Start, with progress on the circle's schedule, and are dragged back inside.
-- **The non-debt killers** (rules 0.6.0, R4), each a room multiplier: the resolver's rules-fallback accident (1 in 20
-  per non-attack act × `accident_scale`), an army storming a demigod (`(0.5 + size/40 000) × (0.6 + 0.6 × competence)`,
-  at most 2, × `army_strike_scale`), and a crowd near a demigod with no army yet raising a first host (extra chance 0.2
-  × `army_first_host_scale` a beat).
-
-### 3.11 Piles and statues
-At the end every demigod gets a **pile** (its items), a portrait prompt and an **amiibo-style statue prompt**
-(`match.ended.summary.piles[]`, `statue_prompt` and `statue_image`), as in Final Night. The summary also carries the
-**storyboard** (§7.4) and the narrator's final cut.
-
-### 3.12 Hidden information
-A seat sees the ledger rows its demigod, hands, agents or possessed bodies did, saw, were told or were hit by, plus
-whatever news reaches its Following. Public:
-- the arena, live demigods' positions and bolts
-- casts, ramifications, armies, mods and freak weather
-- eliminations, big rulings, Entropy and per-region influence
-- **who opened** a slow window, never who else typed
-
-Rivals' health is never sent. Details: `docs/CLIENT_API.md` "Hidden information".
+**Gated on the schema:** rules 0.7.0 read `World::two_bodies()` (schema ≥ 5) and rules 0.8.0 read `World::dm_rules()`
+(schema ≥ 6), so schema-4 and schema-5 recordings replay byte for byte (their LLM prompts unchanged).
 
 ### 3.13 Settings (knobs) and defaults
 Room settings are validated in `crates/fn7-plugin/src/settings.rs`. `GET /sim/settings` lists them, generated from the
@@ -458,6 +237,8 @@ validator. **Balance is done with settings, never code** (Play 3).
 | `manifest_muster_scale` | 0.25 | 0–1 | Rules 0.7.0: a manifested host's army footprint (share of `muster_size`) |
 | `manifest_calls_per_beat` | 2 | 0–16 | Rules 0.7.0: manifest-mind LLM calls per beat |
 | `final_wish_magnitude` | 2 | 0–5 | Rules 0.7.0: magnitude added to every act of the Final Wish (beat 1) |
+| `beats_per_day` and the `dm_*` settings | see the rulebook | | Rules 0.8.0: the DM's rulebook (docs/DM_RULEBOOK.md, appendix) |
+| `fault_*` | 150 / 1500 km, +3 / −2, ×1.5 / ×1.0, ×1.6 / ×0.6 | | Rules 0.8.0: fault lines for megas (rulebook ch. 13) |
 | `compose_seconds`, `resolve_timeout_s`, `choose_seconds` | `flow_ms/1000`, 60, core | core | The core's timers, copied through |
 | `first_compose_seconds`, `allow_midmatch_join` | unset, false | core | Core room flags from engine `2d3a43d` / `9d98b98`; passed through by `copy_timer_settings` **[uncertain: not yet exercised by FN7; see §11]** |
 

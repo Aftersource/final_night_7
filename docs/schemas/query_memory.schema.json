@@ -1,0 +1,481 @@
+{
+  "$defs": {
+    "DayPhase": {
+      "description": "Rules 0.8.0: the phase of the game day.",
+      "enum": [
+        "dawn",
+        "day",
+        "dusk",
+        "night"
+      ],
+      "type": "string"
+    },
+    "Encounter": {
+      "description": "Rules 0.8.0: a marked hex. Hidden: only `id`, `cell`, `marked`. Revealed: its type and outcome, forever.",
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/LonLat"
+        },
+        "cell": {
+          "description": "People- or house-level hex.",
+          "type": "string"
+        },
+        "faded_beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "marked": {
+          "const": true
+        },
+        "night": {
+          "description": "Placed at night.",
+          "type": "boolean"
+        },
+        "outcome": {
+          "description": "Revealed only.",
+          "properties": {
+            "beat": {
+              "description": "",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "by": {
+              "$ref": "#/$defs/Ref"
+            },
+            "by_name": {
+              "description": "",
+              "type": "string"
+            },
+            "character": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Ref"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "damage": {
+              "description": "",
+              "type": "number"
+            },
+            "item": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Ref"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "item_icon": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "modifier": {
+              "description": "",
+              "type": "integer"
+            },
+            "roll": {
+              "description": "",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "sparks": {
+              "description": "",
+              "type": "integer"
+            },
+            "target_dc": {
+              "description": "",
+              "type": "integer"
+            },
+            "text": {
+              "description": "",
+              "type": "string"
+            },
+            "total": {
+              "description": "",
+              "type": "integer"
+            },
+            "verdict": {
+              "description": "",
+              "enum": [
+                "crit_fail",
+                "fail",
+                "success",
+                "crit_success"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "beat",
+            "by",
+            "by_name",
+            "roll",
+            "modifier",
+            "total",
+            "target_dc",
+            "verdict",
+            "text",
+            "damage",
+            "item",
+            "item_icon",
+            "character",
+            "sparks"
+          ],
+          "type": "object"
+        },
+        "region_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "revealed": {
+          "description": "",
+          "type": "boolean"
+        },
+        "type": {
+          "description": "",
+          "enum": [
+            "monster",
+            "treasure",
+            "trap",
+            "stranger",
+            "undead",
+            "ghost",
+            "thief"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "cell",
+        "marked"
+      ],
+      "type": "object"
+    },
+    "HexState": {
+      "description": "Rules 0.8.0: a hex as the DM knows it now (observed, or extrapolated from its last observation).",
+      "properties": {
+        "buildings": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cell": {
+          "description": "",
+          "type": "string"
+        },
+        "center": {
+          "$ref": "#/$defs/LonLat"
+        },
+        "changes_since": {
+          "description": "Its parent's notable changes since it was last observed.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "encounters": {
+          "description": "",
+          "items": {
+            "$ref": "#/$defs/Encounter"
+          },
+          "type": "array"
+        },
+        "level": {
+          "description": "",
+          "enum": [
+            "people",
+            "houses",
+            "villages",
+            "regions"
+          ],
+          "type": "string"
+        },
+        "loot_items": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "on_road": {
+          "description": "",
+          "type": "boolean"
+        },
+        "parent_population": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "people": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "region": {
+          "$ref": "#/$defs/Ref"
+        },
+        "settlement": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "settlement_level": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "shrines": {
+          "description": "Shrine ids.",
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "terrain": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "time_of_day": {
+          "description": "",
+          "properties": {
+            "day": {
+              "description": "",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "light": {
+              "description": "",
+              "type": "number"
+            },
+            "phase": {
+              "$ref": "#/$defs/DayPhase"
+            }
+          },
+          "required": [
+            "day",
+            "phase",
+            "light"
+          ],
+          "type": "object"
+        },
+        "weather": {
+          "description": "",
+          "type": "string"
+        }
+      },
+      "required": [
+        "cell",
+        "level",
+        "center",
+        "settlement",
+        "region",
+        "people",
+        "buildings",
+        "parent_population",
+        "settlement_level",
+        "terrain",
+        "encounters",
+        "loot_items",
+        "shrines",
+        "on_road",
+        "weather",
+        "time_of_day",
+        "changes_since"
+      ],
+      "type": "object"
+    },
+    "LonLat": {
+      "description": "[longitude, latitude] in degrees (WGS84). Note the order: longitude first.",
+      "items": {
+        "type": "number"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+    },
+    "MemoryEntry": {
+      "description": "Rules 0.8.0: one decision in the DM's memory.",
+      "properties": {
+        "beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "data": {
+          "description": "The decision's fields (by kind)."
+        },
+        "id": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "description": "",
+          "type": "string"
+        },
+        "place": {
+          "description": "A hex key, a `pl:` ref or \"world\".",
+          "type": "string"
+        },
+        "query": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scope": {
+          "description": "",
+          "enum": [
+            "cell",
+            "settlement",
+            "region",
+            "world"
+          ],
+          "type": "string"
+        },
+        "text": {
+          "description": "",
+          "type": "string"
+        },
+        "up": {
+          "description": "Its ancestors, nearest first.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "beat",
+        "scope",
+        "place",
+        "up",
+        "kind",
+        "query",
+        "text",
+        "data"
+      ],
+      "type": "object"
+    },
+    "Ref": {
+      "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row, ce cell, mb mob. Stable for the whole match.",
+      "examples": [
+        "ch:12"
+      ],
+      "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg|ce|mb):\\d+$",
+      "type": "string"
+    }
+  },
+  "$id": "query_memory.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "`game.memory` (rules 0.8.0): the DM's public decisions about a place, or anything above or below it, at or before a beat, newest first.",
+  "properties": {
+    "ancestors": {
+      "description": "The place's ancestors, nearest first.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "beat": {
+      "description": "Last beat started.",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "extrapolated": {
+      "description": "A hex: its state is extrapolated from its last observation.",
+      "type": "boolean"
+    },
+    "items": {
+      "description": "",
+      "items": {
+        "$ref": "#/$defs/MemoryEntry"
+      },
+      "type": "array"
+    },
+    "observed_beat": {
+      "description": "A hex: when the DM last observed it (null: never); a place: until_beat.",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "place": {
+      "description": "As asked.",
+      "type": "string"
+    },
+    "state": {
+      "$ref": "#/$defs/HexState"
+    },
+    "until_beat": {
+      "description": "",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "place",
+    "ancestors",
+    "until_beat",
+    "beat",
+    "items",
+    "observed_beat",
+    "extrapolated"
+  ],
+  "title": "game.memory",
+  "type": "object",
+  "x-applies-to": "game.memory reply (WebSocket), GET /api/rooms/{code}/query/memory",
+  "x-args": {
+    "additionalProperties": true,
+    "description": "Over HTTP every arg is a query-string parameter (numbers as numeric strings). Unknown args are ignored.",
+    "properties": {
+      "limit": {
+        "description": "Page size (default 50, at most 200).",
+        "maximum": 200,
+        "minimum": 1,
+        "type": [
+          "integer",
+          "string"
+        ]
+      },
+      "place": {
+        "description": "A hex cell key (\"0:people:12:-3\"), a `pl:` ref (settlement or region) or \"world\".",
+        "type": "string"
+      },
+      "until_beat": {
+        "description": "Only decisions made at or before this beat (default: now).",
+        "minimum": 0,
+        "type": [
+          "integer",
+          "string"
+        ]
+      }
+    },
+    "required": [
+      "place"
+    ],
+    "type": "object"
+  },
+  "x-description": "Rules 0.8.0: the Dungeon Master's memory of a place: every public decision about it, or anything above or below it (cell → settlement → region → world), at or before a beat, newest first.",
+  "x-public": true
+}

@@ -278,6 +278,170 @@
       ],
       "type": "object"
     },
+    "DayPhase": {
+      "description": "Rules 0.8.0: the phase of the game day.",
+      "enum": [
+        "dawn",
+        "day",
+        "dusk",
+        "night"
+      ],
+      "type": "string"
+    },
+    "Encounter": {
+      "description": "Rules 0.8.0: a marked hex. Hidden: only `id`, `cell`, `marked`. Revealed: its type and outcome, forever.",
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/LonLat"
+        },
+        "cell": {
+          "description": "People- or house-level hex.",
+          "type": "string"
+        },
+        "faded_beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "marked": {
+          "const": true
+        },
+        "night": {
+          "description": "Placed at night.",
+          "type": "boolean"
+        },
+        "outcome": {
+          "description": "Revealed only.",
+          "properties": {
+            "beat": {
+              "description": "",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "by": {
+              "$ref": "#/$defs/Ref"
+            },
+            "by_name": {
+              "description": "",
+              "type": "string"
+            },
+            "character": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Ref"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "damage": {
+              "description": "",
+              "type": "number"
+            },
+            "item": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Ref"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "item_icon": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "modifier": {
+              "description": "",
+              "type": "integer"
+            },
+            "roll": {
+              "description": "",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "sparks": {
+              "description": "",
+              "type": "integer"
+            },
+            "target_dc": {
+              "description": "",
+              "type": "integer"
+            },
+            "text": {
+              "description": "",
+              "type": "string"
+            },
+            "total": {
+              "description": "",
+              "type": "integer"
+            },
+            "verdict": {
+              "description": "",
+              "enum": [
+                "crit_fail",
+                "fail",
+                "success",
+                "crit_success"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "beat",
+            "by",
+            "by_name",
+            "roll",
+            "modifier",
+            "total",
+            "target_dc",
+            "verdict",
+            "text",
+            "damage",
+            "item",
+            "item_icon",
+            "character",
+            "sparks"
+          ],
+          "type": "object"
+        },
+        "region_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "revealed": {
+          "description": "",
+          "type": "boolean"
+        },
+        "type": {
+          "description": "",
+          "enum": [
+            "monster",
+            "treasure",
+            "trap",
+            "stranger",
+            "undead",
+            "ghost",
+            "thief"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "cell",
+        "marked"
+      ],
+      "type": "object"
+    },
     "EventPage": {
       "description": "A page of public events in ledger order.",
       "properties": {
@@ -676,6 +840,44 @@
       "minItems": 2,
       "type": "array"
     },
+    "LootToken": {
+      "description": "Rules 0.8.0: an item token lying on a hex.",
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/LonLat"
+        },
+        "cell": {
+          "description": "",
+          "type": "string"
+        },
+        "icon": {
+          "description": "",
+          "type": "string"
+        },
+        "pile": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "since_beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "ref",
+        "icon",
+        "cell",
+        "since_beat",
+        "pile",
+        "at"
+      ],
+      "type": "object"
+    },
     "Manifestation": {
       "description": "Rules 0.7.0: one manifestation attempt (made or not).",
       "properties": {
@@ -850,6 +1052,71 @@
         "public",
         "image_prompt",
         "image_kind"
+      ],
+      "type": "object"
+    },
+    "MemoryEntry": {
+      "description": "Rules 0.8.0: one decision in the DM's memory.",
+      "properties": {
+        "beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "data": {
+          "description": "The decision's fields (by kind)."
+        },
+        "id": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "description": "",
+          "type": "string"
+        },
+        "place": {
+          "description": "A hex key, a `pl:` ref or \"world\".",
+          "type": "string"
+        },
+        "query": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scope": {
+          "description": "",
+          "enum": [
+            "cell",
+            "settlement",
+            "region",
+            "world"
+          ],
+          "type": "string"
+        },
+        "text": {
+          "description": "",
+          "type": "string"
+        },
+        "up": {
+          "description": "Its ancestors, nearest first.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "beat",
+        "scope",
+        "place",
+        "up",
+        "kind",
+        "query",
+        "text",
+        "data"
       ],
       "type": "object"
     },
@@ -1084,6 +1351,10 @@
           "minimum": 0,
           "type": "integer"
         },
+        "extrapolated": {
+          "description": "Rules 0.8.0: false (a simulated place).",
+          "type": "boolean"
+        },
         "leader": {
           "anyOf": [
             {
@@ -1107,6 +1378,11 @@
         "need": {
           "$ref": "#/$defs/Need"
         },
+        "observed_beat": {
+          "description": "Rules 0.8.0: simulated every beat: the beat now.",
+          "minimum": 0,
+          "type": "integer"
+        },
         "parent": {
           "anyOf": [
             {
@@ -1125,6 +1401,9 @@
         },
         "ref": {
           "$ref": "#/$defs/Ref"
+        },
+        "settlement": {
+          "$ref": "#/$defs/Settlement"
         },
         "stance": {
           "$ref": "#/$defs/Stance"
@@ -1221,6 +1500,64 @@
       "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg|ce|mb):\\d+$",
       "type": "string"
     },
+    "Road": {
+      "description": "Rules 0.8.0: a road worn in between two settlements.",
+      "properties": {
+        "from_cell": {
+          "description": "",
+          "type": "string"
+        },
+        "from_name": {
+          "description": "",
+          "type": "string"
+        },
+        "from_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "path": {
+          "description": "The two settlement centres.",
+          "items": {
+            "$ref": "#/$defs/LonLat"
+          },
+          "type": "array"
+        },
+        "since_beat": {
+          "description": "",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "to_cell": {
+          "description": "",
+          "type": "string"
+        },
+        "to_name": {
+          "description": "",
+          "type": "string"
+        },
+        "to_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "wear": {
+          "description": "",
+          "type": "number"
+        }
+      },
+      "required": [
+        "from_cell",
+        "to_cell",
+        "wear",
+        "since_beat",
+        "from_ref",
+        "to_ref",
+        "from_name",
+        "to_name",
+        "path"
+      ],
+      "type": "object"
+    },
     "Role": {
       "description": "A person's part in the society.",
       "enum": [
@@ -1239,6 +1576,34 @@
         "avenger"
       ],
       "type": "string"
+    },
+    "Scar": {
+      "description": "Rules 0.8.0: a scar.",
+      "properties": {
+        "beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cause": {
+          "description": "",
+          "type": "string"
+        },
+        "cell": {
+          "description": "",
+          "type": "string"
+        },
+        "place": {
+          "description": "",
+          "type": "string"
+        }
+      },
+      "required": [
+        "beat",
+        "cause",
+        "place"
+      ],
+      "type": "object"
     },
     "SeatHand": {
       "description": "One hand in the seat view.",
@@ -1318,6 +1683,156 @@
       ],
       "type": "object"
     },
+    "Settlement": {
+      "description": "Rules 0.8.0: a settlement's growth.",
+      "properties": {
+        "center_cell": {
+          "description": "People-level hex at its centre.",
+          "type": "string"
+        },
+        "level": {
+          "description": "1 hamlet .. 5 great city; 6-7 legendary.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "prosperity": {
+          "description": "0..1",
+          "type": "number"
+        },
+        "settlement_cells": {
+          "description": "Village-level hexes it covers.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "since_beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "size": {
+          "description": "People.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "target": {
+          "description": "The level the rules aim at.",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "level",
+        "size",
+        "prosperity",
+        "target",
+        "since_beat",
+        "center_cell",
+        "settlement_cells"
+      ],
+      "type": "object"
+    },
+    "Shrine": {
+      "description": "Rules 0.8.0: a shrine to a demigod.",
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/LonLat"
+        },
+        "built_beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cell": {
+          "description": "House-level hex.",
+          "type": "string"
+        },
+        "id": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "level": {
+          "description": "1..5",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "description": "",
+          "type": "string"
+        },
+        "owner": {
+          "$ref": "#/$defs/Ref"
+        },
+        "owner_alive": {
+          "description": "",
+          "type": "boolean"
+        },
+        "owner_name": {
+          "description": "",
+          "type": "string"
+        },
+        "owner_seat": {
+          "description": "",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "player": {
+          "description": "",
+          "type": "string"
+        },
+        "power": {
+          "description": "",
+          "enum": [
+            "spark",
+            "heal",
+            "ward"
+          ],
+          "type": "string"
+        },
+        "region_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "side": {
+          "enum": [
+            "left",
+            "right",
+            null
+          ],
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "worshippers": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "cell",
+        "owner_seat",
+        "side",
+        "worshippers",
+        "power",
+        "level",
+        "owner",
+        "owner_name",
+        "player",
+        "name",
+        "at",
+        "region_ref",
+        "built_beat",
+        "owner_alive"
+      ],
+      "type": "object"
+    },
     "Stance": {
       "description": "What it is doing as a whole.",
       "enum": [
@@ -1335,6 +1850,100 @@
         "rogue"
       ],
       "type": "string"
+    },
+    "Story": {
+      "description": "Rules 0.8.0: what a demigod's piece carries.",
+      "properties": {
+        "deeds": {
+          "description": "The wardrobe's input.",
+          "type": "number"
+        },
+        "followers": {
+          "description": "Its Following's headcount.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "items": {
+          "description": "Items it holds now (pegs).",
+          "items": {
+            "description": "",
+            "properties": {
+              "icon": {
+                "description": "",
+                "type": "string"
+              },
+              "ref": {
+                "$ref": "#/$defs/Ref"
+              }
+            },
+            "required": [
+              "ref",
+              "icon"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "scars": {
+          "description": "Newest last, at most 12.",
+          "items": {
+            "$ref": "#/$defs/Scar"
+          },
+          "type": "array"
+        },
+        "tales": {
+          "description": "Rules 0.8.0: the newest 8 tales (summonings), oldest first.",
+          "items": {
+            "$ref": "#/$defs/Tale"
+          },
+          "type": "array"
+        },
+        "wardrobe": {
+          "description": "Its outfit.",
+          "properties": {
+            "condition": {
+              "enum": [
+                "scorched",
+                "ragged",
+                null
+              ],
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "name": {
+              "description": "",
+              "enum": [
+                "plain",
+                "marked",
+                "adorned",
+                "regalia",
+                "mythic"
+              ],
+              "type": "string"
+            },
+            "stage": {
+              "maximum": 4,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "stage",
+            "name",
+            "condition"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "followers",
+        "items",
+        "wardrobe",
+        "scars"
+      ],
+      "type": "object"
     },
     "SubagentKind": {
       "description": "What kind of agent a subagent line is: a subagent, a possession (steers a body) or a paladin (a god's champion).",
@@ -1409,6 +2018,63 @@
         "kind",
         "parent",
         "body"
+      ],
+      "type": "object"
+    },
+    "Tale": {
+      "description": "Rules 0.8.0: a deed the DM told.",
+      "properties": {
+        "beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "description": "",
+          "type": "string"
+        },
+        "text": {
+          "description": "",
+          "type": "string"
+        }
+      },
+      "required": [
+        "beat",
+        "kind",
+        "text"
+      ],
+      "type": "object"
+    },
+    "TimeOfDay": {
+      "description": "Rules 0.8.0: the time of day (`beats_per_day` beats a day).",
+      "properties": {
+        "beat_in_day": {
+          "description": "1..beats_per_day.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "beats_per_day": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "day": {
+          "description": "Game day, from 1.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "light": {
+          "description": "0 (midnight) .. 1 (noon); 0.5 at dawn and dusk.",
+          "type": "number"
+        },
+        "phase": {
+          "$ref": "#/$defs/DayPhase"
+        }
+      },
+      "required": [
+        "day",
+        "phase",
+        "light"
       ],
       "type": "object"
     },
@@ -1928,6 +2594,10 @@
             "minimum": 0,
             "type": "integer"
           },
+          "story": {
+            "$ref": "#/$defs/Story",
+            "description": "Rules 0.8.0: what its piece carries (followers, items, wardrobe, scars)."
+          },
           "visual": {
             "$ref": "#/$defs/Visual",
             "description": "Its visual sheet (stable all match). Always present since the media release; absent in older recordings."
@@ -1943,8 +2613,19 @@
       },
       "type": "array"
     },
+    "encounters": {
+      "description": "Rules 0.8.0: encounter hexes here (hidden ones only as marked).",
+      "items": {
+        "$ref": "#/$defs/Encounter"
+      },
+      "type": "array"
+    },
     "events": {
       "$ref": "#/$defs/EventPage"
+    },
+    "extrapolated": {
+      "description": "Rules 0.8.0.",
+      "type": "boolean"
     },
     "hotspot": {
       "anyOf": [
@@ -1963,6 +2644,23 @@
         "$ref": "#/$defs/Influence"
       },
       "type": "array"
+    },
+    "loot": {
+      "description": "Rules 0.8.0: item tokens lying here.",
+      "items": {
+        "$ref": "#/$defs/LootToken"
+      },
+      "type": "array"
+    },
+    "memory_summary": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MemoryEntry"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "mobs": {
       "description": "Live mobs in it.",
@@ -1985,12 +2683,40 @@
     "node": {
       "$ref": "#/$defs/Node"
     },
+    "observed_beat": {
+      "description": "Rules 0.8.0.",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
     "radius_km": {
       "description": "",
       "type": "number"
     },
     "ref": {
       "$ref": "#/$defs/Ref"
+    },
+    "roads": {
+      "description": "Rules 0.8.0: roads with an end here.",
+      "items": {
+        "$ref": "#/$defs/Road"
+      },
+      "type": "array"
+    },
+    "shrines": {
+      "description": "Rules 0.8.0.",
+      "items": {
+        "$ref": "#/$defs/Shrine"
+      },
+      "type": "array"
+    },
+    "time_of_day": {
+      "$ref": "#/$defs/TimeOfDay"
+    },
+    "time_of_day_phase": {
+      "$ref": "#/$defs/DayPhase"
     }
   },
   "required": [
