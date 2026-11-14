@@ -58,12 +58,22 @@ pub fn add_table_fields(w: &World, d: &Demigod, v: &mut Value) {
 
 /// Rules 0.8.0: a taken-over bot seat's demigods are renamed `"<name>'s Left Hand"` / `"<name>'s Right Hand"` (a name
 /// another demigod already carries gets the seat appended), with their hand agents; each change is remembered.
+/// Rules 0.8.1: a collision with the SAME player's older seat (same display name, e.g. their eliminated seat) gets no
+/// suffix: refs keep the bodies distinct, and the plain names match the profile's prewarmed images. Only a genuinely
+/// different player carrying the name gets the `" (<seat>)"` suffix.
 fn rename_bodies(w: &mut World, seat: u8, name: &str, round: u32) {
     let ids: Vec<DemigodId> = w.bodies_of_seat(seat).filter(|d| d.side.is_some()).map(|d| d.id).collect();
+    let fixed = crate::world::settings(w).rules_0_8_1;
     for d in ids {
         let side = if w.demigods[d.ix()].side == Some(Hand::Right) { "Right" } else { "Left" };
         let mut new = format!("{name}'s {side} Hand");
-        if w.demigods.iter().any(|x| x.id != d && x.name == new) {
+        let same_player = |x: &Demigod| {
+            fixed
+                && x.seat != seat
+                && (x.player.trim().eq_ignore_ascii_case(name.trim())
+                    || seat_state(w, x.seat).is_some_and(|s| s.display_name.trim().eq_ignore_ascii_case(name.trim())))
+        };
+        if w.demigods.iter().any(|x| x.id != d && x.name == new && !same_player(x)) {
             new = format!("{new} ({seat})");
         }
         let old = std::mem::replace(&mut w.demigods[d.ix()].name, new.clone());

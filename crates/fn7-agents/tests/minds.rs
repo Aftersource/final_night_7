@@ -130,6 +130,8 @@ fn hand_ctx(utterance: &str) -> HandCtx {
         pantheon: pantheon(),
         max_subagents: 3,
         final_wish: false,
+        own: vec![],
+        rules_081: false,
     }
 }
 
@@ -1306,4 +1308,24 @@ async fn labels_in_llm_text_become_names() {
     assert!(!has_label(&o.value.said), "{}", o.value.said);
     assert!(!has_label(o.value.done.as_deref().unwrap_or_default()));
     assert!(o.value.proposals.iter().all(|p| !has_label(&p.act)), "{:#?}", o.value.proposals);
+}
+
+/// Rules 0.8.1: heals go to Nature; a god route naming no god goes to Entropy (never silently to the world); the
+/// player's own demigods are marked in the prompt. Older matches keep the old routing.
+#[test]
+fn heals_go_to_nature_and_no_god_route_vanishes() {
+    let p = pantheon();
+    let mut ctx = hand_ctx("heal all my demigods");
+    let l = hand::labels(&ctx);
+    let heal = hand::IntentOut { verb: "heal".into(), targets: vec![], how: String::new(), magnitude: 5, route: hand::RouteKind::God, arg: String::new() };
+    assert_eq!(hand::route_for(&ctx, &l, &heal, "heal all my demigods"), Route::World, "0.8.0: unchanged");
+    ctx.rules_081 = true;
+    ctx.own = vec![DemigodId(0), DemigodId(1)];
+    assert_eq!(hand::route_for(&ctx, &l, &heal, "heal all my demigods"), Route::God { god: p.id_of("nature").unwrap(), by: RouteBy::Keyword });
+    let odd = hand::IntentOut { verb: "beseech".into(), arg: "the moon goddess".into(), ..heal.clone() };
+    assert_eq!(hand::route_for(&ctx, &l, &odd, "beseech the moon goddess"), Route::God { god: p.id_of("entropy").unwrap(), by: RouteBy::Llm });
+    // The rules fallback routes heals to Nature too.
+    let out = hand::fallback(&ctx);
+    assert!(out.intents.iter().any(|i| i.route == Route::God { god: p.id_of("nature").unwrap(), by: RouteBy::Keyword }), "{:?}", out.intents);
+    assert!(hand::is_heal("heal", "") && hand::is_heal("mend", "x") && !hand::is_heal("punch", "heal"));
 }

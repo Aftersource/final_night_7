@@ -1,4 +1,330 @@
 {
+  "$defs": {
+    "ChallengeLock": {
+      "description": "Rules 0.8.1: `phase.event.public` when a challenge is accepted (or `round.started.public.challenges[]` for the AI's): both portraits lock in.",
+      "properties": {
+        "a": {
+          "description": "Rules 0.8.1: one duellist at the lock.",
+          "properties": {
+            "controller": {
+              "enum": [
+                "human",
+                "ai"
+              ],
+              "type": "string"
+            },
+            "demigod": {
+              "$ref": "#/$defs/Ref"
+            },
+            "diorama_image": {
+              "type": "object"
+            },
+            "diorama_prompt": {
+              "description": "",
+              "type": "string"
+            },
+            "health": {
+              "description": "Health at the lock (both are shown: the duel's health bars).",
+              "type": "number"
+            },
+            "max_health": {
+              "description": "",
+              "type": "number"
+            },
+            "name": {
+              "description": "",
+              "type": "string"
+            },
+            "player": {
+              "description": "",
+              "type": "string"
+            },
+            "portrait_image": {
+              "type": "object"
+            },
+            "portrait_prompt": {
+              "description": "",
+              "type": "string"
+            },
+            "seat": {
+              "description": "null for the built-in AI.",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "demigod",
+            "name",
+            "player",
+            "seat",
+            "controller",
+            "health",
+            "max_health",
+            "portrait_prompt",
+            "diorama_prompt"
+          ],
+          "type": "object"
+        },
+        "ai": {
+          "description": "",
+          "type": "boolean"
+        },
+        "at": {
+          "$ref": "#/$defs/LonLat"
+        },
+        "b": {
+          "description": "Rules 0.8.1: one duellist at the lock.",
+          "properties": {
+            "controller": {
+              "enum": [
+                "human",
+                "ai"
+              ],
+              "type": "string"
+            },
+            "demigod": {
+              "$ref": "#/$defs/Ref"
+            },
+            "diorama_image": {
+              "type": "object"
+            },
+            "diorama_prompt": {
+              "description": "",
+              "type": "string"
+            },
+            "health": {
+              "description": "Health at the lock (both are shown: the duel's health bars).",
+              "type": "number"
+            },
+            "max_health": {
+              "description": "",
+              "type": "number"
+            },
+            "name": {
+              "description": "",
+              "type": "string"
+            },
+            "player": {
+              "description": "",
+              "type": "string"
+            },
+            "portrait_image": {
+              "type": "object"
+            },
+            "portrait_prompt": {
+              "description": "",
+              "type": "string"
+            },
+            "seat": {
+              "description": "null for the built-in AI.",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "demigod",
+            "name",
+            "player",
+            "seat",
+            "controller",
+            "health",
+            "max_health",
+            "portrait_prompt",
+            "diorama_prompt"
+          ],
+          "type": "object"
+        },
+        "beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "by_seat": {
+          "description": "The challenger's seat; null for the AI.",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "cell": {
+          "description": "The hex at `level`.",
+          "type": "string"
+        },
+        "distance_km": {
+          "description": "",
+          "type": "number"
+        },
+        "duel_id": {
+          "description": "duel:<beat>:<a>:<b>",
+          "type": "string"
+        },
+        "ends": {
+          "enum": [
+            "resolve",
+            "ko_or_deadline"
+          ],
+          "type": "string"
+        },
+        "event": {
+          "const": "challenge.lock"
+        },
+        "focus": {
+          "description": "Centre the camera and spin the globe here.",
+          "properties": {
+            "at": {
+              "$ref": "#/$defs/LonLat"
+            },
+            "cell": {
+              "description": "",
+              "type": "string"
+            },
+            "level": {
+              "description": "",
+              "type": "string"
+            }
+          },
+          "required": [
+            "at",
+            "cell",
+            "level"
+          ],
+          "type": "object"
+        },
+        "freeze": {
+          "description": "The world hold the duel requests (supported once the engine has holds).",
+          "properties": {
+            "deadline_ms": {
+              "description": "Epoch ms.",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "participants": {
+              "description": "Human seats.",
+              "items": {
+                "description": "",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "requested": {
+              "description": "",
+              "type": "boolean"
+            },
+            "supported": {
+              "description": "",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "requested",
+            "supported",
+            "participants",
+            "deadline_ms"
+          ],
+          "type": "object"
+        },
+        "leap": {
+          "description": "The AI challenger summoned itself next to its rival first (applied at the resolve).",
+          "properties": {
+            "demigod": {
+              "$ref": "#/$defs/Ref"
+            },
+            "health_lost": {
+              "description": "",
+              "type": "number"
+            },
+            "to": {
+              "$ref": "#/$defs/LonLat"
+            }
+          },
+          "required": [
+            "demigod",
+            "to",
+            "health_lost"
+          ],
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "level": {
+          "enum": [
+            "regions",
+            "villages",
+            "houses",
+            "people"
+          ],
+          "type": "string"
+        },
+        "place": {
+          "description": "",
+          "type": "string"
+        },
+        "received_at_ms": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "seq": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "time_of_day": {
+          "description": "",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event",
+        "duel_id",
+        "a",
+        "b",
+        "at",
+        "cell",
+        "level",
+        "focus",
+        "ends",
+        "freeze",
+        "beat",
+        "place",
+        "time_of_day",
+        "distance_km",
+        "by_seat",
+        "ai",
+        "leap"
+      ],
+      "type": "object"
+    },
+    "LonLat": {
+      "description": "[longitude, latitude] in degrees (WGS84). Note the order: longitude first.",
+      "items": {
+        "type": "number"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+    },
+    "Ref": {
+      "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row, ce cell, mb mob. Stable for the whole match.",
+      "examples": [
+        "ch:12"
+      ],
+      "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg|ce|mb):\\d+$",
+      "type": "string"
+    }
+  },
   "$id": "round_started_public.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "description": "`round.started.public`: the beat's Start (Time's clock, debts coming due), before anyone acts.",
@@ -26,6 +352,13 @@
       "description": "Names of demigods/possessed bodies hurt for being outside the arena.",
       "items": {
         "type": "string"
+      },
+      "type": "array"
+    },
+    "challenges": {
+      "description": "Rules 0.8.1: the built-in AI's challenges this beat (absent when none): fight back with fields.duel.",
+      "items": {
+        "$ref": "#/$defs/ChallengeLock"
       },
       "type": "array"
     },

@@ -481,6 +481,179 @@ A god-tier power that can't be paid has `fizzled` (nothing spent). The accept-ti
 `summon_enabled`, `summon_cooldown_beats`, `summon_loss_scale`, `god_power_cost`, `god_power_gift` (defaults and
 ranges in the rulebook's appendix and `docs/schemas/settings.schema.json`).
 
+## Challenge mode (0.8.1)
+
+Rules **0.8.1** add typed duels (rulebook chapter 21, "Challenge mode: will against will"): Archon's strategy board
+with fights decided by real-time play, the real-time play being typing. Schema 6 is unchanged; the behaviour is gated on
+the `challenge_enabled` setting (on for new matches, read as off in 0.8.0 recordings). Schemas: `ChallengeLock`,
+`DuelBlow`, `DuelStrike`, `DuelEnd` in `phase_event` / `outcome_public` / `round_started_public`.
+
+### Challenge (double-click a rival in your grid area)
+
+An instant action that travels alone (no orders, casts or summons in the same action):
+
+```json
+{ "type": "action.submit", "d": { "instant": true, "fields": {
+    "challenge": { "demigod": "dg:0", "target": "dg:1", "level": "villages" } } } }
+```
+
+`level` is the board level you are looking at: `regions` (120 km hexes), `villages` (3 km), `houses` (30 m), `people`
+(3 m); the reach is that size × `duel_reach_factor` (1.5). It is forced (no consent). Refused on arrival
+(`action.received {accepted: false, reason}`) with: `not_yours`, `fallen`, `bad_target` (not a rival), `bad_level`,
+`too_far`, `busy` (either already in a duel this beat), `cooldown`, `challenge_disabled`.
+
+**Right after a summon:** a challenge in the same beat as a summon of the same demigod is checked from the summon's
+**destination**, and that demigod fights at its health minus the summon's pending `health_lost` (decided at the
+summon's accept, see below). Summon next to a rival, then double-click it.
+
+Accepted, everyone gets `phase.event` `challenge.lock` (both portraits lock in; the media wrapper adds
+`portrait_image` / `diorama_image` next to the prompts):
+
+```json
+{ "event": "challenge.lock", "duel_id": "duel:2:0:1", "beat": 2, "level": "villages",
+  "a": { "demigod": "dg:0", "name": "Ash's Left Hand", "player": "Ash", "seat": 0, "controller": "human",
+         "health": 10.0, "max_health": 10.0, "portrait_prompt": "Ash's Left Hand, a demigod: …", "diorama_prompt": "…" },
+  "b": { "demigod": "dg:1", "name": "Brix's Left Hand", "player": "Brix", "seat": 1, "controller": "ai",
+         "health": 10.0, "max_health": 10.0, "portrait_prompt": "…", "diorama_prompt": "…" },
+  "at": [106.94723503967316, -6.058344802246152], "cell": "5:villages:452:-157",
+  "focus": { "at": [106.94723503967316, -6.058344802246152], "cell": "5:villages:452:-157", "level": "villages" },
+  "ends": "resolve",
+  "freeze": { "requested": true, "supported": false, "participants": [0, 1], "deadline_ms": 1794680883972 },
+  "place": "Jakarta", "time_of_day": "day", "distance_km": 1.0, "by_seat": 0, "ai": false, "leap": null,
+  "seq": 41, "received_at_ms": 1794680853972 }
+```
+
+- `a` is the challenger, `b` the target; `at` is the target's ground; `focus` is where every client centres the camera
+  and spins the globe. Both `health` values are shown (the duel's health bars: the one place a rival's health is sent).
+- `duel_id` is `duel:<beat>:<a id>:<b id>`; quote it in every line.
+- **The world holds its breath:** by design a duel freezes the world (an engine hold: no beats resolve, only the two
+  duellists act) until a knockout or `duel_deadline_ms` (30 s). `freeze.supported` is `false` until the Theatre ships
+  holds; meanwhile `ends: "resolve"`: the duel ends at the next beat's resolve or its deadline, whichever comes first.
+  With holds it will read `ends: "ko_or_deadline"`, and the core's `hold.opened` / `hold.closed` frame it.
+- The built-in AI challenges too: its locks arrive at the beat's start in `round.started.public.challenges[]` (same
+  shape, `by_seat: null`, `ai: true`). Fight back with lines. When its rival was out of reach, the AI summons itself
+  next to it first: `leap: {demigod, to, health_lost}` (play the teleport and the red pulse; `a.health` is already
+  reduced). `leap` is null otherwise.
+
+### Lines (blows)
+
+While composing, send the masked live typing through the engine's relay, `room.signal {kind: "typing", data:
+{hold_id, text}}` (the plugin never sees it). On Enter, each line is an instant action:
+
+```json
+{ "type": "action.submit", "d": { "instant": true, "fields": {
+    "duel": { "duel_id": "duel:2:0:1", "text": "I sweep your ankle into the harbour mud" } } } }
+```
+
+At most 120 characters. Refusals: `no_duel`, `duel_over` (a knockout, the deadline, or already resolved), `not_yours`
+(you're not in it), `fallen`, `empty`, `too_long`. Each accepted line is resolved at once (rules only, no LLM) and pushed
+to everyone as `phase.event` `duel.blow`:
+
+```json
+{ "event": "duel.blow", "duel_id": "duel:2:0:1", "n": 1, "by": "dg:0", "by_name": "Ash's Left Hand",
+  "text": "I sweep your ankle into the harbour mud", "roll": 12, "modifier": 5, "total": 17, "target_dc": 10,
+  "verdict": "success", "damage": 3.0, "hp": { "a": 10.0, "b": 7.0 },
+  "flavor": "Ash's Left Hand's words hit Brix's Left Hand's ankle only because a coin that landed on its edge had been washed in platinum dust at dawn.",
+  "wit": 3, "tags": ["verb", "body", "terrain"],
+  "modifiers": { "wit": 3, "health": 1, "gear": 0, "follow_up": 0, "home": 1 }, "ko": false, "auto": false,
+  "anim": { "a": "slash", "b": "stagger", "fx": "earth", "camera": "over_a", "army": false, "attacker": "a" },
+  "counter": { "by": "dg:1", "by_name": "Brix's Left Hand", "text": "punch! Right in the ribs, here in the tree",
+               "roll": 1, "modifier": 3, "total": 4, "target_dc": 10, "verdict": "crit_fail", "damage": 0.0,
+               "hp": { "a": 10.0, "b": 7.0 },
+               "flavor": "A natural one: Brix's Left Hand tripped over a vowel, and a moth circling a candle backwards laughed for a week.",
+               "wit": 2, "tags": ["verb", "body", "terrain"],
+               "modifiers": { "wit": 2, "health": 1, "gear": 0, "follow_up": 0, "home": 0 }, "ko": false, "auto": true,
+               "anim": { "a": "taunt", "b": "stagger", "fx": null, "camera": "wide", "army": false, "attacker": "b" } },
+  "hp_after": { "a": 10.0, "b": 7.0 }, "at_ms": 1794680854972, "seq": 42, "received_at_ms": 1794680854972 }
+```
+
+- **The die:** d20 seeded by the match and `<duel_id>:<n>` (a counter `<duel_id>:<n>:counter`); `verdict` is
+  `crit_fail` / `fail` / `success` / `crit_success`, or `penalty` (a line sooner than `duel_min_gap_ms`, 0.5 s, after the
+  same side's last: `roll` 0, no damage, `self_damage` 0.5 to its author).
+- **wit** −3..+4 from the words (action verbs, body parts, items held, terrain and place words, the opponent's story and
+  scars; minus repeats, echoes, short lines, gibberish). `tags` say what it saw.
+- **damage** 0–3 per blow, 4 on a natural 20 (× `duel_damage_scale`). `hp` is both healths after the blow;
+  `hp_after` after its counter. `ko: true` ends the duel (later lines are refused `duel_over`).
+- **counter:** present when the opponent is an AI, or a human who hasn't blown for `duel_counter_ms` (3 s): its
+  automatic strike (`DuelStrike`, `auto: true`).
+- **anim** (every strike, counters included): `a` / `b` are the two figures' moves (`a` = the challenger's figure,
+  `b` = the target's; `attacker` says who struck) from `lunge, slash, parry, dodge, leap, cast, summon_army, charge,
+  grapple, taunt, stagger, fall, block, blast, vanish, rise`; `fx` one of `fire, ice, lightning, earth, water, shadow,
+  light, poison` or null (from the line's element words); `camera` `wide` / `close` / `over_a` / `over_b`; `army`
+  true when the striker calls in its army or followers (moves `summon_army` / `charge`). Deterministic.
+- **choreo** (every strike, counters and penalties included; rulebook 21.4 "the flips"): the formal model for posable
+  figures. Example (a strike into a parry):
+
+  ```json
+  "choreo": { "range_before": "mid", "range_after": "mid", "initiative_before": "a", "initiative_after": "b",
+              "flip": true, "result": "parried", "camera": "over_a", "duration_ms": 1200,
+              "a": { "move_class": "strike", "contact": null, "stance_after": "off_balance",
+                     "pose_keys": [{ "pose": "step_in", "t_ms": 0 }, { "pose": "slash_high", "t_ms": 300 },
+                                   { "pose": "stumble", "t_ms": 600 }] },
+              "b": { "move_class": "parry", "contact": null, "stance_after": "guarding",
+                     "pose_keys": [{ "pose": "parry_high", "t_ms": 750 }] } }
+  ```
+
+  `a` / `b` are the challenger's and the target's figures. `move_class` is one of `strike, heavy, guard, parry, feint,
+  evade, close_in, retreat, grapple, throw, invoke, command, taunt` (the defender's is the defence it had set, or
+  null). `contact` is `{limb: "right_hand" | "left_hand" | "right_foot", target_limb: "head" | "torso" | "arms" |
+  "legs", t_ms}` when the strike connects, else null. `stance_after` is one of `neutral, guarding, committed,
+  off_balance, airborne, downed`; `range_*` one of `far, mid, close, grapple`; `result` one of `landed, absorbed,
+  parried, evaded, missed, thrown, grappled, wasted, moved, set, taunted, penalty`. `duration_ms` 600–1400; `t_ms` are
+  offsets within it. **Poses** (fixed vocabulary): `idle_guard, step_in, lunge_extend, slash_high, slash_low,
+  overhead_windup, overhead_strike, parry_high, parry_low, block_cross, dodge_left, dodge_right, duck, leap_up, land,
+  feint_shoulder, grab_reach, grapple_lock, throw_hip, stagger_back, stumble, fall_back, kneel_hit, rise, cast_raise,
+  cast_release, command_point, taunt_beckon, victory, defeat`. `modifiers.situation` is the formal model's share of the
+  modifier (initiative +2, stances, openings). Keep `anim` for a simpler summary.
+
+### The end
+
+At the resolve (or the knockout, applied at the resolve) the duel is recomputed from the ordered actions (the live
+pushes are a cache; the resolve is the record and agrees with them) and applied: health (a knockout is an elimination),
+the loser's loot on the duel's hex, a tale for both, `duel.lock` / `duel.end` in the memory at that hex, every die in
+`dice[]` (reason `"a duel"`). `round.outcome.public.duels[]`:
+
+```json
+{ "event": "duel.end", "duel_id": "duel:2:0:1", "a": "dg:0", "b": "dg:1", "a_name": "Ash's Left Hand",
+  "b_name": "Brix's Left Hand", "winner": "dg:0", "loser": "dg:1", "ko": false,
+  "damage": { "a": 0.0, "b": 3.0 }, "hp": { "a": 10.0, "b": 7.0 }, "blows": 1, "typed": 1,
+  "deed": "After one blow in Jakarta, Ash's Left Hand edged Brix's Left Hand on points, only because someone in the next valley had washed a stone in platinum dust.",
+  "at": [106.95, -6.06], "pos": [106.947235, -6.058345], "cell": "5:villages:452:-157", "level": "villages",
+  "place": "Jakarta", "log": [ "…every duel.blow, in order…" ] }
+```
+
+`winner` / `loser` are null on a draw (damage within 0.05). `blows` counts every numbered blow (typed and automatic);
+a duel nobody typed in is fought automatically (`duel_auto_rounds` exchanges, `auto: true` in the log). The deed is one
+line from the duel mind when a human fought (LLM), else the rules'.
+
+### Healing and orders that never vanish (0.8.1 fix)
+
+"heal all my demigods" (heal, restore, mend, cure) now goes to **Nature** (Death when a target has fallen): an
+invocation with its normal price and a real verdict in `omens[]`; unless refused, each target heals 1–3
+(1 + magnitude/4, half when twisted), visible as `heal` rows in `events[]` and in your demigods' health. "me" / "my
+demigods" / "all my demigods" mean your own two demigods (rivals are healed only when named). An order the hand
+routes to a god that isn't in the match goes to Entropy (a visible ruling), never silently nowhere.
+
+### Summoning: the damage check comes first (0.8.1)
+
+(Values illustrative.) The `summoning` push now carries the mishap decided at the accept (the resolve applies exactly these, and `summoned`
+repeats the same `roll` and `health_lost`):
+
+```json
+{ "event": "summoning", "demigod": "dg:0", "from": [106.9, -6.1], "to": [106.95, -1.55], "by_seat": 0,
+  "roll": 4, "modifier": 0, "total": 4, "target_dc": 18, "verdict": "fail", "health_lost": 2.0,
+  "summons": [{ "demigod": "dg:0", "to": [106.95, -1.55], "cell": "…", "roll": 4, "modifier": 0, "total": 4,
+                "target_dc": 18, "verdict": "fail", "health_lost": 2.0 }], "…": "…" }
+```
+
+Show the red pulse before the teleport. The roll's query is `summon:<beat>:<demigod>:<lon>,<lat>`.
+
+### Settings
+
+`challenge_enabled`, `duel_reach_factor`, `duel_cooldown_beats`, `duel_deadline_ms`, `duel_damage_scale`,
+`duel_min_gap_ms`, `duel_followup_ms`, `duel_counter_ms`, `duel_ai_chance`, `duel_ai_reach_km`, `duel_auto_rounds` (defaults and ranges in
+the rulebook's appendix and `docs/schemas/settings.schema.json`).
+
 ## Message flow for one beat
 
 One Theatre **round** is one **beat**, so `round` and `beat` are always the same number. There are no choices: `round.private.choices`
@@ -1559,7 +1732,10 @@ lets humans join while the match runs; humans can also leave at any time. Withou
 3. **At the boundary** (before the next beat's Start) the game binds the seat to a demigod:
    - a taken-over **bot seat** keeps its demigod, now `controller: "human"`; rules 0.8.0 renames its two demigods
      `"<joiner>'s Left Hand"` / `"<joiner>'s Right Hand"` (same refs; their portraits and dioramas switch to the
-     joiner's prewarmed ones) and remembers it (`seat.takeover`: "Benito took up the mantle of Brix's Left Hand");
+     joiner's prewarmed ones) and remembers it (`seat.takeover`: "Benito took up the mantle of Brix's Left Hand").
+     Rules 0.8.1: when the joiner's older seat (same display name, e.g. eliminated) still carries those names, the new
+     demigods keep the plain names anyway (refs keep them apart); only a different player's colliding name gets a
+     `" (<seat>)"` suffix, and image prompts ignore that suffix, so the art always matches the prewarmed images;
    - a **new seat** takes over one of the **built-in AI demigods** still alive, the one with the most health (then the
      lowest id): its `seat` changes from `null` to the new seat and its `controller` to `"human"`;
    - if no built-in AI demigod is alive, the joiner gets **no demigod and spectates**: their seat is `active` to the

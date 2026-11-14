@@ -193,9 +193,23 @@ fn pick(r: &mut Rng, xs: &[&str]) -> String {
     r.pick(xs).copied().unwrap_or_default().to_string()
 }
 
-/// A name as an identity: trimmed, lowercased.
+/// A demigod's name as its images know it: without a disambiguating `" (n)"` seat suffix (rules 0.8.1), so a renamed
+/// `"Chris's Left Hand (2)"` draws exactly like the prewarmed `"Chris's Left Hand"`.
+pub fn image_name(name: &str) -> &str {
+    let t = name.trim();
+    if let Some(open) = t.strip_suffix(')').and_then(|x| x.rfind(" (").map(|i| (i, x))) {
+        let (i, x) = open;
+        let digits = &x[i + 2..];
+        if !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()) {
+            return x[..i].trim_end();
+        }
+    }
+    t
+}
+
+/// A name as an identity: trimmed, lowercased, any `" (n)"` suffix dropped ([`image_name`]).
 pub fn identity(name: &str) -> String {
-    name.trim().to_lowercase()
+    image_name(name).to_lowercase()
 }
 
 /// A demigod's sheet from its name alone (the same in every match).

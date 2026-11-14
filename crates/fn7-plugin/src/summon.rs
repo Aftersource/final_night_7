@@ -55,6 +55,24 @@ pub fn recklessness(health: f32, max: f32, scale: f32) -> (f64, f32) {
     (p, (loss * 10.0).round() / 10.0)
 }
 
+/// The mishap check of summoning `x` at `beat` with the demigod at `health` (no state change): `(query, roll, health
+/// lost)`. Rules 0.8.1: decided at the accept (`on_instant` shows it in `summoning`) from the committed state, and
+/// recomputed identically at the resolve from the beat's starting health; the query carries the target
+/// (`summon:<beat>:<demigod>:<lon>,<lat>`). Before 0.8.1 the query was `summon:<beat>:<demigod>`.
+pub fn mishap(w: &World, beat: u32, x: &SummonOrder, health: f32, st: &Settings) -> (String, fn7_model::dm::DiceRoll, f32) {
+    let max = w.demigods.get(x.demigod.ix()).map(|d| d.max_health).unwrap_or(10.0);
+    let (p, loss) = recklessness(health, max, st.summon_loss_scale);
+    let dc = ((20.0 * p).round() as i32 + 1).clamp(2, 20);
+    let q = if st.rules_0_8_1 {
+        format!("summon:{beat}:{}:{:.5},{:.5}", x.demigod.0, x.target[0], x.target[1])
+    } else {
+        format!("summon:{beat}:{}", x.demigod.0)
+    };
+    let roll = dm::roll_d20(w, &q, 0, dc);
+    let lost = if roll.verdict.ok() { 0.0 } else { loss };
+    (q, roll, lost)
+}
+
 /// One summoning settled this beat, waiting for its deed.
 #[derive(Debug, Clone)]
 pub struct Pending {
@@ -69,7 +87,9 @@ pub struct Pending {
 }
 
 /// Settle this beat's summonings (arrival order): move, roll the mishap, take the health. Returns the deeds to tell.
-pub fn process(w: &mut World, beat: u32, turns: &[Turn], pantheon: &Pantheon, st: &Settings) -> Vec<Pending> {
+/// `start_health`: every demigod's health at the beat's start (rules 0.8.1: the mishap is decided from it, as it was
+/// shown at the accept).
+pub fn process(w: &mut World, beat: u32, turns: &[Turn], pantheon: &Pantheon, st: &Settings, start_health: &[f32]) -> Vec<Pending> {
     let mut order: Vec<(u8, &SummonOrder)> = turns.iter().flat_map(|t| t.input.summons.iter().map(move |x| (t.seat, x))).collect();
     order.sort_by_key(|(seat, x)| (x.seq, *seat, x.demigod));
     let mut out = vec![];
@@ -85,11 +105,11 @@ pub fn process(w: &mut World, beat: u32, turns: &[Turn], pantheon: &Pantheon, st
             let me = &w.demigods[d.ix()];
             (me.pos, me.health, me.max_health, me.name.clone(), me.place)
         };
-        let (p, loss) = recklessness(health, max, st.summon_loss_scale);
-        let dc = ((20.0 * p).round() as i32 + 1).clamp(2, 20);
-        let q = format!("summon:{beat}:{}", d.0);
-        let roll = dm::d20(w, beat, &q, Ref::Demigod(d), 0, dc, "a summoning", x.target);
-        let lost = if roll.verdict.ok() { 0.0 } else { loss };
+        let _ = max;
+        let h = if st.rules_0_8_1 { start_health.get(d.ix()).copied().unwrap_or(health) } else { health };
+        let (q, roll, lost) = mishap(w, beat, x, h, st);
+        let roll = dm::d20(w, beat, &q, Ref::Demigod(d), 0, roll.target_dc, "a summoning", x.target);
+        let lost = if roll.verdict.ok() { 0.0 } else { lost };
         let to_place = place_at(w, x.target);
         let mut props = vec![Proposal {
             source: Source::Rules,

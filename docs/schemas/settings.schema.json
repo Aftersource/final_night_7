@@ -81,6 +81,11 @@
       "minimum": 0,
       "type": "integer"
     },
+    "challenge_enabled": {
+      "default": true,
+      "description": "Rules 0.8.1: challenge mode (fields.challenge / fields.duel, and the built-in AI's challenges). Settings recorded before 0.8.1 read it as false.",
+      "type": "boolean"
+    },
     "choose_seconds": {
       "description": "Unused by Final Night 7 (there is no Choose phase); copied through if set.",
       "exclusiveMinimum": 0,
@@ -216,6 +221,76 @@
       "maximum": 20,
       "minimum": 0,
       "type": "integer"
+    },
+    "duel_ai_chance": {
+      "default": 0.02,
+      "description": "Rules 0.8.1: chance per beat that a built-in AI demigod challenges its nearest rival.",
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "type": "number"
+    },
+    "duel_ai_reach_km": {
+      "default": 2000.0,
+      "description": "Rules 0.8.1: a built-in AI demigod's rival beyond regions reach but within this summons it next to it first.",
+      "maximum": 20000.0,
+      "minimum": 0.0,
+      "type": "number"
+    },
+    "duel_auto_rounds": {
+      "default": 2,
+      "description": "Rules 0.8.1: automatic exchanges in a duel nobody typed in.",
+      "maximum": 10,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "duel_cooldown_beats": {
+      "default": 1,
+      "description": "Rules 0.8.1: beats between two challenges by one demigod.",
+      "maximum": 100,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "duel_counter_ms": {
+      "default": 3000,
+      "description": "Rules 0.8.1: a human idle this long is countered automatically.",
+      "maximum": 60000,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "duel_damage_scale": {
+      "default": 1.0,
+      "description": "Rules 0.8.1: multiplier on duel blow damage.",
+      "maximum": 10.0,
+      "minimum": 0.0,
+      "type": "number"
+    },
+    "duel_deadline_ms": {
+      "default": 30000,
+      "description": "Rules 0.8.1: the longest a duel runs after its lock (the engine hold's deadline).",
+      "maximum": 600000,
+      "minimum": 1000,
+      "type": "integer"
+    },
+    "duel_followup_ms": {
+      "default": 1500,
+      "description": "Rules 0.8.1: a blow within this of the same side's last is a quick follow-up (+1).",
+      "maximum": 10000,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "duel_min_gap_ms": {
+      "default": 500,
+      "description": "Rules 0.8.1: a blow sooner than this after the same side's last is a penalty.",
+      "maximum": 5000,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "duel_reach_factor": {
+      "default": 1.5,
+      "description": "Rules 0.8.1: a challenge reaches this many times its level's hex size.",
+      "maximum": 10.0,
+      "minimum": 0.5,
+      "type": "number"
     },
     "entropy_per_mega": {
       "default": 10.0,
@@ -430,6 +505,11 @@
       "maximum": 1000,
       "minimum": 1,
       "type": "integer"
+    },
+    "rules_0_8_1": {
+      "default": true,
+      "description": "Rules 0.8.1 marker (always true when validated by a 0.8.1+ server; absent in older recordings).",
+      "type": "boolean"
     },
     "seed": {
       "description": "Match seed (u64). Absent = picked at match start (not echoed back in `rules`).",

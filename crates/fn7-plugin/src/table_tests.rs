@@ -321,3 +321,47 @@ async fn a_schema_5_takeover_keeps_the_names() {
     assert_eq!(w2.demigods[1].name, "Brix's Left Hand");
     assert!(w2.dm.memory.is_empty());
 }
+
+/// Rules 0.8.1: a human rejoining on another seat while their older seat (same display name) is still in the room
+/// gets the plain names again (no " (n)" suffix); only a genuinely different player with that name gets the suffix,
+/// and the image identity ignores the suffix either way.
+#[tokio::test]
+async fn a_rejoin_under_the_same_name_keeps_the_plain_names() {
+    let (p, s) = start(5).await;
+    // Seat 0 was Chris (now fallen); Chris rejoins and takes over bot seat 1.
+    let mut w = world::load(&s).unwrap();
+    for d in w.demigods.iter_mut().filter(|d| d.seat == 0) {
+        d.name = format!("Chris's {} Hand", if d.side == Some(Hand::Right) { "Right" } else { "Left" });
+        d.player = "Chris".into();
+        d.alive = false;
+        d.health = 0.0;
+    }
+    w.seats[0].display_name = "Chris".into();
+    w.seats[0].is_bot = false;
+    let s = world::save(&w);
+    let chris = SeatTakeover { seat: 1, display_name: "Chris".into(), round: 3, new_seat: false, previous_name: Some("Brix".into()) };
+    let w2 = world::load(&p.on_seat_takeover(&s, &chris).expect("changed")).unwrap();
+    let names: Vec<&str> = w2.demigods.iter().filter(|d| d.seat == 1).map(|d| d.name.as_str()).collect();
+    assert_eq!(names, vec!["Chris's Left Hand", "Chris's Right Hand"], "the same player: no suffix");
+    // A different player whose name collides (seat 0's demigods belong to "Chris" but this joiner is a stranger whose
+    // display name only matches the demigod names, not the player): suffixed.
+    let mut w3 = world::load(&s).unwrap();
+    for d in w3.demigods.iter_mut().filter(|d| d.seat == 0) {
+        d.player = "Someone Else".into();
+    }
+    w3.seats[0].display_name = "Someone Else".into();
+    let w4 = world::load(&p.on_seat_takeover(&world::save(&w3), &chris).expect("changed")).unwrap();
+    let names: Vec<&str> = w4.demigods.iter().filter(|d| d.seat == 1).map(|d| d.name.as_str()).collect();
+    assert_eq!(names, vec!["Chris's Left Hand (1)", "Chris's Right Hand (1)"]);
+    // The image identity strips the suffix: the same prompts as the prewarmed plain names.
+    assert_eq!(payload::portrait_prompt_for("Chris's Left Hand (1)"), payload::portrait_prompt_for("Chris's Left Hand"));
+    assert_eq!(payload::diorama_prompt_for("Chris's Right Hand (12)"), payload::diorama_prompt_for("Chris's Right Hand"));
+    assert_eq!(visual::image_name("Odd (Name)"), "Odd (Name)");
+    // Settings from before 0.8.1 keep the old rename (old recordings replay).
+    let mut old = world::load(&s).unwrap();
+    if let Some(o) = old.meta.settings.as_object_mut() {
+        o.remove("rules_0_8_1");
+    }
+    let w5 = world::load(&p.on_seat_takeover(&world::save(&old), &chris).expect("changed")).unwrap();
+    assert!(w5.demigods.iter().filter(|d| d.seat == 1).all(|d| d.name.ends_with(" (1)")));
+}

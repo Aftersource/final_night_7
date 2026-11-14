@@ -214,7 +214,7 @@ pub fn portrait_prompt_for(name: &str) -> String {
     format!(
         "{}, a demigod: {}; a larger-than-life figure with two glowing orchestrator hands floating at their sides and \
          lightning crackling between their fingers",
-        name,
+        crate::visual::image_name(name),
         crate::visual::demigod_by_name(name).brief()
     )
 }
@@ -234,6 +234,7 @@ pub fn hand_names(demigod: &str) -> [String; 2] {
 /// [`diorama_prompt`] from the name alone.
 pub fn diorama_prompt_for(name: &str) -> String {
     let v = crate::visual::demigod_by_name(name);
+    let name = crate::visual::image_name(name);
     format!(
         "{}, a demigod: {}; as a tiny geometric miniature figure standing on a single raised hexagonal diorama tile, its \
          signature prop, {}, built into the scene at its feet, trimmed in {} and {}",

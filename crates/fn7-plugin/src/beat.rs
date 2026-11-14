@@ -301,6 +301,70 @@ pub fn invoke_cost(def: &GodDef, magnitude: u8) -> u32 {
     }
 }
 
+/// Rules 0.8.1: a heal's targets: rival demigods only when the order names them; "me" / "my demigods" / "all my
+/// demigods" (or no demigod at all) mean the player's own standing ones; a fallen one of its own sends the heal to
+/// Death (a raising).
+fn heal_targets(w: &World, i: &mut Intent, pantheon: &Pantheon) {
+    if !matches!(i.route, Route::God { .. }) || !fn7_agents::hand::is_heal(&i.verb, &i.span) {
+        return;
+    }
+    let span = i.span.to_lowercase();
+    let me = i.demigod;
+    let named = |d: DemigodId| {
+        let n = w.demigods[d.ix()].name.to_lowercase();
+        span.contains(&n) || n.split("'s").next().is_some_and(|p| p.len() > 2 && span.contains(p.trim()))
+    };
+    let before = i.targets.len();
+    i.targets.retain(|t| match t {
+        Target::Known(Ref::Demigod(d)) => w.same_player(*d, me) || named(*d),
+        _ => true,
+    });
+    let has_own = i.targets.iter().any(|t| matches!(t, Target::Known(Ref::Demigod(d)) if w.same_player(*d, me)));
+    let mine = ["my demigod", "all my", "both of us", "myself", "my hands", "us both", " me", "me "].iter().any(|k| span.contains(k))
+        || span.trim() == "me";
+    let any_dg = i.targets.iter().any(|t| matches!(t, Target::Known(Ref::Demigod(_))));
+    if !has_own && (mine || !any_dg) {
+        let seat = w.demigods[me.ix()].seat;
+        for d in w.bodies_of_seat(seat) {
+            i.targets.push(Target::Known(Ref::Demigod(d.id)));
+        }
+    }
+    let fallen = i.targets.iter().any(|t| matches!(t, Target::Known(Ref::Demigod(d)) if !w.demigods[d.ix()].alive));
+    if fallen {
+        if let Some(god) = pantheon.id_of("death") {
+            i.route = Route::God { god, by: RouteBy::Keyword };
+        }
+    }
+    if i.targets.len() != before || fallen {
+        event("heal_targets", Some(Ref::Demigod(me).to_string()),
+              json!({ "intent": i.id, "targets": i.targets, "dropped_rivals": before > i.targets.len(), "to_death": fallen }));
+    }
+}
+
+/// Rules 0.8.1: the heal a god granted: +1..+3 health (1 + magnitude/4) per standing target demigod or person it
+/// didn't already heal, half when twisted (capped by max health in the merge); fallen targets are Death's to raise.
+fn heal_props(w: &World, ruling: &Ruling, intent: &Intent, theirs: &[Proposal]) -> Vec<Proposal> {
+    let amount = (1.0 + intent.magnitude as f32 / 4.0).clamp(1.0, 3.0) * if ruling.verdict == Verdict::Twist { 0.5 } else { 1.0 };
+    let mut out = vec![];
+    for t in &intent.targets {
+        let Target::Known(r @ (Ref::Demigod(_) | Ref::Char(_))) = t else { continue };
+        if theirs.iter().any(|p| matches!(&p.effect, Effect::Heal { who, .. } | Effect::Revive { who } if who == r)) {
+            continue;
+        }
+        let alive = match r {
+            Ref::Demigod(d) => w.demigods[d.ix()].alive,
+            Ref::Char(c) => w.characters[c.ix()].alive,
+            _ => false,
+        };
+        let effect = if alive { Effect::Heal { who: *r, amount } } else { Effect::Revive { who: *r } };
+        if !alive && w.name_of(Ref::God(ruling.god)) != "Death" {
+            continue;
+        }
+        out.push(god_prop(ruling, intent, effect, format!("{} mends {}", w.name_of(Ref::God(ruling.god)), w.name_of(*r))));
+    }
+    out
+}
+
 pub(crate) fn god_prop(ruling: &Ruling, intent: &Intent, effect: Effect, act: String) -> Proposal {
     Proposal {
         source: Source::God {
@@ -594,6 +658,8 @@ pub fn split_turn(w: &World, seat: u8, lead: DemigodId, input: Input) -> Vec<Tur
                 casts: if is_lead { input.casts.clone() } else { vec![] },
                 summons: if is_lead { input.summons.clone() } else { vec![] },
                 god_powers: if is_lead { input.god_powers.clone() } else { vec![] },
+                challenge: None,
+                blow: None,
             },
         });
     }
@@ -724,11 +790,13 @@ fn match_named(w: &World, m: &Mention) -> Option<Ref> {
 }
 
 /// The beat.
+#[allow(clippy::too_many_arguments)]
 pub async fn resolve(
     w: &mut World,
     beat: u32,
     turns: Vec<Turn>,
     subs: &[crate::flow::Sub],
+    duel_acts: &[crate::duel::Act],
     closed: &[theatre_plugin_api::ClosedWindow],
     llm: Option<&dyn LlmProvider>,
     pantheon: &Arc<Pantheon>,
@@ -764,6 +832,8 @@ pub async fn resolve(
     let entropy_at_start = w.meta.entropy;
     let row_start = w.ledger.rows.len();
     let first_new_intent = w.intents.len();
+    // Rules 0.8.1: this beat's duels, fought first from the committed state (as they were shown live) and applied.
+    let duels = crate::duel::process(w, beat, duel_acts, pantheon, &st);
 
     // ---- (0) view changes from the action's zoom field ------------------------------------------------------------
     for t in &turns {
@@ -784,7 +854,7 @@ pub async fn resolve(
     // ---- (0a') casts: god powers from the UX, settled in arrival order (ramifications run in the act batch) --------
     let casts = crate::casts::process(w, beat, &turns, pantheon, &st);
     // Rules 0.8.0: summonings land now (the move, the mishap's d20, the health); their deeds are told in the act batch.
-    let summons = if w.dm_rules() { crate::summon::process(w, beat, &turns, pantheon, &st) } else { vec![] };
+    let summons = if w.dm_rules() { crate::summon::process(w, beat, &turns, pantheon, &st, &health_at_start) } else { vec![] };
     // Who spoke this beat (their hands, subagents and resolvers use the LLM; everyone else continues by rules).
     let spoke: std::collections::BTreeSet<DemigodId> = turns
         .iter()
@@ -905,6 +975,8 @@ pub async fn resolve(
                 pantheon: pantheon.clone(),
                 max_subagents: st.max_subagents_per_hand as usize,
                 final_wish: is_final_wish(w, beat),
+                own: if st.rules_0_8_1 { w.bodies_of_seat(dg.seat).map(|x| x.id).collect() } else { vec![] },
+                rules_081: st.rules_0_8_1,
             }));
         }
     }
@@ -942,6 +1014,9 @@ pub async fn resolve(
         };
         for mut i in intents.into_iter().take(cap as usize) {
             i.id = IntentId::from_ix(w.intents.len());
+            if st.rules_0_8_1 {
+                heal_targets(w, &mut i, pantheon);
+            }
             if wish {
                 // The Final Wish: every act of the wish is grander (rules 0.7.0).
                 i.magnitude = (i.magnitude as u32 + st.final_wish_magnitude).min(10) as u8;
@@ -1462,6 +1537,13 @@ pub async fn resolve(
         use_llm.push(true);
     }
     let mut summon_deeds: Vec<String> = vec![String::new(); summons.len()];
+    // Rules 0.8.1: the duel mind tells each finished duel (the LLM when a human fought in it).
+    let first_duel = calls.len();
+    for p in &duels {
+        calls.push(MindCall::Duel(p.ctx.clone()));
+        use_llm.push(p.human);
+    }
+    let mut duel_deeds: Vec<String> = vec![String::new(); duels.len()];
     let mut manifest_words: BTreeMap<usize, (fn7_agents::manifest::ManifestOut, bool)> = BTreeMap::new();
     let t0 = Instant::now();
     let rep = overlap(run_split(llm, calls.clone(), use_llm.clone(), timeout), &mut bg, &mut bg_rep).await;
@@ -1567,6 +1649,11 @@ pub async fn resolve(
                         });
                     }
                 }
+                // Rules 0.8.1: a heal the god didn't refuse heals its targets (by magnitude, half when twisted),
+                // whatever words the god chose.
+                if st.rules_0_8_1 && ruling.verdict != Verdict::Refuse && fn7_agents::hand::is_heal(&ctx.intent.verb, &ctx.intent.span) {
+                    props.extend(heal_props(w, &ruling, &ctx.intent, &g.proposals));
+                }
                 w.rulings.push(ruling);
                 props.extend(g.proposals);
             }
@@ -1624,6 +1711,11 @@ pub async fn resolve(
                 }
                 props.push(crate::society::orders_prop(w, m, j, asked));
             }
+            (MindCall::Duel(_), MindReply::Duel(out)) => {
+                if let Some(x) = duel_deeds.get_mut(k - first_duel) {
+                    *x = out.deed;
+                }
+            }
             (MindCall::Summon(_), MindReply::Summon(out)) => {
                 if let Some(x) = summon_deeds.get_mut(k - first_summon) {
                     *x = out.deed;
@@ -1672,6 +1764,8 @@ pub async fn resolve(
     if !summons.is_empty() {
         crate::summon::record(w, beat, &summons, &summon_deeds);
     }
+    // Rules 0.8.1: the duels' deeds (duel.end in the memory, a tale each).
+    let duel_ends = crate::duel::record(w, beat, &duels, &duel_deeds);
     // Manifestations: the payment, debt, backfire and Entropy, then the attempt itself (its row and its item).
     for (k, j) in judged.iter().enumerate() {
         props.extend(j.props.iter().cloned());
@@ -1687,8 +1781,13 @@ pub async fn resolve(
     props.extend(fn7_society::entropy_proposals(w, beat, pantheon.id_of("entropy")));
     props.extend(fn7_society::mod_proposals(w, beat));
     // Rules 0.8.0: a demigod summoned this beat stays where it was summoned (its hands' travel this beat is void).
-    if !summons.is_empty() {
-        props.retain(|p| !matches!(&p.effect, Effect::Move { who: Ref::Demigod(d), .. } if summons.iter().any(|s| s.demigod == *d)));
+    // Rules 0.8.1: so does a built-in AI demigod that leapt to its duel.
+    let leapt: Vec<DemigodId> = duels.iter().filter_map(|p| p.bout.duel.leap.map(|m| m.demigod)).collect();
+    if !summons.is_empty() || !leapt.is_empty() {
+        props.retain(|p| {
+            !matches!(&p.effect, Effect::Move { who: Ref::Demigod(d), .. }
+                      if summons.iter().any(|s| s.demigod == *d) || leapt.contains(d))
+        });
     }
     let entropy_before = entropy_at_start;
     let n_props = props.len();
@@ -2005,6 +2104,9 @@ pub async fn resolve(
             }
         }
         public["summons"] = summoned.into();
+        if !duel_ends.is_empty() {
+            public["duels"] = duel_ends.into();
+        }
     }
     clock.lap(Stage::Broadcast);
 

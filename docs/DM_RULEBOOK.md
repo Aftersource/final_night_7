@@ -1,12 +1,12 @@
 # The Dungeon Master's Rulebook
 
-*Final Night 7, rules 0.8.0, state schema 6.*
+*Final Night 7, rules 0.8.1, state schema 6.*
 
 This is the rulebook the Dungeon Master follows. The DM is the server: its rules (code) and its LLM minds (the game
 master who resolves acts, the gods, the narrator). Every chapter states a rule as the DM applies it, with the numbers
 the code uses. When the code and this book disagree, the code is the bug report: `MECHANICS` in
 `crates/fn7-plugin/src/lib.rs` is the machine list recorded with every match, and the client contract is
-`docs/CLIENT_API.md` ("DM rulebook features (0.8.0)").
+`docs/CLIENT_API.md` ("DM rulebook features (0.8.0)" and "Challenge mode (0.8.1)").
 
 The core of this book (chapter 1's four laws, in short form) and its governing principle (chapter 0) are embedded in the game master's and the gods' system
 prompts (`fn7_agents::rulebook::DM_CORE`) for every schema-6 match. Older recordings keep their old prompts, so their
@@ -35,7 +35,8 @@ LLM replay still matches request for request.
 18. Consistency rules
 19. Summoning your demigod
 20. God-tier powers
-21. Appendix: the DM's settings
+21. Challenge mode: will against will
+22. Appendix: the DM's settings
 
 ---
 
@@ -120,7 +121,9 @@ The DM rolls one d20 when:
 | A manifestation (item engine) | `mf:<id>` | from the tier's base odds | the odds' other terms (2.4) |
 | An encounter is stepped on | `encounter:<id>` | by type (chapter 8) | the demigod's, −1 for monsters and traps at night, +1 near its own shrine |
 | A fight's loser keeps hold of its gear | `fight:<beat>:<a>:<b>` | 11 | the demigod's |
-| A summoning's mishap check | `summon:<beat>:<demigod>` | `round(20 × p) + 1` (chapter 19) | none |
+| A summoning's mishap check | `summon:<beat>:<demigod>` (0.8.1: `summon:<beat>:<demigod>:<lon>,<lat>`) | `round(20 × p) + 1` (chapter 19) | none |
+| A duel blow (0.8.1) | `<duel_id>:<n>` (a counter `<duel_id>:<n>:counter`) | 10, +1 at night, + half the opponent's wardrobe stage | the line's wit and the duellist's (chapter 21) |
+| A duel's loser keeps hold (0.8.1) | `<duel_id>:hold` | 11 | the demigod's |
 
 The DM does not roll for things the rules settle exactly (damage from Time's circle, armies' strikes, debts, the
 survivor rule) or for gods' verdicts, god-tier ones included (a god decides; there are no odds to roll against).
@@ -440,7 +443,8 @@ Credit (required, ODC-BY 1.0): "Plate boundaries: Bird, P. (2002), PB2002; GeoJS
   plus what its Following heard. Public: positions, cells, bolts and sparks, casts, armies, mods, Entropy, big
   rulings, the slow window's opener, influence, and (0.8.0) every d20, settlement levels, encounters as marked hexes
   (types once revealed), loot, roads, shrines, story pieces and the time of day. A die's public `reason` names only the
-  act's class ("a strike", "a parley", "a journey"), never the order's words. Rivals' health is never sent.
+  act's class ("a strike", "a parley", "a journey"), never the order's words. Rivals' health is never sent, except
+  inside a duel (0.8.1): the lock and every blow show both duellists' health (the duel's health bars).
 
 ## 16. The item engine
 
@@ -506,6 +510,10 @@ A player drags one of its demigods onto the board or the globe: an instant actio
   `round(20 × p) + 1` with `p = clamp(0.25 + 0.6 × health/max, 0, 0.95)`; a failure is a mishap costing
   `round(0.2 × max × health/max)` clamped to 1..2 health (× `summon_loss_scale`). Below 2.5 health a mishap costs
   nothing. At full health that is an 85% chance of losing 2 (20%).
+- **The damage check comes first (0.8.1):** the mishap d20 and the health it costs are decided at the accept, from the
+  committed state, and shown in the instant `summoning` push (a red pulse before the teleport); the resolve applies
+  exactly those, recomputed from the beat's starting health. A challenge right after a summon of the same demigod
+  fights from its destination at its health minus that loss (chapter 21).
 - **The deed:** the summon mind (LLM, else its rules fallback) tells in one hilarious line what it was doing, how it was
   yanked across the world and how it landed (the Lens and the Engine, chapter 0). The deed is a **tale** in its story
   (`story.tales`, the newest 8) and is remembered at both places: `summon.departed` at the hex it left and `summoned` at
@@ -532,9 +540,137 @@ Each god has one signature power on the ring, cast like any power with `tier: "g
 | `god_memory` "The Great Forgetting" | Memory | every crowd in the target's region forgets its allegiances |
 | `god_entropy` "The Chaos Burst" | Entropy | Entropy +15 (Entropy always says yes) |
 
-## 21. Appendix: the DM's settings
+## 21. Challenge mode: will against will
 
-Room settings (validated in `crates/fn7-plugin/src/settings.rs`, listed by `GET /sim/settings`). The 0.8.0 ones:
+> "everyone on the map needs to stop what they're doing and watch: the Archon-level fight, will against will"
+> (Chris, rules 0.8.1)
+
+**The inspiration.** In Archon (1983) the board is chess-like strategy, but when two pieces meet the game cuts to an
+arena and the fight is decided by real-time play. Final Night 7 does the same, with **typing** as the real-time play:
+two demigods lock in, both diorama portraits slam onto the screen (a Mega Man X double lock-in), and every line a
+player types is a blow. The world holds its breath and watches.
+
+### 21.1 The challenge
+
+A player double-clicks a rival demigod near one of its own: an instant action
+`fields.challenge {demigod: "dg:mine", target: "dg:N", level}` (the level the board shows: regions, villages, houses or
+people). **Forced:** there is no consent. Valid when (checked on arrival and again at the resolve, in arrival order):
+
+| Refusal | When |
+|---|---|
+| `not_yours` | the demigod isn't the sender's |
+| `fallen` | either demigod has fallen |
+| `bad_target` | the target is no rival (another seat's) |
+| `too_far` | great-circle distance > the level's hex size × `duel_reach_factor` (1.5): regions 180 km, villages 4.5 km, houses 45 m, people 4.5 m |
+| `busy` | either is already in a duel this beat |
+| `cooldown` | its last challenge was under `duel_cooldown_beats` (1) ago |
+
+Accepted, everyone sees `challenge.lock`: both duellists (name, portrait and diorama, **both healths**: the duel's
+health bars are the one place a rival's health is shown), the ground (the target's position), its hex at the level,
+the camera `focus`, and the duel's id `duel:<beat>:<a>:<b>`.
+
+**The world holds its breath.** By design a duel freezes the world: no beats resolve, timers pause and only the two
+duellists act, until a knockout or `duel_deadline_ms` (30 s). That needs an engine hold (requested and announced in
+the lock's `freeze`); until the Theatre offers it, the world keeps beating and the duel ends at the next resolve (or its
+deadline, whichever comes first). Everything below is the same either way.
+
+### 21.2 Blows
+
+Each line a duellist types (`fields.duel {duel_id, text}`, at most 120 characters; clients relay the live typing
+preview through the engine's `room.signal {kind: "typing"}`) is a blow, resolved at once by rules (an LLM per blow would
+be far too slow):
+
+- **The die:** a d20 seeded by the match and `<duel_id>:<n>`, against DC 10 (+1 at night, + half the opponent's
+  wardrobe stage).
+- **The modifier:** the situation (21.4: initiative, stances, openings), the line's **wit** (−3..+4: an action verb +1, a second verb +1, a body part +1, an item the
+  duellist holds +1, a terrain or place word +1, the opponent's story or scars +1, at most +4; the same line again −2,
+  nearly the same −1, under three words −1, gibberish −1), plus +1 hale (duel health 7+) or −1 hurt (3 or less), half
+  the wardrobe stage and +1 with any item, +1 for a quick follow-up (within `duel_followup_ms`, 1.5 s, of its own last
+  blow), +1 on home turf.
+- **Damage:** 0 on a fail or a natural 1; 1 on a success, +1 beating the DC by 5, +1 with wit 3 or more (so 1–3); 4 on
+  a natural 20; × `duel_damage_scale`.
+- **Spam:** a blow sooner than `duel_min_gap_ms` (0.5 s, i.e. 2 a second) after its own last is a `penalty`: no die,
+  and the tangled words cost their author 0.5.
+- **Counters:** against an AI, or a human who hasn't blown for `duel_counter_ms` (3 s), each blow carries the
+  opponent's automatic counter from the AI phrase bank (its wit capped at +2).
+- **The flavor** is a rules template in the Lens's voice ("the line landed only because a heron had been washed in
+  platinum dust at dawn"), and every blow carries **animation cues** (`anim`: each figure's move from a fixed
+  vocabulary, chosen from the line's verbs, the verdict, its items and an army nearby; an element effect; a camera).
+
+### 21.3 The end
+
+A duel ends at a **knockout** (a duellist's duel health reaches 0) or at the resolve. The resolve **recomputes every
+duel deterministically** from the ordered challenge and duel actions on the committed state (the live display is a
+cache, never the record), so the live blows and the resolve agree and a replay reproduces it:
+
+- every die is in `dice[]` (reason "a duel") and in the memory at the duel's hex;
+- the damage lands; a knockout is an elimination by the usual rules (cause "a duel with …");
+- the loser's loot falls on the duel's hex: everything at a knockout, else (beaten by 1+) a DC 11 roll to keep hold
+  of its newest thing;
+- a heavy duel leaves a scar (chapter 7); both duellists get the duel's **deed** as a tale; the hex remembers
+  `duel.lock` and `duel.end` (the Lens: the next fight there is fought under that history);
+- `round.outcome.public.duels[]` carries `duel.end {winner, loser, ko, damage, blows, deed, log}`: the deed one line
+  from the duel mind (LLM when a human fought, else seeded rules parts), Rube Goldberg style.
+
+### 21.4 Challenge mode: the flips
+
+A duel is a series of interrelations and flips, so tiny posable figures (jointed wooden mannequins) can act it out
+exactly (`crates/fn7-plugin/src/choreo.rs`).
+
+**State:** the `range` (far, mid, close, grapple; a duel opens at mid, at close on the people level); the
+`initiative` (who holds the momentum; the challenger first); each fighter's `stance` (neutral, guarding, committed,
+off_balance, airborne, downed) and health; and the defence each has **set** (a guard, parry or evade waits for the
+next attack).
+
+**Move class** of each line, by rules from its words: `invoke` (a god's name: ignores range, costs a bolt paid at the
+resolve), `command` (army words: needs an army near or 100+ followers), `throw`, `grapple`, `feint`, `parry`, `guard`,
+`retreat`, `evade`, `heavy` (smash, crush, overhead, full force...), `close_in` (charge, rush, step in...), `taunt`,
+else `strike`. What can't apply becomes what can: a strike or heavy from far is a close_in; a grapple short of close
+range is a close_in; a throw outside a grapple is a strike; an invoke without a bolt or a command without an army is a
+taunt.
+
+**The d20 still decides success**, with two more modifiers: +2 holding the initiative, the attacker's stance
+(off balance −2, committed −1, downed −3, airborne +1) and +2 when the defender is open (committed, off balance or
+downed). **The matrix decides what a success means:**
+
+| Attack | Defender's set | On a success | On a failure |
+|---|---|---|---|
+| strike | parry | parried, unless it beats the DC by 5 (then half damage) | parried |
+| heavy | parry or guard | the defence breaks: full damage +1, defender off balance | (parry) parried |
+| strike | guard | absorbed: −1 damage | nothing |
+| feint | guard or parry | the set is wasted (defender off balance), initiative flips | nothing |
+| strike | evade | missed unless it beats the DC by 3 | missed |
+| heavy | evade | missed unless a natural 20; initiative flips | missed; initiative flips |
+| grapple | — (close only) | range grapple, defender off balance | nothing |
+| throw | — (grapple only) | +1 damage, defender downed, range mid | nothing |
+| close_in / retreat | — | range one step closer / farther, initiative | nothing |
+| guard / parry / evade | — | the defence is set (guarding; airborne for an evade), initiative | nothing |
+| taunt | — | initiative, defender off balance | nothing |
+| invoke / command | — | full damage (+1 for an invoke) | nothing |
+
+**Parried:** the attacker goes off balance and the initiative **flips** to the parrier. A heavy always leaves its
+user committed. Whoever lands takes the initiative; a landed strike at mid closes to close range. A knockout leaves
+the loser downed.
+
+**Choreography:** every blow and counter carries `choreo` (the range and initiative before and after, `flip`, each
+figure's move class, timed pose keys from a fixed vocabulary of 30 poses, the contact limb and target limb, the stance
+after, the camera, 600–1400 ms), deterministic from the rules and the strike's seed.
+
+### 21.5 The built-in AI
+
+**The built-in AI** challenges its nearest rival with chance `duel_ai_chance` (0.02) a beat, decided at the beat's
+start (`round.started.public.challenges`, so a human can fight back): directly when the rival is within regions reach,
+else, within `duel_ai_reach_km` (2,000 km), it first **summons itself next to it** (the lock's `leap`: the summoning's
+mishap d20 and health loss apply, and it fights at the reduced health). A duel nobody types in is fought
+automatically, `duel_auto_rounds` (2) exchanges from the phrase bank.
+
+**Worked example.** Engine: Ash's Left Hand types "I sweep your ankle into the harbour mud" (verb, body, terrain: wit
++3, hale +1: modifier +4) and rolls 13 against DC 10: success by 7, wit 3: 3 damage. DM: "The line landed on Vex's
+ankle only because the third crow of the morning had been washed in platinum dust at dawn."
+
+## 22. Appendix: the DM's settings
+
+Room settings (validated in `crates/fn7-plugin/src/settings.rs`, listed by `GET /sim/settings`). The 0.8.0 and 0.8.1 ones:
 
 | Setting | Default | Range | Rule |
 |---|---|---|---|
@@ -561,5 +697,16 @@ Room settings (validated in `crates/fn7-plugin/src/settings.rs`, listed by `GET 
 | `summon_loss_scale` | 1.0 | 0–10 | 19 |
 | `god_power_cost` | 3 | 0–20 | 20 |
 | `god_power_gift` | 1 | 0–10 | 20 |
+| `challenge_enabled` | true (false in settings recorded before 0.8.1) | bool | 21 |
+| `duel_reach_factor` | 1.5 | 0.5–10 | 21.1 |
+| `duel_cooldown_beats` | 1 | 1–100 | 21.1 |
+| `duel_deadline_ms` | 30000 | 1000–600000 | 21.1 |
+| `duel_damage_scale` | 1.0 | 0–10 | 21.2 |
+| `duel_min_gap_ms` | 500 | 0–5000 | 21.2 |
+| `duel_followup_ms` | 1500 | 0–10000 | 21.2 |
+| `duel_counter_ms` | 3000 | 0–60000 | 21.2 |
+| `duel_ai_chance` | 0.02 | 0–1 | 21.3 |
+| `duel_ai_reach_km` | 2000 | 0–20000 | 21.3 |
+| `duel_auto_rounds` | 2 | 0–10 | 21.3 |
 
 Every other setting is in `docs/PROJECT_GUIDE.md` §3.13.
