@@ -509,6 +509,9 @@ impl Media {
             }
         }
         let now = st.tick();
+        // The wall clock at the request (taken before the job is queued: an observer's `requested` never follows its
+        // `ready` in time).
+        let asked = theatre_trace::now_ms();
         // On disk already (an earlier process or match made it).
         if let Some(side) = self.inner.cache.lookup(&key) {
             let e = Entry {
@@ -529,7 +532,7 @@ impl Media {
             let path = self.inner.cache.image_path(&key, &side.ext);
             self.inner.observe(MediaEvent {
                 stage: Stage::Cached, hash: &key, prompt, provider: gen.provider(), label: &self.inner.label,
-                match_id, round: trace_round(), at_ms: now, price_usd: 0.0, reason: None, sidecar: Some(&side),
+                match_id, round: trace_round(), at_ms: asked, price_usd: 0.0, reason: None, sidecar: Some(&side),
                 path: Some(&path), latency_ms: None, calls: &[],
             });
             theatre_trace::event(
@@ -619,7 +622,7 @@ impl Media {
         self.inner.observe(MediaEvent {
             stage: if reason.is_some() { Stage::Refused } else { Stage::Requested },
             hash: &key, prompt, provider: gen.provider(), label: &self.inner.label, match_id, round: trace_round(),
-            at_ms: now, price_usd: price, reason: reason.as_deref(), sidecar: None, path: None, latency_ms: None,
+            at_ms: asked, price_usd: price, reason: reason.as_deref(), sidecar: None, path: None, latency_ms: None,
             calls: &[],
         });
         let (kind, data) = match reason {
@@ -926,7 +929,7 @@ async fn run_job(inner: Arc<Inner>, job: Job) {
             drop(st);
             inner.observe(MediaEvent {
                 stage: Stage::Ready, hash: &job.key, prompt: &job.prompt, provider: gen.provider(), label: &inner.label,
-                match_id: job.match_id.as_deref(), round: job.ctx.as_ref().and_then(|c| c.round), at_ms: now,
+                match_id: job.match_id.as_deref(), round: job.ctx.as_ref().and_then(|c| c.round), at_ms: theatre_trace::now_ms(),
                 price_usd: job.price, reason: None, sidecar: Some(&side), path: Some(&path),
                 latency_ms: Some(latency_ms), calls: &calls,
             });
@@ -951,7 +954,7 @@ async fn run_job(inner: Arc<Inner>, job: Job) {
             let why = err.to_string();
             inner.observe(MediaEvent {
                 stage: Stage::Failed, hash: &job.key, prompt: &job.prompt, provider: gen.provider(), label: &inner.label,
-                match_id: job.match_id.as_deref(), round: job.ctx.as_ref().and_then(|c| c.round), at_ms: now,
+                match_id: job.match_id.as_deref(), round: job.ctx.as_ref().and_then(|c| c.round), at_ms: theatre_trace::now_ms(),
                 price_usd: job.price, reason: Some(&why), sidecar: None, path: None, latency_ms: Some(latency_ms),
                 calls: &calls,
             });

@@ -63,7 +63,7 @@ pub struct MediaEvent<'a> {
     pub match_id: Option<&'a str>,
     /// The beat of the hook that asked, when it ran inside a match's trace context.
     pub round: Option<u32>,
-    /// Unix ms of this event.
+    /// Unix ms of this event (the wall clock, not the manifest's cursor, which may run a few ms ahead).
     pub at_ms: i64,
     /// The price reserved for it (USD), 0 when unknown or free.
     pub price_usd: f64,
