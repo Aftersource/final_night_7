@@ -15,6 +15,7 @@ pub mod hier;
 pub mod ids;
 pub mod intent;
 pub mod ledger;
+pub mod manifest;
 pub mod memory;
 pub mod refs;
 pub mod seed;

@@ -567,3 +567,38 @@ Engineering (fn7-media, style v2; nothing generated, no OpenAI spend):
 - **Queue priority.** Portrait and diorama go first, then statue, then army/place/item, then event, FIFO within each.
   `FN7_IMAGE_CONCURRENCY` defaults to 6. This fixes portraits waiting behind 12 moment cards on STABLE.
 
+
+## 2026-11-14: demigods and items, the data layer (designed; new files only, not wired)
+
+Engineering (for "demigods: two per player, items they manifest, persistent identity"; design in
+`docs/DEMIGODS_AND_ITEMS.md`; no LLM or image spend):
+- **Two demigods per player.** Each hand becomes a `HandDemigod` (`hd:`) with its own name, look, position, items and
+  deeds. The seat's `Demigod` (`dg:`) stays the contestant and shared purse (health, bolts, debts, standings), so
+  balance is unchanged. Per-hand health is an open question. The default names are the media layer's existing
+  "<player>'s Left/Right Hand", so cached portraits stay valid.
+- **The item engine.** `crates/fn7-model/src/manifest.rs` (wired by `pub mod manifest;` only):
+  - Scale tiers from trinket to world-army. A horde of 100,000,000 is `myth` (3 bolts, base odds 0.38).
+  - Cost in bolts, with the shortfall as debt to Consequence.
+  - Odds from tier, extra bolts, the patron god's favor or ruling, Entropy (which helps wonders and up, and twists)
+    and repetition.
+  - One seeded roll: success, twisted, partial, failed or backfired.
+  - Counts are f64. The simulation footprint is log-compressed (`muster_size`, capped at 400k).
+  - A rules fallback reads requests from text: "100,000,000", "a hundred million", "1.5bn".
+  - Every attempt is a `Manifestation` (`mf:`) with full provenance. Items keep `it:` and gain `ItemExt` (kind, tier,
+    count, state, banner, image prompt, custody history). The verdict is always the rules'; the LLM only names things.
+  - 21 tests.
+- **Persistent identity.** The new crate `crates/fn7-profile` stores profiles in SQLite under `THEATRE_DATA_DIR/fn7/`.
+  - Profiles are keyed by the NFKC-normalized display name, with lookalike detection and an optional claim secret.
+  - Each profile holds demigod identities, match history (placement, champion, items, deeds, eliminations, time-travel
+    links to `/admin/matches/{id}/state` and `/admin/fork`), the player's and the automatic descriptions, and the
+    image library (portraits, dioramas, statues, moment cards by media hash).
+  - It provides the `/api/profiles/{name}[/history|/library|/description|/claim]` routes (key-gated) and a streaming
+    backfill from recordings (`fn7-profile ingest`).
+  - 12 tests.
+- **Backfill demo** over runs/lan/recordings (39 files, 0.45 s, read-only):
+  - Chris: 7 matches (2 finished, 5 unfinished), champion once, 4th of 4 in the shared match DYL5GN.
+  - Benito: 14 matches (5 finished, 9 unfinished), best 2nd (four times), never champion.
+- **Found:** existing item fallbacks make items from bare verbs ("search", "take", "Benito"). Portrait hashes churned
+  across builds: six different ones for "Chris".
+- **Not done:** wiring into fn7-model, fn7-plugin and fn7-server waits for the balance and media work. The step-by-step
+  plan is §11 of the doc.

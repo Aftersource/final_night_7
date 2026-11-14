@@ -10,6 +10,7 @@ members = [
     "crates/fn7-server",
     "crates/fn7-tools",
     "crates/fn7-media",
+    "crates/fn7-profile",
 ]
 
 [workspace.package]

@@ -574,6 +574,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "fn7-profile"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "hex",
+ "http-body-util",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "tower",
+ "unicode-normalization",
+]
+
+[[package]]
 name = "fn7-server"
 version = "0.1.0"
 dependencies = [
