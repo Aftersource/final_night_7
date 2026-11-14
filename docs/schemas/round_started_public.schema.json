@@ -44,6 +44,11 @@
     "final_night": {
       "description": "True on the last beat: every debt is due and exactly one demigod survives.",
       "type": "boolean"
+    },
+    "players_alive": {
+      "description": "Rules 0.7.0: players with a demigod standing.",
+      "minimum": 0,
+      "type": "integer"
     }
   },
   "required": [

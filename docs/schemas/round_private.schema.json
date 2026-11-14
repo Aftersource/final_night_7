@@ -125,6 +125,13 @@
       ],
       "type": "object"
     },
+    "Hand": {
+      "enum": [
+        "left",
+        "right"
+      ],
+      "type": "string"
+    },
     "HandLine": {
       "description": "One hand in `round.private`: what it said back this beat and its live subagents.",
       "properties": {
@@ -156,6 +163,54 @@
       ],
       "type": "object"
     },
+    "ImageObject": {
+      "description": "An image the media server attached (only when the server has images on; see docs/MEDIA.md). Fetch `url` once `status` is `ready` (watch GET /media/index for `hash`); `off` = none will come, show a placeholder.",
+      "properties": {
+        "hash": {
+          "description": "Content key (sha256 hex): cache by it forever.",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "portrait",
+            "item",
+            "event",
+            "statue",
+            "place",
+            "army",
+            "diorama"
+          ],
+          "type": "string"
+        },
+        "prompt": {
+          "description": "The full prompt sent to the image model (house style; no engine ids).",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "ready",
+            "off"
+          ],
+          "type": "string"
+        },
+        "url": {
+          "description": "`/media/<hash>.<ext>` once ready, relative to the server's HTTP origin.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "hash",
+        "kind",
+        "status",
+        "url",
+        "prompt"
+      ],
+      "type": "object"
+    },
     "Level": {
       "description": "A level of the hierarchy.",
       "enum": [
@@ -177,6 +232,183 @@
       "maxItems": 2,
       "minItems": 2,
       "type": "array"
+    },
+    "Manifestation": {
+      "description": "Rules 0.7.0: one manifestation attempt (made or not).",
+      "properties": {
+        "at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LonLat"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "by": {
+          "$ref": "#/$defs/Ref"
+        },
+        "by_name": {
+          "description": "",
+          "type": "string"
+        },
+        "count": {
+          "description": "",
+          "type": "number"
+        },
+        "icon": {
+          "description": "",
+          "enum": [
+            "sword",
+            "ranged",
+            "armor",
+            "banner_army",
+            "vehicle",
+            "beast",
+            "structure",
+            "relic",
+            "artifact",
+            "phenomenon",
+            "thing"
+          ],
+          "type": "string"
+        },
+        "image": {
+          "$ref": "#/$defs/ImageObject"
+        },
+        "image_kind": {
+          "const": "item"
+        },
+        "image_prompt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "item": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "kind": {
+          "description": "",
+          "enum": [
+            "artifact",
+            "weapon",
+            "armor",
+            "relic",
+            "structure",
+            "army",
+            "fleet",
+            "creature",
+            "phenomenon",
+            "other"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "outcome": {
+          "description": "",
+          "enum": [
+            "success",
+            "twisted",
+            "partial",
+            "failed",
+            "backfired",
+            "refused"
+          ],
+          "type": "string"
+        },
+        "public": {
+          "description": "",
+          "type": "boolean"
+        },
+        "ref": {
+          "description": "`mf:<n>`.",
+          "type": "string"
+        },
+        "region": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "request": {
+          "additionalProperties": true,
+          "description": "Your own only: kind, count, magnitude.",
+          "type": "object"
+        },
+        "side": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Hand"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tier": {
+          "description": "",
+          "enum": [
+            "trinket",
+            "artifact",
+            "relic",
+            "wonder",
+            "legend",
+            "myth",
+            "titan",
+            "apocalypse"
+          ],
+          "type": "string"
+        },
+        "unit": {
+          "description": "",
+          "type": "string"
+        },
+        "verdict": {
+          "additionalProperties": true,
+          "description": "Your own only: outcome, tier, odds {success, twist, partial, backfire, terms}, roll, cost {required, bolts, extra, missing, debt}, god, favor, entropy, reasons, flavor.",
+          "type": "object"
+        }
+      },
+      "required": [
+        "ref",
+        "beat",
+        "by",
+        "by_name",
+        "side",
+        "kind",
+        "icon",
+        "tier",
+        "count",
+        "unit",
+        "outcome",
+        "item",
+        "name",
+        "at",
+        "region",
+        "public",
+        "image_prompt",
+        "image_kind"
+      ],
+      "type": "object"
     },
     "NewsLine": {
       "properties": {
@@ -445,6 +677,15 @@
           "maxItems": 2,
           "minItems": 2,
           "type": "array"
+        },
+        "sparks": {
+          "description": "Rules 0.7.0: sparks you hold (the mini-power currency).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
@@ -490,6 +731,58 @@
       "minimum": 0,
       "type": "integer"
     },
+    "demigods": {
+      "description": "Rules 0.7.0: both of your demigods (`you` is your lead one: the first standing).",
+      "items": {
+        "description": "Rules 0.7.0: one of your two demigods this beat.",
+        "properties": {
+          "alive": {
+            "description": "",
+            "type": "boolean"
+          },
+          "cell": {
+            "description": "People-level hex key.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "health": {
+            "description": "",
+            "type": "number"
+          },
+          "max_health": {
+            "description": "",
+            "type": "number"
+          },
+          "name": {
+            "description": "",
+            "type": "string"
+          },
+          "pos": {
+            "$ref": "#/$defs/LonLat"
+          },
+          "ref": {
+            "$ref": "#/$defs/Ref"
+          },
+          "side": {
+            "$ref": "#/$defs/Hand"
+          }
+        },
+        "required": [
+          "ref",
+          "side",
+          "name",
+          "health",
+          "max_health",
+          "alive",
+          "pos",
+          "cell"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
     "focus": {
       "anyOf": [
         {
@@ -510,6 +803,13 @@
     },
     "hierarchy": {
       "description": "The hierarchy at your zoom (schema 4): the node in view with its path, children, crowds and cells, people,\narmies with their chains of command, mobs and recent battles. Shape: `docs/CLIENT_API.md` (\"Hierarchy\")."
+    },
+    "manifests": {
+      "description": "Rules 0.7.0: your demigods' manifestations this beat, with the verdict.",
+      "items": {
+        "$ref": "#/$defs/Manifestation"
+      },
+      "type": "array"
     },
     "news": {
       "description": "Ledger rows new this beat that you know about, newest first, at most one line per row.",

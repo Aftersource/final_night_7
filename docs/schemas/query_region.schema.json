@@ -203,6 +203,10 @@
           ],
           "description": ""
         },
+        "cell": {
+          "description": "Rules 0.7.0: `pos`'s people-level hex cell.",
+          "type": "string"
+        },
         "cells": {
           "description": "Live cells.",
           "items": {
@@ -238,6 +242,10 @@
         "place": {
           "$ref": "#/$defs/Ref"
         },
+        "pos": {
+          "$ref": "#/$defs/LonLat",
+          "description": "Rules 0.7.0: where its piece stands (a fixed seeded spot around its place, so a city's crowds don't stack)."
+        },
         "ref": {
           "$ref": "#/$defs/Ref"
         },
@@ -248,6 +256,10 @@
         },
         "stance": {
           "$ref": "#/$defs/Stance"
+        },
+        "village": {
+          "description": "Rules 0.7.0: `pos`'s village-level hex cell.",
+          "type": "string"
         }
       },
       "required": [
@@ -305,6 +317,51 @@
         "next",
         "more",
         "head"
+      ],
+      "type": "object"
+    },
+    "Hand": {
+      "enum": [
+        "left",
+        "right"
+      ],
+      "type": "string"
+    },
+    "Hotspot": {
+      "description": "Rules 0.7.0: a region's most dynamic area (events, battles, mobs, unrest, demigods of the last 5 beats).",
+      "properties": {
+        "pos": {
+          "$ref": "#/$defs/LonLat"
+        },
+        "radius_km": {
+          "description": "",
+          "type": "number"
+        },
+        "score": {
+          "description": "Weight inside it.",
+          "type": "number"
+        },
+        "why": {
+          "description": "Heaviest first.",
+          "items": {
+            "description": "",
+            "enum": [
+              "events",
+              "battles",
+              "mobs",
+              "unrest",
+              "demigods"
+            ],
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "pos",
+        "radius_km",
+        "score",
+        "why"
       ],
       "type": "object"
     },
@@ -387,6 +444,216 @@
       ],
       "type": "object"
     },
+    "Item": {
+      "description": "Rules 0.7.0: an item (a manifested thing, or one an older path made).",
+      "properties": {
+        "at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LonLat"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "banner": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "description": "A host's banner.",
+              "properties": {
+                "colors": {
+                  "description": "",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "device": {
+                  "description": "",
+                  "type": "string"
+                },
+                "motto": {
+                  "description": "",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "device",
+                "colors"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "count": {
+          "description": "Soldiers, vessels, creatures or copies (rounded; f64 range: 100,000,000 is fine).",
+          "type": "number"
+        },
+        "created_beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "created_by": {},
+        "description": {
+          "description": "",
+          "type": "string"
+        },
+        "history": {
+          "description": "Custody: {beat, state, holder?, by?, row?, count?}.",
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "holder": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "holder_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "holders": {
+          "description": "",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "type": "array"
+        },
+        "icon": {
+          "description": "The client's piece or icon.",
+          "enum": [
+            "sword",
+            "ranged",
+            "armor",
+            "banner_army",
+            "vehicle",
+            "beast",
+            "structure",
+            "relic",
+            "artifact",
+            "phenomenon",
+            "thing"
+          ],
+          "type": "string"
+        },
+        "image": {
+          "$ref": "#/$defs/ImageObject"
+        },
+        "image_kind": {
+          "const": "item"
+        },
+        "image_prompt": {
+          "description": "The item image subject (`image_kind` item).",
+          "type": "string"
+        },
+        "kind": {
+          "description": "What it is.",
+          "enum": [
+            "artifact",
+            "weapon",
+            "armor",
+            "relic",
+            "structure",
+            "army",
+            "fleet",
+            "creature",
+            "phenomenon",
+            "other"
+          ],
+          "type": "string"
+        },
+        "manifestation": {
+          "description": "`mf:<n>`, the attempt that made it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "manifestation_detail": {},
+        "name": {
+          "description": "",
+          "type": "string"
+        },
+        "origin": {
+          "description": "game.item only.",
+          "type": "string"
+        },
+        "ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "rows": {
+          "description": "game.item only: the attempt's ledger rows.",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "type": "array"
+        },
+        "state": {
+          "description": "",
+          "enum": [
+            "held",
+            "deployed",
+            "destroyed",
+            "transferred",
+            "stolen"
+          ],
+          "type": "string"
+        },
+        "tier": {
+          "description": "Its scale tier.",
+          "enum": [
+            "trinket",
+            "artifact",
+            "relic",
+            "wonder",
+            "legend",
+            "myth",
+            "titan",
+            "apocalypse"
+          ],
+          "type": "string"
+        },
+        "unit": {
+          "description": "\"soldiers\", \"vessels\", \"creatures\" or \"\" (copies).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref",
+        "name",
+        "description",
+        "kind",
+        "icon",
+        "tier",
+        "count",
+        "unit",
+        "state",
+        "holder",
+        "holder_name",
+        "created_beat",
+        "manifestation",
+        "at",
+        "banner",
+        "image_prompt",
+        "image_kind"
+      ],
+      "type": "object"
+    },
     "Level": {
       "description": "A level of the hierarchy.",
       "enum": [
@@ -408,6 +675,183 @@
       "maxItems": 2,
       "minItems": 2,
       "type": "array"
+    },
+    "Manifestation": {
+      "description": "Rules 0.7.0: one manifestation attempt (made or not).",
+      "properties": {
+        "at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LonLat"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "by": {
+          "$ref": "#/$defs/Ref"
+        },
+        "by_name": {
+          "description": "",
+          "type": "string"
+        },
+        "count": {
+          "description": "",
+          "type": "number"
+        },
+        "icon": {
+          "description": "",
+          "enum": [
+            "sword",
+            "ranged",
+            "armor",
+            "banner_army",
+            "vehicle",
+            "beast",
+            "structure",
+            "relic",
+            "artifact",
+            "phenomenon",
+            "thing"
+          ],
+          "type": "string"
+        },
+        "image": {
+          "$ref": "#/$defs/ImageObject"
+        },
+        "image_kind": {
+          "const": "item"
+        },
+        "image_prompt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "item": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "kind": {
+          "description": "",
+          "enum": [
+            "artifact",
+            "weapon",
+            "armor",
+            "relic",
+            "structure",
+            "army",
+            "fleet",
+            "creature",
+            "phenomenon",
+            "other"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "outcome": {
+          "description": "",
+          "enum": [
+            "success",
+            "twisted",
+            "partial",
+            "failed",
+            "backfired",
+            "refused"
+          ],
+          "type": "string"
+        },
+        "public": {
+          "description": "",
+          "type": "boolean"
+        },
+        "ref": {
+          "description": "`mf:<n>`.",
+          "type": "string"
+        },
+        "region": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "request": {
+          "additionalProperties": true,
+          "description": "Your own only: kind, count, magnitude.",
+          "type": "object"
+        },
+        "side": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Hand"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tier": {
+          "description": "",
+          "enum": [
+            "trinket",
+            "artifact",
+            "relic",
+            "wonder",
+            "legend",
+            "myth",
+            "titan",
+            "apocalypse"
+          ],
+          "type": "string"
+        },
+        "unit": {
+          "description": "",
+          "type": "string"
+        },
+        "verdict": {
+          "additionalProperties": true,
+          "description": "Your own only: outcome, tier, odds {success, twist, partial, backfire, terms}, roll, cost {required, bolts, extra, missing, debt}, god, favor, entropy, reasons, flavor.",
+          "type": "object"
+        }
+      },
+      "required": [
+        "ref",
+        "beat",
+        "by",
+        "by_name",
+        "side",
+        "kind",
+        "icon",
+        "tier",
+        "count",
+        "unit",
+        "outcome",
+        "item",
+        "name",
+        "at",
+        "region",
+        "public",
+        "image_prompt",
+        "image_kind"
+      ],
+      "type": "object"
     },
     "Mob": {
       "description": "A mob: cells merged under a ringleader.",
@@ -438,6 +882,10 @@
         },
         "cause": {
           "description": "Why it formed.",
+          "type": "string"
+        },
+        "cell": {
+          "description": "Rules 0.7.0: its people-level hex cell.",
           "type": "string"
         },
         "cells": {
@@ -479,6 +927,10 @@
         "place": {
           "$ref": "#/$defs/Ref"
         },
+        "pos": {
+          "$ref": "#/$defs/LonLat",
+          "description": "Rules 0.7.0: = at."
+        },
         "ref": {
           "$ref": "#/$defs/Ref"
         },
@@ -495,6 +947,17 @@
               "type": "null"
             }
           ]
+        },
+        "ringleader_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Rules 0.7.0: the ringleader (`ch:`)."
         },
         "side": {
           "anyOf": [
@@ -777,6 +1240,84 @@
       ],
       "type": "string"
     },
+    "SeatHand": {
+      "description": "One hand in the seat view.",
+      "properties": {
+        "agent": {
+          "$ref": "#/$defs/Ref",
+          "description": "The hand's agent ref (`ag:<n>`)."
+        },
+        "alive": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "demigod": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Rules 0.7.0: the demigod this hand is (each hand is one of the player's two demigods; `seat_view.demigods[]`\nhas it in full)."
+        },
+        "diorama_prompt": {
+          "description": "The hand's own diorama prompt (identity only, like `portrait_prompt`). The server adds `diorama_image`.",
+          "type": "string"
+        },
+        "health": {
+          "description": "Rules 0.7.0: that demigod's health (a seat sees its own) and whether it stands.",
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "live": {
+          "description": "False once your demigod is eliminated.",
+          "type": "boolean"
+        },
+        "name": {
+          "description": "\"<you>'s Left Hand\" / \"<you>'s Right Hand\".",
+          "type": "string"
+        },
+        "portrait_prompt": {
+          "description": "The hand's own portrait prompt (it is one of the player's two demigods): identity only, from its name and its\nname-keyed visual sheet, the same in every match. The server adds `portrait_image` beside it.",
+          "type": "string"
+        },
+        "side": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Hand"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Rules 0.7.0: `left` or `right`."
+        },
+        "subagents": {
+          "description": "Live subagents and possessions under this hand.",
+          "items": {
+            "$ref": "#/$defs/SubagentLine"
+          },
+          "type": "array"
+        },
+        "visual": {
+          "description": "The hand's visual sheet: `{sheet_hash, traits: {build, face, outfit, colors, prop, emblem}}`."
+        }
+      },
+      "required": [
+        "agent",
+        "name",
+        "live",
+        "subagents"
+      ],
+      "type": "object"
+    },
     "Stance": {
       "description": "What it is doing as a whole.",
       "enum": [
@@ -794,6 +1335,82 @@
         "rogue"
       ],
       "type": "string"
+    },
+    "SubagentKind": {
+      "description": "What kind of agent a subagent line is: a subagent, a possession (steers a body) or a paladin (a god's champion).",
+      "enum": [
+        "subagent",
+        "possession",
+        "paladin"
+      ],
+      "type": "string"
+    },
+    "SubagentLine": {
+      "description": "A live subagent, possession or paladin, in every payload that lists one.",
+      "properties": {
+        "agent": {
+          "$ref": "#/$defs/Ref",
+          "description": "The agent's ref (`ag:<n>`)."
+        },
+        "beats_left": {
+          "description": "Beats until it expires; null = no budget (possessions last until recalled).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "body": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The person it steers (`ch:<n>`) for possessions and paladins, else null."
+        },
+        "goal": {
+          "description": "Its task.",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/SubagentKind",
+          "description": "\"subagent\", \"possession\" (steers `body`) or \"paladin\" (a god's champion in `body`)."
+        },
+        "line": {
+          "description": "What it said this beat (round.private), else its goal.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Display name; a possession reads \"<person> (steered by <you>)\".",
+          "type": "string"
+        },
+        "parent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The agent that spawned it (`ag:<n>`, your hand for subagents and possessions), or null."
+        }
+      },
+      "required": [
+        "agent",
+        "name",
+        "goal",
+        "line",
+        "beats_left",
+        "kind",
+        "parent",
+        "body"
+      ],
+      "type": "object"
     },
     "Visual": {
       "description": "A character's visual sheet (docs/SHARED_MEDIA_SPEC.md §3.1): picked from the match seed, the character's id and name; the same at every beat and in every replay. Every image of the character carries these traits.",
@@ -859,9 +1476,16 @@
           "description": "",
           "type": "boolean"
         },
+        "cell": {
+          "description": "Rules 0.7.0: their people-level hex cell (`<face>:people:<q>:<r>`).",
+          "type": "string"
+        },
         "name": {
           "description": "",
           "type": "string"
+        },
+        "pos": {
+          "$ref": "#/$defs/LonLat"
         },
         "ref": {
           "$ref": "#/$defs/Ref"
@@ -1140,6 +1764,10 @@
           "alive": {
             "type": "boolean"
           },
+          "aura": {
+            "description": "Rules 0.7.0: its player's aura colour (#RRGGBB).",
+            "type": "string"
+          },
           "bolts": {
             "description": "Lightning bolts it holds (public).",
             "minimum": 0,
@@ -1151,6 +1779,10 @@
               "string",
               "null"
             ]
+          },
+          "cell": {
+            "description": "Alive only: its people-level hex cell (`<face>:people:<q>:<r>`, the client's own indexing; rules 0.7.0).",
+            "type": "string"
           },
           "connected": {
             "description": "true for an AI-controlled demigod (always there); null for a human one: the game never sees presence, so read room.updated seats[seat].connected.",
@@ -1166,6 +1798,9 @@
               "ai"
             ],
             "type": "string"
+          },
+          "debt_open": {
+            "type": "number"
           },
           "diorama_image": {
             "$ref": "#/$defs/ImageObject",
@@ -1190,6 +1825,13 @@
               "null"
             ]
           },
+          "hand": {
+            "$ref": "#/$defs/SeatHand"
+          },
+          "health": {
+            "description": "Your own demigods only (seat_view.demigods[]); never a rival's.",
+            "type": "number"
+          },
           "image_kind": {
             "description": "The kind of portrait_prompt.",
             "enum": [
@@ -1197,11 +1839,38 @@
             ],
             "type": "string"
           },
+          "items": {
+            "description": "Rules 0.7.0: its public item pieces (manifested, tier relic or up, or deployed).",
+            "items": {
+              "$ref": "#/$defs/Item"
+            },
+            "type": "array"
+          },
+          "manifests": {
+            "items": {
+              "$ref": "#/$defs/Manifestation"
+            },
+            "type": "array"
+          },
+          "max_health": {
+            "type": "number"
+          },
           "name": {
             "type": "string"
           },
+          "orders": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          },
           "place": {
             "description": "Alive only: the place name it is in.",
+            "type": "string"
+          },
+          "player": {
+            "description": "Rules 0.7.0: its player's name.",
             "type": "string"
           },
           "portrait_image": {
@@ -1231,6 +1900,34 @@
               "null"
             ]
           },
+          "sibling": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Ref"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Rules 0.7.0: its player's other demigod."
+          },
+          "side": {
+            "description": "Rules 0.7.0: which of its player's two hands it is.",
+            "enum": [
+              "left",
+              "right",
+              null
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sparks": {
+            "description": "Rules 0.7.0: its player's sparks (the mini-power currency; public, like bolts: hoarding is visible).",
+            "minimum": 0,
+            "type": "integer"
+          },
           "visual": {
             "$ref": "#/$defs/Visual",
             "description": "Its visual sheet (stable all match). Always present since the media release; absent in older recordings."
@@ -1248,6 +1945,17 @@
     },
     "events": {
       "$ref": "#/$defs/EventPage"
+    },
+    "hotspot": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Hotspot"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Rules 0.7.0: its most dynamic area."
     },
     "influence": {
       "description": "Shares of this region.",

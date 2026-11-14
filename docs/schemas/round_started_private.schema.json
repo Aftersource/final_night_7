@@ -1,4 +1,21 @@
 {
+  "$defs": {
+    "Hand": {
+      "enum": [
+        "left",
+        "right"
+      ],
+      "type": "string"
+    },
+    "Ref": {
+      "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row, ce cell, mb mob. Stable for the whole match.",
+      "examples": [
+        "ch:12"
+      ],
+      "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg|ce|mb):\\d+$",
+      "type": "string"
+    }
+  },
   "$id": "round_started_private.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "description": "`round.started.private`: your demigod after Start.",
@@ -15,6 +32,50 @@
     "debt_due": {
       "description": "Damage points Consequence collects from you this beat (resolved in this beat's merge; a Time delay can push it back).",
       "type": "number"
+    },
+    "demigod": {
+      "$ref": "#/$defs/Ref",
+      "description": "Rules 0.7.0: the lead demigod the top-level fields describe."
+    },
+    "demigods": {
+      "description": "Rules 0.7.0: each of your two demigods.",
+      "items": {
+        "description": "",
+        "properties": {
+          "alive": {
+            "description": "",
+            "type": "boolean"
+          },
+          "debt_due": {
+            "description": "",
+            "type": "number"
+          },
+          "health": {
+            "description": "",
+            "type": "number"
+          },
+          "outside_arena": {
+            "description": "",
+            "type": "boolean"
+          },
+          "ref": {
+            "$ref": "#/$defs/Ref"
+          },
+          "side": {
+            "$ref": "#/$defs/Hand"
+          }
+        },
+        "required": [
+          "ref",
+          "side",
+          "health",
+          "alive",
+          "outside_arena",
+          "debt_due"
+        ],
+        "type": "object"
+      },
+      "type": "array"
     },
     "health": {
       "description": "Your health after Start.",

@@ -1,0 +1,511 @@
+{
+  "$defs": {
+    "Hand": {
+      "enum": [
+        "left",
+        "right"
+      ],
+      "type": "string"
+    },
+    "ImageObject": {
+      "description": "An image the media server attached (only when the server has images on; see docs/MEDIA.md). Fetch `url` once `status` is `ready` (watch GET /media/index for `hash`); `off` = none will come, show a placeholder.",
+      "properties": {
+        "hash": {
+          "description": "Content key (sha256 hex): cache by it forever.",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "portrait",
+            "item",
+            "event",
+            "statue",
+            "place",
+            "army",
+            "diorama"
+          ],
+          "type": "string"
+        },
+        "prompt": {
+          "description": "The full prompt sent to the image model (house style; no engine ids).",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "ready",
+            "off"
+          ],
+          "type": "string"
+        },
+        "url": {
+          "description": "`/media/<hash>.<ext>` once ready, relative to the server's HTTP origin.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "hash",
+        "kind",
+        "status",
+        "url",
+        "prompt"
+      ],
+      "type": "object"
+    },
+    "Item": {
+      "description": "Rules 0.7.0: an item (a manifested thing, or one an older path made).",
+      "properties": {
+        "at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LonLat"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "banner": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "description": "A host's banner.",
+              "properties": {
+                "colors": {
+                  "description": "",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "device": {
+                  "description": "",
+                  "type": "string"
+                },
+                "motto": {
+                  "description": "",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "device",
+                "colors"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "count": {
+          "description": "Soldiers, vessels, creatures or copies (rounded; f64 range: 100,000,000 is fine).",
+          "type": "number"
+        },
+        "created_beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "created_by": {},
+        "description": {
+          "description": "",
+          "type": "string"
+        },
+        "history": {
+          "description": "Custody: {beat, state, holder?, by?, row?, count?}.",
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "holder": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "holder_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "holders": {
+          "description": "",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "type": "array"
+        },
+        "icon": {
+          "description": "The client's piece or icon.",
+          "enum": [
+            "sword",
+            "ranged",
+            "armor",
+            "banner_army",
+            "vehicle",
+            "beast",
+            "structure",
+            "relic",
+            "artifact",
+            "phenomenon",
+            "thing"
+          ],
+          "type": "string"
+        },
+        "image": {
+          "$ref": "#/$defs/ImageObject"
+        },
+        "image_kind": {
+          "const": "item"
+        },
+        "image_prompt": {
+          "description": "The item image subject (`image_kind` item).",
+          "type": "string"
+        },
+        "kind": {
+          "description": "What it is.",
+          "enum": [
+            "artifact",
+            "weapon",
+            "armor",
+            "relic",
+            "structure",
+            "army",
+            "fleet",
+            "creature",
+            "phenomenon",
+            "other"
+          ],
+          "type": "string"
+        },
+        "manifestation": {
+          "description": "`mf:<n>`, the attempt that made it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "manifestation_detail": {},
+        "name": {
+          "description": "",
+          "type": "string"
+        },
+        "origin": {
+          "description": "game.item only.",
+          "type": "string"
+        },
+        "ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "rows": {
+          "description": "game.item only: the attempt's ledger rows.",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "type": "array"
+        },
+        "state": {
+          "description": "",
+          "enum": [
+            "held",
+            "deployed",
+            "destroyed",
+            "transferred",
+            "stolen"
+          ],
+          "type": "string"
+        },
+        "tier": {
+          "description": "Its scale tier.",
+          "enum": [
+            "trinket",
+            "artifact",
+            "relic",
+            "wonder",
+            "legend",
+            "myth",
+            "titan",
+            "apocalypse"
+          ],
+          "type": "string"
+        },
+        "unit": {
+          "description": "\"soldiers\", \"vessels\", \"creatures\" or \"\" (copies).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref",
+        "name",
+        "description",
+        "kind",
+        "icon",
+        "tier",
+        "count",
+        "unit",
+        "state",
+        "holder",
+        "holder_name",
+        "created_beat",
+        "manifestation",
+        "at",
+        "banner",
+        "image_prompt",
+        "image_kind"
+      ],
+      "type": "object"
+    },
+    "LonLat": {
+      "description": "[longitude, latitude] in degrees (WGS84). Note the order: longitude first.",
+      "items": {
+        "type": "number"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+    },
+    "Manifestation": {
+      "description": "Rules 0.7.0: one manifestation attempt (made or not).",
+      "properties": {
+        "at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LonLat"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "by": {
+          "$ref": "#/$defs/Ref"
+        },
+        "by_name": {
+          "description": "",
+          "type": "string"
+        },
+        "count": {
+          "description": "",
+          "type": "number"
+        },
+        "icon": {
+          "description": "",
+          "enum": [
+            "sword",
+            "ranged",
+            "armor",
+            "banner_army",
+            "vehicle",
+            "beast",
+            "structure",
+            "relic",
+            "artifact",
+            "phenomenon",
+            "thing"
+          ],
+          "type": "string"
+        },
+        "image": {
+          "$ref": "#/$defs/ImageObject"
+        },
+        "image_kind": {
+          "const": "item"
+        },
+        "image_prompt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "item": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "kind": {
+          "description": "",
+          "enum": [
+            "artifact",
+            "weapon",
+            "armor",
+            "relic",
+            "structure",
+            "army",
+            "fleet",
+            "creature",
+            "phenomenon",
+            "other"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "outcome": {
+          "description": "",
+          "enum": [
+            "success",
+            "twisted",
+            "partial",
+            "failed",
+            "backfired",
+            "refused"
+          ],
+          "type": "string"
+        },
+        "public": {
+          "description": "",
+          "type": "boolean"
+        },
+        "ref": {
+          "description": "`mf:<n>`.",
+          "type": "string"
+        },
+        "region": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "request": {
+          "additionalProperties": true,
+          "description": "Your own only: kind, count, magnitude.",
+          "type": "object"
+        },
+        "side": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Hand"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tier": {
+          "description": "",
+          "enum": [
+            "trinket",
+            "artifact",
+            "relic",
+            "wonder",
+            "legend",
+            "myth",
+            "titan",
+            "apocalypse"
+          ],
+          "type": "string"
+        },
+        "unit": {
+          "description": "",
+          "type": "string"
+        },
+        "verdict": {
+          "additionalProperties": true,
+          "description": "Your own only: outcome, tier, odds {success, twist, partial, backfire, terms}, roll, cost {required, bolts, extra, missing, debt}, god, favor, entropy, reasons, flavor.",
+          "type": "object"
+        }
+      },
+      "required": [
+        "ref",
+        "beat",
+        "by",
+        "by_name",
+        "side",
+        "kind",
+        "icon",
+        "tier",
+        "count",
+        "unit",
+        "outcome",
+        "item",
+        "name",
+        "at",
+        "region",
+        "public",
+        "image_prompt",
+        "image_kind"
+      ],
+      "type": "object"
+    },
+    "Ref": {
+      "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row, ce cell, mb mob. Stable for the whole match.",
+      "examples": [
+        "ch:12"
+      ],
+      "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg|ce|mb):\\d+$",
+      "type": "string"
+    }
+  },
+  "$id": "query_item.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "allOf": [
+    {
+      "$ref": "#/$defs/Item"
+    },
+    {
+      "description": "",
+      "properties": {
+        "manifestation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Manifestation"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [],
+      "type": "object"
+    }
+  ],
+  "description": "`game.item` (rules 0.7.0): one item with its manifestation and custody history.",
+  "title": "game.item",
+  "type": "object",
+  "x-applies-to": "game.item reply (WebSocket), GET /api/rooms/{code}/query/item",
+  "x-args": {
+    "additionalProperties": true,
+    "description": "Over HTTP every arg is a query-string parameter (numbers as numeric strings). Unknown args are ignored.",
+    "properties": {
+      "ref": {
+        "description": "The item.",
+        "pattern": "^it:\\d+$",
+        "type": "string"
+      }
+    },
+    "required": [
+      "ref"
+    ],
+    "type": "object"
+  },
+  "x-description": "Rules 0.7.0: one item (`it:`) with its manifestation (verdict, provenance) and custody history. A private item only for its holder's seat.",
+  "x-public": true
+}

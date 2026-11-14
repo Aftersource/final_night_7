@@ -20,8 +20,31 @@
     "Slowed": {
       "description": "`phase.event.public` right after `window.opened`: who slowed time (from `action.begin`).",
       "properties": {
+        "bill_now": {
+          "description": "The bill if Enter came now (at opening): one bolt and `debt_base`.",
+          "properties": {
+            "bolts": {
+              "description": "",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "debt": {
+              "description": "",
+              "type": "number"
+            }
+          },
+          "required": [
+            "bolts",
+            "debt"
+          ],
+          "type": "object"
+        },
+        "bolt_paid": {
+          "description": "The purse has the bolt (else the debt is doubled, already in debt_base).",
+          "type": "boolean"
+        },
         "by": {
-          "description": "The initiator's demigod name.",
+          "description": "The initiator: the player's name (rules 0.7.0; before, the demigod's).",
           "type": "string"
         },
         "by_ref": {
@@ -32,8 +55,43 @@
           "minimum": 0,
           "type": "integer"
         },
+        "deadline_ms": {
+          "description": "When it closes at the latest (epoch ms).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "debt_base": {
+          "description": "debt(t) = min(debt_cap, debt_base + debt_per_second × t), t = seconds since opened_at_ms.",
+          "type": "number"
+        },
+        "debt_cap": {
+          "description": "10.",
+          "type": "number"
+        },
+        "debt_per_10s": {
+          "description": "= debt_base.",
+          "type": "number"
+        },
+        "debt_per_second": {
+          "description": "",
+          "type": "number"
+        },
         "event": {
           "const": "slowed"
+        },
+        "opened_at_ms": {
+          "description": "Rules 0.7.0, the live Time bill: when the window opened (server epoch ms).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "recent_slows": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "repeat_factor": {
+          "description": "1 + 0.5 × the opener's slows in the last 20 beats (already in debt_base).",
+          "type": "number"
         },
         "slow_ms": {
           "description": "How long the window stays open at most.",
@@ -136,6 +194,14 @@
               },
               "text": {
                 "description": "custom only: what it is.",
+                "type": "string"
+              },
+              "tier": {
+                "description": "Rules 0.7.0.",
+                "enum": [
+                  "mega",
+                  "mini"
+                ],
                 "type": "string"
               }
             },

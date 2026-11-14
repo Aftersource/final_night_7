@@ -40,10 +40,135 @@ everyone is told who did), type orders to your two
 **hands** (LLM orchestrators that act, raise **armies**, spawn **subagents**, possess people and invoke the seven gods:
 Time, Nature, Consequence, Death, Chance, Memory and **Entropy**), and your Enter sends them and cuts off anyone who
 typed slower. **Casts** are god powers (lightning, a volcano, a flood, a custom power...) thrown at any point of the
-globe at any time as instant actions (everyone sees the streak at once), paid in **lightning bolts**: every bolt anyone spends on a cast or a god gives every other demigod 2 (a bolt paid to Time for orders gives nobody anything), and raises
+globe at any time as instant actions (everyone sees the streak at once), paid in **lightning bolts** (megas) and **sparks** (minis; rules 0.7.0, see "Mega and mini powers"): a mega gives every other player a bolt, a bolt paid to a god gives every other player 2 (Time's toll for orders gives nobody anything), and every cast raises
 **Entropy**, which makes the world wackier until heat death brings the Final Night at once. Every act runs up a bill with
-Consequence. Time's clock shrinks a circle toward one city. The last demigod standing wins; on the Final Night exactly
-one survives. Demigods no seat plays are played by the plugin's own AI (no Theatre seat).
+Consequence. Time's clock shrinks a circle toward one city. The last player standing wins; on the Final Night exactly
+one player survives. Demigods no seat plays are played by the plugin's own AI (no Theatre seat).
+
+**Rules 0.7.0 (state schema 5): two demigods per player.** Your Left and Right hands *are* your two demigods. Read the
+next section; it changes how several payloads are read.
+
+## Two demigods per player (rules 0.7.0)
+
+Each player (a seat, or a built-in AI player) has **two demigods**, its **Left** and **Right** hands. Each is a body on
+the globe with its **own health** (10), position, hex cell, items, deeds, look, portrait and diorama. Each can be
+wounded, eliminated and revived on its own. **A player is out only when both have fallen** (`seat.eliminated` comes
+once, then; `seat.revived` when either stands again). The room setting `demigods_per_player: 1` plays the old game (one
+shared body).
+
+- **Names.** `"<player>'s Left Hand"` / `"<player>'s Right Hand"` (the media layer's existing names, so portraits and
+  dioramas stay cached). `player` on every demigod is the player's name.
+- **Ids.** The Left demigods come first (`dg:0..n`, in seat order), then the Right (`dg:n..2n`). Use `side`, `seat` and
+  `sibling`, never id arithmetic.
+- **Orders.** Your left text (`fields.left`, or `l:` lines) drives the Left demigod; the right text (`fields.right`,
+  `r:`) the Right one. If one has fallen, both texts go to the one standing.
+- **Bolts are the player's purse.** Both demigods show the same `bolts`. A cast or any bolt spent gives every rival
+  *player* 2 per bolt, once. Casts are cast by your **lead** demigod (your first one standing): `streak.by` is your
+  player name, `by_ref` the lead demigod.
+- **Debts are per demigod**: the body that acted owes. Time's debt for an order is split evenly between the demigods
+  that got orders (the bolt comes once from the purse). `seat_view.debts[].owed_by` says which body owes.
+- **Every rule applies per body**: Time's circle, armies storming (never a sibling's army; siblings are never rivals),
+  accidents, a cast's area, gods' prices (Life lowers *that* body's cap), revive, Entropy's flinging, possession.
+- **Hidden health stays per body**: rivals never see either of your demigods' health; you see both of yours.
+- **The Final Night leaves exactly one player**: the most total standing over its demigods (health now minus debt
+  still owed), then the most total health at the beat's start, then the lowest demigod id. That player's standing
+  demigods stand (one or both); every other player's fall. If none of theirs stands, its demigod with the most
+  start-of-beat health comes back.
+- **Standings and the champion are per player** (`summary.standings[]`, `summary.players[]`, `champion_seat`,
+  `champion_player`), each with both demigods' state. `summary.champions[]` lists the champion player's standing
+  demigods (both, if both stand).
+- **The Final Wish.** Beat 1 is the Final Wish: `round.brief.public.final_wish: true`. Your round-1 orders are your
+  final wish: anything you can do. Both hands get the window act budget (`max_intents_per_window`) and every act gets
+  `final_wish_magnitude` (2) more magnitude. It costs as normal (Entropy loves it). The built-in AI wishes too.
+
+### Where the two demigods appear
+
+| Payload | What's there |
+|---|---|
+| `public_state.demigods[]` | Every demigod (2 per player): `ref, name, player, side, seat, sibling, alive, pos, cell, place, region, bolts, controller, connected, aura, visual, portrait_prompt, diorama_prompt, items[]` (+ `portrait_image`, `diorama_image` with media on). Never `health`. |
+| `public_state.players[]` | The seat list: `{index, seat, player, aura, alive, bolts, demigods: [left, right], time_bill, controller, connected}` |
+| `round.brief.private` / `seat_view` | `demigods[]`: **your two demigods in full** (the public fields plus `health, max_health, debt_open, items[], hand, orders, manifests[]`); `my_items[]`; `player`, `aura`, `time_bill`. The top-level `demigod`, `name`, `you` and `max_health` describe your **lead** demigod (the first standing). `alive` is true while either stands. |
+| `seat_view.hands[]` | Kept: `[left, right]`, each now with `demigod` (its ref), `side`, `health`, `alive`. A hand's `name`, `portrait_prompt`, `diorama_prompt` and `visual` are the same as its demigod's. |
+| `round.private.private` (SeatDelta) | `demigods[]` `{ref, side, name, health, max_health, alive, pos, cell}` and your `manifests[]` this beat (with verdicts). `you` is the lead demigod. |
+| `round.started.private` | `demigods[]` `{ref, side, health, alive, outside_arena, debt_due}`; the top-level fields are the lead's. |
+| `round.outcome.public` | `players_alive`; `manifests[]` (public manifestations this beat). `alive` still counts demigods. |
+| `match.ended.summary` | `standings[]` per player (`player, aura, demigods[]`), `players[]` (for profiles), `champion_player`, `manifests[]`; `piles[]` stay per demigod, items now with `kind, icon, tier, count, unit, state`. |
+
+### Hex cells (Benito's people-level rule)
+
+Every demigod, named person (`Who`, `entity` positions) and crowd or mob piece carries `cell`: its **people-level hex
+cell**, in your own indexing, as `"<face>:<level>:<q>:<r>"` (level `people`; crowds also give `village`):
+
+- `LatLonToVec(lat, lon) = (cosLa·cosLo, sinLa, −cosLa·sinLo)`, Y up.
+- Cube face (gnomonic): `Ax=|x|, Ay=|y|, Az=|z|`. If `Ax≥Ay && Ax≥Az`: `x>0` → face 0 (`U=−z/Ax, W=y/Ax`), else
+  face 1 (`U=z/Ax, W=y/Ax`). Elif `Ay≥Az`: `y>0` → face 2 (`U=x/Ay, W=−z/Ay`), else face 3 (`U=x/Ay, W=z/Ay`). Else
+  `z>0` → face 4 (`U=x/Az, W=y/Az`), else face 5 (`U=−x/Az, W=y/Az`).
+- Plane metres `X=U·R, Y=W·R`, `R = 6,371,000`.
+- Pointy-top axial: `qf=(√3/3·X − Y/3)/S, rf=(2/3·Y)/S, sf=−qf−rf`, round each, fix the largest rounding error.
+- Levels: people 3 m, houses 30 m, villages 3 km, regions 120 km.
+
+Cross-check table (from `crates/fn7-model/src/hexgrid.rs`, a tested pure module): Paris (2.3522, 48.8566) =
+`2:people:1044945:50767`, `2:regions:26:1`; New York (−74.006, 40.7128) = `4:people:-282246:1267371`; Sydney
+(151.2093, −33.8688) = `1:people:-131656:-1084278`; Tokyo (139.6917, 35.6895) = `1:villages:-1707:1334`.
+
+**The rule:** no two standing demigods share a people-level cell unless they are **engaged** (one acted directly on
+the other this beat: a fight to the death, a seduction, a parley). Otherwise the later mover is nudged to the nearest
+free neighbouring cell. Nudges are a few metres; the server's positions are always legal, so draw them as given.
+
+### Items and manifestations (the item engine)
+
+An order to make something ("raise banners of 100,000,000 soldiers", "forge a sword of stars", "summon a dragon") goes
+to the **item engine**: rules decide the tier, the cost in bolts (the shortfall becomes debt to Consequence, unless the
+order says "no debt"), the odds and one seeded roll: `success`, `twisted`, `partial`, `failed`, `backfired`. The LLM
+only names what appears. Every attempt is a **Manifestation**; a made thing is an **Item**. Shapes:
+[`schemas`](schemas/) `$defs/Item` and `$defs/Manifestation`.
+
+- **Item:** `{ref, name, description, kind, icon, tier, count, unit, state, holder, holder_name, created_beat,
+  manifestation, at, banner, image_prompt, image_kind: "item"}`. `icon` is your piece: `sword`, `ranged`, `armor`,
+  `banner_army`, `vehicle`, `beast`, `structure`, `relic`, `artifact`, `phenomenon`, `thing`. `tier`: `trinket`,
+  `artifact`, `relic`, `wonder`, `legend`, `myth`, `titan`, `apocalypse`. `count` can be 100,000,000 (a double).
+  `state`: `held`, `deployed` (a host in the field: its army appears in `armies`), `destroyed`, `transferred`, `stolen`.
+- **Manifestation:** `{ref: "mf:N", beat, by, by_name, side, kind, icon, tier, count, unit, outcome, item, name, at,
+  region, public}`; your own also carry `verdict` (odds with their terms, the roll, cost, reasons) and `request`.
+- Public: made things of tier `relic` or up, and attempts of tier `legend` or up. Your own: everything.
+- `game.items` and `game.item` page and open them.
+
+### Mega and mini powers: the 1:5 economy
+
+Every player holds **lightning bolts** (the mega currency) and **sparks** (the mini currency), a purse both of its
+demigods share and everyone can see (`bolts`, `sparks` on every demigod and in `players[]`; `charges: {bolts, sparks}`
+in `players[]` and the seat view; `you.sparks`). Players start with `bolt_start` 1 : `spark_start` 5.
+
+- A cast says `fields.cast.tier`: `"mega"` or `"mini"` (absent = mini, so old clients never burn bolts; `bolt`/`bolts` shorthands are minis). The full cast: `action.submit { instant: true, fields: { cast: { power, tier, target } } }`.
+- **MEGA** (map scale, level 1): costs **1 bolt**; every OTHER player gains `bolt_gift` (1) bolt (and `spark_gift`, 0,
+  sparks). Its target takes the mega damage and every rival demigod within the mega radius 40% of it. Entropy +10.
+- **MINI** (the board: a few hexes): costs **1 spark**, gifts nothing, hits its target only. Entropy +1.
+- `round.brief.public.powers[]` gives each power's `mega` and `mini` variants (`radius_km`, `magnitude`, `damage`,
+  `cost: 1`: a bolt for mega, a spark for mini). The streak and `casts[]` carry `tier` and the variant's `radius_km`.
+- Validation counts megas against your bolts and minis against your sparks at the last commit; a rival's gift this beat
+  is spendable from the next. Bolts still pay Time's toll and gods' prices.
+- Hoarding is visible and is part of the game. The built-in AI casts minis often, megas sometimes, and keeps a bolt.
+
+### Aura colours
+
+`aura: "#RRGGBB"` per player (both demigods share it), on every demigod, in `players[]`, the seat view and the
+standings. A stable palette by player index: `#E69F00, #F0E442, #009E73, #F28CC0, #D55E00, #A6D854, #FFFFFF,
+#C9A27E` (Okabe-Ito based, readable on dark cobalt and violet; no cyan, no grey).
+
+### Time's live bill
+
+While a window is open, show the opener's bill growing. The `slowed` phase event carries `opened_at_ms`,
+`deadline_ms`, `bill_now {bolts, debt}`, `debt_base`, `debt_per_second`, `debt_per_10s`, `debt_cap`, `repeat_factor`,
+`recent_slows` and `bolt_paid`: `debt(t) = min(debt_cap, debt_base + debt_per_second × t)` with `t` the seconds since
+`opened_at_ms`, plus one bolt. `players[].time_bill` and `seat_view.time_bill` give the same numbers before anyone
+opens a window.
+
+### Hotspots
+
+`game.globe.regions[]` is `{ref, name, center, hotspot}` and `game.region.hotspot` the same object: `{pos: [lon, lat],
+radius_km, score, why}`, the region's most dynamic area over the last 5 beats (public events, battles, mobs, crowds in
+unrest, demigods present), or `null` where nothing happens. Open zoom level 2 centred on it when the globe is clicked.
+The built-in AI drifts toward hotspots, so the action gathers there.
 
 ## Message flow for one beat
 
@@ -600,12 +725,18 @@ readable `bad_request`. **Unknown keys are dropped silently.**
 | `seed` | int | picked at match start | ≥ 0 (u64) | All randomness derives from it. Not echoed in `rules` when unset. |
 | `arena` | string | `"planet"` | `"planet"` \| `"city"` | The whole Earth (regions → cities) or one real city (districts → sites) |
 | `city` | string | seeded pick (≥ 1M people, on land) | ≤ 80 chars | Fuzzy-matched. On the planet: where Time's circle closes for the Final Night; in a city arena: the arena |
-| `players` | int | 4 | 1–8 | Demigods in the match. Every seat gets one, and the built-in AI plays the rest. Effectively `max(seats, players)`. |
+| `players` | int | 4 | 1–8 | Players in the match (two demigods each at rules 0.7.0). Every seat gets one, and the built-in AI plays the rest. Effectively `max(seats, players)`. |
 | `beats_total` (alias `rounds`) | int | 60 | 1–1000 | The Final Night falls on this beat (or earlier: heat death, or nobody standing). `rounds` applies only when `beats_total` is absent. |
 | `flow_ms` | int | 3000 | 500–120000 | Flow beat length. `compose_seconds` defaults to `flow_ms / 1000`. |
 | `slow_ms` | int | 30000 | 1000–600000 | How long a slow window stays open at most (the Theatre window's deadline) |
 | `beat_ms` | int | = `flow_ms` | 500–120000 | Alias of `flow_ms` (used when `flow_ms` is absent; echoed as `flow_ms`) |
-| `start_bolts` | int | 3 | 0–99 | Lightning bolts each demigod starts with |
+| `start_bolts` | int | 1 | 0–99 | Alias of `bolt_start` |
+| `bolt_start` | int | 1 | 0–99 | Rules 0.7.0: lightning bolts (mega currency; also Time's toll and gods' prices) each player starts with |
+| `spark_start` | int | 5 | 0–99 | Rules 0.7.0: sparks (mini currency) each player starts with |
+| `bolt_gift` | int | 1 | 0–10 | Rules 0.7.0: bolts every other player gains per mega cast |
+| `spark_gift` | int | 0 | 0–10 | Rules 0.7.0: sparks every other player gains per mega cast |
+| `entropy_per_mega` | number | 10 | 0–100 | Rules 0.7.0: Entropy per mega cast (× `entropy_scale`) |
+| `entropy_per_mini` | number | 1 | 0–20 | Rules 0.7.0: Entropy per mini cast (× `entropy_scale`) |
 | `entropy_scale` | number | 1.0 | 0–10 | Multiplier on every Entropy rise (a playtest dial: 4 = heat death four times as fast) |
 | `clusters` | int | 200 | 8–600 | Population clusters created at setup |
 | `max_subagents_per_hand` | int | 3 | 0–10 | Live subagents + possessions per hand |
@@ -626,6 +757,11 @@ readable `bad_request`. **Unknown keys are dropped silently.**
 | `max_witnesses` | int | 4 | 1–64 | Witnesses recorded per act |
 | `society_only` | bool | false | | World-only simulation: the built-in AI demigods give no orders and cast nothing |
 | `general_calls_per_beat` | int | 2 | 0–16 | General-mind LLM calls per beat at decision points |
+| `demigods_per_player` | int | 2 | 1–2 | Rules 0.7.0: 2 = each player's Left and Right hands are two demigods, each with its own health; 1 = one shared body (the old game) |
+| `manifest_scale` | number | 1.0 | 0–10 | Rules 0.7.0: multiplier on the item engine's bolt price per tier |
+| `manifest_muster_scale` | number | 0.25 | 0–1 | Rules 0.7.0: a manifested host's army footprint in the simulation (share of `muster_size(count)`) |
+| `manifest_calls_per_beat` | int | 2 | 0–16 | Rules 0.7.0: manifest-mind LLM calls per beat (names for wonders and up, and twists) |
+| `final_wish_magnitude` | int | 2 | 0–5 | Rules 0.7.0: magnitude added to every act of the Final Wish (beat 1) |
 | `compose_seconds` | number | `flow_ms / 1000` | (0, 600] | The core's Compose timer (fixed for the room). If you set it explicitly, it no longer follows `flow_ms`. |
 | `resolve_timeout_s` | number | 60 | (0, 1800] | The core's resolve timeout |
 | `allow_midmatch_join` | bool | false | | The core's room flag: humans may join a running match ([Joining mid-match](#joining-mid-match)). Echoed in `rules` only when set. |
@@ -706,8 +842,8 @@ Unknown args are ignored, including the ngrok gate's `?key=`.
 
 | Query | Public | Args | Reply |
 |---|---|---|---|
-| `globe` | yes | `since?`, `limit?` (30, ≤ 200) | The globe in one call: arena, demigods, influence, mods, armies, Entropy, beat, an event page |
-| `region` | yes | `ref` (a region `pl:`), `cursor?`, `limit?` (10, ≤ 50) | One region: node, cities, crowds (paged), mobs, armies, demigods, mods, influence, recent events |
+| `globe` | yes | `since?`, `limit?` (30, ≤ 200) | The globe in one call: arena, demigods, players, regions with hotspots, influence, mods, armies, Entropy, beat, an event page |
+| `region` | yes | `ref` (a region `pl:`), `cursor?`, `limit?` (10, ≤ 50) | One region: node, hotspot, cities, crowds (paged, with piece `pos`/`cell`), mobs (`pos`, `cell`, `ringleader_ref`), armies, demigods, mods, influence, recent events |
 | `node` | yes | `ref` (`pl:` / `cl:` / `ce:` / `mb:`), `cursor?`, `limit?` (20, ≤ 100) | One hierarchy node and what is under it |
 | `person` | yes (subset) | `ref` (`ch:`), `cursor?`, `limit?` (20, ≤ 100) | Role, rank, place; for your seat: allegiance you know, memories you can see |
 | `army` | yes (subset) | `ref` (`cl:` of an army) | General, captains, size, position, morale; its owner also gets orders and the full chain |
@@ -715,7 +851,9 @@ Unknown args are ignored, including the ngrok gate's `?key=`.
 | `me` | **no** | none | Your SeatView, now |
 | `powers` | yes | none | The power palette |
 | `gods` | yes | none | The pantheon with each god's health |
-| `standings` | yes | none | Every demigod ranked now |
+| `standings` | yes | none | Every demigod ranked now; rules 0.7.0 adds `players[]` (each player ranked, both demigods' state, never health) and `players_alive` |
+| `items` | yes (public items; your own in full) | `holder?` (`dg:`), `state?`, `min_tier?`, `cursor?`, `limit?` (20, ≤ 100) | Rules 0.7.0: a page of items, most recent first |
+| `item` | yes (public items; your own) | `ref` (`it:`) | Rules 0.7.0: one item, its manifestation (your own with the verdict) and custody history |
 | `piles_final` | yes | none | The end-of-match piles; an error until the match is over |
 | `media` | yes (public refs) | `kind` (`portrait` / `place` / `event` / `army`), `ref` | An image of that thing, by reference: an image object at once (pending, then ready via the manifest) |
 | `profile` | yes | `name?` (default: your seat's name) | A player's persistent profile (see "Profiles, history and library") |

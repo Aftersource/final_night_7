@@ -200,6 +200,10 @@
       "description": "True on the last beat.",
       "type": "boolean"
     },
+    "final_wish": {
+      "description": "Rules 0.7.0: this beat is THE FINAL WISH (beat 1): your orders are your final wish; both hands get the window act budget and +final_wish_magnitude.",
+      "type": "boolean"
+    },
     "flow": {
       "description": "Flow and slow timing.",
       "properties": {
@@ -294,6 +298,66 @@
               "integer",
               "null"
             ]
+          },
+          "mega": {
+            "description": "Rules 0.7.0: the MEGA variant (map scale; send `cast.tier: \"mega\"`).",
+            "properties": {
+              "cost": {
+                "description": "1 bolt.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "damage": {
+                "description": "Its target's damage; rival demigods within the radius take 40%.",
+                "type": "number"
+              },
+              "magnitude": {
+                "description": "",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "radius_km": {
+                "description": "",
+                "type": "number"
+              }
+            },
+            "required": [
+              "radius_km",
+              "magnitude",
+              "damage",
+              "cost"
+            ],
+            "type": "object"
+          },
+          "mini": {
+            "description": "Rules 0.7.0: the MINI variant (the board; `cast.tier: \"mini\"`, the default).",
+            "properties": {
+              "cost": {
+                "description": "1 spark.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "damage": {
+                "description": "",
+                "type": "number"
+              },
+              "magnitude": {
+                "description": "",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "radius_km": {
+                "description": "",
+                "type": "number"
+              }
+            },
+            "required": [
+              "radius_km",
+              "magnitude",
+              "damage",
+              "cost"
+            ],
+            "type": "object"
           },
           "name": {
             "description": "Display name.",
@@ -400,7 +464,7 @@
       "type": "string"
     },
     "title": {
-      "description": "\"Beat <n> of <total>\".",
+      "description": "\"Beat <n> of <total>\" (\"The Final Wish: beat 1 of <total>\" on the Final Wish).",
       "type": "string"
     }
   },

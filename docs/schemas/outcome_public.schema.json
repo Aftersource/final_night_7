@@ -46,6 +46,10 @@
           "description": "Display name.",
           "type": "string"
         },
+        "radius_km": {
+          "description": "Rules 0.7.0: the variant's radius.",
+          "type": "number"
+        },
         "region": {
           "description": "Region (planet) or district (city) it struck.",
           "type": "string"
@@ -85,6 +89,14 @@
             "string",
             "null"
           ]
+        },
+        "tier": {
+          "description": "Rules 0.7.0: mega (cost a bolt) or mini (cost a spark).",
+          "enum": [
+            "mega",
+            "mini"
+          ],
+          "type": "string"
         }
       },
       "required": [
@@ -158,6 +170,13 @@
       ],
       "type": "object"
     },
+    "Hand": {
+      "enum": [
+        "left",
+        "right"
+      ],
+      "type": "string"
+    },
     "ImageObject": {
       "description": "An image the media server attached (only when the server has images on; see docs/MEDIA.md). Fetch `url` once `status` is `ready` (watch GET /media/index for `hash`); `off` = none will come, show a placeholder.",
       "properties": {
@@ -214,6 +233,183 @@
       "maxItems": 2,
       "minItems": 2,
       "type": "array"
+    },
+    "Manifestation": {
+      "description": "Rules 0.7.0: one manifestation attempt (made or not).",
+      "properties": {
+        "at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LonLat"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "by": {
+          "$ref": "#/$defs/Ref"
+        },
+        "by_name": {
+          "description": "",
+          "type": "string"
+        },
+        "count": {
+          "description": "",
+          "type": "number"
+        },
+        "icon": {
+          "description": "",
+          "enum": [
+            "sword",
+            "ranged",
+            "armor",
+            "banner_army",
+            "vehicle",
+            "beast",
+            "structure",
+            "relic",
+            "artifact",
+            "phenomenon",
+            "thing"
+          ],
+          "type": "string"
+        },
+        "image": {
+          "$ref": "#/$defs/ImageObject"
+        },
+        "image_kind": {
+          "const": "item"
+        },
+        "image_prompt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "item": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "kind": {
+          "description": "",
+          "enum": [
+            "artifact",
+            "weapon",
+            "armor",
+            "relic",
+            "structure",
+            "army",
+            "fleet",
+            "creature",
+            "phenomenon",
+            "other"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "outcome": {
+          "description": "",
+          "enum": [
+            "success",
+            "twisted",
+            "partial",
+            "failed",
+            "backfired",
+            "refused"
+          ],
+          "type": "string"
+        },
+        "public": {
+          "description": "",
+          "type": "boolean"
+        },
+        "ref": {
+          "description": "`mf:<n>`.",
+          "type": "string"
+        },
+        "region": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "request": {
+          "additionalProperties": true,
+          "description": "Your own only: kind, count, magnitude.",
+          "type": "object"
+        },
+        "side": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Hand"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tier": {
+          "description": "",
+          "enum": [
+            "trinket",
+            "artifact",
+            "relic",
+            "wonder",
+            "legend",
+            "myth",
+            "titan",
+            "apocalypse"
+          ],
+          "type": "string"
+        },
+        "unit": {
+          "description": "",
+          "type": "string"
+        },
+        "verdict": {
+          "additionalProperties": true,
+          "description": "Your own only: outcome, tier, odds {success, twist, partial, backfire, terms}, roll, cost {required, bolts, extra, missing, debt}, god, favor, entropy, reasons, flavor.",
+          "type": "object"
+        }
+      },
+      "required": [
+        "ref",
+        "beat",
+        "by",
+        "by_name",
+        "side",
+        "kind",
+        "icon",
+        "tier",
+        "count",
+        "unit",
+        "outcome",
+        "item",
+        "name",
+        "at",
+        "region",
+        "public",
+        "image_prompt",
+        "image_kind"
+      ],
+      "type": "object"
     },
     "Omen": {
       "description": "A god's ruling as a client sees it (public omens and your own invocations).",
@@ -475,12 +671,24 @@
       },
       "type": "array"
     },
+    "manifests": {
+      "description": "Rules 0.7.0: public manifestations this beat (made things of tier relic or up, or legend+ attempts).",
+      "items": {
+        "$ref": "#/$defs/Manifestation"
+      },
+      "type": "array"
+    },
     "omens": {
       "description": "Public god rulings this beat (magnitude >= 6, or one that sent a paladin; Entropy's yes to every cast of magnitude >= 6).",
       "items": {
         "$ref": "#/$defs/Omen"
       },
       "type": "array"
+    },
+    "players_alive": {
+      "description": "Rules 0.7.0: players with a demigod standing.",
+      "minimum": 0,
+      "type": "integer"
     },
     "previous_callouts": {
       "description": "0-3 short asides for beat `caption_beat` (god quips, kill lines). Without the LLM these repeat the omen speeches.",

@@ -663,8 +663,9 @@ Engineering (designer decisions: two demigods per player, each with its own heal
 - **For the client:** `side`, `aura`, `players[]`, the live Time bill, crowd and mob pieces, item `icon`, hotspots, the
   Final Wish (`final_wish: true` on beat 1).
 - **Replay:** every change gated on the schema; schema-4 recordings replay with 0 differences.
-- **Balance (fn7-sim, 128 seeds, 60 beats, no LLM):** median match 57 beats (before: 58), mean 53.8 (54.2), seat wins
-  32/30/30/36 (before 35/35/30/28).
+- **Balance (fn7-sim, 128 seeds, 60 beats, no LLM):** before (rules 0.6.0): median 58 beats, mean 54.2, seat wins
+  35/35/30/28. Two demigods, before the bolt/spark economy: median 57, mean 53.8, 32/30/30/36. With the 1:5 economy
+  (final): median 60, mean 58.9, p10 55, 25 of 128 end before the Final Night, seat wins 35/36/30/27.
 
 ## 2026-11-14: mega and mini powers, the 1:5 economy
 
@@ -683,3 +684,31 @@ Engineering:
 - Casting a mega gives every other god +1 mega charge, plus 5 mini (the 1:5 bundle); they can spend it or hoard it.
 - All values are settings (mega_start, mini_start, mega_gift, mini_gift).
 - Pushes from the Mac session: Chris pre-authorizes `mac/*` pushes when ready (a permission setting on that Mac).
+
+Clarification from Chris: one lightning bolt per 5 sparks, or similar.
+
+Engineering (built in rules 0.7.0):
+- The currencies are LIGHTNING BOLTS (mega) and SPARKS (mini), a per-player purse (`bolts`, `sparks`), starting 1 : 5
+  (`bolt_start`, `spark_start`; `start_bolts` stays an alias).
+- A mega costs 1 bolt and every OTHER player gains `bolt_gift` (1) bolt and `spark_gift` (0) sparks; a mini costs 1
+  spark and gifts nothing. This replaces the old "+2 bolts per bolt" gift for casts; bolts still pay Time's toll and
+  gods' prices (and those still gift 2 per bolt).
+- Each power has a mega variant (map scale: radius × 4 within 600–2,500 km, magnitude + 2, damage × 1.5; rival demigods
+  in the radius take 40%) and a mini one (the board: radius / 20 within 3–30 km, magnitude − 3, damage × 0.6, its target
+  only), in `data/powers.json` (version 0.2.0). A cast says `tier: "mega" | "mini"` (absent = mini).
+- Entropy per cast: `entropy_per_mega` 10, `entropy_per_mini` 1. Frantic mega casting still reaches heat death at the
+  2nd or 3rd resolve (the regression test); frantic mini casting can't.
+- The built-in AI casts minis often, megas sometimes, and keeps a bolt in hand (hoards).
+
+## 2026-11-14: powers lower right, nothing blocks the map, the scroll lies on the table
+
+> The entropy powers should be on the lower right, and the map should not be blocked. The will is liked
+> being here; however, it needs to be more tucked away. The unrolling is liked, but it is not usable on the map. Make it
+> unroll across the table at the edge of the hexes on the table, so they can be slid like game pieces.
+> again, if they are rolled over the world map, they should return to level 1 distance.
+
+Engineering (client, the Mac session):
+- The power tiles move to the lower right, and HUD panels hug the edges and never cover the board.
+- The WILL becomes a slim strip that expands for typing.
+- The cloth scroll lies on the table along the rim of the hex board, holding the power tokens as game pieces you slide onto the board.
+- Over the globe, a token targets at level 1 (mega scale); over the board, at that board's level.

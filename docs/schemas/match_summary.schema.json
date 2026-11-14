@@ -59,6 +59,13 @@
       ],
       "type": "object"
     },
+    "Hand": {
+      "enum": [
+        "left",
+        "right"
+      ],
+      "type": "string"
+    },
     "ImageObject": {
       "description": "An image the media server attached (only when the server has images on; see docs/MEDIA.md). Fetch `url` once `status` is `ready` (watch GET /media/index for `hash`); `off` = none will come, show a placeholder.",
       "properties": {
@@ -115,6 +122,183 @@
       "maxItems": 2,
       "minItems": 2,
       "type": "array"
+    },
+    "Manifestation": {
+      "description": "Rules 0.7.0: one manifestation attempt (made or not).",
+      "properties": {
+        "at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LonLat"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "by": {
+          "$ref": "#/$defs/Ref"
+        },
+        "by_name": {
+          "description": "",
+          "type": "string"
+        },
+        "count": {
+          "description": "",
+          "type": "number"
+        },
+        "icon": {
+          "description": "",
+          "enum": [
+            "sword",
+            "ranged",
+            "armor",
+            "banner_army",
+            "vehicle",
+            "beast",
+            "structure",
+            "relic",
+            "artifact",
+            "phenomenon",
+            "thing"
+          ],
+          "type": "string"
+        },
+        "image": {
+          "$ref": "#/$defs/ImageObject"
+        },
+        "image_kind": {
+          "const": "item"
+        },
+        "image_prompt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "item": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "kind": {
+          "description": "",
+          "enum": [
+            "artifact",
+            "weapon",
+            "armor",
+            "relic",
+            "structure",
+            "army",
+            "fleet",
+            "creature",
+            "phenomenon",
+            "other"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "outcome": {
+          "description": "",
+          "enum": [
+            "success",
+            "twisted",
+            "partial",
+            "failed",
+            "backfired",
+            "refused"
+          ],
+          "type": "string"
+        },
+        "public": {
+          "description": "",
+          "type": "boolean"
+        },
+        "ref": {
+          "description": "`mf:<n>`.",
+          "type": "string"
+        },
+        "region": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "request": {
+          "additionalProperties": true,
+          "description": "Your own only: kind, count, magnitude.",
+          "type": "object"
+        },
+        "side": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Hand"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tier": {
+          "description": "",
+          "enum": [
+            "trinket",
+            "artifact",
+            "relic",
+            "wonder",
+            "legend",
+            "myth",
+            "titan",
+            "apocalypse"
+          ],
+          "type": "string"
+        },
+        "unit": {
+          "description": "",
+          "type": "string"
+        },
+        "verdict": {
+          "additionalProperties": true,
+          "description": "Your own only: outcome, tier, odds {success, twist, partial, backfire, terms}, roll, cost {required, bolts, extra, missing, debt}, god, favor, entropy, reasons, flavor.",
+          "type": "object"
+        }
+      },
+      "required": [
+        "ref",
+        "beat",
+        "by",
+        "by_name",
+        "side",
+        "kind",
+        "icon",
+        "tier",
+        "count",
+        "unit",
+        "outcome",
+        "item",
+        "name",
+        "at",
+        "region",
+        "public",
+        "image_prompt",
+        "image_kind"
+      ],
+      "type": "object"
     },
     "Ref": {
       "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row, ce cell, mb mob. Stable for the whole match.",
@@ -241,6 +425,13 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "description": "`match.ended.summary`.",
   "properties": {
+    "champion_player": {
+      "description": "Rules 0.7.0: the surviving player.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "champion_seat": {
       "description": "The champion's Theatre seat; null when a built-in AI demigod won (then match.ended.winners is []).",
       "minimum": 0,
@@ -265,6 +456,10 @@
             "description": "",
             "type": "string"
           },
+          "player": {
+            "description": "Rules 0.7.0: the champion player's name.",
+            "type": "string"
+          },
           "seat": {
             "description": "Theatre seat; null for the built-in AI's demigods.",
             "minimum": 0,
@@ -272,6 +467,9 @@
               "integer",
               "null"
             ]
+          },
+          "side": {
+            "$ref": "#/$defs/Hand"
           }
         },
         "required": [
@@ -337,6 +535,13 @@
       ],
       "type": "object"
     },
+    "manifests": {
+      "description": "Rules 0.7.0: every public manifestation of the match.",
+      "items": {
+        "$ref": "#/$defs/Manifestation"
+      },
+      "type": "array"
+    },
     "piles": {
       "description": "One per demigod, in id order.",
       "items": {
@@ -365,8 +570,27 @@
             "items": {
               "description": "",
               "properties": {
+                "count": {
+                  "description": "",
+                  "type": "number"
+                },
+                "icon": {
+                  "type": "string"
+                },
+                "image": {
+                  "$ref": "#/$defs/ImageObject"
+                },
+                "image_prompt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "item": {
                   "$ref": "#/$defs/Ref"
+                },
+                "kind": {
+                  "type": "string"
                 },
                 "name": {
                   "description": "",
@@ -393,6 +617,16 @@
                     }
                   ],
                   "description": "The source item (`it:<n>`) for echoed, the god (`gd:<n>`) for granted, else null."
+                },
+                "state": {
+                  "type": "string"
+                },
+                "tier": {
+                  "type": "string"
+                },
+                "unit": {
+                  "description": "",
+                  "type": "string"
                 }
               },
               "required": [
@@ -512,6 +746,15 @@
       },
       "type": "array"
     },
+    "players": {
+      "description": "One per player, best first.",
+      "items": {
+        "additionalProperties": true,
+        "description": "Rules 0.7.0 (for fn7-profile): {seat, display_name, demigod, rank, champion, alive, aura, controller, demigods: [{ref, side, name, alive, health, eliminated_beat, cause, cell, visual, rank, items, portrait_prompt, diorama_prompt}]}",
+        "type": "object"
+      },
+      "type": "array"
+    },
     "standings": {
       "description": "Every demigod, best first.",
       "items": {
@@ -520,6 +763,10 @@
           "alive": {
             "description": "",
             "type": "boolean"
+          },
+          "aura": {
+            "description": "Rules 0.7.0.",
+            "type": "string"
           },
           "cause": {
             "description": "How it fell.",
@@ -531,6 +778,15 @@
           "demigod": {
             "$ref": "#/$defs/Ref"
           },
+          "demigods": {
+            "description": "Rules 0.7.0: each of the player's demigods.",
+            "items": {
+              "additionalProperties": true,
+              "description": "{ref, demigod, side, name, alive, health, eliminated_beat, cause, cell, visual}",
+              "type": "object"
+            },
+            "type": "array"
+          },
           "eliminated_beat": {
             "description": "",
             "minimum": 0,
@@ -541,6 +797,10 @@
           },
           "name": {
             "description": "",
+            "type": "string"
+          },
+          "player": {
+            "description": "Rules 0.7.0: standings are per player; the player's name.",
             "type": "string"
           },
           "rank": {

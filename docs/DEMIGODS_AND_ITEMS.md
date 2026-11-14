@@ -1,9 +1,39 @@
 # Demigods, manifested items and persistent identity
 
-Status: **designed and partly built, not wired.** Built and tested: the item model and item-engine rules
-(`crates/fn7-model/src/manifest.rs`), and the persistent profile store with its backfill and HTTP routes
-(`crates/fn7-profile`). Not yet done: wiring into `fn7-plugin` and `fn7-server`. That waits until the balance and media
-work in those crates lands. §11 is the step-by-step plan for it.
+Status: **rules 0.7.0 (state schema 5) wires the game side; the server side (`fn7-server`, `fn7-profile` steps 19–21,
+24) is still open.** §0 says what was built and how it differs from this design; the rest of the document is the
+original design, kept for its reasoning.
+
+## 0. As built (rules 0.7.0)
+
+The designer decided (2026-11-14): **two full demigods per player, each with its own health**; a shared health pool was
+rejected. So phase 2 of §2 is what shipped, and its structure changed:
+
+- **Two `Demigod` rows per seat, not a `HandDemigod` (`hd:`) sidecar.** Every rule that touches "the demigod" (Time's
+  circle, armies striking, accidents, casts' area, Life prices, revive, Entropy flinging, possession, Consequence's
+  bill) already iterates `World.demigods`, so two rows make all of them per body for free. `Demigod` gains `side`
+  (`left`/`right`) and `player`; both rows share `seat`, `following` and `home`. Left rows keep the setup ids
+  (`dg:0..n`), Right rows are appended (`dg:n..2n`), so every per-id table (gods' favor, crowds' allegiance) stays
+  valid. Each row's `hands` is its own hand agent twice, and that agent's `AgentKind::Hand.demigod` is the row, so the
+  left text drives the Left body. `fn7_society::split_hands` does it at setup. `HandDemigod` stays in `manifest.rs`
+  unused, and no `hd:`/`mf:` `Ref` variants were added (`mf:N` appears only as a string in payloads).
+- **Bolts: a per-player purse,** mirrored on both rows (`World::set_bolts`; every write goes through it). The gift is
+  per rival *player*. **Debts: per body** (the acting body owes; Time's order debt is split between the bodies that got
+  orders).
+- **Survivor rule:** exactly one *player*: the most total standing (health minus outstanding debt), then start-of-beat
+  health, then the lowest id. Lowest-debt-first (the old key) made players who had already lost a body win the Final
+  Night (fewer bodies, less debt); "standing" fixed a measured seat skew.
+- **Elimination reporting:** `seat.eliminated` only when both bodies have fallen; `seat.revived` when either stands.
+- **Item engine:** wired in `fn7-plugin/src/items.rs` (§4 rules unchanged; prices × `manifest_scale`). Requests are read
+  by rules (`is_manifest_act`, `request_from_text`); the hand prompt was **not** changed (a prompt change would break
+  old recordings' LLM replay), so step 6 is open. The `manifest` mind (step 7) names and describes. Hosts muster
+  `muster_size × manifest_muster_scale` (0.25). The bare-verb item fallbacks (§15) are fixed for schema 5
+  (`items_by_engine`); creatures default to one beast, and rules names use the thing's own noun.
+- **Answers to §14:** (1) separate health per body, the player out when both fall; (2) default names kept, proper names
+  a later setting; (3) manifest bolts follow the universal bolt rule (rivals +2 per bolt); (4) the tier table and
+  patrons as designed; (5) public from relic tier up (plus legend+ attempts).
+- **Not done here:** fn7-server/fn7-profile wiring (steps 19–21, 24: another agent's crates), `ItemState` transfers and
+  steals (no `Effect::ItemState` yet), `game.profile/history/library`.
 
 Source of intent: BUILDLOG 2026-11-14, "demigods: two per player, items they manifest, persistent identity":
 

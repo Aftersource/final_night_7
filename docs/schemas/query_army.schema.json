@@ -143,9 +143,16 @@
           "description": "",
           "type": "boolean"
         },
+        "cell": {
+          "description": "Rules 0.7.0: their people-level hex cell (`<face>:people:<q>:<r>`).",
+          "type": "string"
+        },
         "name": {
           "description": "",
           "type": "string"
+        },
+        "pos": {
+          "$ref": "#/$defs/LonLat"
         },
         "ref": {
           "$ref": "#/$defs/Ref"

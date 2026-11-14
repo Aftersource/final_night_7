@@ -60,6 +60,20 @@
       "minimum": 1,
       "type": "integer"
     },
+    "bolt_gift": {
+      "default": 1,
+      "description": "Rules 0.7.0: bolts every OTHER player gains when someone casts a mega power.",
+      "maximum": 10,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "bolt_start": {
+      "default": 1,
+      "description": "Rules 0.7.0: lightning bolts (the mega currency; also Time's toll and gods' prices) each player starts with. `start_bolts` is an alias.",
+      "maximum": 99,
+      "minimum": 0,
+      "type": "integer"
+    },
     "choose_seconds": {
       "description": "Unused by Final Night 7 (there is no Choose phase); copied through if set.",
       "exclusiveMinimum": 0,
@@ -98,12 +112,40 @@
       "minimum": 0,
       "type": "number"
     },
+    "demigods_per_player": {
+      "default": 2,
+      "description": "Rules 0.7.0: 2 = each player's Left and Right hands are two demigods, each with its own health (the player is out when both fall); 1 = one shared body (as before 0.7.0).",
+      "maximum": 2,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "entropy_per_mega": {
+      "default": 10.0,
+      "description": "Rules 0.7.0: Entropy a mega cast adds (x entropy_scale).",
+      "maximum": 100,
+      "minimum": 0,
+      "type": "number"
+    },
+    "entropy_per_mini": {
+      "default": 1.0,
+      "description": "Rules 0.7.0: Entropy a mini cast adds (x entropy_scale).",
+      "maximum": 20,
+      "minimum": 0,
+      "type": "number"
+    },
     "entropy_scale": {
       "default": 1.0,
       "description": "Multiplier on every Entropy rise (a playtest dial; 2 = heat death twice as fast). Cooling is not scaled.",
       "maximum": 10,
       "minimum": 0,
       "type": "number"
+    },
+    "final_wish_magnitude": {
+      "default": 2,
+      "description": "Rules 0.7.0: magnitude added to every act of the Final Wish (beat 1).",
+      "maximum": 5,
+      "minimum": 0,
+      "type": "integer"
     },
     "flow_ms": {
       "default": 3000,
@@ -130,6 +172,27 @@
       "maximum": 32,
       "minimum": 0,
       "type": "integer"
+    },
+    "manifest_calls_per_beat": {
+      "default": 2,
+      "description": "Rules 0.7.0: most manifest-mind (LLM) calls per beat (names for wonders and up, and twists).",
+      "maximum": 16,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "manifest_muster_scale": {
+      "default": 0.25,
+      "description": "Rules 0.7.0: a manifested host's army footprint in the simulation, as a share of muster_size(count) (0 = hosts never take the field).",
+      "maximum": 1,
+      "minimum": 0,
+      "type": "number"
+    },
+    "manifest_scale": {
+      "default": 1.0,
+      "description": "Rules 0.7.0: multiplier on the item engine's bolt price per tier.",
+      "maximum": 10,
+      "minimum": 0,
+      "type": "number"
     },
     "max_intents_per_hand": {
       "default": 6,
@@ -212,9 +275,23 @@
       "minimum": 1000,
       "type": "integer"
     },
+    "spark_gift": {
+      "default": 0,
+      "description": "Rules 0.7.0: sparks every OTHER player gains when someone casts a mega power.",
+      "maximum": 10,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "spark_start": {
+      "default": 5,
+      "description": "Rules 0.7.0: sparks (the mini currency) each player starts with.",
+      "maximum": 99,
+      "minimum": 0,
+      "type": "integer"
+    },
     "start_bolts": {
-      "default": 3,
-      "description": "Lightning bolts each demigod starts with.",
+      "default": 1,
+      "description": "Alias of bolt_start (rules 0.7.0: lightning bolts each player starts with).",
       "maximum": 99,
       "minimum": 0,
       "type": "integer"

@@ -94,8 +94,27 @@
             "items": {
               "description": "",
               "properties": {
+                "count": {
+                  "description": "",
+                  "type": "number"
+                },
+                "icon": {
+                  "type": "string"
+                },
+                "image": {
+                  "$ref": "#/$defs/ImageObject"
+                },
+                "image_prompt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "item": {
                   "$ref": "#/$defs/Ref"
+                },
+                "kind": {
+                  "type": "string"
                 },
                 "name": {
                   "description": "",
@@ -122,6 +141,16 @@
                     }
                   ],
                   "description": "The source item (`it:<n>`) for echoed, the god (`gd:<n>`) for granted, else null."
+                },
+                "state": {
+                  "type": "string"
+                },
+                "tier": {
+                  "type": "string"
+                },
+                "unit": {
+                  "description": "",
+                  "type": "string"
                 }
               },
               "required": [

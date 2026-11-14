@@ -168,8 +168,25 @@ feeds the action and never gates it, and every "turn-ism" (slowing time, the Ent
 ## 3. The game rules as built
 
 The authoritative list is `MECHANICS` in `crates/fn7-plugin/src/lib.rs`. It's recorded with every match. Rules
-version **0.6.0** (`RULES_VERSION`), state schema **4** (`STATE_SCHEMA` in `crates/fn7-model/src/lib.rs`). The client
+version **0.7.0** (`RULES_VERSION`), state schema **5** (`STATE_SCHEMA` in `crates/fn7-model/src/lib.rs`). The client
 contract is `docs/CLIENT_API.md`.
+
+**Rules 0.7.0 in one list** (details in `MECHANICS`, `docs/CLIENT_API.md` "Two demigods per player" and
+`docs/DEMIGODS_AND_ITEMS.md`):
+- **Two demigods per player.** The Left and Right hands are two `Demigod` rows per seat (`side`, `player`), each with
+  its own health, position, items and elimination. A player is out when both fall. Bolts are a per-player purse;
+  debts are per body. Every per-demigod rule (Time's circle, armies, accidents, casts' area, Life prices, revive,
+  Entropy flinging, possession) applies per body; siblings are never rivals.
+- **Final Night:** exactly one *player* survives: the most total standing (health minus debt), then start-of-beat
+  health, then the lowest id.
+- **Item engine:** manifest orders are judged by rules (tier, cost, odds, one seeded roll); the LLM only names. Every
+  attempt is an `mf:` row; made things are items with `ItemExt`; hosts take the field as armies.
+- **People-level hex occupancy** (Benito's rule) with the client's exact hex indexing (`fn7-model/src/hexgrid.rs`).
+- **The Final Wish** (beat 1), **hotspots** per region, AI drift toward hotspots, aura colours, the live Time bill.
+- **Mega and mini powers, the 1:5 economy:** bolts (megas, also Time's toll and gods' prices) and sparks (minis),
+  starting 1 : 5; a mega gives every other player a bolt; Entropy +10 per mega, +1 per mini.
+- **Gated on the schema:** every rule change reads `World::two_bodies()` (`meta.schema >= 5`), so schema-4 recordings
+  replay byte for byte.
 
 ### 3.1 The beat
 **One Theatre round = one beat.** The round number is the beat number. There is no Choose phase.
@@ -369,8 +386,10 @@ worship drift. Old memories fold into summaries.
   `seat.eliminated` and then `room.updated`. The fallen become spectators.
 - **Revive:** Death's raise-the-dead, or the survivor rule. A revived seat gets `seat.revived` and plays again.
 - **The Final Night** falls on `beats_total`, or at heat death, or on any beat that would end with nobody standing.
-  **Exactly one demigod survives**: the lowest outstanding debt, then the most health, then the most health at the
-  beat's start. A fallen survivor is revived at its start-of-beat health.
+  **Exactly one player survives** (rules 0.7.0): the most total standing over its demigods (health minus outstanding
+  debt), then the most total health at the beat's start, then the lowest demigod id. Its standing demigods stand; if
+  none does, its demigod with the most start-of-beat health is revived at that health. (Schema-4 matches: exactly one
+  demigod, by the lowest outstanding debt, then the most health, then start-of-beat health.)
 - **Match end:** at `beats_total`, or when at most one demigod stands. Use `summary.champion_seat` and
   `summary.champions`; the core's `winners` is `[]` when a built-in AI wins.
 - **Time's circle** shrinks around the convergence city, from the whole globe (20,037.5 km) to 1,500 km by beat
@@ -411,7 +430,9 @@ validator. **Balance is done with settings, never code** (Play 3).
 | `beats_total` (`rounds`) | 60 | 1–1000 | The Final Night's beat |
 | `flow_ms` (`beat_ms`) | 3000 | 500–120000 | Flow beat length; `compose_seconds` defaults to `flow_ms/1000` |
 | `slow_ms` | 30000 | 1000–600000 | Longest a slow window stays open |
-| `start_bolts` | 3 | 0–99 | Bolts per demigod at the start |
+| `start_bolts` (`bolt_start`) | 1 | 0–99 | Bolts per player at the start (rules 0.7.0) |
+| `spark_start`, `bolt_gift`, `spark_gift` | 5, 1, 0 | | Rules 0.7.0: sparks to start; what every other player gains per mega |
+| `entropy_per_mega`, `entropy_per_mini` | 10, 1 | | Rules 0.7.0: Entropy per cast |
 | `entropy_scale` | 1.0 | 0–10 | Multiplier on every Entropy rise |
 | `clusters` | 200 | 8–600 | Crowds created at setup |
 | `max_subagents_per_hand` | 3 | 0–10 | Live subagents + possessions per hand |
@@ -432,6 +453,11 @@ validator. **Balance is done with settings, never code** (Play 3).
 | `max_witnesses` | 4 | 1–64 | Witnesses recorded per act |
 | `society_only` | false | bool | The AI demigods give no orders and cast nothing; only the society acts |
 | `general_calls_per_beat` | 2 | 0–16 | General-mind LLM calls per beat at decision points |
+| `demigods_per_player` | 2 | 1–2 | Rules 0.7.0: two demigods (Left and Right hands, own health each) or one shared body |
+| `manifest_scale` | 1.0 | 0–10 | Rules 0.7.0: multiplier on the item engine's tier prices |
+| `manifest_muster_scale` | 0.25 | 0–1 | Rules 0.7.0: a manifested host's army footprint (share of `muster_size`) |
+| `manifest_calls_per_beat` | 2 | 0–16 | Rules 0.7.0: manifest-mind LLM calls per beat |
+| `final_wish_magnitude` | 2 | 0–5 | Rules 0.7.0: magnitude added to every act of the Final Wish (beat 1) |
 | `compose_seconds`, `resolve_timeout_s`, `choose_seconds` | `flow_ms/1000`, 60, core | core | The core's timers, copied through |
 | `first_compose_seconds`, `allow_midmatch_join` | unset, false | core | Core room flags from engine `2d3a43d` / `9d98b98`; passed through by `copy_timer_settings` **[uncertain: not yet exercised by FN7; see §11]** |
 

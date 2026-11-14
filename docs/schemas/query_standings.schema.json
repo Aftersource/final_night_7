@@ -1,5 +1,12 @@
 {
   "$defs": {
+    "Hand": {
+      "enum": [
+        "left",
+        "right"
+      ],
+      "type": "string"
+    },
     "Ref": {
       "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row, ce cell, mb mob. Stable for the whole match.",
       "examples": [
@@ -32,6 +39,105 @@
       "description": "The match is over.",
       "type": "boolean"
     },
+    "players": {
+      "description": "Best first.",
+      "items": {
+        "description": "Rules 0.7.0: one player ranked (never health).",
+        "properties": {
+          "alive": {
+            "description": "",
+            "type": "boolean"
+          },
+          "aura": {
+            "description": "",
+            "type": "string"
+          },
+          "bolts": {
+            "description": "",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "demigods": {
+            "description": "",
+            "items": {
+              "description": "",
+              "properties": {
+                "alive": {
+                  "description": "",
+                  "type": "boolean"
+                },
+                "cause": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "eliminated_beat": {
+                  "description": "",
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "name": {
+                  "description": "",
+                  "type": "string"
+                },
+                "ref": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "side": {
+                  "$ref": "#/$defs/Hand"
+                }
+              },
+              "required": [
+                "ref",
+                "side",
+                "name",
+                "alive",
+                "eliminated_beat",
+                "cause"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "player": {
+            "description": "",
+            "type": "string"
+          },
+          "rank": {
+            "description": "",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "seat": {
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "rank",
+          "seat",
+          "player",
+          "aura",
+          "alive",
+          "bolts",
+          "demigods"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "players_alive": {
+      "description": "Rules 0.7.0.",
+      "minimum": 0,
+      "type": "integer"
+    },
     "standings": {
       "description": "Best first.",
       "items": {
@@ -43,6 +149,10 @@
                 "description": "",
                 "type": "boolean"
               },
+              "aura": {
+                "description": "Rules 0.7.0.",
+                "type": "string"
+              },
               "cause": {
                 "description": "How it fell.",
                 "type": [
@@ -52,6 +162,15 @@
               },
               "demigod": {
                 "$ref": "#/$defs/Ref"
+              },
+              "demigods": {
+                "description": "Rules 0.7.0: each of the player's demigods.",
+                "items": {
+                  "additionalProperties": true,
+                  "description": "{ref, demigod, side, name, alive, health, eliminated_beat, cause, cell, visual}",
+                  "type": "object"
+                },
+                "type": "array"
               },
               "eliminated_beat": {
                 "description": "",
@@ -63,6 +182,10 @@
               },
               "name": {
                 "description": "",
+                "type": "string"
+              },
+              "player": {
+                "description": "Rules 0.7.0: standings are per player; the player's name.",
                 "type": "string"
               },
               "rank": {

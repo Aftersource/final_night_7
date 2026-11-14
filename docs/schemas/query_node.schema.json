@@ -121,6 +121,10 @@
           ],
           "description": ""
         },
+        "cell": {
+          "description": "Rules 0.7.0: `pos`'s people-level hex cell.",
+          "type": "string"
+        },
         "cells": {
           "description": "Live cells.",
           "items": {
@@ -156,6 +160,10 @@
         "place": {
           "$ref": "#/$defs/Ref"
         },
+        "pos": {
+          "$ref": "#/$defs/LonLat",
+          "description": "Rules 0.7.0: where its piece stands (a fixed seeded spot around its place, so a city's crowds don't stack)."
+        },
         "ref": {
           "$ref": "#/$defs/Ref"
         },
@@ -166,6 +174,10 @@
         },
         "stance": {
           "$ref": "#/$defs/Stance"
+        },
+        "village": {
+          "description": "Rules 0.7.0: `pos`'s village-level hex cell.",
+          "type": "string"
         }
       },
       "required": [
@@ -237,6 +249,10 @@
           "description": "Why it formed.",
           "type": "string"
         },
+        "cell": {
+          "description": "Rules 0.7.0: its people-level hex cell.",
+          "type": "string"
+        },
         "cells": {
           "description": "Its cells (`ce:` refs).",
           "items": {
@@ -276,6 +292,10 @@
         "place": {
           "$ref": "#/$defs/Ref"
         },
+        "pos": {
+          "$ref": "#/$defs/LonLat",
+          "description": "Rules 0.7.0: = at."
+        },
         "ref": {
           "$ref": "#/$defs/Ref"
         },
@@ -292,6 +312,17 @@
               "type": "null"
             }
           ]
+        },
+        "ringleader_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Rules 0.7.0: the ringleader (`ch:`)."
         },
         "side": {
           "anyOf": [
@@ -565,9 +596,16 @@
           "description": "",
           "type": "boolean"
         },
+        "cell": {
+          "description": "Rules 0.7.0: their people-level hex cell (`<face>:people:<q>:<r>`).",
+          "type": "string"
+        },
         "name": {
           "description": "",
           "type": "string"
+        },
+        "pos": {
+          "$ref": "#/$defs/LonLat"
         },
         "ref": {
           "$ref": "#/$defs/Ref"
