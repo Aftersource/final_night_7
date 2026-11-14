@@ -901,3 +901,8 @@ Engineering: the empty pouch sags and goes dull (no glow, no motes, a dark gem) 
 Engineering: this is the DM rulebook's governing principle.
 - History and consequence are lenses the DM looks through.
 - The rules are an imagined algorithm that has already decided; the DM accepts its answer however ludicrous and explains it with mystical, Rube Goldberg causality that fits the world (rituals, chains of omens, absurd material requirements: "wash the stone in platinum dust").
+
+> Head tracking is slower, and starts out much more gradually, taking almost 3 seconds to notice the user's pointer
+> is elsewhere, and the demigods do not appear to be draggable.
+
+Engineering: the camera's pointer-follow lean (FNPlayerController::PlayerTick) must react within about 0.2 s, framerate-independent. Dragging demigods is the summon feature: it isn't built yet (the Mac's hooks first, then Benito's input).
