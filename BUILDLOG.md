@@ -982,3 +982,18 @@ Engineering (challenge mode presentation, v1.2):
 - The blackboard/movie screen behind the globe becomes the duel stage (the globe goes translucent), and the WILL scroll expands onto it.
 - On stage, the two demigods' 3D figures (with their armies or followers if they have them) act out each blow, driven by the rule engine's animation cues per blow.
 - The engine needs a fast typing relay for the duellists (requested).
+
+## 2026-11-14: a gentle red pulse for the teleport; the damage check comes before it; no double-click warping
+
+> If it currently teleports in, make it gently pulse in and out with a red aura. Do not use beams.
+> Keep the mechanic obscured. The challenge can start with that teleport, and if the player double-clicks, the teleport can be instant.
+> The damage check must still happen before the teleport, which is why teleporting into an opponent at
+> the start with a 2-3 life penalty is very dangerous, in the style of Archon, unless the prompt work is excellent. Remember to
+> Pass these points along to the main session.
+> Double-clicking still makes the view warp around. Stop the warping.
+
+Engineering:
+- Teleport look: the piece pulses out, then in, with a red aura, and there are no beams.
+- The summon's mishap d20 and health loss are decided AT THE ACCEPT, ahead of the teleport: the `summoning` event carries the roll and health_lost.
+- A challenge may fire immediately during or after a teleport, and the duel starts with the summon's health loss already counted (Archon-style risk).
+- No view change on ANY double-click; the studio's left-click zoom is removed.
