@@ -17,8 +17,10 @@
 //! - the rules fallback for reading a request out of free text: [`parse_count`] ("100,000,000", "a hundred million",
 //!   "1.5bn") and [`classify_kind`].
 //!
-//! Not wired yet: `World` gains `hand_demigods`, `manifests` and `Item.ext` at the integration step (the doc's §9), and
-//! [`crate::Ref`] gains the `hd:` and `mf:` variants then. Until then these types compile and are tested on their own.
+//! Wired in rules 0.7.0 (state schema 5): the player's two demigods are two [`crate::Demigod`] rows per seat (the
+//! designer chose separate health per body, so the [`HandDemigod`] sidecar sketched in the design is not used as a
+//! table); every attempt is a row of `World.manifests`; made things are [`crate::Item`]s with [`ItemExt`] flattened in.
+//! `fn7-plugin`'s `items` module runs the engine in the beat.
 
 use std::fmt;
 
@@ -367,6 +369,14 @@ pub struct ItemExt {
     pub history: Vec<ItemEvent>,
 }
 
+impl ItemExt {
+    /// Nothing the item engine set (a schema-4 item, or one an old path made): serialized as nothing, so schema-4
+    /// states stay byte-identical.
+    pub fn is_plain(&self) -> bool {
+        *self == ItemExt::default()
+    }
+}
+
 impl Default for ItemExt {
     fn default() -> Self {
         Self {
@@ -572,6 +582,42 @@ pub struct Manifestation {
     pub public: bool,
 }
 
+/// A thing an attempt made, before it is an item (`Effect::Manifest`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct NewItem {
+    pub name: String,
+    pub description: String,
+    pub ext: ItemExt,
+    /// A host's footprint in the society simulation ([`muster_size`]); 0 = none (objects, or a host kept in reserve).
+    #[serde(default)]
+    pub muster: u32,
+}
+
+/// The client's piece or icon for an item: a short enumerable string (`sword`, `banner_army`, `relic`, `structure`,
+/// `beast`, `vehicle`, `artifact`, `armor`, `phenomenon`, `thing`), from its kind and, for a weapon, its words.
+pub fn icon_of(kind: ItemKind, name: &str) -> &'static str {
+    let n = name.to_lowercase();
+    match kind {
+        ItemKind::Army => "banner_army",
+        ItemKind::Fleet => "vehicle",
+        ItemKind::Creature => "beast",
+        ItemKind::Structure => "structure",
+        ItemKind::Relic => "relic",
+        ItemKind::Artifact => "artifact",
+        ItemKind::Armor => "armor",
+        ItemKind::Phenomenon => "phenomenon",
+        ItemKind::Weapon if ["bow", "crossbow", "gun", "cannon", "railgun"].iter().any(|w| n.contains(w)) => "ranged",
+        ItemKind::Weapon => "sword",
+        ItemKind::Other => "thing",
+    }
+}
+
+/// Every [`icon_of`] value (for schemas and the client).
+pub const ICONS: &[&str] = &[
+    "sword", "ranged", "armor", "banner_army", "vehicle", "beast", "structure", "relic", "artifact", "phenomenon", "thing",
+];
+
 /// From this tier up, an attempt is public at once (everyone sees a wonder rise or a horde appear).
 pub const PUBLIC_TIER: Tier = Tier::Relic;
 
@@ -664,7 +710,12 @@ pub enum Refusal {
 /// What an attempt at `tier` costs a purse of `have` bolts, offering `offer` extra; the price's shortfall becomes debt
 /// unless `accept_debt` is false.
 pub fn cost(tier: Tier, have: u32, offer: u32, accept_debt: bool) -> Result<Cost, Refusal> {
-    let required = TIER_BOLTS[tier.index()];
+    cost_scaled(tier, have, offer, accept_debt, 1.0)
+}
+
+/// [`cost`] with the tier's price multiplied by `scale` (the room's `manifest_scale`), rounded to whole bolts.
+pub fn cost_scaled(tier: Tier, have: u32, offer: u32, accept_debt: bool, scale: f32) -> Result<Cost, Refusal> {
+    let required = (TIER_BOLTS[tier.index()] as f32 * scale.max(0.0)).round() as u32;
     let paid_price = required.min(have);
     let missing = required - paid_price;
     if missing > 0 && !accept_debt {
@@ -1052,7 +1103,8 @@ pub fn request_from_text(span: &str, magnitude: u8) -> ManifestRequest {
     let count = parse_count(span)
         .filter(|c| *c >= 1.0)
         .unwrap_or_else(|| {
-            if kind.is_host() {
+            // "Summon a dragon" is one beast (tiered by magnitude); armies and fleets default to the magnitude's size.
+            if kind.is_host() && kind != ItemKind::Creature {
                 10f64.powf(2.0 + magnitude.min(10) as f64 / 2.0).round()
             } else {
                 1.0
@@ -1065,7 +1117,8 @@ pub fn request_from_text(span: &str, magnitude: u8) -> ManifestRequest {
         magnitude: magnitude.min(10),
         span: span.to_string(),
         offer_bolts: 0,
-        accept_debt: true,
+        // "…, no debt" / "without debt": refuse rather than borrow the shortfall from Consequence.
+        accept_debt: !["no debt", "without debt", "debt-free", "debt free"].iter().any(|k| span.to_lowercase().contains(k)),
         god: None,
     }
 }
@@ -1073,14 +1126,38 @@ pub fn request_from_text(span: &str, magnitude: u8) -> ManifestRequest {
 /// A rules-written name for a made item (the fallback when no LLM names it): "Banner of the Horde of 100,000,000",
 /// "Relic-tier Sword", "the Fortress".
 pub fn rules_name(kind: ItemKind, tier: Tier, count: f64) -> String {
-    if kind.is_host() {
+    if kind == ItemKind::Army {
         format!("Banner of the {} of {}", title(tier.host_word()), group_digits(count))
+    } else if kind == ItemKind::Fleet {
+        format!("Armada of {}", group_digits(count))
+    } else if kind == ItemKind::Creature && count > 1.0 {
+        format!("Swarm of {} Creatures", group_digits(count))
+    } else if kind == ItemKind::Creature {
+        format!("{} Beast", title(tier.as_str()))
     } else {
         let k = match kind {
             ItemKind::Other => "Thing".to_string(),
             k => title(&format!("{k:?}")),
         };
         format!("{} {}", title(tier.as_str()), k)
+    }
+}
+
+/// [`rules_name`] using the thing's own noun from the request when there is one ("Relic Sword", "Wonder Fortress",
+/// "Legend Dragon"; hosts keep their banner names). Never a verb: the noun is one of the kind's words.
+pub fn rules_name_for(kind: ItemKind, tier: Tier, count: f64, span: &str) -> String {
+    let lower = span.to_lowercase();
+    let words: Vec<&str> = lower.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).collect();
+    let noun = KIND_WORDS
+        .iter()
+        .find(|(k, _)| *k == kind)
+        .and_then(|(_, ws)| words.iter().find(|w| ws.contains(w)))
+        .map(|w| title(w));
+    match noun {
+        Some(n) if !(kind == ItemKind::Army || kind == ItemKind::Fleet || (kind == ItemKind::Creature && count > 1.0)) => {
+            format!("{} {n}", title(tier.as_str()))
+        }
+        _ => rules_name(kind, tier, count),
     }
 }
 
@@ -1360,6 +1437,8 @@ mod tests {
         // A host with no number gets the magnitude's size.
         assert_eq!(request_from_text("raise an army", 4).count, 10_000.0);
         assert_eq!(request_from_text("forge a sword", 3).count, 1.0);
+        assert!(request_from_text("forge a sword", 3).accept_debt);
+        assert!(!request_from_text("forge a sword, no debt", 3).accept_debt);
         assert_eq!(rules_name(ItemKind::Army, Tier::Myth, 1e8), "Banner of the Horde of 100,000,000");
         assert_eq!(rules_name(ItemKind::Army, Tier::Apocalypse, 9e9), "Banner of the World-Army of 9,000,000,000");
         assert_eq!(rules_name(ItemKind::Weapon, Tier::Relic, 1.0), "Relic Weapon");
