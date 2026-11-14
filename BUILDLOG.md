@@ -602,3 +602,14 @@ Engineering (for "demigods: two per player, items they manifest, persistent iden
   across builds: six different ones for "Chris".
 - **Not done:** wiring into fn7-model, fn7-plugin and fn7-server waits for the balance and media work. The step-by-step
   plan is §11 of the doc.
+
+## 2026-11-14: each demigod has its own health
+
+> The demigods need to be finished, and they have their own health.
+> Confirm the game design.
+
+Engineering:
+- Two full demigods per player (Left and Right; the hands are the demigods). Each has its own health, position, items,
+  look, portrait and diorama, and falls or revives independently. A player is out when both have fallen. Rules 0.7.0.
+- Benito's rule (via the bridge): no two players may occupy the same hex at the people level unless engaging. Every entity
+  carries a shared people-level hex id, using the client's cube-sphere axial formula on real Earth (R = 6,371,000 m).
