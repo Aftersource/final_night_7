@@ -360,6 +360,11 @@ pub struct Dm {
     /// across beats). The plugin owns the shape (`fn7-plugin::duel::Bout`); empty = nothing serialized.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub duels: Vec<Value>,
+    /// Rules 0.9.0 ("wills that matter", room setting `wills_enabled`): the book of mystic quests, seals and curses,
+    /// raisings, boons and spent item powers. The plugin owns the shape (`fn7-plugin::wills::Book`); empty (`null`) =
+    /// nothing serialized, so states without it stay byte-identical.
+    #[serde(default, skip_serializing_if = "Value::is_null")]
+    pub wills: Value,
 }
 
 impl Dm {

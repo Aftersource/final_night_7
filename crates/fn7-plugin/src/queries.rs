@@ -213,10 +213,12 @@ fn dm_lite(state: &Value, want: bool) -> Result<fn7_model::dm::Dm, String> {
         loot: Vec<fn7_model::dm::LootPile>,
         trails: Vec<fn7_model::dm::Trail>,
         shrines: Vec<fn7_model::dm::Shrine>,
+        /// Rules 0.9.0: the book of quests and curses (small).
+        wills: Value,
     }
     let l: Lite = table(state, "dm", want)?;
     Ok(fn7_model::dm::Dm { memory: vec![], settlements: l.settlements, stories: l.stories, encounters: l.encounters,
-                           loot: l.loot, trails: l.trails, shrines: l.shrines, duels: vec![] })
+                           loot: l.loot, trails: l.trails, shrines: l.shrines, duels: vec![], wills: l.wills })
 }
 
 /// Memory entries passing `keep` (tested on the unparsed entry), oldest first: only those are deserialized.

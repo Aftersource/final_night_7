@@ -24,6 +24,10 @@ pub fn settings(w: &World) -> Settings {
         s.challenge_enabled = false;
         s.rules_0_8_1 = false;
     }
+    // Rules 0.9.0 ("wills that matter") needs the 0.8.1 rules under it and its own room setting.
+    if !s.rules_0_8_1 {
+        s.wills_enabled = false;
+    }
     s
 }
 

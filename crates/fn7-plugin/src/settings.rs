@@ -156,6 +156,66 @@ pub struct Settings {
     pub god_power_cost: u32,
     /// Rules 0.8.0: bolts every OTHER player gains when someone casts a god-tier power (like a mega).
     pub god_power_gift: u32,
+    /// Rules 0.9.0, wills that matter (the feature gate; also needs state schema 7+): a will splits into its parts, healing and blessing your own never just fail, arming makes gear with real modifiers, anyone may plead for a resurrection, seals and curses exist and every one has a mystic counter-quest. Settings recorded before 0.9.0 lack it and read back `false` (old recordings replay unchanged).
+    pub wills_enabled: bool,
+    /// Rules 0.9.0: sparks one lightning bolt breaks into when a will's price is paid from bolts (the 1:5 economy; the change stays in the purse as sparks).
+    pub will_spark_per_bolt: u32,
+    /// Rules 0.9.0: the base DC of a will on your own demigods (heal, bless, arm): DC = this + magnitude/4 (an arming adds 2 per tier). A hostile act's is 8 + magnitude/2.
+    pub will_own_dc: u32,
+    /// Rules 0.9.0: the open debt (health points, per demigod) beyond which the gods finance no more unpaid wills: the will becomes a mystic quest instead.
+    pub will_debt_cap: f32,
+    /// Rules 0.9.0: debt (to the ruling god) per spark of a will's price the purse could not pay.
+    pub will_debt_per_spark: f32,
+    /// Rules 0.9.0: Entropy raised per spark paid for a will.
+    pub will_entropy_per_spark: f32,
+    /// Rules 0.9.0: a heal or blessing costs this + magnitude/4 sparks per target.
+    pub heal_price_sparks: u32,
+    /// Rules 0.9.0: the token heal of a failed heal roll (the rest waits on its mystic quest).
+    pub heal_token: f32,
+    /// Rules 0.9.0: multiplier on every will heal (1 + magnitude/4 health per target before it).
+    pub heal_scale: f32,
+    /// Rules 0.9.0: beats a boon (a blessing, or a critical heal's gift) lasts.
+    pub boon_beats: u32,
+    /// Rules 0.9.0: the d20 bonus a boon gives its demigod's acts.
+    pub boon_bonus: u32,
+    /// Rules 0.9.0: sparks an artifact-tier arm costs per demigod (a trinket is free).
+    pub arm_price_artifact: u32,
+    /// Rules 0.9.0: sparks a relic-tier arm costs per demigod.
+    pub arm_price_relic: u32,
+    /// Rules 0.9.0: sparks a god's blessing on an arming costs (per will part): the gear is a tier up and carries the god's signature.
+    pub arm_bless_sparks: u32,
+    /// Rules 0.9.0: multiplier on every number an item's modifiers add (strike, damage, guard, regeneration, duel); 0 = gear is decoration.
+    pub arms_scale: f32,
+    /// Rules 0.9.0: Death's base price in sparks to raise a fallen demigod, times 1 + the times it was raised before, plus 1 per raise_stale_beats it has lain dead.
+    pub raise_price_sparks: u32,
+    /// Rules 0.9.0: every this many beats a demigod has been dead adds a spark to Death's price.
+    pub raise_stale_beats: u32,
+    /// Rules 0.9.0: raisings one player may be granted per match (0 = none).
+    pub raise_cap: u32,
+    /// Rules 0.9.0: max-health years a raised demigod loses, times 1 + the times it was raised before.
+    pub raise_years: f32,
+    /// Rules 0.9.0: the share of its max health a raised demigod returns with.
+    pub raise_health_fraction: f32,
+    /// Rules 0.9.0: sparks a curse or a seal costs (a bolt breaks into will_spark_per_bolt sparks).
+    pub curse_price_sparks: u32,
+    /// Rules 0.9.0: sparks the god-tier variant of a curse costs (strength 3, until countered).
+    pub curse_god_price_sparks: u32,
+    /// Rules 0.9.0: beats an ordinary curse lasts (a seal and a god-tier curse last until countered).
+    pub curse_beats: u32,
+    /// Rules 0.9.0: the DC of casting a curse (plus half the target's wardrobe stage).
+    pub curse_dc: u32,
+    /// Rules 0.9.0: curses and seals one player may have standing at once.
+    pub curse_max_per_player: u32,
+    /// Rules 0.9.0: Entropy raised by a curse (a god-tier one raises entropy_per_mega).
+    pub curse_entropy: f32,
+    /// Rules 0.9.0: the most steps a mystic quest has.
+    pub quest_steps_max: u32,
+    /// Rules 0.9.0: beats a heal's or an arming's quest stays open (0 = until done); a curse's counter-quest lives as long as its curse, a raising's until the Final Night.
+    pub quest_expire_beats: u32,
+    /// Rules 0.9.0: sparks a quest's offering step asks for (times the quest's difficulty).
+    pub quest_spark_step: u32,
+    /// Rules 0.9.0: how readily the built-in AI uses wills (heals when hurt, arms itself, pleads for its fallen sibling, curses a rival, pursues its quests); 0 = never.
+    pub wills_ai_chance: f32,
     /// Rules 0.8.1, challenge mode: a demigod may challenge a rival in reach to a typed duel (`fields.challenge`), and
     /// the built-in AI now and then does. Settings recorded before 0.8.1 lack it and read back `false` (old recordings
     /// replay unchanged).
@@ -268,6 +328,36 @@ impl Default for Settings {
             summon_loss_scale: 1.0,
             god_power_cost: 3,
             god_power_gift: 1,
+            wills_enabled: true,
+            will_spark_per_bolt: 5,
+            will_own_dc: 6,
+            will_debt_cap: 3.0,
+            will_debt_per_spark: 0.2,
+            will_entropy_per_spark: 0.25,
+            heal_price_sparks: 1,
+            heal_token: 0.5,
+            heal_scale: 1.0,
+            boon_beats: 6,
+            boon_bonus: 1,
+            arm_price_artifact: 2,
+            arm_price_relic: 5,
+            arm_bless_sparks: 5,
+            arms_scale: 1.0,
+            raise_price_sparks: 5,
+            raise_stale_beats: 8,
+            raise_cap: 3,
+            raise_years: 1.0,
+            raise_health_fraction: 0.4,
+            curse_price_sparks: 5,
+            curse_god_price_sparks: 15,
+            curse_beats: 12,
+            curse_dc: 10,
+            curse_max_per_player: 2,
+            curse_entropy: 3.0,
+            quest_steps_max: 3,
+            quest_expire_beats: 24,
+            quest_spark_step: 2,
+            wills_ai_chance: 0.25,
             challenge_enabled: true,
             rules_0_8_1: true,
             challenge_min_km: 120.0,
@@ -306,7 +396,8 @@ const F32_KEYS: &[&str] =
       "dm_encounter_damage_scale", "dm_road_wear", "dm_road_decay", "dm_shrine_heal", "dm_shrine_ward", "fault_near_km", "fault_far_km",
       "fault_near_magnitude", "fault_far_magnitude", "fault_near_radius", "fault_far_radius", "fault_near_damage",
       "fault_far_damage", "summon_loss_scale", "challenge_min_km", "challenge_contact_km_regions", "challenge_contact_km_villages",
-      "challenge_contact_km_houses", "challenge_contact_km_people", "duel_damage_scale", "duel_ai_chance", "duel_ai_reach_km"];
+      "challenge_contact_km_houses", "challenge_contact_km_people", "duel_damage_scale", "duel_ai_chance", "duel_ai_reach_km",
+      "will_debt_cap", "will_debt_per_spark", "will_entropy_per_spark", "heal_token", "heal_scale", "arms_scale", "raise_years", "raise_health_fraction", "curse_entropy", "wills_ai_chance"];
 
 /// The shortest decimal that reads back as `x` (so `0.04f32` is `0.04`, not `0.03999999910593033`).
 fn f32_decimal(x: f32) -> f64 {
@@ -439,6 +530,36 @@ impl Settings {
             summon_loss_scale: num("summon_loss_scale", d.summon_loss_scale, 0.0, 10.0)?,
             god_power_cost: int("god_power_cost", d.god_power_cost, 0, 20)?,
             god_power_gift: int("god_power_gift", d.god_power_gift, 0, 10)?,
+            wills_enabled: boolean("wills_enabled", d.wills_enabled)?,
+            will_spark_per_bolt: int("will_spark_per_bolt", d.will_spark_per_bolt, 1, 20)?,
+            will_own_dc: int("will_own_dc", d.will_own_dc, 2, 20)?,
+            will_debt_cap: num("will_debt_cap", d.will_debt_cap, 0.0, 20.0)?,
+            will_debt_per_spark: num("will_debt_per_spark", d.will_debt_per_spark, 0.0, 5.0)?,
+            will_entropy_per_spark: num("will_entropy_per_spark", d.will_entropy_per_spark, 0.0, 10.0)?,
+            heal_price_sparks: int("heal_price_sparks", d.heal_price_sparks, 0, 20)?,
+            heal_token: num("heal_token", d.heal_token, 0.0, 5.0)?,
+            heal_scale: num("heal_scale", d.heal_scale, 0.0, 10.0)?,
+            boon_beats: int("boon_beats", d.boon_beats, 1, 100)?,
+            boon_bonus: int("boon_bonus", d.boon_bonus, 0, 5)?,
+            arm_price_artifact: int("arm_price_artifact", d.arm_price_artifact, 0, 50)?,
+            arm_price_relic: int("arm_price_relic", d.arm_price_relic, 0, 50)?,
+            arm_bless_sparks: int("arm_bless_sparks", d.arm_bless_sparks, 0, 50)?,
+            arms_scale: num("arms_scale", d.arms_scale, 0.0, 5.0)?,
+            raise_price_sparks: int("raise_price_sparks", d.raise_price_sparks, 0, 100)?,
+            raise_stale_beats: int("raise_stale_beats", d.raise_stale_beats, 1, 1000)?,
+            raise_cap: int("raise_cap", d.raise_cap, 0, 50)?,
+            raise_years: num("raise_years", d.raise_years, 0.0, 10.0)?,
+            raise_health_fraction: num("raise_health_fraction", d.raise_health_fraction, 0.05, 1.0)?,
+            curse_price_sparks: int("curse_price_sparks", d.curse_price_sparks, 0, 100)?,
+            curse_god_price_sparks: int("curse_god_price_sparks", d.curse_god_price_sparks, 0, 200)?,
+            curse_beats: int("curse_beats", d.curse_beats, 1, 1000)?,
+            curse_dc: int("curse_dc", d.curse_dc, 2, 30)?,
+            curse_max_per_player: int("curse_max_per_player", d.curse_max_per_player, 0, 20)?,
+            curse_entropy: num("curse_entropy", d.curse_entropy, 0.0, 100.0)?,
+            quest_steps_max: int("quest_steps_max", d.quest_steps_max, 1, 3)?,
+            quest_expire_beats: int("quest_expire_beats", d.quest_expire_beats, 0, 1000)?,
+            quest_spark_step: int("quest_spark_step", d.quest_spark_step, 0, 50)?,
+            wills_ai_chance: num("wills_ai_chance", d.wills_ai_chance, 0.0, 1.0)?,
             challenge_enabled: boolean("challenge_enabled", d.challenge_enabled)?,
             rules_0_8_1: true,
             challenge_min_km: num("challenge_min_km", d.challenge_min_km, 0.0, 20000.0)?,
@@ -511,6 +632,11 @@ impl Settings {
         }
         if v.get("rules_0_8_1").is_none() {
             s.rules_0_8_1 = false;
+        }
+        // Rules 0.9.0: settings recorded before "wills that matter" have no `wills_enabled`: off, so a 0.8.1 recording
+        // replays byte for byte.
+        if v.get("wills_enabled").is_none() {
+            s.wills_enabled = false;
         }
         // Settings recorded before flow/slow (schema 2) had only `beat_ms`.
         if v.get("flow_ms").is_none() {
