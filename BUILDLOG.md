@@ -1151,3 +1151,22 @@ Engineering (in progress, each on its own branch until tested):
 - backend/accounts: guest and Google sign-in, sessions, settings, demigod personalities with one moderation pass (verbatim unless it breaks the content rules), billing as a stub.
 - backend/quests: wills that always do something visible; healing and arming with real effects; resurrection pleas; seals and curses; mystic counter-quests.
 - Unreal main: all eight of Benito's features merged (built green on Windows and the Mac; visuals to be verified live), Enter sends the will, the onyx lobby tablet.
+
+## 2026-11-14: the duel goes into Unreal; all the data lives on this server (verbatim)
+
+> Is everything synced and ready in case a break is needed?
+
+> Does Benito have access to the item just made? The Meshy key can be shared. Most importantly, the mannequin for the battle item should be shared as well.
+
+> Benito needs to be able to get this done and ready on our side. The skin sheet needs to be shared: how it works and what comes next. The Unreal side needs to be told that when someone is challenged, it must run real-time text combat in the style of Archon. Confirm you understand what is being asked.
+
+> The database may need changes so that it stops growing unpredictably and consuming space.
+
+> Remember that all of the time-travel data lives on this server, so getting all of this ready and done is a real responsibility on your part and on the other agent's part.
+
+Engineering:
+- Rules 0.8.2 deployed to STABLE at 22:07 UTC (server main 8a85866): duel panels (duel.scene, duel.panel, duel_tick), exact resume (`present`: the state plus a journal of every instant action; a server kill loses no accepted action), docs/TIME_TRAVEL.md, the accounts routes with the name guard off. State schema 9 for new matches.
+- The Unreal duel stage is released to the Mac as its top job: final_night_7_unreal docs/DUEL_UNREAL.md (what the player sees, masked typing, pacing, mannequin/skins/clips, physics/IK, exact resume, steps A-F with owners), with production_assets/meshy/mannequin/mannequin_all_clips.glb (mesh + UE5 skeleton + 35 clips) and docs/design/mannequin_skins.png. Benito's bridge has the same, the duel lab, and the Meshy key (shared by Chris).
+- Every duel pulls every player's view (Chris's "everyone ... stop what they're doing and watch"), waiting while a player types or drags, and gliding back after.
+- In progress: the live per-keystroke masked typing relay (duel.typing) and `skin` on the fighters; wills, curses and quests (0.9.0).
+- Storage: recordings are 14 GB, 78% of it full state snapshots. `runs/lan/recordings_tool.sh` archives all but the newest 12 losslessly (zstd, sha256-verified before the original is removed) and restores any match for time travel. Engine request to come: compressed or delta snapshots in recordings.
