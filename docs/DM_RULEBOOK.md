@@ -1,6 +1,7 @@
 # The Dungeon Master's Rulebook
 
-*Final Night 7, rules 0.8.1, state schema 6.*
+*Final Night 7, rules 0.8.1, state schema 7 (challenge mode and the 0.8.1 fixes switch on at schema 7; the DM's
+rulebook features at schema 6).*
 
 This is the rulebook the Dungeon Master follows. The DM is the server: its rules (code) and its LLM minds (the game
 master who resolves acts, the gods, the narrator). Every chapter states a rule as the DM applies it, with the numbers
@@ -495,7 +496,8 @@ through a rival's own unpaid debts.
 6. **The eliminated are gone** until a god or the survivor rule raises them; they never act.
 7. **Detail, once observed, is remembered** (4.3); the same hex at the same beat is the same for everyone.
 8. **Everything is seeded** by the match seed and stored in the state; a replay reproduces every snapshot byte for
-   byte. Every 0.8.0 rule is gated on state schema 6, so schema-4 and schema-5 recordings replay unchanged.
+   byte. Every 0.8.0 rule is gated on state schema 6 and every 0.8.1 rule on state schema 7, so older recordings replay
+   unchanged.
 
 ## 19. Summoning your demigod
 
@@ -553,26 +555,42 @@ player types is a blow. The world holds its breath and watches.
 ### 21.1 The challenge
 
 A player double-clicks a rival demigod near one of its own: an instant action
-`fields.challenge {demigod: "dg:mine", target: "dg:N", level}` (the level the board shows: regions, villages, houses or
-people). **Forced:** there is no consent. Valid when (checked on arrival and again at the resolve, in arrival order):
+`fields.challenge {demigod: "dg:mine", target: "dg:N", level}`. **Direct combat must be very straightforward to
+engage:** the reach is `max(challenge_min_km, contact_km(level))`, i.e. the two board cards touch at the zoom the
+player is looking at, or the demigods are within 120 km at any zoom. Contact distances: regions 600 km (also for a
+missing or unknown level), villages 15 km, houses 150 m, people 15 m, so below the regions zoom it is 120 km (Chris:
+"Too far to challenge" should not appear when the target is only 3 m away at the people zoom. The level also frames the fight
+(the lock's hex).
+**Forced:** there is no consent. Valid when (checked on arrival and again at the resolve, in arrival order):
 
 | Refusal | When |
 |---|---|
 | `not_yours` | the demigod isn't the sender's |
 | `fallen` | either demigod has fallen |
 | `bad_target` | the target is no rival (another seat's) |
-| `too_far` | great-circle distance > the level's hex size × `duel_reach_factor` (1.5): regions 180 km, villages 4.5 km, houses 45 m, people 4.5 m |
-| `busy` | either is already in a duel this beat |
+| `too_far:<km>:<allowed>` | great-circle distance > max(120 km, the level's contact distance); the refusal carries both numbers |
+| `busy` | either is already in a duel (a duel lasts up to 30 s, across beats) |
 | `cooldown` | its last challenge was under `duel_cooldown_beats` (1) ago |
 
 Accepted, everyone sees `challenge.lock`: both duellists (name, portrait and diorama, **both healths**: the duel's
 health bars are the one place a rival's health is shown), the ground (the target's position), its hex at the level,
-the camera `focus`, and the duel's id `duel:<beat>:<a>:<b>`.
+the camera `focus` (lat, lon, cell: every client swoops there and spins the globe), and the duel's id
+`duel:s<seq>:<a>:<b>` (the challenge action's room-wide seq, stable across beats; the built-in AI's
+`duel:<beat>:<a>:<b>`).
+
+**Right after a teleport.** A challenge may come during or right after a summon of the same demigod: it is checked
+from the summon's destination, and that demigod fights at its health minus the summon's mishap, which was decided at
+the summon's accept (chapter 19). Teleporting into a rival with a 2-point penalty is Archon-level danger.
 
 **The world holds its breath.** By design a duel freezes the world: no beats resolve, timers pause and only the two
-duellists act, until a knockout or `duel_deadline_ms` (30 s). That needs an engine hold (requested and announced in
-the lock's `freeze`); until the Theatre offers it, the world keeps beating and the duel ends at the next resolve (or its
-deadline, whichever comes first). Everything below is the same either way.
+duellists act, until a knockout or `duel_deadline_ms` (30 s), with a fast relay for the masked live typing. That
+needs a room-wide engine hold (requested and announced in the lock's `freeze`). **Until the Theatre offers it, the
+world keeps beating (the fallback):** the duel is kept in the state between resolves (`World.dm.duels`), its two
+demigods are locked in place (their hands' travel is void), each resolve applies the damage so far and publishes the
+duel as `challenge.open`, and the duel ends at the first resolve after its deadline stamp (the batch's newest action
+stamp is the resolve's clock) or at beat `ends_beat` = lock beat + ceil(`duel_deadline_ms` / `flow_ms`) − 1,
+whichever is first. The lock says `world: "beating"`; with holds it will say `"held"` and the duel ends at the hold's
+close. Everything else below is the same either way (`ENGINE_HOLDS` in `duel.rs` flips it).
 
 ### 21.2 Blows
 
@@ -599,9 +617,12 @@ be far too slow):
 
 ### 21.3 The end
 
-A duel ends at a **knockout** (a duellist's duel health reaches 0) or at the resolve. The resolve **recomputes every
-duel deterministically** from the ordered challenge and duel actions on the committed state (the live display is a
-cache, never the record), so the live blows and the resolve agree and a replay reproduces it:
+A duel ends at a **knockout** (a duellist's duel health reaches 0), at its **deadline** (21.1), when a duellist
+**falls** elsewhere, or at once when **both are built-in AIs**: `reason` `ko`, `deadline`, `fallen` or `auto`. Each
+resolve **recomputes every duel deterministically** from the state's open duels and the ordered challenge and duel
+actions (the live display is a cache that rolls lines over from beat to beat, never the record), so the live blows
+and the resolve agree and a replay reproduces it. While it lasts, each resolve applies the damage so far, records the
+dice and the invokes' bolts, and lists it in `round.outcome.public.duels_open[]` (`challenge.open`). At its end:
 
 - every die is in `dice[]` (reason "a duel") and in the memory at the duel's hex;
 - the damage lands; a knockout is an elimination by the usual rules (cause "a duel with …");
@@ -609,8 +630,9 @@ cache, never the record), so the live blows and the resolve agree and a replay r
   of its newest thing;
 - a heavy duel leaves a scar (chapter 7); both duellists get the duel's **deed** as a tale; the hex remembers
   `duel.lock` and `duel.end` (the Lens: the next fight there is fought under that history);
-- `round.outcome.public.duels[]` carries `duel.end {winner, loser, ko, damage, blows, deed, log}`: the deed one line
-  from the duel mind (LLM when a human fought, else seeded rules parts), Rube Goldberg style.
+- `round.outcome.public.duels[]` carries `challenge.end {reason, winner, loser, ko, damage, blows, typed, deed, log}`:
+  the deed one line from the duel mind (LLM when a human fought, else seeded rules parts), Rube Goldberg style. A
+  duel nobody typed in is fought automatically at its end.
 
 ### 21.4 Challenge mode: the flips
 
@@ -624,9 +646,9 @@ next attack).
 
 **Move class** of each line, by rules from its words: `invoke` (a god's name: ignores range, costs a bolt paid at the
 resolve), `command` (army words: needs an army near or 100+ followers), `throw`, `grapple`, `feint`, `parry`, `guard`,
-`retreat`, `evade`, `heavy` (smash, crush, overhead, full force...), `close_in` (charge, rush, step in...), `taunt`,
-else `strike`. What can't apply becomes what can: a strike or heavy from far is a close_in; a grapple short of close
-range is a close_in; a throw outside a grapple is a strike; an invoke without a bolt or a command without an army is a
+`retreat`, `evade`, `heavy` (smash, crush, overhead, full force...), `close` (charge, rush, step in...), `taunt`,
+else `strike`. What can't apply becomes what can: a strike or heavy from far is a close; a grapple short of close
+range is a close; a throw outside a grapple is a strike; an invoke without a bolt or a command without an army is a
 taunt.
 
 **The d20 still decides success**, with two more modifiers: +2 holding the initiative, the attacker's stance
@@ -643,7 +665,7 @@ downed). **The matrix decides what a success means:**
 | heavy | evade | missed unless a natural 20; initiative flips | missed; initiative flips |
 | grapple | — (close only) | range grapple, defender off balance | nothing |
 | throw | — (grapple only) | +1 damage, defender downed, range mid | nothing |
-| close_in / retreat | — | range one step closer / farther, initiative | nothing |
+| close / retreat | — | range one step closer / farther, initiative | nothing |
 | guard / parry / evade | — | the defence is set (guarding; airborne for an evade), initiative | nothing |
 | taunt | — | initiative, defender off balance | nothing |
 | invoke / command | — | full damage (+1 for an invoke) | nothing |
@@ -652,17 +674,38 @@ downed). **The matrix decides what a success means:**
 user committed. Whoever lands takes the initiative; a landed strike at mid closes to close range. A knockout leaves
 the loser downed.
 
-**Choreography:** every blow and counter carries `choreo` (the range and initiative before and after, `flip`, each
-figure's move class, timed pose keys from a fixed vocabulary of 30 poses, the contact limb and target limb, the stance
-after, the camera, 600–1400 ms), deterministic from the rules and the strike's seed.
+**Choreography:** every blow and counter carries `choreo` (the range and initiative before and after, `flip`, the
+result, each figure's move class, timed pose keys from a fixed vocabulary of 30 poses, the stance after, `contacts`
+(which limb of whom hits which body part of the other, and when), the camera, 600–1400 ms), deterministic from the
+rules and the strike's seed. The poses: idle_guard, step_in, lunge_extend, slash_high, slash_low, overhead_windup,
+overhead_strike, parry_high, parry_low, block_cross, dodge_left, dodge_right, duck, leap_up, land, feint_shoulder,
+grab_reach, grapple_lock, throw_hip, stagger_back, stumble, fall_back, kneel_hit, rise, cast_raise, cast_release,
+command_point, taunt_beckon, victory, defeat. **Rules decide; an LLM may only phrase** (the deed).
 
 ### 21.5 The built-in AI
 
 **The built-in AI** challenges its nearest rival with chance `duel_ai_chance` (0.02) a beat, decided at the beat's
-start (`round.started.public.challenges`, so a human can fight back): directly when the rival is within regions reach,
+start (`round.started.public.challenges`, so a human can fight back): directly when the rival is within 120 km,
 else, within `duel_ai_reach_km` (2,000 km), it first **summons itself next to it** (the lock's `leap`: the summoning's
-mishap d20 and health loss apply, and it fights at the reduced health). A duel nobody types in is fought
-automatically, `duel_auto_rounds` (2) exchanges from the phrase bank.
+mishap d20 and health loss apply, and it fights at the reduced health). Two AIs fight it out at once; a
+human the AI challenged gets the duel's whole span to answer. A duel nobody types in is fought automatically,
+`duel_auto_rounds` (2) exchanges from the phrase bank.
+
+### 21.6 No intent vanishes
+
+Every order gets a visible ruling or a refusal (the match 79fd73bf and f18d76a3 fixes, schema 7):
+
+- **Heals** (heal, restore, mend, cure...) go to **Nature** even when the hand names no god (Death when a target has
+  fallen): an invocation with its normal price and a real verdict; unless refused each target heals 1 + magnitude/4
+  (1–3, half when twisted). "me", "my demigods", "all my demigods" are the player's own two; rivals are healed only
+  when named. (Live: "all my demigods are healed fully" came back from the hand as a god route naming no god, and
+  became a world act that did nothing for 20 beats.)
+- A god route naming no god in the match goes to **Entropy** (a visible ruling), never silently to the world.
+- **A fallen player's will** (every demigod of theirs down) is never dropped. A plea to come back ("my guys come back
+  to life!": revive, raise, resurrect, come back...) is an invocation of **Death** by their first demigod for all
+  their fallen demigods, magnitude 6, ruled like any other (Death's price; with an empty purse Death twists or
+  refuses, and says so); any other order is refused, because the fallen can't act, only plead. Either way the
+  player's private outcome carries `wills[] {text, routed_to, verdict, speech, reason}`.
 
 **Worked example.** Engine: Ash's Left Hand types "I sweep your ankle into the harbour mud" (verb, body, terrain: wit
 +3, hale +1: modifier +4) and rolls 13 against DC 10: success by 7, wit 3: 3 damage. DM: "The line landed on Vex's
@@ -698,7 +741,8 @@ Room settings (validated in `crates/fn7-plugin/src/settings.rs`, listed by `GET 
 | `god_power_cost` | 3 | 0–20 | 20 |
 | `god_power_gift` | 1 | 0–10 | 20 |
 | `challenge_enabled` | true (false in settings recorded before 0.8.1) | bool | 21 |
-| `duel_reach_factor` | 1.5 | 0.5–10 | 21.1 |
+| `challenge_min_km` | 120 | 0–20000 | 21.1 |
+| `challenge_contact_km_regions`, `_villages`, `_houses`, `_people` | 600, 15, 0.15, 0.015 | 0–20000 | 21.1 |
 | `duel_cooldown_beats` | 1 | 1–100 | 21.1 |
 | `duel_deadline_ms` | 30000 | 1000–600000 | 21.1 |
 | `duel_damage_scale` | 1.0 | 0–10 | 21.2 |
