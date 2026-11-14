@@ -301,6 +301,100 @@ pub fn invoke_cost(def: &GodDef, magnitude: u8) -> u32 {
     }
 }
 
+/// Rules 0.8.1: the orders of a player whose demigods have all fallen (they used to vanish: match f18d76a3, beat 44,
+/// "my guys come back to life!").
+#[derive(Debug, Clone, PartialEq)]
+pub struct FallenWill {
+    pub seat: u8,
+    pub text: String,
+    pub seq: u64,
+}
+
+/// What became of a fallen player's will: sent to Death (`intent`) or refused (`reason`).
+#[derive(Debug, Clone)]
+pub struct WillNote {
+    pub seat: u8,
+    pub text: String,
+    pub intent: Option<IntentId>,
+    pub reason: String,
+}
+
+impl WillNote {
+    /// The private `wills[]` entry: `{text, routed_to, verdict, speech, reason}`.
+    pub fn json(&self, w: &World) -> Value {
+        let ruling = self.intent.and_then(|i| w.rulings.iter().rev().find(|r| r.intent == i));
+        json!({ "text": self.text,
+                "routed_to": ruling.map(|r| w.name_of(Ref::God(r.god))),
+                "verdict": ruling.map(|r| json!(r.verdict)).unwrap_or_else(|| json!("refused")),
+                "speech": ruling.map(|r| r.speech.clone()),
+                "reason": self.reason })
+    }
+}
+
+/// The revive words of a fallen player's plea.
+pub fn is_revive(text: &str) -> bool {
+    const W: &[&str] = &["back to life", "come back", "revive", "resurrect", "raise", "rise again", "rise up", "bring back",
+                         "bring us back", "return from the dead", "live again", "alive again", "undie", "respawn"];
+    let t = text.to_lowercase();
+    W.iter().any(|k| t.contains(k))
+}
+
+/// Rules 0.8.1: every fallen player's will gets a visible ruling. A plea to come back becomes an invocation of Death
+/// by the player's first demigod for all of the player's fallen demigods (magnitude 6: Death's normal price, ruled
+/// like any invocation; without the bolts Death twists or refuses, and says so); any other order is refused with the
+/// reason (the fallen can't act, only plead). Each is a `fallen_will` trace event and a private `wills[]` entry.
+fn fallen_wills(w: &mut World, beat: u32, wills: &[FallenWill], pantheon: &Pantheon) -> Vec<WillNote> {
+    let mut out = vec![];
+    let death = pantheon.id_of("death");
+    for will in wills {
+        let fallen: Vec<DemigodId> = w.bodies_of_seat(will.seat).filter(|d| !d.alive).map(|d| d.id).collect();
+        let Some(&lead) = fallen.first() else { continue };
+        let mut note = WillNote { seat: will.seat, text: will.text.clone(), intent: None, reason: String::new() };
+        match death.filter(|_| is_revive(&will.text) && !out.iter().any(|n: &WillNote| n.seat == will.seat && n.intent.is_some())) {
+            Some(god) => {
+                let d = &w.demigods[lead.ix()];
+                let def = pantheon.get(god).cloned();
+                let magnitude = 6;
+                let cost = def.as_ref().map(|x| invoke_cost(x, magnitude)).unwrap_or(0);
+                let id = IntentId::from_ix(w.intents.len());
+                let i = Intent {
+                    id,
+                    beat,
+                    agent: d.hands[0],
+                    demigod: lead,
+                    verb: "revive".into(),
+                    targets: fallen.iter().map(|x| Target::Known(Ref::Demigod(*x))).collect(),
+                    how: String::new(),
+                    place: Some(d.place),
+                    magnitude,
+                    span: will.text.chars().take(240).collect(),
+                    route: Route::God { god, by: RouteBy::Keyword },
+                };
+                note.reason = if d.bolts < cost {
+                    format!("a fallen player's will goes to Death; Death's price is {cost} bolts and {} has {}", d.name, d.bolts)
+                } else {
+                    format!("a fallen player's will goes to Death (price {cost} bolts)")
+                };
+                event("intent", Some(Ref::Agent(i.agent).to_string()),
+                      json!({ "beat": beat, "intent": i, "routed_by": "keyword", "fallback": null, "fallen_will": true }));
+                w.intents.push(i);
+                note.intent = Some(id);
+            }
+            None => {
+                note.reason = if is_revive(&will.text) {
+                    "one plea to Death a beat: this one was already heard".into()
+                } else {
+                    "your demigods have fallen: they can't act, only plead with Death to come back".into()
+                };
+            }
+        }
+        event("fallen_will", Some(format!("seat:{}", will.seat)),
+              json!({ "beat": beat, "seat": will.seat, "seq": will.seq, "text": will.text, "intent": note.intent, "reason": note.reason }));
+        out.push(note);
+    }
+    out
+}
+
 /// Rules 0.8.1: a heal's targets: rival demigods only when the order names them; "me" / "my demigods" / "all my
 /// demigods" (or no demigod at all) mean the player's own standing ones; a fallen one of its own sends the heal to
 /// Death (a raising).
@@ -796,7 +890,8 @@ pub async fn resolve(
     beat: u32,
     turns: Vec<Turn>,
     subs: &[crate::flow::Sub],
-    duel_acts: &[crate::duel::Act],
+    duel_acts: &crate::duel::Acts,
+    wills: &[FallenWill],
     closed: &[theatre_plugin_api::ClosedWindow],
     llm: Option<&dyn LlmProvider>,
     pantheon: &Arc<Pantheon>,
@@ -1039,6 +1134,8 @@ pub async fn resolve(
     if !w.demigods.is_empty() {
         continue_standing_orders(w, beat, &spoke);
     }
+    // Rules 0.8.1: fallen players' wills (a plea to Death, ruled on like any invocation; else a refusal with why).
+    let will_notes = fallen_wills(w, beat, wills, pantheon);
     clock.lap(Stage::Intake);
 
     // ---- (2) mentions → refs (memorizing people as they are addressed) -------------------------------------------
@@ -1539,11 +1636,11 @@ pub async fn resolve(
     let mut summon_deeds: Vec<String> = vec![String::new(); summons.len()];
     // Rules 0.8.1: the duel mind tells each finished duel (the LLM when a human fought in it).
     let first_duel = calls.len();
-    for p in &duels {
+    for p in &duels.ended {
         calls.push(MindCall::Duel(p.ctx.clone()));
         use_llm.push(p.human);
     }
-    let mut duel_deeds: Vec<String> = vec![String::new(); duels.len()];
+    let mut duel_deeds: Vec<String> = vec![String::new(); duels.ended.len()];
     let mut manifest_words: BTreeMap<usize, (fn7_agents::manifest::ManifestOut, bool)> = BTreeMap::new();
     let t0 = Instant::now();
     let rep = overlap(run_split(llm, calls.clone(), use_llm.clone(), timeout), &mut bg, &mut bg_rep).await;
@@ -1765,7 +1862,7 @@ pub async fn resolve(
         crate::summon::record(w, beat, &summons, &summon_deeds);
     }
     // Rules 0.8.1: the duels' deeds (duel.end in the memory, a tale each).
-    let duel_ends = crate::duel::record(w, beat, &duels, &duel_deeds);
+    let duel_ends = crate::duel::record(w, beat, &duels.ended, &duel_deeds);
     // Manifestations: the payment, debt, backfire and Entropy, then the attempt itself (its row and its item).
     for (k, j) in judged.iter().enumerate() {
         props.extend(j.props.iter().cloned());
@@ -1781,8 +1878,8 @@ pub async fn resolve(
     props.extend(fn7_society::entropy_proposals(w, beat, pantheon.id_of("entropy")));
     props.extend(fn7_society::mod_proposals(w, beat));
     // Rules 0.8.0: a demigod summoned this beat stays where it was summoned (its hands' travel this beat is void).
-    // Rules 0.8.1: so does a built-in AI demigod that leapt to its duel.
-    let leapt: Vec<DemigodId> = duels.iter().filter_map(|p| p.bout.duel.leap.map(|m| m.demigod)).collect();
+    // Rules 0.8.1: so does a built-in AI demigod that leapt to its duel, and every duellist (locked in its duel).
+    let leapt: Vec<DemigodId> = duels.leapt.iter().chain(&duels.pinned).copied().collect();
     if !summons.is_empty() || !leapt.is_empty() {
         props.retain(|p| {
             !matches!(&p.effect, Effect::Move { who: Ref::Demigod(d), .. }
@@ -2046,7 +2143,14 @@ pub async fn resolve(
         .map(|r| crate::payload::omen(w, r))
         .collect();
     let row_end = w.ledger.rows.len();
-    let per_seat = seat_deltas(w, beat, row_start, row_end, &said, &step_said, &flow);
+    let mut per_seat = seat_deltas(w, beat, row_start, row_end, &said, &step_said, &flow);
+    // Rules 0.8.1: what became of each fallen player's will (and Death's verdict on a plea to come back).
+    for (seat, v) in per_seat.iter_mut() {
+        let mine: Vec<Value> = will_notes.iter().filter(|n| n.seat == *seat).map(|n| n.json(w)).collect();
+        if !mine.is_empty() {
+            v["wills"] = mine.into();
+        }
+    }
     let (prev_beat, prev) = match previous {
         Some((b, n)) => (Some(b), n),
         None => (
@@ -2106,6 +2210,9 @@ pub async fn resolve(
         public["summons"] = summoned.into();
         if !duel_ends.is_empty() {
             public["duels"] = duel_ends.into();
+        }
+        if !duels.open.is_empty() {
+            public["duels_open"] = duels.open.clone().into();
         }
     }
     clock.lap(Stage::Broadcast);
