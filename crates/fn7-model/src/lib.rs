@@ -46,7 +46,11 @@ use serde::{Deserialize, Serialize};
 /// Schema 6 (rules 0.8.0): the Dungeon Master's place × time memory and the eight features it governs
 /// ([`World::dm`], [`dm::Dm`]; docs/DM_RULEBOOK.md). Rules that changed in 0.8.0 read [`World::dm_rules`], so schema-4
 /// and schema-5 recordings replay exactly.
-pub const STATE_SCHEMA: u32 = 6;
+///
+/// Schema 7 (rules 0.8.1): challenge mode (open duels in [`dm::Dm::duels`]), the summon's damage check at the accept,
+/// heals routed to Nature, the takeover rename fix. Rules that changed in 0.8.1 read [`World::challenge_rules`], so
+/// schema-4..6 recordings replay exactly.
+pub const STATE_SCHEMA: u32 = 7;
 
 /// Match-wide settings and clocks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -376,6 +380,10 @@ impl World {
     /// Schema 6 rules are on (rules 0.8.0): the Dungeon Master's rulebook, its place × time memory and its features.
     pub fn dm_rules(&self) -> bool {
         self.meta.schema >= dm::DM_SCHEMA
+    }
+    /// Schema 7 rules are on (rules 0.8.1): challenge mode and the 0.8.1 fixes.
+    pub fn challenge_rules(&self) -> bool {
+        self.meta.schema >= dm::CHALLENGE_SCHEMA
     }
     /// A seat's demigods, in id order (Left then Right in schema 5).
     pub fn bodies_of_seat(&self, seat: u8) -> impl Iterator<Item = &Demigod> {

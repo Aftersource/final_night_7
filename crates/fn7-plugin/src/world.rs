@@ -17,7 +17,14 @@ pub fn save(w: &World) -> Value {
 }
 
 pub fn settings(w: &World) -> Settings {
-    Settings::from_value(&w.meta.settings)
+    let mut s = Settings::from_value(&w.meta.settings);
+    // Rules 0.8.1 is gated on the state schema too: a schema-6 (or older) state never duels and keeps the 0.8.0
+    // summon, heal and rename rules, whatever its settings say.
+    if !w.challenge_rules() {
+        s.challenge_enabled = false;
+        s.rules_0_8_1 = false;
+    }
+    s
 }
 
 /// Emit a trace event (no-op when nothing records).
