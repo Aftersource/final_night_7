@@ -657,11 +657,11 @@ fn settings_schema() -> Value {
         i(
             1,
             1000,
-            json!(100),
-            "The Final Night falls on this beat. One Theatre round = one beat.",
+            json!(fn7_plugin::settings::DEFAULT_BEATS_TOTAL),
+            "The Final Night falls on this beat (or earlier: heat death, or nobody standing). One Theatre round = one beat.",
         ),
     );
-    p("rounds", i(1, 1000, json!(100), "Input-only alias of beats_total (used when beats_total is absent; dropped from `rules`)."));
+    p("rounds", i(1, 1000, json!(fn7_plugin::settings::DEFAULT_BEATS_TOTAL), "Input-only alias of beats_total (used when beats_total is absent; dropped from `rules`)."));
     p(
         "beat_ms",
         i(
@@ -699,8 +699,20 @@ fn settings_schema() -> Value {
     );
     p(
         "debt_due_beats",
-        i(1, 100, json!(6), "Beats until a bill falls due."),
+        i(1, 100, json!(fn7_plugin::settings::DEFAULT_DEBT_DUE_BEATS), "Beats until a bill falls due (Consequence's per-act bill and Time's bill for orders)."),
     );
+    let scale = |def: f64, desc: &str| json!({ "type": "number", "minimum": 0, "maximum": 10, "default": def, "description": desc });
+    p("instant_order_debt", scale(0.5, "Time's flat debt for orders sent without a slow window (bots, the built-in AI, Compose submits that skip action.begin): no repeat or seconds factor; doubled when the bolt can't be paid. Real windows keep 0.5 × (1 + seconds/10) × (1 + 0.5 × recent slows)."));
+    p(
+        "arena_close_beats",
+        i(1, 1000, json!(fn7_plugin::settings::DEFAULT_ARENA_CLOSE_BEATS),
+          "Time's circle reaches its end radius (1,500 km on the planet) on this beat, and its damage ramps on the same schedule: its own clock, independent of beats_total (a circle scheduled past the Final Night is still closing when it falls)."),
+    );
+    // The f32 default as its shortest decimal (0.82, not 0.8199999928474426).
+    let k: f64 = format!("{}", fn7_plugin::settings::DEFAULT_KILLER_SCALE).parse().unwrap_or(1.0);
+    p("accident_scale", scale(k, "Multiplier on the rules fallback's Final Destination accident chance (1 in 20 per non-attack act at 1)."));
+    p("army_strike_scale", scale(k, "Multiplier on the damage an army does when it storms a demigod."));
+    p("army_first_host_scale", scale(k, "Multiplier on the extra chance a crowd near an unarmed demigod raises their first volunteer host."));
     p(
         "memory_per_owner",
         i(
@@ -1016,7 +1028,7 @@ fn public_view() -> Value {
             "region": { "type": "string", "description": "Alive only: the region (planet) or district (city) it is in." },
             "portrait_prompt": { "type": "string", "description": "An image prompt for its portrait (subject only, with its visual sheet; stable all match)." },
             "image_kind": { "type": "string", "enum": ["portrait"], "description": "The kind of portrait_prompt." },
-            "diorama_prompt": { "type": "string", "description": "An image prompt for its diorama: the demigod as a collectible minifig on a small base themed on its home region (where it started) with its signature prop (subject only, from its visual sheet; stable all match)." },
+            "diorama_prompt": { "type": "string", "description": "An image prompt for its diorama: the demigod as a tiny geometric miniature on a hex diorama tile with its signature prop (subject only: its name and visual sheet, identity only, the same in every match)." },
             "diorama_image_kind": { "type": "string", "enum": ["diorama"], "description": "The kind of diorama_prompt." },
             "visual": { "$ref": "#/$defs/Visual", "description": "Its visual sheet (stable all match). Always present since the media release; absent in older recordings." },
             "portrait_image": { "$ref": "#/$defs/ImageObject", "description": "Its portrait (images on only)." },

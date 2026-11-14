@@ -111,7 +111,8 @@ What that means in the game:
 - **Typing slows time** for everyone for up to 30 seconds. Everyone is told who did it. Nobody learns who else is
   typing. The first typist's Enter **cuts off** everyone slower.
 - **Casting** is a separate UX path: a power from a palette (lightning, volcano, flood and so on) thrown anywhere on the
-  globe, paid in **lightning bolts**. Every bolt anyone spends gives **every rival +2 bolts**.
+  globe, paid in **lightning bolts**. Every bolt anyone spends on a cast or a god gives **every rival +2 bolts** (the
+  bolt Time takes for orders doesn't, since rules 0.6.0).
 - Every cast gets **Entropy's check, which always says yes**. Then an LLM writes **ramifications** ("N ramifications in
   <place> with <context>", N up to 10). Those leave geotagged events and **persistent world mods**.
 - Typed text never casts, and casts never carry orders.
@@ -167,7 +168,7 @@ feeds the action and never gates it, and every "turn-ism" (slowing time, the Ent
 ## 3. The game rules as built
 
 The authoritative list is `MECHANICS` in `crates/fn7-plugin/src/lib.rs`. It's recorded with every match. Rules
-version **0.5.0** (`RULES_VERSION`), state schema **4** (`STATE_SCHEMA` in `crates/fn7-model/src/lib.rs`). The client
+version **0.6.0** (`RULES_VERSION`), state schema **4** (`STATE_SCHEMA` in `crates/fn7-model/src/lib.rs`). The client
 contract is `docs/CLIENT_API.md`.
 
 ### 3.1 The beat
@@ -178,7 +179,7 @@ Start ──► Brief ──► Compose (flow_ms) ──► Resolve ──► Re
   │                    │                     │                      │
   │ Time's clock       │ Compose orders;     │ Time's bills →       │ heat-death collections,
   │ shrinks the arena, │ windows and casts   │ casts (seq order) →  │ eliminations,
-  │ outside = 1–5 dmg; │ work in ANY phase   │ hands → mentions →   │ Final Night survivor rule
+  │ outside = 0.5–3 dmg│ work in ANY phase   │ hands → mentions →   │ Final Night survivor rule
   │ debts due queued;  │                     │ route → ONE batch of │
   │ agents expire;     │                     │ minds → merge +      │
   │ rewind frame       │                     │ world rules →        │
@@ -212,14 +213,17 @@ Built on the Theatre's **action windows** (engine v2.2, `bdf7e2e`):
    `action.received {accepted: false, reason: "cut"}`, and nobody else learns they tried. If the opener never presses
    Enter, the window closes at its deadline.
 5. **Time's bill**, settled at the first resolve after the close, from the core's `RoundContext.windows_closed`:
-   - Time takes **1 bolt**, so every other demigod gains 2.
+   - Time takes **1 bolt** as a **toll**: since rules 0.6.0 (R3) nobody else gains from it. It still counts as a bolt
+     spent for Entropy (+0.4).
    - **Debt** = `0.5 × (1 + seconds_open/10) × (1 + 0.5 × opener's slows in the last 20 beats)`, doubled if the bolt
      can't be paid (cap 10), due in `debt_due_beats`.
    - **Entropy** rises by `0.5 + seconds_open/30`.
    - Seconds open are real time, from the window's opening to the Enter's arrival, or to the deadline. A window that
      times out bills its opener the full `slow_ms`, even if nobody submitted.
-6. **Orders without a window** (a Compose submit: bots, the built-in AI, clients that skip `action.begin`) count as an
-   instant Enter: the same bill for zero seconds.
+6. **Orders without a window** (a Compose submit: bots, the built-in AI, clients that skip `action.begin`) are an
+   **instant order** (rules 0.6.0, R1): the same toll and Entropy as a zero-second window, but a **flat debt of
+   `instant_order_debt`** (default 0.5) with no repeat factor and no seconds factor, doubled if the bolt can't be paid.
+   They still count as slows in a later real window's repeat factor.
 
 Orders from a window open at least one flow beat get up to `max_intents_per_window` acts per hand (12); others get
 `max_intents_per_hand` (6).
@@ -271,11 +275,12 @@ of these:
 
 ### 3.5 Consequence's debts
 - **Per-act bill:** per demigod per beat, `debt_scale × Σ debt_for(magnitude, words this beat)` over its acts that
-  landed, due in `debt_due_beats` (default 6).
+  landed, due in `debt_due_beats` (default 50 since rules 0.6.0; was 6).
 - **Time's bill** for orders (§3.2) is also a debt, due on the same schedule.
 - Due debts are queued at the beat's Start as Consequence's collections, so a Time Delay in the same beat can beat them.
-- **[measured]** `docs/BALANCE_REPORT_1.md` (a draft) found that about 97% of all debt is Time's order bill, and debt
-  causes about two thirds of eliminations at the defaults. See §11.
+- **[measured]** `docs/BALANCE_REPORT_1.md` found that about 97% of all debt was Time's order bill, and debt caused
+  about two thirds of eliminations at the old defaults. Rules 0.6.0 (R1: flat instant orders; R3: no gift on Time's
+  toll) and the new defaults answer it; `docs/BALANCE_REPORT_2.md` has the re-measurement.
 
 ### 3.6 Entropy levels and heat death
 The meter runs 0–100 (`fn7-society/src/world_rules.rs`, `ENTROPY_LEVELS`). Every rise is multiplied by
@@ -368,8 +373,15 @@ worship drift. Old memories fold into summaries.
   beat's start. A fallen survivor is revived at its start-of-beat health.
 - **Match end:** at `beats_total`, or when at most one demigod stands. Use `summary.champion_seat` and
   `summary.champions`; the core's `winners` is `[]` when a built-in AI wins.
-- **Time's circle** shrinks around the convergence city, from the whole globe (20,037.5 km) to 1,500 km on the Final
-  Night. Bodies outside take 1–5 damage at each Start.
+- **Time's circle** shrinks around the convergence city, from the whole globe (20,037.5 km) to 1,500 km by beat
+  `arena_close_beats`, on an ease-out curve (`ARENA_EASE` 1.8: a third of the way by a quarter of its schedule). Since
+  rules 0.6.0 (R2) that is its **own schedule, independent of `beats_total`**: a circle scheduled past the Final Night
+  is still closing when it falls. Bodies outside take `0.5 + 1.5 × progress + 4 × overshoot` damage (0.5–3) at each
+  Start, with progress on the circle's schedule, and are dragged back inside.
+- **The non-debt killers** (rules 0.6.0, R4), each a room multiplier: the resolver's rules-fallback accident (1 in 20
+  per non-attack act × `accident_scale`), an army storming a demigod (`(0.5 + size/40 000) × (0.6 + 0.6 × competence)`,
+  at most 2, × `army_strike_scale`), and a crowd near a demigod with no army yet raising a first host (extra chance 0.2
+  × `army_first_host_scale` a beat).
 
 ### 3.11 Piles and statues
 At the end every demigod gets a **pile** (its items), a portrait prompt and an **amiibo-style statue prompt**
@@ -396,7 +408,7 @@ validator. **Balance is done with settings, never code** (Play 3).
 | `arena` | `planet` | planet \| city | Whole Earth, or one real city |
 | `city` | seeded pick | name | Where Time's circle closes (planet), or the arena (city) |
 | `players` | 4 | 1–8 | Demigods; the built-in AI plays seats no human holds (synthetic seats ≥ 200) |
-| `beats_total` (`rounds`) | 100 | 1–1000 | The Final Night's beat |
+| `beats_total` (`rounds`) | 60 | 1–1000 | The Final Night's beat |
 | `flow_ms` (`beat_ms`) | 3000 | 500–120000 | Flow beat length; `compose_seconds` defaults to `flow_ms/1000` |
 | `slow_ms` | 30000 | 1000–600000 | Longest a slow window stays open |
 | `start_bolts` | 3 | 0–99 | Bolts per demigod at the start |
@@ -406,7 +418,12 @@ validator. **Balance is done with settings, never code** (Play 3).
 | `mind_timeout_ms` | 6000 | 50–120000 | Per-call LLM timeout before the fallback |
 | `llm` | true | bool | false = never call the LLM |
 | `debt_scale` | 0.04 | 0–10 | Consequence's per-act bill multiplier |
-| `debt_due_beats` | 6 | 1–100 | Beats until a bill falls due (Time's and Consequence's) |
+| `debt_due_beats` | 50 | 1–100 | Beats until a bill falls due (Time's and Consequence's) |
+| `instant_order_debt` | 0.5 | 0–10 | Time's flat debt for a window-less order (R1; §3.2) |
+| `arena_close_beats` | 160 | 1–1000 | Beat Time's circle reaches 1,500 km; its own schedule, independent of `beats_total` (R2; §3.10) |
+| `accident_scale` | 0.82 | 0–10 | Multiplier on the rules-fallback accident chance (R4) |
+| `army_strike_scale` | 0.82 | 0–10 | Multiplier on army strike damage on demigods (R4) |
+| `army_first_host_scale` | 0.82 | 0–10 | Multiplier on a first volunteer host's extra chance (R4) |
 | `memory_per_owner` | 40 | 4–1000 | Live memories per owner before folding |
 | `llm_folds_per_beat` | 2 | 0–32 | Folds written by the LLM per beat |
 | `max_intents_per_hand` | 6 | 1–12 | Acts per hand per beat |
@@ -419,8 +436,9 @@ validator. **Balance is done with settings, never code** (Play 3).
 | `first_compose_seconds`, `allow_midmatch_join` | unset, false | core | Core room flags from engine `2d3a43d` / `9d98b98`; passed through by `copy_timer_settings` **[uncertain: not yet exercised by FN7; see §11]** |
 
 **Rooms in use:** the shared lobby is 4 players (2 humans + 2 AI), 30 beats, 12 s flow, LLM on (BUILDLOG "the shared
-lobby"; Unreal `Config/DefaultGame.ini`: `MatchRounds=30`, `MatchFlowMs=12000`). The defaults (100 × 3 s) are the
-simulator's.
+lobby"; Unreal `Config/DefaultGame.ini`: `MatchRounds=30`, `MatchFlowMs=12000`). The defaults (60 × 3 s, chosen in
+`docs/BALANCE_REPORT_2.md`) are the simulator's. A room with a short `beats_total` (the 30-beat lobby) should also set
+`arena_close_beats` (for example to its `beats_total`), or Time's circle will be only partly closed on its Final Night.
 
 ---
 
@@ -782,7 +800,7 @@ placeholder images).
   `MediaPlugin` adds an **image object** beside each prompt on the way out:
   `{hash, kind, status: pending|ready|off, url, prompt}`.
   - The kinds are `portrait`, `item`, `event`, `statue`, `place` and `army`.
-  - `hash` = sha256(prompt version `fn7-media/2`, generator, size, prompt).
+  - `hash` = sha256(prompt version `fn7-media/3`, generator, size, prompt, reference images' sha256s).
 - **Generation never holds up a beat.** Annotation only enqueues work. Clients poll the manifest
   (`GET /media/index?since=`) and fetch `/media/<hash>.<ext>` once an image is `ready`.
 - **On request.** `game.media {kind, ref}` returns an image of something in the game. The server writes the prompt
@@ -803,7 +821,7 @@ Every demigod and named person has a **visual sheet**:
 `event_selection` (`min_magnitude` 8, `always: [cast, elimination, general_appointed, mutiny]`, `max_per_match` 12).
 - **Loading.** The server loads `FN7_MEDIA_STYLE`, then `data/media_style.json`, then the compiled-in copy. It's
   validated at startup; a bad file stops the server and names the field.
-- **Prompts** take the form `<framing>: <subject>. Style: <house_style>. Avoid: <avoid>.`
+- **Prompts** take the form `<framing>: <subject>. Style: <the kind's house style>. <reference note> <avoid>` (two looks: portraits in Benito's dark fantasy, everything else in the max-zoom hex look; see MEDIA.md)
 - **Recording.** Every match's ruleset records the style's version, hash, source and body.
 - **Moment cards.** Every public event carries a candidate `image_prompt`. Only events the selection picks get an
   `image`.
@@ -1058,7 +1076,8 @@ battle bus, piles/statues      up to 128 players, consensus takes,      7-minute
 |---|---|
 | 0.3.1 | One city, six gods, hands and subagents, memorization, ledger, debts (the first build) |
 | 0.4.0 | The planet edition: UN subregions and cities, bolts and the power palette, Entropy and heat death, armies, world mods; flow/slow emulated in the plugin (v0) |
-| 0.5.0 | Slow time on the engine's action windows (v2.2), casts as instant actions, revive; later the `game.*` queries, the society rebuild (schema 4), media style and storyboard. **Still 0.5.0** **[see §11.3]** |
+| 0.5.0 | Slow time on the engine's action windows (v2.2), casts as instant actions, revive; later the `game.*` queries, the society rebuild (schema 4), media style and storyboard |
+| 0.6.0 | Mid-match join; the balance pass from `docs/BALANCE_REPORT_2.md`: flat `instant_order_debt` for window-less orders (R1), Time's circle on its own `arena_close_beats` schedule (R2), no gift on Time's toll (R3), the non-debt killers as room multipliers (R4), new defaults |
 
 ### 10.3 Engine milestones (`Aftersource/theatre`)
 | Commit | Name | What it gave FN7 |
@@ -1101,7 +1120,7 @@ battle bus, piles/statues      up to 128 players, consensus takes,      7-minute
 | Item | Who decides | State | Source |
 |---|---|---|---|
 | **Real images** (OpenAI key + budget) | Chris | Open; STABLE stays on `mock` until `FN7_IMAGES=openai`, a key and `FN7_IMAGE_BUDGET_USD` > 0. About $0.10–0.30 per match. | SHARED_MEDIA_SPEC §7.1, MEDIA.md |
-| **The balance package** | Benito (+ Chris) | Open. BALANCE_REPORT_1 says no settings-only package reaches the Final Night. Time's order bill is the real match clock (about 97% of debt). Bolts flood (about 210 at the end) because paying Time gives rivals +2. Best settings-only fit for 7 minutes: `debt_due_beats` 50, `beats_total` 130. Recommended rules changes R1–R5: cheaper instant orders, decouple the arena clock, no gift on Time payments, softer non-debt killers, measure human order rates. | `docs/BALANCE_REPORT_1.md` §0, §8–10 |
+| **The balance package** | Benito (+ Chris) | Approved: default+ plus R1–R4, implemented in rules 0.6.0 with new defaults (`beats_total` 60, `arena_close_beats` 160, `debt_due_beats` 50, killer multipliers 0.82, `instant_order_debt` 0.5). Still open: R5 (measure human order rates and window lengths in a playtest), and the designers' review of the flags in BALANCE_REPORT_2 §6. | `docs/BALANCE_REPORT_2.md`, `docs/BALANCE_REPORT_1.md` |
 | **Globe-table scene engine:** real Earth, a super-Earth (2× radius, 14 trillion people) or a hybrid | Chris | Open; design notes only (cell ids shared with Benito's cube-sphere hex keys, a sparse scene store, `game.scene` / `game.cells` queries, index lookups only) | `docs/SCENE_ENGINE_NOTES.md`, BUILDLOG "the globe table" |
 | **Rotate keys after the jam** (access key, admin token, LLM and image keys) | Chris / backend | To do after Nov 15 | Play 6 |
 
@@ -1125,11 +1144,10 @@ These are places where the source documents disagree with the code or with each 
    `nodes`, `cells`, `mobs`, `battles` and `soc` tables, the `ce:` / `mb:` ref prefixes, the `Life` sheet and the
    society `Effect`. Its §4 query list names `fn7_slows` / `fn7_cutoffs`, but the tables are `fn7_windows` /
    `fn7_cuts`.
-2. **The settings tables** in `README.md` and `docs/CLIENT_API.md` omit `society_only` and `general_calls_per_beat`
-   (present in `settings.rs` and in `/sim/settings`). The CLIENT_API ref regex lists only the nine original prefixes
+2. *(Settings tables fixed in the balance pass: they now list `society_only` and `general_calls_per_beat`.)* The
+   CLIENT_API ref regex lists only the nine original prefixes
    (it mentions `ce:` / `mb:` separately).
-3. **`RULES_VERSION` is still 0.5.0** after the society rebuild (schema 4) and other outcome-changing work, though its
-   doc comment says "bump on any change to rules". The engine's PLUGIN_API says to bump it when rules change outcomes.
+3. *(Fixed)* `RULES_VERSION` is 0.6.0 since the balance pass (`docs/BALANCE_REPORT_2.md`).
 4. **`docs/AGENT_GUIDE.md` §4–5** still lists `round.brief.public.flow.slow`, `PublicView.slow` and the outcome's
    `slow` `open` event as the live window. Since engine `faa7220` these are null or removed (BUILDLOG; CLIENT_API).
 5. **`docs/ENGINE_SYNC.md`:**
@@ -1182,7 +1200,7 @@ These are places where the source documents disagree with the code or with each 
 | **Engaged** | A seat that began typing during someone else's window (hidden information) |
 | **Time's bill** | 1 bolt plus a debt growing with the seconds a window stayed open and with recent slows; also charged for window-less orders |
 | **Cast** | A god power thrown from the UX as an instant action, paid in bolts |
-| **Bolt** | The god-energy currency and icon. Every bolt spent gives every other demigod +2 |
+| **Bolt** | The god-energy currency and icon. Every bolt spent on a cast or a god gives every other demigod +2 (Time's toll for orders doesn't) |
 | **Instant action** | A Theatre action (`instant: true`) accepted in any phase and delivered at the next resolve |
 | **Streak** | The public `phase.event` showing a cast the moment it's accepted |
 | **Power palette** | `data/powers.json`: the castable powers (slug, icon, cost, radius, target, magnitude) |

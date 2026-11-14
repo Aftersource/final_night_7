@@ -672,7 +672,7 @@
             "type": "string"
           },
           "diorama_prompt": {
-            "description": "An image prompt for its diorama: the demigod as a collectible minifig on a small base themed on its home region (where it started) with its signature prop (subject only, from its visual sheet; stable all match).",
+            "description": "An image prompt for its diorama: the demigod as a tiny geometric miniature on a hex diorama tile with its signature prop (subject only: its name and visual sheet, identity only, the same in every match).",
             "type": "string"
           },
           "eliminated_beat": {

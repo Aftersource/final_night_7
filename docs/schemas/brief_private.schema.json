@@ -426,6 +426,10 @@
           "$ref": "#/$defs/Ref",
           "description": "The hand's agent ref (`ag:<n>`)."
         },
+        "diorama_prompt": {
+          "description": "The hand's own diorama prompt (identity only, like `portrait_prompt`). The server adds `diorama_image`.",
+          "type": "string"
+        },
         "live": {
           "description": "False once your demigod is eliminated.",
           "type": "boolean"
@@ -434,12 +438,19 @@
           "description": "\"<you>'s Left Hand\" / \"<you>'s Right Hand\".",
           "type": "string"
         },
+        "portrait_prompt": {
+          "description": "The hand's own portrait prompt (it is one of the player's two demigods): identity only, from its name and its\nname-keyed visual sheet, the same in every match. The server adds `portrait_image` beside it.",
+          "type": "string"
+        },
         "subagents": {
           "description": "Live subagents and possessions under this hand.",
           "items": {
             "$ref": "#/$defs/SubagentLine"
           },
           "type": "array"
+        },
+        "visual": {
+          "description": "The hand's visual sheet: `{sheet_hash, traits: {build, face, outfit, colors, prop, emblem}}`."
         }
       },
       "required": [

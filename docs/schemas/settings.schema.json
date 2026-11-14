@@ -4,6 +4,13 @@
   "additionalProperties": true,
   "description": "Room settings (`room.create.settings`, `room.settings.settings`; all optional) and, once validated, `match.started.rules` / `Room.settings`. Integers may be sent as whole floats (3.0). Unknown keys are dropped silently. Validated `rules` always contain every key except seed/city/allow_midmatch_join (when unset), rounds and choose_seconds (when unset).",
   "properties": {
+    "accident_scale": {
+      "default": 0.82,
+      "description": "Multiplier on the rules fallback's Final Destination accident chance (1 in 20 per non-attack act at 1).",
+      "maximum": 10,
+      "minimum": 0,
+      "type": "number"
+    },
     "allow_midmatch_join": {
       "default": false,
       "description": "The core's room flag: humans may join a running match, taking over a bot's seat (its demigod) or a new seat (a live built-in AI demigod, the healthiest; none left: they spectate) from the next round. Copied through only if set.",
@@ -18,6 +25,27 @@
       ],
       "type": "string"
     },
+    "arena_close_beats": {
+      "default": 160,
+      "description": "Time's circle reaches its end radius (1,500 km on the planet) on this beat, and its damage ramps on the same schedule: its own clock, independent of beats_total (a circle scheduled past the Final Night is still closing when it falls).",
+      "maximum": 1000,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "army_first_host_scale": {
+      "default": 0.82,
+      "description": "Multiplier on the extra chance a crowd near an unarmed demigod raises their first volunteer host.",
+      "maximum": 10,
+      "minimum": 0,
+      "type": "number"
+    },
+    "army_strike_scale": {
+      "default": 0.82,
+      "description": "Multiplier on the damage an army does when it storms a demigod.",
+      "maximum": 10,
+      "minimum": 0,
+      "type": "number"
+    },
     "beat_ms": {
       "default": 3000,
       "description": "Input alias of flow_ms (used when flow_ms is absent); echoed = flow_ms.",
@@ -26,8 +54,8 @@
       "type": "integer"
     },
     "beats_total": {
-      "default": 100,
-      "description": "The Final Night falls on this beat. One Theatre round = one beat.",
+      "default": 60,
+      "description": "The Final Night falls on this beat (or earlier: heat death, or nobody standing). One Theatre round = one beat.",
       "maximum": 1000,
       "minimum": 1,
       "type": "integer"
@@ -57,8 +85,8 @@
       "type": "number"
     },
     "debt_due_beats": {
-      "default": 6,
-      "description": "Beats until a bill falls due.",
+      "default": 50,
+      "description": "Beats until a bill falls due (Consequence's per-act bill and Time's bill for orders).",
       "maximum": 100,
       "minimum": 1,
       "type": "integer"
@@ -83,6 +111,13 @@
       "maximum": 120000,
       "minimum": 500,
       "type": "integer"
+    },
+    "instant_order_debt": {
+      "default": 0.5,
+      "description": "Time's flat debt for orders sent without a slow window (bots, the built-in AI, Compose submits that skip action.begin): no repeat or seconds factor; doubled when the bolt can't be paid. Real windows keep 0.5 × (1 + seconds/10) × (1 + 0.5 × recent slows).",
+      "maximum": 10,
+      "minimum": 0,
+      "type": "number"
     },
     "llm": {
       "default": true,
@@ -159,7 +194,7 @@
       "type": "number"
     },
     "rounds": {
-      "default": 100,
+      "default": 60,
       "description": "Input-only alias of beats_total (used when beats_total is absent; dropped from `rules`).",
       "maximum": 1000,
       "minimum": 1,

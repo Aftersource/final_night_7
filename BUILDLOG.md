@@ -514,3 +514,56 @@ Engineering:
 - **Unreal client:** final_night_7_unreal d4508ef. The Mac verifier builds it after the lobby session (Play 8).
 - **Read first next session:** docs/PROJECT_GUIDE.md, BUILDLOG.md, docs/PLAYBOOK.md (Plays 4, 8, 9), docs/ENGINE_SYNC.md,
   docs/BALANCE_REPORT_1.md.
+
+## 2026-11-14: demigods: two per player, items they manifest, persistent identity
+
+> two demigods per player, portraits on the lower left. Instructions are needed to get an actual professional rounded
+> borders and text boxes etc. properly; it needs to be done properly, since the portraits are not there yet. The
+> demigods are picking up and manifesting things throughout, likely using the item engine, to
+> determine whether they were successful, raising armies and banners of 100,000,000 armies; since they are demigods, so
+> all of these high-level items must be created and stored, with a data structure per match. Then, between matches,
+> their items can reset to zero, but they keep the history, match history, personal descriptions, images
+> library, match history, time travel, all of it.
+
+> Cache them properly.
+
+> Stop generating images that are not displayed; make a few and show how it's done.
+
+Engineering:
+- Each player's Left and Right hands become two demigods, each with its own name, visual sheet, portrait and diorama.
+- Portraits go on the lower left, with a professional rounded-panel UI. That's the client's job.
+- Demigods manifest items (artifacts, armies with banners at any scale) through an item engine that judges success.
+  Items are stored per match and reset between matches.
+- Persistent identity across matches: a profile with match history, a personal description, an image library, and
+  links to recordings for time travel.
+- Images: generated once per identity and cached; generation stays off until the client displays them (the proof is a
+  screenshot).
+
+## 2026-11-14: house style = Benito's dark-fantasy references
+
+> House style follows his dark-fantasy references, not the collectible-figure look.
+
+(Benito, via the bridge; approved by Chris, who then set two looks per kind, and added "CACHE THEM. MAKE IT PROPER."
+and the hard stop on real generation.)
+
+Engineering (fn7-media, style v2; nothing generated, no OpenAI spend):
+- **Two looks.** Portraits use Benito's DEFAULT_STYLE without the fixed "burning stone keep … misty pine forest"
+  scenery (a prototype put that castle into every image, even "Manila harbour"), with six of his references and his
+  note. Every other kind uses the "max zoom" hex-diorama look (the table's geometry in his mood) with four of his
+  references. His original text stays in the file as `house_style_original`. The avoid list became his sentence. The
+  approved renders are in `data/style_refs/approved/`, and his 15 pictures in `data/style_refs/`.
+- **Reference mode.** gpt-image models with references call `POST /images/edits` (multipart, one `image[]` per
+  reference). The geometry refs go first, then a deterministic mood pick seeded by the prompt. Files are validated at
+  startup. The key includes every reference's sha256 (prompt version `fn7-media/3`). Records list file names, sizes
+  and hashes, never bytes or the key. A refused `background: transparent` is retried once, opaque.
+- **Costs.** Budgets reserve the per-image price plus about 1,200 image tokens per reference and 600 text tokens, at
+  [estimate] rates (gpt-image-1-mini $2.50 per 1M image-input tokens, $2.00 per 1M text). The recorded cost comes from
+  the response's `usage`. A portrait reserves about $0.030 and a diorama about $0.024. `FN7_IMAGE_PRICE_USD` still
+  overrides it.
+- **Identity caching.** Demigod sheets depend only on the normalized name (`fn7-visual/2`; person sheets unchanged).
+  Portrait and diorama prompts are identity-only (the diorama dropped its home region). Each hand (a player's two
+  demigods) gets its own sheet, prompts and images in the seat view. Startup prewarms the 8 AI names plus both hands
+  of each: 48 images, about $1.31 reserved (`FN7_MEDIA_PREWARM`, `FN7_MEDIA_PREWARM_NAMES`).
+- **Queue priority.** Portrait and diorama go first, then statue, then army/place/item, then event, FIFO within each.
+  `FN7_IMAGE_CONCURRENCY` defaults to 6. This fixes portraits waiting behind 12 moment cards on STABLE.
+

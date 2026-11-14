@@ -197,6 +197,6 @@
     ],
     "type": "object"
   },
-  "x-description": "An image of something in the game, by reference (never a free-text prompt): a portrait of a demigod or person, a demigod's diorama (its minifig on a base themed on its home region), a place, a public event, or an army. Answers at once with `image` (pending, then ready via GET /media/index); the server writes the prompt from the state. Visibility: a seat may ask for what it can see (public things, its own people, events it knows); over HTTP only public refs. Rate-limited per seat and budgeted.",
+  "x-description": "An image of something in the game, by reference (never a free-text prompt): a portrait of a demigod or person, a demigod's diorama (its miniature on a hex tile, the same in every match), a place, a public event, or an army. Answers at once with `image` (pending, then ready via GET /media/index); the server writes the prompt from the state. Visibility: a seat may ask for what it can see (public things, its own people, events it knows); over HTTP only public refs. Rate-limited per seat and budgeted.",
   "x-public": true
 }

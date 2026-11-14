@@ -119,7 +119,7 @@ Room settings (`validate_settings` fills defaults; one Theatre round = one beat;
 | `arena` | `planet` | planet \| city | The whole Earth (regions = UN subregions, each with its 3 largest cities) or one real city (districts → sites) |
 | `city` | seeded pick | name | Fuzzy match; cities ≥ 1M on land when unset. On the planet: where Time's circle closes for the Final Night |
 | `players` | 4 | 1–8 | Demigods in the match; seats come first, the plugin's own AI plays the rest (synthetic seats ≥ 200) |
-| `beats_total` (alias `rounds`) | 100 | 1–1000 | The Final Night falls on this beat |
+| `beats_total` (alias `rounds`) | 60 | 1–1000 | The Final Night falls on this beat (or earlier: heat death, nobody standing) |
 | `flow_ms` (alias `beat_ms`) | 3000 | 500–120000 | Flow beat length; `compose_seconds` defaults to `flow_ms / 1000` |
 | `slow_ms` | 30000 | 1000–600000 | Longest a slow-time window stays open (`ceil(slow_ms / flow_ms)` flow beats) |
 | `start_bolts` | 3 | 0–99 | Lightning bolts per demigod at the start |
@@ -129,13 +129,20 @@ Room settings (`validate_settings` fills defaults; one Theatre round = one beat;
 | `mind_timeout_ms` | 6000 | 50–120000 | Per-call timeout for every mind; a late call takes its rules fallback |
 | `llm` | true | bool | false = never call the LLM (every mind falls back, no requests) |
 | `debt_scale` | 0.04 | 0–10 | Consequence's bill: `debt_scale × Σ debt_for(magnitude, words this beat)` per demigod per beat |
-| `debt_due_beats` | 6 | 1–100 | Beats until a bill falls due |
+| `debt_due_beats` | 50 | 1–100 | Beats until a bill falls due (Consequence's and Time's) |
+| `instant_order_debt` | 0.5 | 0–10 | Time's flat debt for orders sent without a slow window (bots, the built-in AI, Compose submits): no repeat or seconds factor, doubled when the bolt can't be paid. Real windows keep `0.5 × (1 + secs/10) × (1 + 0.5 × recent)` |
+| `arena_close_beats` | 160 | 1–1000 | Time's circle reaches its end radius (1,500 km) on this beat and its damage ramps on the same schedule; independent of `beats_total` (still closing when the Final Night falls if later) |
+| `accident_scale` | 0.82 | 0–10 | Multiplier on the rules fallback's accident chance (1 in 20 per non-attack act at 1) |
+| `army_strike_scale` | 0.82 | 0–10 | Multiplier on an army's strike damage on a demigod |
+| `army_first_host_scale` | 0.82 | 0–10 | Multiplier on the extra chance (0.2) that a crowd near an unarmed demigod raises their first host |
 | `memory_per_owner` | 40 | 4–1000 | Live memories per owner before old ones fold into a summary |
 | `llm_folds_per_beat` | 2 | 0–32 | Folds written by the fold mind per beat (the rest by rules) |
 | `max_intents_per_hand` | 6 | 1–12 | Acts one hand turns its speech into per beat |
 | `max_intents_per_window` | 12 | 1–24 | Acts per hand from orders delivered from a slow window open at least `flow_ms` |
 | `max_memorize_per_beat` | 6 | 0–64 | People memorized from player mentions per beat |
 | `max_witnesses` | 4 | 1–64 | Witnesses recorded per act (targets and actor first) |
+| `society_only` | false | bool | World-only simulation: the built-in AI demigods give no orders and cast nothing |
+| `general_calls_per_beat` | 2 | 0–16 | General-mind LLM calls per beat at decision points (orders a hand gives always ask) |
 | `compose_seconds`, `choose_seconds`, `resolve_timeout_s` | `flow_ms/1000`, core, 60 | core | The core's timers, copied through (`util::copy_timer_settings`) |
 | `allow_midmatch_join` | false | bool | The core's room flag, copied through (`util::copy_timer_settings`): humans may join a running match; `on_seat_takeover` binds a taken-over bot seat to its demigod or a new seat to the healthiest live built-in AI demigod (none left: spectator). `docs/CLIENT_API.md` "Joining mid-match" |
 
@@ -148,7 +155,7 @@ at resolve). Without `left`/`right` fields, `text` is read as lines prefixed `l:
 call; silent hands carry out their standing orders by rules. *Casts*, UX god powers, are instant actions (`instant: true`,
 any phase; `on_instant` pushes the public streak at once): `fields: {cast | casts | bolt | bolts}` (`{power, target: ref |
 [lon, lat] | name, text?, magnitude?}`), paid in bolts at the next resolve in `seq` order (every other demigod gains 2 per
-bolt), Entropy's yes, and a ramifications call per region.
+bolt; Time's toll for orders gifts nothing), Entropy's yes, and a ramifications call per region.
 
 **Engine boundary.** The plugin uses only the Theatre's public `GamePlugin` API (`theatre_plugin_api`): settings
 validation (including `compose_seconds` via `util::copy_timer_settings`), the round hooks, `validate_action`,

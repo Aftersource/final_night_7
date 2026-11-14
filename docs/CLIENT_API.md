@@ -40,7 +40,7 @@ everyone is told who did), type orders to your two
 **hands** (LLM orchestrators that act, raise **armies**, spawn **subagents**, possess people and invoke the seven gods:
 Time, Nature, Consequence, Death, Chance, Memory and **Entropy**), and your Enter sends them and cuts off anyone who
 typed slower. **Casts** are god powers (lightning, a volcano, a flood, a custom power...) thrown at any point of the
-globe at any time as instant actions (everyone sees the streak at once), paid in **lightning bolts**: every bolt anyone spends gives every other demigod 2, and raises
+globe at any time as instant actions (everyone sees the streak at once), paid in **lightning bolts**: every bolt anyone spends on a cast or a god gives every other demigod 2 (a bolt paid to Time for orders gives nobody anything), and raises
 **Entropy**, which makes the world wackier until heat death brings the Final Night at once. Every act runs up a bill with
 Consequence. Time's clock shrinks a circle toward one city. The last demigod standing wins; on the Final Night exactly
 one survives. Demigods no seat plays are played by the plugin's own AI (no Theatre seat).
@@ -136,8 +136,9 @@ On reconnect (`auth.resume`), `match.snapshot` carries the same objects: `public
   sits beside them (`portrait_image`, `diorama_image`, `image`, `statue_image`); only events the media style selects
   get one (moment cards).
 - **Visual sheets.** Every demigod (PublicView, `game.globe`, `game.region`) and every person (`game.person`,
-  `game.media`) carries `visual: {sheet_hash, traits: {build, face, outfit, colors: [a, b], prop, emblem}}`: picked
-  from the match seed and the character's id and name, the same at every beat and in every replay. Every image of the
+  `game.media`) carries `visual: {sheet_hash, traits: {build, face, outfit, colors: [a, b], prop, emblem}}`: a
+  demigod's from its name alone (the same in every match), a person's from the match seed, id and name; the same at
+  every beat and in every replay. Every image of the
   character is drawn from these traits. `sheet_hash` changes only if the sheet does.
 - **Unknown keys:** ignore them. New optional fields get added over time.
 
@@ -383,8 +384,8 @@ sheet), the table fields below and, with images on, `portrait_image` and `dioram
 Draw the table from these plus `room.updated`: a seat's aura is human or AI from `controller` (or, live, from
 `seats[].is_bot`: a human who **leaves** mid-match is replaced by a core bot, which the game isn't told, so
 `controller` stays `"human"` until someone takes the seat over), dimmed when `seats[seat].connected` is false.
-`diorama_image` is the demigod's minifig on a little base themed on its home region (where it started) with its
-signature prop: the piece to stand on the table in front of its seat. `portrait_image` is its portrait card.
+`diorama_image` is the demigod as a tiny geometric miniature on a hex tile with its signature prop (identity only:
+the same image in every match): the piece to stand on the table in front of its seat. `portrait_image` is its portrait card.
 
 The planet edition adds:
 
@@ -513,14 +514,16 @@ are refused (`bad_request`, with a message pointing at `action.begin`). The serv
   submitted before it goes through (at the next resolve, in arrival order); anyone who submits after gets the private
   `cut` reply. If the opener never presses Enter, it closes at its deadline (`reason: "deadline"`) and whatever was
   submitted goes through.
-- **Time's penalty**, settled at the first resolve after it closes: Time takes **1 bolt** (every other demigod gains
-  2) and writes a debt of `0.5 × (1 + seconds open / 10) × (1 + 0.5 × the opener's slows in the last 20 beats)` damage
+- **Time's penalty**, settled at the first resolve after it closes: Time takes **1 bolt** as a toll (since rules
+  0.6.0 nobody else gains from it; Entropy still rises 0.4) and writes a debt of `0.5 × (1 + seconds open / 10) × (1 + 0.5 × the opener's slows in the last 20 beats)` damage
   points (doubled if the bolt can't be paid), due in `debt_due_beats`; Entropy rises by `0.5 + seconds / 30`. "Seconds
   open" is real time: from the window's opening to the server closing it on the Enter (or the deadline: a window that
   times out bills its opener the full `slow_ms`, even if nobody submitted). Pressing Enter
   early is cheap, and it cuts off whoever is slower.
-- **Orders without a window** (a Compose submit with no window open) are an instant Enter: the same bill for zero
-  seconds (`{event: "instant"}`).
+- **Orders without a window** (a Compose submit with no window open) are an instant order (`{event: "instant"}`):
+  the same toll and Entropy as a zero-second window, but a flat debt of `instant_order_debt` (default 0.5; no repeat
+  or seconds factor; doubled if the bolt can't be paid). They still count as slows for a later window's repeat
+  factor.
 - Orders from a window open at least one flow beat (`flow_ms`) get up to `max_intents_per_window` acts per hand (12);
   others get `max_intents_per_hand` (6).
 
@@ -565,8 +568,8 @@ are refused (`bad_request`, with a message pointing at `action.begin`). The serv
   targets, and enough bolts for the action's total. A refused cast gets a private `accepted: false` with the reason.
   An accepted one is shown to everyone at once as a `Streak` `phase.event` (its aim; nothing is paid yet).
 - **At the next resolve** casts are paid in arrival order (`seq`; the plugin's AI first), before anything else in the
-  beat. A cast costs its `cost` in bolts. **Every other live demigod gains 2 bolts per bolt spent**, and Entropy rises
-  0.4 per bolt. A cast its caster can no longer pay (several casts each validated against the same last commit, or
+  beat. A cast costs its `cost` in bolts. **Every other live demigod gains 2 bolts per bolt spent** (on casts and god
+  invocations; not on Time's toll for orders), and Entropy rises 0.4 per bolt. A cast its caster can no longer pay (several casts each validated against the same last commit, or
   bolts spent on Time first) **fizzles** (`casts[].fizzled`, nothing spent).
 - Every cast gets **Entropy's check, which always says yes** (an omen in Entropy's voice). Then the ramifications: one
   LLM call per region with casts this beat writes N ramifications (`1 + cost + magnitude/3` per cast, at most 10):
@@ -598,7 +601,7 @@ readable `bad_request`. **Unknown keys are dropped silently.**
 | `arena` | string | `"planet"` | `"planet"` \| `"city"` | The whole Earth (regions → cities) or one real city (districts → sites) |
 | `city` | string | seeded pick (≥ 1M people, on land) | ≤ 80 chars | Fuzzy-matched. On the planet: where Time's circle closes for the Final Night; in a city arena: the arena |
 | `players` | int | 4 | 1–8 | Demigods in the match. Every seat gets one, and the built-in AI plays the rest. Effectively `max(seats, players)`. |
-| `beats_total` (alias `rounds`) | int | 100 | 1–1000 | The Final Night falls on this beat. `rounds` applies only when `beats_total` is absent. |
+| `beats_total` (alias `rounds`) | int | 60 | 1–1000 | The Final Night falls on this beat (or earlier: heat death, or nobody standing). `rounds` applies only when `beats_total` is absent. |
 | `flow_ms` | int | 3000 | 500–120000 | Flow beat length. `compose_seconds` defaults to `flow_ms / 1000`. |
 | `slow_ms` | int | 30000 | 1000–600000 | How long a slow window stays open at most (the Theatre window's deadline) |
 | `beat_ms` | int | = `flow_ms` | 500–120000 | Alias of `flow_ms` (used when `flow_ms` is absent; echoed as `flow_ms`) |
@@ -609,13 +612,20 @@ readable `bad_request`. **Unknown keys are dropped silently.**
 | `mind_timeout_ms` | int | 6000 | 50–120000 | Per-call timeout for every LLM mind. A late call takes its rules fallback. |
 | `llm` | bool | true | | `false` = never call the LLM (rules fallbacks only; captions become templates) |
 | `debt_scale` | number | 0.04 | 0–10 | Consequence's bill multiplier, per demigod per beat |
-| `debt_due_beats` | int | 6 | 1–100 | Beats until a bill falls due |
+| `debt_due_beats` | int | 50 | 1–100 | Beats until a bill falls due (Consequence's and Time's) |
+| `instant_order_debt` | number | 0.5 | 0–10 | Time's flat debt for orders sent without a slow window (no repeat or seconds factor; doubled if the bolt can't be paid) |
+| `arena_close_beats` | int | 160 | 1–1000 | Time's circle reaches its end radius (1,500 km on the planet) on this beat; its damage ramps on the same schedule. Independent of `beats_total`. |
+| `accident_scale` | number | 0.82 | 0–10 | Multiplier on the rules fallback's Final Destination accident chance (1 in 20 per non-attack act at 1) |
+| `army_strike_scale` | number | 0.82 | 0–10 | Multiplier on the damage an army does when it storms a demigod |
+| `army_first_host_scale` | number | 0.82 | 0–10 | Multiplier on the extra chance a crowd near an unarmed demigod raises their first volunteer host |
 | `memory_per_owner` | int | 40 | 4–1000 | Live memories per owner before old ones fold into a summary |
 | `llm_folds_per_beat` | int | 2 | 0–32 | Memory folds the LLM writes per beat (the rest are done by rules) |
 | `max_intents_per_hand` | int | 6 | 1–12 | Acts one hand makes from orders (other than the next row's) |
 | `max_intents_per_window` | int | 12 | 1–24 | Acts one hand makes from orders delivered from a window open at least `flow_ms` |
 | `max_memorize_per_beat` | int | 6 | 0–64 | People memorized from player mentions per beat |
 | `max_witnesses` | int | 4 | 1–64 | Witnesses recorded per act |
+| `society_only` | bool | false | | World-only simulation: the built-in AI demigods give no orders and cast nothing |
+| `general_calls_per_beat` | int | 2 | 0–16 | General-mind LLM calls per beat at decision points |
 | `compose_seconds` | number | `flow_ms / 1000` | (0, 600] | The core's Compose timer (fixed for the room). If you set it explicitly, it no longer follows `flow_ms`. |
 | `resolve_timeout_s` | number | 60 | (0, 1800] | The core's resolve timeout |
 | `allow_midmatch_join` | bool | false | | The core's room flag: humans may join a running match ([Joining mid-match](#joining-mid-match)). Echoed in `rules` only when set. |
@@ -935,7 +945,7 @@ GET /api/rooms/66X6KM/query/media?kind=event&ref=lg:88
 | `kind` | `ref` | Draws |
 |---|---|---|
 | `portrait` | `dg:` or `ch:` | The character from its visual sheet (a demigod's is the same image as its `portrait_image`) |
-| `diorama` | `dg:` | The demigod's table minifig on its home-region base (the same image as its `diorama_image`) |
+| `diorama` | `dg:` | The demigod's table miniature on its hex tile (the same image as its `diorama_image`, in every match) |
 | `place` | `pl:` | The region, city or arena |
 | `event` | `lg:` | That ledger row (the same image as its moment card, if it has one) |
 | `army` | `cl:` of an army | The host under its demigod's colors and emblem |
