@@ -1,0 +1,283 @@
+{
+  "d": {
+    "round": 5,
+    "state": {
+      "alive": true,
+      "armies": [],
+      "beat": 5,
+      "debts": [
+        {
+          "amount": 0.5,
+          "due_beat": 7,
+          "owed_to": "Time",
+          "owed_to_ref": "gd:0",
+          "row": "lg:1",
+          "status": "open"
+        },
+        {
+          "amount": 0.05,
+          "due_beat": 7,
+          "owed_to": "Consequence",
+          "owed_to_ref": "gd:2",
+          "row": "lg:16",
+          "status": "open"
+        },
+        {
+          "amount": 0.75,
+          "due_beat": 8,
+          "owed_to": "Time",
+          "owed_to_ref": "gd:0",
+          "row": "lg:18",
+          "status": "open"
+        },
+        {
+          "amount": 0.05,
+          "due_beat": 8,
+          "owed_to": "Consequence",
+          "owed_to_ref": "gd:2",
+          "row": "lg:30",
+          "status": "open"
+        },
+        {
+          "amount": 1.0,
+          "due_beat": 9,
+          "owed_to": "Time",
+          "owed_to_ref": "gd:0",
+          "row": "lg:34",
+          "status": "open"
+        },
+        {
+          "amount": 1.25,
+          "due_beat": 10,
+          "owed_to": "Time",
+          "owed_to_ref": "gd:0",
+          "row": "lg:42",
+          "status": "open"
+        }
+      ],
+      "demigod": "dg:1",
+      "focus": null,
+      "hands": [
+        {
+          "agent": "ag:2",
+          "live": true,
+          "name": "Juniper's Left Hand",
+          "subagents": []
+        },
+        {
+          "agent": "ag:3",
+          "live": true,
+          "name": "Juniper's Right Hand",
+          "subagents": []
+        }
+      ],
+      "items": [
+        {
+          "kind": "item",
+          "name": "make",
+          "ref": "it:0"
+        },
+        {
+          "kind": "item",
+          "name": "steal",
+          "ref": "it:1"
+        }
+      ],
+      "max_health": 9.2,
+      "name": "Juniper",
+      "news": [
+        {
+          "at": [
+            174.68,
+            -37.0
+          ],
+          "how": "it happened to you",
+          "refs": [
+            "gd:2",
+            "dg:1"
+          ],
+          "region": "Australia and New Zealand",
+          "row": "lg:68",
+          "text": "Consequence writes up Juniper's bill for this beat (3 acts)"
+        },
+        {
+          "at": [
+            174.68,
+            -37.0
+          ],
+          "how": "it happened to you",
+          "refs": [
+            "gd:1",
+            "dg:1"
+          ],
+          "region": "Australia and New Zealand",
+          "row": "lg:57",
+          "text": "Juniper pays Nature its price (a summons gone wild 0.8)"
+        },
+        {
+          "at": [
+            174.68,
+            -37.0
+          ],
+          "how": "it happened to you",
+          "refs": [
+            "gd:1",
+            "dg:1"
+          ],
+          "region": "Australia and New Zealand",
+          "row": "lg:55",
+          "text": "Juniper pays Nature 1 bolts"
+        },
+        {
+          "at": [
+            174.68,
+            -37.0
+          ],
+          "how": "you did it",
+          "refs": [
+            "dg:1",
+            "it:1"
+          ],
+          "region": "Australia and New Zealand",
+          "row": "lg:54",
+          "text": "steal: something Juniper turned up while trying to steal"
+        },
+        {
+          "at": [
+            -74.0,
+            40.71
+          ],
+          "how": "you did it",
+          "refs": [
+            "dg:1"
+          ],
+          "region": "Northern America",
+          "row": "lg:52",
+          "text": "Juniper casts flood on New York"
+        },
+        {
+          "at": null,
+          "how": "you saw it",
+          "refs": [
+            "gd:0"
+          ],
+          "region": null,
+          "row": "lg:51",
+          "text": "The world lurches back up to speed, a little wackier"
+        }
+      ],
+      "orders": [
+        {
+          "hand": "right",
+          "since": 4,
+          "text": "make the"
+        },
+        {
+          "hand": "left",
+          "since": 5,
+          "text": "steal the"
+        }
+      ],
+      "seat": 1,
+      "slow": null,
+      "visible": [
+        {
+          "kind": "demigod",
+          "name": "Juniper",
+          "pos": [
+            174.680671,
+            -36.999724
+          ],
+          "ref": "dg:1"
+        },
+        {
+          "kind": "demigod",
+          "name": "Moth",
+          "pos": [
+            159.953494,
+            -9.596226
+          ],
+          "ref": "dg:3"
+        },
+        {
+          "kind": "item",
+          "name": "make",
+          "ref": "it:0"
+        },
+        {
+          "kind": "item",
+          "name": "steal",
+          "ref": "it:1"
+        },
+        {
+          "kind": "place",
+          "name": "Australia and New Zealand",
+          "pos": [
+            156.982882,
+            -36.179171
+          ],
+          "ref": "pl:1"
+        },
+        {
+          "kind": "place",
+          "name": "Caribbean",
+          "pos": [
+            -74.87795,
+            20.049207
+          ],
+          "ref": "pl:5"
+        }
+      ],
+      "you": {
+        "bolts": 4,
+        "debt_open": 5.25,
+        "echo_charges": 3,
+        "favor": [
+          {
+            "favor": 0.0,
+            "god": "Time",
+            "god_ref": "gd:0"
+          },
+          {
+            "favor": 0.0,
+            "god": "Nature",
+            "god_ref": "gd:1"
+          },
+          {
+            "favor": 0.0,
+            "god": "Consequence",
+            "god_ref": "gd:2"
+          },
+          {
+            "favor": 0.0,
+            "god": "Death",
+            "god_ref": "gd:3"
+          },
+          {
+            "favor": 0.0,
+            "god": "Chance",
+            "god_ref": "gd:4"
+          },
+          {
+            "favor": 0.0,
+            "god": "Memory",
+            "god_ref": "gd:5"
+          },
+          {
+            "favor": 0.0,
+            "god": "Entropy",
+            "god_ref": "gd:6"
+          }
+        ],
+        "followers": 1,
+        "health": 4.2,
+        "pos": [
+          174.680671,
+          -36.999724
+        ]
+      },
+      "zoom": "world"
+    }
+  },
+  "t": "round.private_state"
+}

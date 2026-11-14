@@ -1,0 +1,10 @@
+{
+  "d": {
+    "client": {
+      "kind": "fn7-agents",
+      "version": "0.1.0"
+    },
+    "display_name": "Juniper"
+  },
+  "t": "auth.login"
+}

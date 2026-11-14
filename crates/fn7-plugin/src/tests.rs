@@ -1,0 +1,986 @@
+//! Whole matches through the `GamePlugin` trait, offline.
+
+use std::time::{Duration, Instant};
+
+use serde_json::{json, Value};
+use theatre_plugin_api::*;
+
+use crate::driver::{run_match, BeatReport};
+use crate::testkit::{Failing, Scripted, Slow};
+use crate::*;
+
+fn bots(n: u8) -> Vec<SeatInfo> {
+    (0..n)
+        .map(|i| SeatInfo {
+            seat: i,
+            display_name: ["Ash", "Brix", "Cyra", "Dune"][i as usize % 4].into(),
+            is_bot: true,
+        })
+        .collect()
+}
+
+fn none(_: Seat, _: u32) -> Option<Action> {
+    None
+}
+
+fn load(s: &Value) -> World {
+    world::load(s).unwrap()
+}
+
+struct Run {
+    states: Vec<Value>,
+    reports: Vec<(Value, Vec<(Seat, Value)>)>,
+    summary: Summary,
+    last: Value,
+}
+
+async fn play(
+    settings: Value,
+    llm: &dyn LlmProvider,
+    seats: Vec<SeatInfo>,
+    stop: Option<u32>,
+) -> Run {
+    let p = FinalNight7Plugin::new();
+    let mut states = vec![];
+    let mut reports = vec![];
+    let (last, summary) = run_match(
+        &p,
+        &seats,
+        &settings,
+        llm,
+        stop,
+        &none,
+        |r: &BeatReport, s: &Value| {
+            states.push(s.clone());
+            reports.push((r.outcome.public.clone(), r.outcome.per_seat.clone()));
+            true
+        },
+    )
+    .await
+    .unwrap();
+    Run {
+        states,
+        reports,
+        summary,
+        last,
+    }
+}
+
+fn one_winner(r: &Run) {
+    let w = load(&r.last);
+    assert_eq!(
+        w.alive_demigods().count(),
+        1,
+        "exactly one demigod standing at the end"
+    );
+    assert_eq!(
+        r.summary.winners.len(),
+        1,
+        "{:?}",
+        r.summary.summary["champions"]
+    );
+    let champ = w.alive_demigods().next().unwrap();
+    assert_eq!(r.summary.winners[0], champ.seat);
+    assert_eq!(r.summary.summary["piles"].as_array().unwrap().len(), 4);
+    assert!(r.summary.summary["piles"][0]["statue_prompt"]
+        .as_str()
+        .unwrap()
+        .contains("amiibo"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn full_match_on_rules_fallbacks() {
+    let r = play(
+        json!({"seed": 11, "beats_total": 30, "clusters": 80}),
+        &Failing,
+        bots(4),
+        None,
+    )
+    .await;
+    one_winner(&r);
+    let w = load(&r.last);
+    assert!(w.meta.beat <= 30);
+    assert!(
+        w.ledger.rows.len() > 50,
+        "the world moved: {} rows",
+        w.ledger.rows.len()
+    );
+    assert!(
+        w.beats
+            .iter()
+            .all(|b| b.timing.llm_fallbacks == b.timing.llm_calls),
+        "every call fell back"
+    );
+    assert!(
+        w.agents
+            .iter()
+            .any(|a| matches!(a.kind, AgentKind::Subagent { .. })),
+        "bots spawn subagents"
+    );
+    assert!(!w.rulings.is_empty(), "bots invoke gods");
+    assert!(
+        w.ledger.rows.iter().any(|r| r.verb == "collect"),
+        "debts get collected"
+    );
+    // Per-stage timings are reported on every beat.
+    for (public, _) in &r.reports {
+        let stages: Vec<&str> = public["timing"]["stages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["stage"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            stages,
+            [
+                "intake",
+                "route",
+                "act",
+                "merge",
+                "consequence",
+                "narrate",
+                "broadcast"
+            ]
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_final_night_leaves_exactly_one() {
+    // Too short for anyone to fall before the Final Night: the survivor rule picks one.
+    let r = play(
+        json!({"seed": 2, "beats_total": 4, "clusters": 40}),
+        &Failing,
+        bots(4),
+        None,
+    )
+    .await;
+    let w = load(&r.last);
+    assert_eq!(w.meta.beat, 4, "the Final Night is played");
+    one_winner(&r);
+    assert!(w
+        .demigods
+        .iter()
+        .filter(|d| !d.alive)
+        .all(|d| d.eliminated_beat == Some(4) || d.eliminated_beat.is_some()));
+    assert!(
+        w.ledger
+            .rows
+            .iter()
+            .any(|r| r.verb == "eliminate" && r.beat == 4),
+        "the others fall on the Final Night"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn full_match_with_scripted_llm() {
+    let llm = Scripted::default();
+    let r = play(
+        json!({"seed": 5, "beats_total": 20, "clusters": 80}),
+        &llm,
+        bots(4),
+        None,
+    )
+    .await;
+    one_winner(&r);
+    let w = load(&r.last);
+    let calls: u32 = w.beats.iter().map(|b| b.timing.llm_calls).sum();
+    let fb: u32 = w.beats.iter().map(|b| b.timing.llm_fallbacks).sum();
+    assert!(calls > 0);
+    assert!(
+        fb * 10 <= calls,
+        "scripted replies parse: {fb} fallbacks of {calls}"
+    );
+    assert!(
+        w.rulings.iter().any(|r| !r.fallback),
+        "god rulings from the LLM"
+    );
+    assert!(
+        w.agents
+            .iter()
+            .any(|a| matches!(a.kind, AgentKind::Possession { .. })),
+        "possessions"
+    );
+    assert!(
+        w.agents
+            .iter()
+            .any(|a| matches!(a.kind, AgentKind::Paladin { .. })),
+        "paladins"
+    );
+    assert!(
+        w.beats.iter().any(|b| b.caption.starts_with("Beat chaos")),
+        "narrator captions"
+    );
+    assert_eq!(r.summary.summary["final_cut"]["title"], "The Last Bill");
+    // Beat N's caption is narrated during beat N+1 and arrives in its outcome; the last one in the summary.
+    for (i, (public, _)) in r.reports.iter().enumerate().skip(1) {
+        let w = load(&r.states[i]);
+        let prev = &w.beats.iter().find(|b| b.beat == i as u32).unwrap().caption;
+        assert!(!prev.is_empty(), "beat {i} narrated during beat {}", i + 1);
+        assert_eq!(public["previous_caption"].as_str().unwrap(), prev);
+        assert_eq!(public["caption_beat"], json!(i));
+    }
+    assert!(r.reports[0].0["previous_caption"] == "", "nothing to narrate before beat 1");
+    let last = w.beats.last().unwrap().beat;
+    assert_eq!(r.summary.summary["last_caption"]["beat"], json!(last));
+    assert!(r.summary.summary["last_caption"]["caption"]
+        .as_str()
+        .unwrap()
+        .starts_with("Beat chaos"));
+    let per_beat = calls as f64 / w.beats.len() as f64;
+    eprintln!(
+        "scripted LLM: {calls} calls over {} beats = {per_beat:.1} per beat ({fb} fallbacks)",
+        w.beats.len()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn deterministic_given_seed_and_replies() {
+    let s = json!({"seed": 21, "beats_total": 12, "clusters": 60});
+    let a = play(s.clone(), &Scripted::default(), bots(4), None).await;
+    let b = play(s.clone(), &Scripted::default(), bots(4), None).await;
+    assert_eq!(a.states.len(), b.states.len());
+    for (i, (x, y)) in a.states.iter().zip(&b.states).enumerate() {
+        assert!(x == y, "state after beat {} differs", i + 1);
+    }
+    let c = play(s, &Failing, bots(4), None).await;
+    let d = play(
+        json!({"seed": 21, "beats_total": 12, "clusters": 60}),
+        &Failing,
+        bots(4),
+        None,
+    )
+    .await;
+    assert_eq!(c.states, d.states);
+    let e = play(
+        json!({"seed": 22, "beats_total": 12, "clusters": 60}),
+        &Failing,
+        bots(4),
+        None,
+    )
+    .await;
+    assert_ne!(
+        c.states.last(),
+        e.states.last(),
+        "another seed, another match"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn hidden_information() {
+    let p = FinalNight7Plugin::new();
+    let mut seats = bots(4);
+    seats[0].is_bot = false;
+    seats[0].display_name = "Secret".into();
+    const SECRET: &str = "zebra-seventeen";
+    let script = |seat: Seat, _round: u32| {
+        (seat == 0).then(|| {
+            actions::action(
+                0,
+                &format!("whisper {SECRET} to the baker who saw the fire"),
+                &format!("send a scout to spy on {SECRET}"),
+                None,
+            )
+        })
+    };
+    let mut checked = 0;
+    let settings = json!({"seed": 3, "beats_total": 10, "clusters": 60});
+    run_match(
+        &p,
+        &seats,
+        &settings,
+        &Failing,
+        None,
+        &script,
+        |r: &BeatReport, s: &Value| {
+            let w = load(s);
+            for (seat, v) in &r.outcome.per_seat {
+                let text = v.to_string();
+                if *seat != 0 {
+                    assert!(
+                        !text.contains(SECRET),
+                        "seat {seat}'s round.private leaks seat 0's words"
+                    );
+                    assert!(
+                        !p.seat_view(s, *seat).to_string().contains(SECRET),
+                        "seat {seat}'s view leaks seat 0's words"
+                    );
+                }
+                let d: SeatDelta = serde_json::from_value(v.clone()).unwrap();
+                let dg = world::seat_state(&w, *seat).unwrap().demigod;
+                let me = world::selves(&w, dg);
+                let following = w.demigods[dg.ix()].following;
+                for n in &d.news {
+                    let Ref::Ledger(id) = n.row else {
+                        panic!("news row {} is not a ledger ref", n.row)
+                    };
+                    let row = &w.ledger.rows[id.ix()];
+                    assert!(
+                        world::knows(&me, following, row),
+                        "seat {seat} got row {} it doesn't know",
+                        n.row
+                    );
+                    checked += 1;
+                }
+            }
+            assert!(
+                !p.public_view(s).to_string().contains(SECRET),
+                "the public view leaks seat 0's words"
+            );
+            // Rows the seat doesn't know never reach it.
+            for (seat, v) in &r.outcome.per_seat {
+                let d: SeatDelta = serde_json::from_value(v.clone()).unwrap();
+                let dg = world::seat_state(&w, *seat).unwrap().demigod;
+                let me = world::selves(&w, dg);
+                let following = w.demigods[dg.ix()].following;
+                let known: Vec<LedgerId> = w
+                    .ledger
+                    .rows
+                    .iter()
+                    .filter(|x| x.beat == r.round && world::knows(&me, following, x))
+                    .map(|x| x.id)
+                    .collect();
+                let got: Vec<LedgerId> = d
+                    .news
+                    .iter()
+                    .filter_map(|n| match n.row {
+                        Ref::Ledger(id) => Some(id),
+                        _ => None,
+                    })
+                    .collect();
+                assert_eq!(got.len(), d.news.len());
+                assert!(got.iter().all(|g| known.contains(g)));
+            }
+            true
+        },
+    )
+    .await
+    .unwrap();
+    assert!(checked > 0, "some news was checked");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn slow_llm_falls_back_within_the_timeout() {
+    let timeout_ms = 250u64;
+    let llm = Slow(Duration::from_secs(3));
+    let p = FinalNight7Plugin::new();
+    let settings =
+        json!({"seed": 9, "beats_total": 50, "clusters": 60, "mind_timeout_ms": timeout_ms});
+    let mut worst = 0f64;
+    let t = Instant::now();
+    run_match(
+        &p,
+        &bots(4),
+        &settings,
+        &llm,
+        Some(3),
+        &none,
+        |r: &BeatReport, _s: &Value| {
+            let ms = r.outcome.public["timing"]["total_ms"].as_f64().unwrap();
+            worst = worst.max(ms);
+            // Beats where someone spoke or cast ask the LLM (and fall back); quiet flow beats ask nothing.
+            let t = &r.outcome.public["timing"];
+            assert_eq!(t["llm_fallbacks"], t["llm_calls"]);
+            true
+        },
+    )
+    .await
+    .unwrap();
+    // Two sequential mind stages (hands, act batch; last beat's narrator runs alongside them), each capped by the
+    // per-call timeout; the bound keeps the old three-stage margin.
+    let bound = 3.0 * timeout_ms as f64 + 750.0;
+    eprintln!(
+        "slow LLM: worst beat {worst:.0} ms (bound {bound:.0} ms); 3 beats + summary in {:?}",
+        t.elapsed()
+    );
+    assert!(worst < bound, "worst beat {worst} ms ≥ {bound} ms");
+}
+
+/// Answers like `Scripted`, after a delay that depends on the mind (the narrator is the slow one).
+struct Delayed {
+    narrator: Duration,
+    other: Duration,
+}
+
+#[async_trait::async_trait]
+impl LlmProvider for Delayed {
+    async fn complete(&self, req: LlmRequest) -> anyhow::Result<LlmResponse> {
+        let d = if req.system.contains("NARRATOR of FINAL NIGHT 7, a battle royale") {
+            self.narrator
+        } else {
+            self.other
+        };
+        tokio::time::sleep(d).await;
+        Scripted::default().complete(req).await
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_narrator_is_off_the_critical_path() {
+    // Hands and the act batch take 300 ms each, the narrator 500 ms: run in sequence a beat would take ~1100 ms; with
+    // last beat's narrator alongside the hands and the act batch, ~600 ms.
+    let llm = Delayed {
+        narrator: Duration::from_millis(500),
+        other: Duration::from_millis(300),
+    };
+    let p = FinalNight7Plugin::new();
+    let settings = json!({"seed": 4, "beats_total": 50, "clusters": 60, "mind_timeout_ms": 5000});
+    let mut worst = 0f64;
+    run_match(
+        &p,
+        &bots(4),
+        &settings,
+        &llm,
+        Some(4),
+        &none,
+        |r: &BeatReport, _s: &Value| {
+            let t = &r.outcome.public["timing"];
+            assert_eq!(t["llm_fallbacks"], 0, "beat {}", r.round);
+            if r.round > 1 {
+                worst = worst.max(t["total_ms"].as_f64().unwrap());
+                assert!(!r.outcome.public["previous_caption"].as_str().unwrap().is_empty());
+            }
+            true
+        },
+    )
+    .await
+    .unwrap();
+    eprintln!("narrator overlapped: worst beat {worst:.0} ms");
+    assert!(worst < 950.0, "worst beat {worst} ms: the narrator is on the critical path");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn settings_and_actions() {
+    let p = FinalNight7Plugin::new();
+    assert_eq!(p.info().min_active, 0);
+    let settings = p
+        .validate_settings(&json!({"rounds": 5, "seed": 1, "players": 4, "clusters": 40}))
+        .unwrap();
+    let seats = bots(2);
+    let s = p.on_match_start(&seats, &settings, &Failing).await.unwrap();
+    let w = load(&s);
+    assert_eq!(w.demigods.len(), 4, "AI demigods fill the empty places");
+    assert_eq!(
+        w.seats.iter().filter(|x| x.seat >= SYNTHETIC_SEAT).count(),
+        2
+    );
+    assert_eq!(w.meta.beats_total, 5);
+    assert!(p.validate_action(&s, 0, "l: hi", &Value::Null).is_ok());
+    assert!(p
+        .validate_action(
+            &s,
+            0,
+            "",
+            &json!({"left": "go", "zoom": {"level": "district", "focus": "pl:1"}})
+        )
+        .is_ok());
+    assert!(p
+        .validate_action(&s, 0, "", &json!({"zoom": "nowhere"}))
+        .is_err());
+    let rs = p.on_round_start(&s, 1, &Failing).await.unwrap();
+    assert_eq!(load(&rs.state).meta.beat, 1, "round = beat");
+    let brief = p.brief(&rs.state, 1, &Failing).await.unwrap();
+    assert_eq!(brief.per_seat.len(), 2, "no briefs for AI demigods");
+    assert!(brief.per_seat[0].1["visible"].as_array().unwrap().len() > 3);
+    // The core's fallback path (resolve failed twice): rules only, synchronous, still a full beat.
+    let acts = vec![
+        actions::action(0, "recruit the dockworkers", "slow time", None),
+        p.default_action(&rs.state, 1),
+    ];
+    let fo = p.fallback_outcome(&rs.state, 1, &acts);
+    assert_eq!(fo.public["timing"]["llm_calls"], 0);
+    assert!(load(&fo.state).ledger.rows.len() > load(&rs.state).ledger.rows.len());
+    let pv = p.public_view(&rs.state);
+    assert!(
+        pv["demigods"][0].get("health").is_none(),
+        "rival health is private"
+    );
+}
+
+/// Drive `beats` beats through the trait, ignoring `is_match_over` (the world keeps turning after the last demigod
+/// stands), returning per-beat (total ms, state bytes, LLM calls) and the last state.
+/// `immortal`: after each commit every demigod is set back on its feet (a stress test: four active demigods for all
+/// 100 beats, the worst case for state growth).
+async fn drive(
+    settings: Value,
+    llm: &dyn LlmProvider,
+    beats: u32,
+    immortal: bool,
+) -> (Vec<(f64, usize, u64)>, Value) {
+    let p = FinalNight7Plugin::new();
+    let settings = p.validate_settings(&settings).unwrap();
+    let mut state = p.on_match_start(&bots(4), &settings, llm).await.unwrap();
+    let mut out = vec![];
+    for round in 1..=beats {
+        state = p.on_round_start(&state, round, llm).await.unwrap().state;
+        let mut actions = vec![];
+        for s in 0..4u8 {
+            actions.push(p.bot_action(&state, s, llm).await.unwrap());
+        }
+        let o = p
+            .resolve_round(&state, round, &actions, llm, &NoProgress)
+            .await
+            .unwrap();
+        state = p
+            .commit_round(&o.state, round, &[], llm)
+            .await
+            .unwrap()
+            .state;
+        if immortal && round < beats {
+            let mut w = load(&state);
+            for d in w.demigods.iter_mut() {
+                d.max_health = d.max_health.max(5.0);
+                d.health = d.max_health;
+                d.alive = true;
+                d.eliminated_beat = None;
+                d.cause = None;
+                for h in d.hands {
+                    w.agents[h.ix()].status = AgentStatus::Live;
+                    w.agents[h.ix()].ended_beat = None;
+                }
+            }
+            state = world::save(&w);
+        }
+        out.push((
+            o.public["timing"]["total_ms"].as_f64().unwrap(),
+            serde_json::to_vec(&state).unwrap().len(),
+            o.public["timing"]["llm_calls"].as_u64().unwrap(),
+        ));
+    }
+    (out, state)
+}
+
+/// The heavy one: 100 beats in release; state stays under 6 MB (schema 4: the hierarchy's nodes, cells, mobs and the
+/// simulated people with their sheets; DATA_MODEL §2 "Size budget"); rules-path beat time and scripted-LLM calls per beat.
+/// Run with `cargo test --release -p fn7-plugin -- --ignored --nocapture`.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn hundred_beats_state_size_and_speed() {
+    let scripted = Scripted::default();
+    for (name, llm, settings, immortal) in [
+        (
+            "rules",
+            &Failing as &dyn LlmProvider,
+            json!({"seed": 7, "beats_total": 100, "llm": false}),
+            false,
+        ),
+        (
+            "rules, 4 immortal demigods",
+            &Failing as &dyn LlmProvider,
+            json!({"seed": 8, "beats_total": 100, "llm": false}),
+            true,
+        ),
+        (
+            "scripted LLM",
+            &scripted as &dyn LlmProvider,
+            json!({"seed": 9, "beats_total": 100}),
+            false,
+        ),
+        (
+            "scripted LLM, 4 immortal demigods",
+            &scripted as &dyn LlmProvider,
+            json!({"seed": 9, "beats_total": 100}),
+            true,
+        ),
+    ] {
+        let t = Instant::now();
+        let (beats, last) = drive(settings, llm, 100, immortal).await;
+        let w = load(&last);
+        let n = beats.len() as f64;
+        let mean = beats.iter().map(|b| b.0).sum::<f64>() / n;
+        let max = beats.iter().map(|b| b.0).fold(0.0, f64::max);
+        let peak = beats.iter().map(|b| b.1).max().unwrap();
+        let calls = beats.iter().map(|b| b.2).sum::<u64>() as f64 / n;
+        let alive_until = w
+            .demigods
+            .iter()
+            .filter_map(|d| d.eliminated_beat)
+            .max()
+            .unwrap_or(0);
+        eprintln!(
+            "{name}: 100 beats in {:?}; beat mean {mean:.1} ms, max {max:.1} ms; LLM calls {calls:.1}/beat; state {:.2} MB at beat 100 \
+             (peak {:.2} MB); {} rows, {} memories, {} characters, {} agents; {} alive, last fall at beat {alive_until}",
+            t.elapsed(),
+            beats.last().unwrap().1 as f64 / 1e6,
+            peak as f64 / 1e6,
+            w.ledger.rows.len(),
+            w.memory.items.len(),
+            w.characters.len(),
+            w.agents.len(),
+            w.alive_demigods().count(),
+        );
+        let mut tables: Vec<(String, usize)> = last
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(k, v)| (k.clone(), serde_json::to_vec(v).unwrap().len()))
+            .collect();
+        tables.sort_by_key(|t| std::cmp::Reverse(t.1));
+        eprintln!(
+            "    largest tables: {}",
+            tables
+                .iter()
+                .take(5)
+                .map(|(k, n)| format!("{k} {:.0} KB", *n as f64 / 1e3))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        let mut kinds: std::collections::BTreeMap<String, (usize, usize)> = Default::default();
+        for m in &w.memory.items {
+            let k = format!(
+                "{:?}/{}",
+                m.kind,
+                m.owner.to_string().split(':').next().unwrap_or("")
+            );
+            let e = kinds.entry(k).or_default();
+            e.0 += 1;
+            e.1 += (m.folded_into.is_some() || m.forgotten) as usize;
+        }
+        eprintln!("    memories (kind/owner: n, folded): {kinds:?}");
+        let mut verbs: std::collections::BTreeMap<&str, usize> = Default::default();
+        for r in &w.ledger.rows {
+            *verbs.entry(r.verb.as_str()).or_default() += 1;
+        }
+        eprintln!("    rows by verb: {verbs:?}");
+        assert!(peak < 6_000_000, "{name}: state {peak} bytes");
+        assert_eq!(
+            w.alive_demigods().count(),
+            1,
+            "{name}: exactly one stands after the Final Night"
+        );
+    }
+}
+
+fn humans(n: u8) -> Vec<SeatInfo> {
+    (0..n)
+        .map(|i| SeatInfo {
+            seat: i,
+            display_name: ["Ash", "Brix", "Cyra", "Dune"][i as usize % 4].into(),
+            is_bot: false,
+        })
+        .collect()
+}
+
+fn act(seat: Seat, fields: Value) -> Action {
+    Action {
+        seat,
+        text: String::new(),
+        fields,
+        defaulted: false,
+    }
+}
+
+/// Text entry is the God of Time interaction: Ash slows time (beat 1); Brix's orders during the window are held
+/// (beat 2); Ash presses Enter (beat 3), so Brix's orders go through with Ash's while Cyra's, sent after the Enter,
+/// are cut off. Time takes a bolt, writes a debt that grows with the seconds open, and Entropy rises.
+#[tokio::test(flavor = "multi_thread")]
+async fn slow_window_holds_releases_and_cuts_off() {
+    let p = FinalNight7Plugin::new();
+    let settings = json!({"seed": 3, "beats_total": 30, "clusters": 40, "players": 3, "llm": false});
+    let script = |seat: Seat, round: u32| -> Option<Action> {
+        Some(match (round, seat) {
+            (1, 0) => act(0, json!({"slow": true, "sent_at": 1_000})),
+            (2, 1) => act(1, json!({"left": "recruit the locals", "sent_at": 5_000, "window": 1})),
+            (3, 0) => act(0, json!({"left": "attack Brix", "right": "go to the market", "sent_at": 9_000})),
+            (3, 2) => act(2, json!({"left": "recruit everyone", "sent_at": 9_500, "window": 1})),
+            _ => act(seat, json!({})),
+        })
+    };
+    let mut seen = vec![];
+    run_match(&p, &humans(3), &settings, &Failing, Some(4), &script, |r: &BeatReport, s: &Value| {
+        seen.push((r.round, r.outcome.public.clone(), r.outcome.per_seat.clone(), load(s)));
+        true
+    })
+    .await
+    .unwrap();
+    let (_, pub1, _, w1) = &seen[0];
+    assert_eq!(pub1["slow"][0]["event"], "opened");
+    assert_eq!(pub1["slow"][0]["by"], "Ash");
+    assert_eq!(pub1["slow"][0]["text"], "Ash slowed time");
+    assert_eq!(w1.demigods[0].bolts, 2, "Time took a bolt");
+    assert_eq!(w1.demigods[1].bolts, 5, "every other demigod gained two");
+    assert!(w1.slow.is_some());
+    let (_, pub2, seats2, w2) = &seen[1];
+    assert_eq!(pub2["slow"][0]["event"], "open");
+    assert_eq!(w2.slow.as_ref().unwrap().held.len(), 1, "Brix's orders are held");
+    let brix2 = &seats2.iter().find(|s| s.0 == 1).unwrap().1;
+    assert_eq!(brix2["held"], true);
+    assert!(
+        !pub2.to_string().contains("Brix") || !pub2["slow"].to_string().contains("Brix"),
+        "nobody learns who else typed"
+    );
+    let (_, pub3, seats3, w3) = &seen[2];
+    assert_eq!(pub3["slow"][0]["event"], "closed");
+    assert_eq!(pub3["slow"][0]["how"], "enter");
+    assert_eq!(pub3["slow"][0]["after_ms"], 8000);
+    assert!(w3.slow.is_none());
+    let cyra3 = &seats3.iter().find(|s| s.0 == 2).unwrap().1;
+    assert_eq!(cyra3["cut_off"], true, "sent after the Enter");
+    // Brix's held words reached Brix's hand in beat 3; Cyra's never did.
+    let words = |d: usize| w3.demigods[d].words_spoken;
+    assert!(words(1) > 0 && words(2) == 0, "{} {}", words(1), words(2));
+    // Time's debt for 8 seconds: 0.5 × (1 + 0.8) = 0.9.
+    let time = GodId(0);
+    let debt = w3
+        .ledger
+        .rows
+        .iter()
+        .filter_map(|r| r.debt)
+        .find(|d| d.owed_to == time && d.owed_by == Ref::Demigod(DemigodId(0)))
+        .unwrap();
+    assert!((debt.amount - 0.9).abs() < 1e-4, "{}", debt.amount);
+    assert!(w3.meta.entropy > w1.meta.entropy);
+    // A beat with nobody speaking makes no LLM call and still resolves.
+    assert_eq!(seen[3].1["timing"]["llm_calls"], 0);
+}
+
+/// Casts: paid in bolts (fizzle when you can't), gifts to everyone else, Entropy's yes and its ramifications, every
+/// row geotagged; typed text can never cast.
+#[tokio::test(flavor = "multi_thread")]
+async fn casts_pay_gift_ramify_and_geotag() {
+    let p = FinalNight7Plugin::new();
+    let settings = json!({"seed": 5, "beats_total": 30, "clusters": 40, "players": 2, "llm": true});
+    let script = |seat: Seat, round: u32| -> Option<Action> {
+        Some(match (round, seat) {
+            (1, 0) => act(0, json!({"cast": {"power": "volcano", "target": "dg:1"}, "bolts": [[2.35, 48.85]]})),
+            (1, 1) => act(1, json!({"bolt": {"target": "Ash"}, "sent_at": 10})),
+            (2, 0) => act(0, json!({"left": "throw a lightning bolt at Brix"})),
+            (2, 1) => act(1, json!({"cast": {"power": "meteor", "target": [0.0, 0.0]}})),
+            _ => act(seat, json!({})),
+        })
+    };
+    let mut seen = vec![];
+    run_match(&p, &humans(2), &settings, &Scripted::default(), Some(2), &script, |r: &BeatReport, s: &Value| {
+        seen.push((r.outcome.public.clone(), load(s)));
+        true
+    })
+    .await
+    .unwrap();
+    let (pub1, w1) = &seen[0];
+    let casts = pub1["casts"].as_array().unwrap();
+    assert_eq!(casts.len(), 3, "{casts:?}");
+    assert_eq!(casts[0]["by"], "Brix", "arrival order: Brix sent a timestamp, Ash didn't");
+    // Ash: 3 + 2 (Brix's bolt) - 3 (volcano) - 1 (lightning) = 1; Brix: 3 - 1 + 2×4 = 10.
+    assert!(casts.iter().all(|c| c.get("fizzled").is_none()), "{casts:?}");
+    assert_eq!(w1.demigods[0].bolts, 1);
+    assert_eq!(w1.demigods[1].bolts, 10);
+    assert!(w1.meta.entropy > 0.0);
+    let entropy = GodId(6);
+    assert!(w1.rulings.iter().any(|r| r.god == entropy && r.verdict == Verdict::Grant), "Entropy says yes");
+    let events = pub1["events"].as_array().unwrap();
+    assert!(!events.is_empty());
+    for e in events {
+        assert!(e["at"].is_array() && e["region"].is_string(), "{e}");
+    }
+    assert!(events.iter().any(|e| e.get("image_prompt").is_some()));
+    assert!(w1.ledger.rows.iter().all(|r| r.at.is_some() || r.place.is_none()));
+    assert!(!w1.mods.is_empty(), "a big cast leaves a lasting mod");
+    // Beat 2: typed text never casts; Brix can afford a meteor (4).
+    let (pub2, w2) = &seen[1];
+    assert!(pub2["casts"].as_array().unwrap().iter().all(|c| c["by"] != "Ash"));
+    // Brix: 10 + 2 (Ash's bolt to Time for typing) - 4 (meteor) + 2 per bolt Ash's hands paid Nature.
+    let ash_paid: u32 = w2.rulings.iter().filter(|r| r.beat == 2 && r.invoker == Ref::Demigod(DemigodId(0))).map(|r| r.bolts).sum();
+    assert_eq!(w2.demigods[1].bolts, 10 + 2 - 4 + 2 * ash_paid);
+    assert!(pub2["casts"][0].get("fizzled").is_none());
+    // Unknown powers are rejected at validation.
+    let st = world::save(w2);
+    assert!(p.validate_action(&st, 0, "", &json!({"cast": {"power": "nuke", "target": "dg:1"}})).is_err());
+    assert!(p.validate_action(&st, 0, "", &json!({"cast": {"power": "custom", "target": "dg:1"}})).is_err());
+    assert!(p
+        .validate_action(&st, 0, "", &json!({"cast": {"power": "custom", "text": "rain of frogs", "target": "Lagos"}}))
+        .is_ok());
+}
+
+/// The planet: regions with cities, demigods in different regions, influence shares per region summing to ≤ 1, and
+/// state well under 4 MB.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_planet_arena() {
+    let r = play(json!({"seed": 8, "beats_total": 40, "clusters": 200}), &Failing, bots(4), Some(20)).await;
+    let w = load(&r.last);
+    assert!(w.is_planet());
+    let regions = w.places.iter().filter(|p| p.kind == PlaceKind::District).count();
+    let cities = w.places.iter().filter(|p| p.kind == PlaceKind::Site).count();
+    assert!(regions >= 15 && cities >= 40, "{regions} regions, {cities} cities");
+    let pv = phases::public_view(&w);
+    let mut sums: std::collections::BTreeMap<String, f64> = Default::default();
+    for x in pv["influence"].as_array().unwrap() {
+        *sums.entry(x["region"].as_str().unwrap().into()).or_default() += x["share"].as_f64().unwrap();
+    }
+    assert!(sums.values().all(|s| *s <= 1.0001), "{sums:?}");
+    assert!(pv["demigods"][0]["portrait_prompt"].is_string());
+    let size = serde_json::to_vec(&r.last).unwrap().len();
+    assert!(size < 4_000_000, "state {size} bytes");
+}
+
+/// Heat death: Entropy at its maximum makes that beat the Final Night: every debt is collected, exactly one survives.
+#[tokio::test(flavor = "multi_thread")]
+async fn heat_death_brings_the_final_night() {
+    let r = play(
+        json!({"seed": 4, "beats_total": 100, "clusters": 60, "entropy_scale": 10, "start_bolts": 20}),
+        &Failing,
+        bots(4),
+        None,
+    )
+    .await;
+    let w = load(&r.last);
+    let hd = w.meta.heat_death.expect("heat death struck");
+    assert_eq!(w.meta.beat, hd, "the match ended on the heat-death beat");
+    assert_eq!(w.meta.beats_total, hd);
+    assert!(w.meta.entropy >= ENTROPY_MAX);
+    one_winner(&r);
+    assert_eq!(w.ledger.open_debts().count(), 0, "all debts fell due");
+    assert_eq!(r.summary.summary["heat_death"], json!(hd));
+}
+
+/// The world-only simulation (no orders, no casts): the society acts by itself every beat (mobs with ringleaders,
+/// migration, cults, people emerging), replays exactly, records its level of detail, and the payloads carry the
+/// hierarchy.
+#[tokio::test(flavor = "multi_thread")]
+async fn society_acts_on_its_own() {
+    let settings = json!({ "seed": 7, "beats_total": 100, "llm": false, "society_only": true });
+    let a = play(settings.clone(), &Failing, bots(4), Some(60)).await;
+    let w = load(&a.last);
+    assert!(w.intents.is_empty(), "nobody gave an order");
+    let s = &w.soc;
+    assert!(s.mobs_formed >= 1 && s.migrations >= 1 && s.cults >= 1 && s.people_emerged >= 5, "{s:?}");
+    assert!(w.mobs.iter().all(|m| m.ringleader.is_some()), "every mob has a ringleader");
+    assert!(w.characters.iter().filter(|c| c.life.is_some()).count() >= 5);
+    // Every level ran by rules every beat; the record says so.
+    assert!(w.beats.iter().filter(|b| b.beat >= 1).all(|b| b.fidelity.as_ref().is_some_and(|f| f.rules > 0)));
+    // Totals roll up: the planet's population is the sum of its crowds.
+    let crowds: u64 = w.clusters.iter().filter(|c| c.army.is_none()).map(|c| c.size as u64).sum();
+    assert_eq!(w.nodes[w.meta.arena.ix()].population, crowds);
+    // Society rows are geotagged ledger rows.
+    let soc_rows: Vec<&LedgerRow> = w.ledger.rows.iter().filter(|r| SocKind::of(&r.verb).is_some()).collect();
+    assert!(!soc_rows.is_empty() && soc_rows.iter().all(|r| r.at.is_some()));
+    // Payloads: the seat view and the per-seat delta carry the hierarchy; the public outcome carries the society.
+    let view = FinalNight7Plugin::new().seat_view(&a.last, 0);
+    assert!(view["hierarchy"]["node"]["population"].as_u64().unwrap_or(0) > 0, "{}", view["hierarchy"]);
+    let (public, per_seat) = a.reports.last().unwrap();
+    assert!(public["society"]["totals"]["mobs_formed"].as_u64().is_some());
+    assert!(per_seat.iter().any(|(_, v)| v["hierarchy"]["path"].is_array()));
+    // Deterministic: the same seed is the same society.
+    let b = play(settings, &Failing, bots(4), Some(60)).await;
+    assert_eq!(a.last, b.last);
+}
+
+/// Hands act on the hierarchy: an order goes to the army's general (the general mind's call, with the rules'
+/// judgment as its fallback), "buy off the captains" turns their loyalty, "promote" raises someone.
+#[tokio::test(flavor = "multi_thread")]
+async fn hands_order_generals_bribe_and_promote() {
+    let p = FinalNight7Plugin::new();
+    let settings = p.validate_settings(&json!({ "seed": 11, "llm": false, "society_only": true })).unwrap();
+    let state = p.on_match_start(&bots(4), &settings, &Failing).await.unwrap();
+    let mut w = load(&state);
+    let pantheon = p.pantheon().clone();
+    let d = DemigodId(0);
+    let src = w
+        .clusters
+        .iter()
+        .filter(|c| c.army.is_none())
+        .max_by_key(|c| c.size)
+        .unwrap()
+        .id;
+    let raise = Proposal {
+        source: Source::Rules,
+        intent: None,
+        effect: Effect::RaiseArmy { demigod: d, from: src, size: 5000, name: "Ash's Host".into(), orders: String::new() },
+        act: "raise".into(),
+        actor: Ref::Demigod(d),
+        magnitude: 5,
+        valence: 0,
+        witnesses: vec![],
+        cause: None,
+    };
+    w.meta.beat = 1;
+    crate::merge::run(&mut w, vec![raise], &pantheon, 1, 4);
+    let army = ClusterId::from_ix(w.clusters.len() - 1);
+    let st = Settings::from_value(&w.meta.settings);
+    crate::society::run_step(&mut w, 1, &[], vec![], &pantheon, &st);
+    let a = w.clusters[army.ix()].army.clone().unwrap();
+    let g = a.general.expect("appointed with the army");
+    let city = w.places.iter().find(|x| x.kind == PlaceKind::Site).unwrap().id;
+    let hand = w.demigods[0].hands[0];
+    let intent = |verb: &str, span: &str, targets: Vec<Ref>| Intent {
+        id: IntentId(0),
+        beat: 2,
+        agent: hand,
+        demigod: d,
+        verb: verb.into(),
+        targets: targets.into_iter().map(Target::Known).collect(),
+        how: String::new(),
+        place: None,
+        magnitude: 5,
+        span: span.into(),
+        route: Route::World,
+    };
+    // An order addressed to the general.
+    let i = intent("tell", "tell the general to take the city", vec![Ref::Char(g), Ref::Place(city)]);
+    let Some(crate::society::SocietyAct::Order { army: got, target, text }) = crate::society::society_intent(&w, &i) else {
+        panic!("an order for the general");
+    };
+    assert_eq!((got, target), (army, Some(Ref::Place(city))));
+    let m = crate::society::GeneralMeta { army, by: d, why: "order", text, agent: Some(i.agent), intent: None };
+    let ctx = crate::society::general_call(&w, &m, target, 2).expect("a general mind call");
+    assert!(ctx.options.iter().any(|e| e.r == Ref::Place(city)));
+    let prop = crate::society::orders_prop(&w, &m, ctx.rules.clone(), false);
+    let (_, applied) = crate::merge::run(&mut w, vec![prop], &pantheon, 2, 4);
+    assert_eq!(applied.rows.len(), 1);
+    let o = w.clusters[army.ix()].army.as_ref().unwrap().order.clone().unwrap();
+    assert_eq!((o.why.as_str(), o.beat), ("order", 2));
+    // Buy off the captains of a rival's army: their loyalty to us rises.
+    let captains = a.captains.clone();
+    assert!(!captains.is_empty());
+    let mut rival = w.clone();
+    rival.clusters[army.ix()].army.as_mut().unwrap().demigod = DemigodId(1);
+    for c in &captains {
+        rival.characters[c.ix()].allegiance = vec![(DemigodId(1), 0.6)];
+    }
+    let i = intent("buy off", "buy off the general's captains", vec![Ref::Char(g)]);
+    let Some(crate::society::SocietyAct::Props(props)) = crate::society::society_intent(&rival, &i) else {
+        panic!("a bribe");
+    };
+    let before = rival.characters[captains[0].ix()].allegiance.iter().find(|x| x.0 == d).map(|x| x.1).unwrap_or(0.0);
+    crate::merge::run(&mut rival, props, &pantheon, 2, 4);
+    let after = rival.characters[captains[0].ix()].allegiance.iter().find(|x| x.0 == d).map(|x| x.1).unwrap_or(0.0);
+    assert!(after > before, "{before} -> {after}");
+    // Promote a captain to general: the old general is demoted and holds a grudge.
+    let c = captains[0];
+    let i = intent("promote", "promote him to general", vec![Ref::Char(c)]);
+    let Some(crate::society::SocietyAct::Props(props)) = crate::society::society_intent(&w, &i) else {
+        panic!("a promotion");
+    };
+    crate::merge::run(&mut w, props, &pantheon, 2, 4);
+    assert_eq!(w.clusters[army.ix()].army.as_ref().unwrap().general, Some(c));
+    let old = w.characters[g.ix()].life.as_deref().unwrap();
+    assert_eq!(old.role, fn7_model::Role::Captain);
+    assert!(old.grudges.contains(&Ref::Char(c)));
+}
+
+/// Fix: an eliminated demigod's debts are settled at once; Consequence never collects from the dead.
+#[test]
+fn debts_settle_at_elimination() {
+    let p = FinalNight7Plugin::new();
+    let settings = p.validate_settings(&json!({ "seed": 3, "llm": false })).unwrap();
+    let state = futures::executor::block_on(p.on_match_start(&bots(4), &settings, &Failing)).unwrap();
+    let mut w = load(&state);
+    let pantheon = p.pantheon().clone();
+    let cg = pantheon.id_of("consequence").unwrap();
+    let mk = |effect: Effect| Proposal {
+        source: Source::Rules,
+        intent: None,
+        effect,
+        act: "x".into(),
+        actor: Ref::God(cg),
+        magnitude: 3,
+        valence: -1,
+        witnesses: vec![],
+        cause: None,
+    };
+    let d = DemigodId(2);
+    crate::merge::run(&mut w, vec![mk(Effect::Debt { owed_by: Ref::Demigod(d), god: cg, amount: 2.0, due_in: 3 })], &pantheon, 1, 4);
+    assert_eq!(w.ledger.open_debts().count(), 1);
+    crate::merge::run(&mut w, vec![mk(Effect::Eliminate { who: Ref::Demigod(d), cause: "test".into() })], &pantheon, 2, 4);
+    assert_eq!(w.ledger.open_debts().count(), 0, "settled at elimination");
+    assert!(fn7_society::due_debts(&w, 10).is_empty());
+}

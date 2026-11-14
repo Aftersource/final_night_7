@@ -1,0 +1,431 @@
+{
+  "$defs": {
+    "Arena": {
+      "description": "The arena: the whole planet (default) or one real city. Time's clock shrinks the safe radius around `center` linearly from start_radius_km (beat 0) to end_radius_km (the Final Night).",
+      "properties": {
+        "center": {
+          "$ref": "#/$defs/LonLat"
+        },
+        "city": {
+          "description": "The city at `center`: on the planet, where the Final Night converges; else the arena city.",
+          "type": "string"
+        },
+        "end_radius_km": {
+          "description": "Safe radius on the Final Night.",
+          "type": "number"
+        },
+        "kind": {
+          "description": "planet: regions → cities; city: districts → sites.",
+          "enum": [
+            "planet",
+            "city"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "description": "\"Earth\" on the planet, else the city's name.",
+          "type": "string"
+        },
+        "radius_km": {
+          "description": "Current safe radius around `center`. Bodies outside take 1-5 damage at each beat's Start.",
+          "type": "number"
+        },
+        "start_radius_km": {
+          "description": "Safe radius at match start.",
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "name",
+        "city",
+        "center",
+        "radius_km",
+        "start_radius_km",
+        "end_radius_km"
+      ],
+      "type": "object"
+    },
+    "Entropy": {
+      "description": "The world's Entropy meter. Every bolt spent anywhere raises it; thresholds make the world wackier (20 weather, 40 physics, 60 riots, 80 godfall); at `max` heat death makes that beat the Final Night.",
+      "properties": {
+        "delta": {
+          "description": "Change during this beat (outcome only).",
+          "type": "number"
+        },
+        "heat_death": {
+          "description": "The beat heat death struck, or null.",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "key": {
+          "description": "The level's key.",
+          "enum": [
+            "calm",
+            "weather",
+            "physics",
+            "riots",
+            "godfall"
+          ],
+          "type": "string"
+        },
+        "level": {
+          "description": "0..4.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max": {
+          "description": "100: heat death.",
+          "type": "number"
+        },
+        "next_at": {
+          "description": "The value of the next threshold (max at the top level).",
+          "type": "number"
+        },
+        "text": {
+          "description": "What this level does to the world, one line.",
+          "type": "string"
+        },
+        "value": {
+          "description": "0..max.",
+          "type": "number"
+        }
+      },
+      "required": [
+        "value",
+        "max",
+        "level",
+        "key",
+        "text",
+        "next_at",
+        "heat_death"
+      ],
+      "type": "object"
+    },
+    "LonLat": {
+      "description": "[longitude, latitude] in degrees (WGS84). Note the order: longitude first.",
+      "items": {
+        "type": "number"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+    },
+    "Ref": {
+      "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row. Stable for the whole match.",
+      "examples": [
+        "ch:12"
+      ],
+      "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg):\\d+$",
+      "type": "string"
+    },
+    "SlowState": {
+      "description": "The open slow-time window (public: who opened it, never who else is typing).",
+      "properties": {
+        "beats_left": {
+          "description": "Flow beats left.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "by": {
+          "description": "The initiator's name.",
+          "type": "string"
+        },
+        "by_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "closes_by_beat": {
+          "description": "The last beat it can stay open (it closes by timeout at this beat's resolve).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ms_left": {
+          "description": "beats_left × flow_ms.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "window": {
+          "description": "Its id: the beat it opened. Send it back as `fields.window` with orders typed during it.",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "by",
+        "by_ref",
+        "window",
+        "closes_by_beat",
+        "beats_left",
+        "ms_left"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "brief_public.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "`round.brief.public`.",
+  "properties": {
+    "alive": {
+      "description": "Demigods still standing.",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "arena": {
+      "$ref": "#/$defs/Arena"
+    },
+    "arena_kind": {
+      "enum": [
+        "planet",
+        "city"
+      ],
+      "type": "string"
+    },
+    "beat": {
+      "description": "This beat.",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "beats_total": {
+      "description": "The Final Night's beat.",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "entropy": {
+      "$ref": "#/$defs/Entropy"
+    },
+    "final_night": {
+      "description": "True on the last beat.",
+      "type": "boolean"
+    },
+    "flow": {
+      "description": "Flow and slow timing.",
+      "properties": {
+        "flow_ms": {
+          "description": "Flow beat length (the room's Compose window).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "slow": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SlowState"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "slow_ms": {
+          "description": "Longest a slow window stays open.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "window_beats": {
+          "description": "ceil(slow_ms / flow_ms).",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "flow_ms",
+        "slow_ms",
+        "window_beats",
+        "slow"
+      ],
+      "type": "object"
+    },
+    "gods": {
+      "description": "The god table, in id order (gd:0 Time ... gd:6 Entropy).",
+      "items": {
+        "description": "One god of the pantheon.",
+        "properties": {
+          "domain": {
+            "description": "What the god rules, in a phrase (for tooltips).",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name (\"Time\").",
+            "type": "string"
+          },
+          "ref": {
+            "$ref": "#/$defs/Ref",
+            "description": "`gd:<n>`; n is the index in the pantheon."
+          },
+          "slug": {
+            "description": "Stable id word (\"time\").",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref",
+          "name",
+          "slug",
+          "domain"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "powers": {
+      "description": "The power palette, then the custom entry.",
+      "items": {
+        "description": "One power of the palette (data/powers.json), or the custom entry.",
+        "properties": {
+          "cost": {
+            "description": "Bolts; null for custom (priced by magnitude).",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "damage": {
+            "description": "Direct damage to a body it hits.",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "icon": {
+            "description": "Icon key (= slug).",
+            "type": "string"
+          },
+          "magnitude": {
+            "maximum": 10,
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "name": {
+            "description": "Display name.",
+            "type": "string"
+          },
+          "radius_km": {
+            "description": "Area it affects.",
+            "type": "number"
+          },
+          "slug": {
+            "description": "Its id (send as `cast.power`).",
+            "type": "string"
+          },
+          "tags": {
+            "description": "",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "target": {
+            "description": "What it is aimed at.",
+            "enum": [
+              "point",
+              "region",
+              "unit"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "name",
+          "icon",
+          "cost",
+          "radius_km",
+          "target",
+          "magnitude",
+          "damage",
+          "tags"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "regions": {
+      "description": "Every region, in id order.",
+      "items": {
+        "description": "A region (planet) or district (city) and its cities (sites).",
+        "properties": {
+          "center": {
+            "$ref": "#/$defs/LonLat"
+          },
+          "cities": {
+            "description": "",
+            "items": {
+              "description": "",
+              "properties": {
+                "center": {
+                  "$ref": "#/$defs/LonLat"
+                },
+                "name": {
+                  "description": "",
+                  "type": "string"
+                },
+                "ref": {
+                  "$ref": "#/$defs/Ref"
+                }
+              },
+              "required": [
+                "ref",
+                "name",
+                "center"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "name": {
+            "description": "",
+            "type": "string"
+          },
+          "radius_km": {
+            "description": "",
+            "type": "number"
+          },
+          "ref": {
+            "$ref": "#/$defs/Ref"
+          }
+        },
+        "required": [
+          "ref",
+          "name",
+          "center",
+          "radius_km",
+          "cities"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "rules": {
+      "description": "A one-paragraph reminder of the action format (for LLM players).",
+      "type": "string"
+    },
+    "title": {
+      "description": "\"Beat <n> of <total>\".",
+      "type": "string"
+    }
+  },
+  "required": [
+    "title",
+    "beat",
+    "beats_total",
+    "final_night",
+    "arena",
+    "alive",
+    "rules",
+    "gods",
+    "arena_kind",
+    "powers",
+    "entropy",
+    "flow",
+    "regions"
+  ],
+  "title": "round.brief public",
+  "type": "object",
+  "x-applies-to": "round.brief.public, match.snapshot.brief"
+}

@@ -1,0 +1,203 @@
+{
+  "d": {
+    "match_id": "81091be6-ca8f-4d6b-bdd2-7ae32cf9230a",
+    "summary": {
+      "champion_seat": 3,
+      "champions": [
+        {
+          "demigod": "dg:3",
+          "health": 5.0,
+          "name": "Moth",
+          "seat": 3
+        }
+      ],
+      "entropy": {
+        "heat_death": null,
+        "key": "calm",
+        "level": 0,
+        "max": 100.0,
+        "next_at": 20.0,
+        "text": "The world is holding together, mostly.",
+        "value": 10.2
+      },
+      "final_cut": {
+        "fallback": true,
+        "story": "Beat 1: Moth casts earthquake on Southern Asia, and 8 more things went sideways.\nBeat 2: Time bends the seconds around Juniper, and 3 more things went sideways.\nBeat 3: Time's clock catches Rook outside the arena, and 2 more things went sideways.\nBeat 4: Time's clock catches Rook outside the arena, and 3 more things went sideways.\nBeat 5: Time's clock catches Juniper outside the arena, and 11 more things went sideways.\nBeat 6: Time's clock catches Juniper outside the arena, and 11 more things went sideways.",
+        "title": "Final Night 7"
+      },
+      "heat_death": null,
+      "last_caption": {
+        "beat": 6,
+        "caption": "Beat 6: Time's clock catches Juniper outside the arena, and 11 more things went sideways."
+      },
+      "piles": [
+        {
+          "alive": false,
+          "bolts": 20,
+          "demigod": "dg:0",
+          "image_kind": "statue",
+          "items": [],
+          "name": "Rook",
+          "seat": 0,
+          "slows": 0,
+          "stats": {
+            "acts": 1,
+            "debt_paid": 0.0,
+            "memorized_people": 0,
+            "rulings": 1,
+            "subagents": 0,
+            "words": 0
+          },
+          "statue_prompt": "An amiibo-style collectible figure of the demigod Rook, frozen mid-fall (caught outside the arena by Time's clock), on a round base shaped like Madrid, atop a ridiculous towering pile of everything they held and summoned: nothing but debts. Tiny figures of the people they touched cling to the pile: nobody. Two glowing hands hover at their sides.",
+          "summons": []
+        },
+        {
+          "alive": false,
+          "bolts": 4,
+          "demigod": "dg:1",
+          "image_kind": "statue",
+          "items": [
+            {
+              "item": "it:0",
+              "name": "make",
+              "origin": "summoned",
+              "origin_ref": null
+            },
+            {
+              "item": "it:1",
+              "name": "steal",
+              "origin": "summoned",
+              "origin_ref": null
+            }
+          ],
+          "name": "Juniper",
+          "seat": 1,
+          "slows": 5,
+          "stats": {
+            "acts": 8,
+            "debt_paid": 5.25,
+            "memorized_people": 2,
+            "rulings": 5,
+            "subagents": 0,
+            "words": 20
+          },
+          "statue_prompt": "An amiibo-style collectible figure of the demigod Juniper, frozen mid-fall (caught outside the arena by Time's clock), on a round base shaped like Auckland, atop a ridiculous towering pile of everything they held and summoned: make, steal. Tiny figures of the people they touched cling to the pile: Vera Tanaka, Wren Yilmaz. Two glowing hands hover at their sides.",
+          "summons": [
+            {
+              "item": "it:0",
+              "name": "make"
+            },
+            {
+              "item": "it:1",
+              "name": "steal"
+            }
+          ]
+        },
+        {
+          "alive": false,
+          "bolts": 23,
+          "demigod": "dg:2",
+          "image_kind": "statue",
+          "items": [],
+          "name": "Quill",
+          "seat": 2,
+          "slows": 0,
+          "stats": {
+            "acts": 0,
+            "debt_paid": 0.0,
+            "memorized_people": 0,
+            "rulings": 0,
+            "subagents": 0,
+            "words": 0
+          },
+          "statue_prompt": "An amiibo-style collectible figure of the demigod Quill, frozen mid-fall (caught outside the arena by Time's clock), on a round base shaped like Paris, atop a ridiculous towering pile of everything they held and summoned: nothing but debts. Tiny figures of the people they touched cling to the pile: nobody. Two glowing hands hover at their sides.",
+          "summons": []
+        },
+        {
+          "alive": true,
+          "bolts": 21,
+          "demigod": "dg:3",
+          "image_kind": "statue",
+          "items": [],
+          "name": "Moth",
+          "seat": 3,
+          "slows": 1,
+          "stats": {
+            "acts": 5,
+            "debt_paid": 0.0,
+            "memorized_people": 0,
+            "rulings": 3,
+            "subagents": 0,
+            "words": 4
+          },
+          "statue_prompt": "An amiibo-style collectible figure of the demigod Moth, standing on the summit, smug, barely scratched, on a round base shaped like Honiara, atop a ridiculous towering pile of everything they held and summoned: nothing but debts. Tiny figures of the people they touched cling to the pile: nobody. Two glowing hands hover at their sides.",
+          "summons": []
+        }
+      ],
+      "standings": [
+        {
+          "alive": true,
+          "cause": null,
+          "demigod": "dg:3",
+          "eliminated_beat": null,
+          "name": "Moth",
+          "rank": 1,
+          "score": 1000001.0,
+          "seat": 3
+        },
+        {
+          "alive": false,
+          "cause": "caught outside the arena by Time's clock",
+          "demigod": "dg:1",
+          "eliminated_beat": 6,
+          "name": "Juniper",
+          "rank": 2,
+          "score": 0.0,
+          "seat": 1
+        },
+        {
+          "alive": false,
+          "cause": "caught outside the arena by Time's clock",
+          "demigod": "dg:0",
+          "eliminated_beat": 4,
+          "name": "Rook",
+          "rank": 3,
+          "score": 0.0,
+          "seat": 0
+        },
+        {
+          "alive": false,
+          "cause": "caught outside the arena by Time's clock",
+          "demigod": "dg:2",
+          "eliminated_beat": 4,
+          "name": "Quill",
+          "rank": 4,
+          "score": 0.0,
+          "seat": 2
+        }
+      ],
+      "stats": {
+        "agents": 15,
+        "armies": 0,
+        "beats": 6,
+        "beats_total": 6,
+        "casts": 5,
+        "characters": 62,
+        "eliminations": 3,
+        "intents": 17,
+        "ledger_rows": 87,
+        "llm_calls": 33,
+        "llm_fallbacks": 33,
+        "memories": 131,
+        "memorized": 2,
+        "mods": 2,
+        "rulings": 9,
+        "slows": 6
+      }
+    },
+    "winners": [
+      3
+    ]
+  },
+  "t": "match.ended"
+}

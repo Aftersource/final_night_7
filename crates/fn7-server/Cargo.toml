@@ -1,0 +1,42 @@
+[package]
+name = "fn7-server"
+description = "The Theatre server with Final Night 7 compiled in, recording every match; plus fn7-sim (in-process matches and replay verification)."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "fn7-server"
+path = "src/main.rs"
+
+[[bin]]
+name = "fn7-sim"
+path = "src/bin/sim.rs"
+
+[dependencies]
+fn7-plugin.workspace = true
+fn7-model.workspace = true
+fn7-media.workspace = true
+axum = "0.8"
+theatre-plugin-api.workspace = true
+theatre-llm.workspace = true
+theatre-server.workspace = true
+theatre-toolkit.workspace = true
+theatre-trace.workspace = true
+theatre-recorder.workspace = true
+tokio.workspace = true
+futures.workspace = true
+async-trait.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+dotenvy.workspace = true
+clap.workspace = true
+reqwest.workspace = true
+rusqlite.workspace = true
+
+[dev-dependencies]
+uuid.workspace = true
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"

@@ -1,0 +1,13 @@
+{
+  "d": {
+    "settings": {
+      "beat_ms": 1500,
+      "beats_total": 6,
+      "compose_seconds": 1.5,
+      "rounds": 6,
+      "seed": 7
+    },
+    "visibility": "private"
+  },
+  "t": "room.create"
+}

@@ -1,0 +1,247 @@
+{
+  "d": {
+    "public": {
+      "alive": 2,
+      "arena_radius_km": 4589.58,
+      "beat": 5,
+      "beats_total": 6,
+      "callouts": [
+        "Rook is out. Somewhere, Consequence takes a bow.",
+        "Quill is out. Somewhere, Consequence takes a bow."
+      ],
+      "caption": "Beat 4: Time's clock catches Rook outside the arena, and 3 more things went sideways.",
+      "caption_beat": 4,
+      "casts": [
+        {
+          "at": [
+            -74.0,
+            40.71
+          ],
+          "by": "Juniper",
+          "by_ref": "dg:1",
+          "cost": 2,
+          "icon": "flood",
+          "off_target": false,
+          "place": "New York",
+          "power": "flood",
+          "power_name": "Flood",
+          "region": "Northern America",
+          "region_ref": "pl:41",
+          "row": "lg:52",
+          "target": null,
+          "target_name": null
+        },
+        {
+          "at": [
+            77.21,
+            28.61
+          ],
+          "by": "Moth",
+          "by_ref": "dg:3",
+          "cost": 2,
+          "icon": "earthquake",
+          "off_target": false,
+          "place": "Southern Asia",
+          "power": "earthquake",
+          "power_name": "Earthquake",
+          "region": "Southern Asia",
+          "region_ref": "pl:61",
+          "row": "lg:53",
+          "target": null,
+          "target_name": null
+        }
+      ],
+      "eliminated": [],
+      "entropy": {
+        "delta": 2.9,
+        "heat_death": null,
+        "key": "calm",
+        "level": 0,
+        "max": 100.0,
+        "next_at": 20.0,
+        "text": "The world is holding together, mostly.",
+        "value": 9.3
+      },
+      "events": [
+        {
+          "at": [
+            -74.0,
+            40.71
+          ],
+          "image_kind": "event",
+          "image_prompt": "Juniper casts flood on New York, in New York, Northern America",
+          "kind": "cast",
+          "magnitude": 7,
+          "refs": [
+            "dg:1"
+          ],
+          "region": "Northern America",
+          "row": "lg:52",
+          "text": "Juniper casts flood on New York"
+        },
+        {
+          "at": [
+            77.21,
+            28.61
+          ],
+          "image_kind": "event",
+          "image_prompt": "Moth casts earthquake on Southern Asia, in Southern Asia",
+          "kind": "cast",
+          "magnitude": 7,
+          "refs": [
+            "dg:3"
+          ],
+          "region": "Southern Asia",
+          "row": "lg:53",
+          "text": "Moth casts earthquake on Southern Asia"
+        },
+        {
+          "at": [
+            -74.52,
+            40.87
+          ],
+          "kind": "happen",
+          "magnitude": 5,
+          "refs": [
+            "gd:6"
+          ],
+          "region": "Northern America",
+          "row": "lg:58",
+          "text": "The flood tears through New York"
+        },
+        {
+          "at": [
+            -74.0,
+            40.72
+          ],
+          "kind": "mood_shift",
+          "magnitude": 4,
+          "refs": [
+            "gd:6",
+            "cl:110"
+          ],
+          "region": "Northern America",
+          "row": "lg:59",
+          "text": "Crowds in New York run screaming from the flood"
+        },
+        {
+          "at": [
+            -76.08,
+            40.6
+          ],
+          "kind": "mod",
+          "magnitude": 7,
+          "refs": [
+            "gd:6",
+            "pl:41"
+          ],
+          "region": "Northern America",
+          "row": "lg:60",
+          "text": "The flood leaves New York changed for good"
+        },
+        {
+          "at": [
+            -74.1,
+            40.36
+          ],
+          "kind": "happen",
+          "magnitude": 5,
+          "refs": [
+            "gd:6"
+          ],
+          "region": "Northern America",
+          "row": "lg:61",
+          "text": "Insurance offices in New York close for the week"
+        }
+      ],
+      "omens": [
+        {
+          "at": [
+            -74.0,
+            40.71
+          ],
+          "god": "Entropy",
+          "god_ref": "gd:6",
+          "region": "Northern America",
+          "speech": "\"MORE POWER. That's the whole note. More. Power. Ahahhaahhaaa!\""
+        },
+        {
+          "at": [
+            77.21,
+            28.61
+          ],
+          "god": "Entropy",
+          "god_ref": "gd:6",
+          "region": "Southern Asia",
+          "speech": "\"Yes! Of course yes! I have never once said no and I am not starting now, ahahhaa!\""
+        }
+      ],
+      "previous_callouts": [
+        "Rook is out. Somewhere, Consequence takes a bow.",
+        "Quill is out. Somewhere, Consequence takes a bow."
+      ],
+      "previous_caption": "Beat 4: Time's clock catches Rook outside the arena, and 3 more things went sideways.",
+      "slow": [
+        {
+          "beats_left": 20,
+          "by": "Juniper",
+          "by_ref": "dg:1",
+          "closes_by_beat": 25,
+          "event": "opened",
+          "ms_left": 30000,
+          "text": "Juniper slowed time",
+          "window": 5
+        },
+        {
+          "after_ms": 0,
+          "beats_left": 0,
+          "by": "Juniper",
+          "by_ref": "dg:1",
+          "closes_by_beat": 25,
+          "event": "closed",
+          "how": "enter",
+          "ms_left": 0,
+          "text": "Time snaps back: Juniper's window closed",
+          "window": 5
+        }
+      ],
+      "timing": {
+        "llm_calls": 7,
+        "llm_fallbacks": 7,
+        "stages": [
+          {
+            "ms": 2.08,
+            "stage": "intake"
+          },
+          {
+            "ms": 0.06,
+            "stage": "route"
+          },
+          {
+            "ms": 1.66,
+            "stage": "act"
+          },
+          {
+            "ms": 0.62,
+            "stage": "merge"
+          },
+          {
+            "ms": 1.28,
+            "stage": "consequence"
+          },
+          {
+            "ms": 0.2,
+            "stage": "narrate"
+          },
+          {
+            "ms": 0.55,
+            "stage": "broadcast"
+          }
+        ],
+        "total_ms": 6.45
+      }
+    },
+    "round": 5
+  },
+  "t": "round.outcome"
+}

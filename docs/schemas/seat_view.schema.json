@@ -1,0 +1,651 @@
+{
+  "$defs": {
+    "Army": {
+      "description": "A live army (a cluster raised from a crowd).",
+      "properties": {
+        "demigod": {
+          "description": "The demigod it marches for.",
+          "type": "string"
+        },
+        "demigod_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "dest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LonLat"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where it is headed, or null."
+        },
+        "name": {
+          "description": "",
+          "type": "string"
+        },
+        "orders": {
+          "description": "Seat view only (your armies): its standing orders.",
+          "type": "string"
+        },
+        "pos": {
+          "$ref": "#/$defs/LonLat"
+        },
+        "ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "region": {
+          "description": "Where it is.",
+          "type": "string"
+        },
+        "size": {
+          "description": "Head count.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What it marches on (a place, or a demigod it hunts)."
+        }
+      },
+      "required": [
+        "ref",
+        "name",
+        "demigod",
+        "demigod_ref",
+        "size",
+        "pos",
+        "region",
+        "dest",
+        "target"
+      ],
+      "type": "object"
+    },
+    "DebtLine": {
+      "description": "One open debt you owe.",
+      "properties": {
+        "amount": {
+          "description": "Damage points (0-10 scale) collected as an accident when it falls due.",
+          "type": "number"
+        },
+        "due_beat": {
+          "description": "Beat it falls due (everything falls due on the Final Night).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "owed_to": {
+          "description": "The god's display name (usually Consequence; a god's price is owed to that god).",
+          "type": "string"
+        },
+        "owed_to_ref": {
+          "$ref": "#/$defs/Ref",
+          "description": "That god's ref (`gd:<n>`)."
+        },
+        "row": {
+          "$ref": "#/$defs/Ref",
+          "description": "The ledger row that opened the debt (`lg:<n>`)."
+        },
+        "status": {
+          "$ref": "#/$defs/DebtStatus"
+        }
+      },
+      "required": [
+        "row",
+        "owed_to",
+        "owed_to_ref",
+        "amount",
+        "due_beat",
+        "status"
+      ],
+      "type": "object"
+    },
+    "DebtStatus": {
+      "oneOf": [
+        {
+          "enum": [
+            "open",
+            "collected"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "delayed",
+          "description": "Pushed back by Time; `due_beat` moved and `amount` grew.",
+          "type": "string"
+        },
+        {
+          "const": "settled",
+          "description": "Settled on the Final Night.",
+          "type": "string"
+        }
+      ]
+    },
+    "Entity": {
+      "description": "One thing a seat can see (`world::entity_json`): a ref, its display name and kind, plus a few kind-specific fields. Rivals' health is never included.",
+      "properties": {
+        "alive": {
+          "description": "Characters only.",
+          "type": "boolean"
+        },
+        "army_of": {
+          "$ref": "#/$defs/Ref",
+          "description": "Clusters that are armies only: the demigod (`dg:<n>`) it marches for."
+        },
+        "kind": {
+          "description": "Matches the ref prefix (dg, ch, cl, gr, gd, pl, it, ag, lg).",
+          "enum": [
+            "demigod",
+            "character",
+            "cluster",
+            "group",
+            "god",
+            "place",
+            "item",
+            "agent",
+            "ledger"
+          ],
+          "type": "string"
+        },
+        "mood": {
+          "description": "Clusters only: the dominant mood.",
+          "enum": [
+            "calm",
+            "angry",
+            "afraid",
+            "hopeful",
+            "devoted"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "description": "Display name.",
+          "type": "string"
+        },
+        "pos": {
+          "$ref": "#/$defs/LonLat",
+          "description": "Where it is, when it has a position (absent for groups, gods, agents)."
+        },
+        "ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "size": {
+          "description": "Clusters only: approximate head count.",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "ref",
+        "name",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "FavorLine": {
+      "description": "A god's favor toward one demigod.",
+      "properties": {
+        "favor": {
+          "description": "That god's favor toward you (about -10..10; it shifts its rulings).",
+          "format": "float",
+          "type": "number"
+        },
+        "god": {
+          "description": "The god's display name.",
+          "type": "string"
+        },
+        "god_ref": {
+          "$ref": "#/$defs/Ref",
+          "description": "The god's ref (`gd:<n>`)."
+        }
+      },
+      "required": [
+        "god",
+        "god_ref",
+        "favor"
+      ],
+      "type": "object"
+    },
+    "Hand": {
+      "enum": [
+        "left",
+        "right"
+      ],
+      "type": "string"
+    },
+    "LonLat": {
+      "description": "[longitude, latitude] in degrees (WGS84). Note the order: longitude first.",
+      "items": {
+        "type": "number"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+    },
+    "NewsLine": {
+      "properties": {
+        "at": {
+          "description": "Where it happened, [lon, lat] (null only for bookkeeping with no place).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "how": {
+          "description": "How you know: \"you did it\", \"it happened to you\", \"you saw it\", \"you were told\", \"your followers heard\" or \"rumor\".",
+          "type": "string"
+        },
+        "refs": {
+          "description": "The actor, then the targets (refs to link in the UI), each at most once.",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "type": "array"
+        },
+        "region": {
+          "description": "The region (planet) or district (city) it happened in.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "row": {
+          "$ref": "#/$defs/Ref",
+          "description": "The ledger row's ref (`lg:<n>`). Never repeated within one payload."
+        },
+        "text": {
+          "description": "The act, in prose.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "row",
+        "text",
+        "refs",
+        "how",
+        "at",
+        "region"
+      ],
+      "type": "object"
+    },
+    "Ref": {
+      "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row. Stable for the whole match.",
+      "examples": [
+        "ch:12"
+      ],
+      "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg):\\d+$",
+      "type": "string"
+    },
+    "SeatHand": {
+      "description": "One hand in the seat view.",
+      "properties": {
+        "agent": {
+          "$ref": "#/$defs/Ref",
+          "description": "The hand's agent ref (`ag:<n>`)."
+        },
+        "live": {
+          "description": "False once your demigod is eliminated.",
+          "type": "boolean"
+        },
+        "name": {
+          "description": "\"<you>'s Left Hand\" / \"<you>'s Right Hand\".",
+          "type": "string"
+        },
+        "subagents": {
+          "description": "Live subagents and possessions under this hand.",
+          "items": {
+            "$ref": "#/$defs/SubagentLine"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "agent",
+        "name",
+        "live",
+        "subagents"
+      ],
+      "type": "object"
+    },
+    "SubagentKind": {
+      "description": "What kind of agent a subagent line is: a subagent, a possession (steers a body) or a paladin (a god's champion).",
+      "enum": [
+        "subagent",
+        "possession",
+        "paladin"
+      ],
+      "type": "string"
+    },
+    "SubagentLine": {
+      "description": "A live subagent, possession or paladin, in every payload that lists one.",
+      "properties": {
+        "agent": {
+          "$ref": "#/$defs/Ref",
+          "description": "The agent's ref (`ag:<n>`)."
+        },
+        "beats_left": {
+          "description": "Beats until it expires; null = no budget (possessions last until recalled).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "body": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The person it steers (`ch:<n>`) for possessions and paladins, else null."
+        },
+        "goal": {
+          "description": "Its task.",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/SubagentKind",
+          "description": "\"subagent\", \"possession\" (steers `body`) or \"paladin\" (a god's champion in `body`)."
+        },
+        "line": {
+          "description": "What it said this beat (round.private), else its goal.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Display name; a possession reads \"<person> (steered by <you>)\".",
+          "type": "string"
+        },
+        "parent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The agent that spawned it (`ag:<n>`, your hand for subagents and possessions), or null."
+        }
+      },
+      "required": [
+        "agent",
+        "name",
+        "goal",
+        "line",
+        "beats_left",
+        "kind",
+        "parent",
+        "body"
+      ],
+      "type": "object"
+    },
+    "YouLine": {
+      "properties": {
+        "bolts": {
+          "description": "Lightning bolts you hold (the god-energy unit: casts and god invocations cost them).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "debt_open": {
+          "description": "Sum of your open debts (damage points).",
+          "format": "float",
+          "type": "number"
+        },
+        "echo_charges": {
+          "description": "Charges left for the echo (duplicate an item) base power.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "favor": {
+          "description": "Every god's favor toward you, in god order (gd:0 .. gd:6).",
+          "items": {
+            "$ref": "#/$defs/FavorLine"
+          },
+          "type": "array"
+        },
+        "followers": {
+          "description": "Head count of your Following group.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "health": {
+          "description": "Current health (0 to max_health, Final Night's 0-10 scale).",
+          "format": "float",
+          "type": "number"
+        },
+        "pos": {
+          "description": "[longitude, latitude].",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        }
+      },
+      "required": [
+        "health",
+        "pos",
+        "debt_open",
+        "favor",
+        "followers",
+        "echo_charges",
+        "bolts"
+      ],
+      "type": "object"
+    },
+    "Zoom": {
+      "oneOf": [
+        {
+          "enum": [
+            "world",
+            "character"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "district",
+          "description": "A district (on the planet: a region).",
+          "type": "string"
+        },
+        {
+          "const": "city",
+          "description": "One city (on the planet; in a city arena, a site).",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$id": "seat_view.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "`round.private_state.state`: everything your seat may see, after each commit (players and spectators).",
+  "properties": {
+    "alive": {
+      "description": "False = eliminated; you keep receiving this view as a spectator.",
+      "type": "boolean"
+    },
+    "armies": {
+      "description": "Your live armies (with their orders).",
+      "items": {
+        "$ref": "#/$defs/Army"
+      },
+      "type": "array"
+    },
+    "beat": {
+      "description": "The last beat started (in the brief: the coming beat).",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "debts": {
+      "description": "Your open debts.",
+      "items": {
+        "$ref": "#/$defs/DebtLine"
+      },
+      "type": "array"
+    },
+    "demigod": {
+      "$ref": "#/$defs/Ref",
+      "description": "Your demigod (`dg:<n>`)."
+    },
+    "focus": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Entity",
+          "description": "What you are focused on (an Entity object, as in round.private.focus)."
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "hands": {
+      "description": "Your two hands: [left, right].",
+      "items": {
+        "$ref": "#/$defs/SeatHand"
+      },
+      "type": "array"
+    },
+    "items": {
+      "description": "Items your demigod holds.",
+      "items": {
+        "$ref": "#/$defs/Entity"
+      },
+      "type": "array"
+    },
+    "max_health": {
+      "description": "Your health cap (10, lowered by Time's Life prices).",
+      "type": "number"
+    },
+    "name": {
+      "description": "Your demigod's name (your display name, de-duplicated).",
+      "type": "string"
+    },
+    "news": {
+      "description": "Ledger rows you know from the last ~3 beats, newest first, one line per row (<= 20).",
+      "items": {
+        "$ref": "#/$defs/NewsLine"
+      },
+      "type": "array"
+    },
+    "orders": {
+      "description": "Your hands' standing orders.",
+      "items": {
+        "description": "A standing order (your hands keep carrying it out, by rules, while you're silent).",
+        "properties": {
+          "hand": {
+            "$ref": "#/$defs/Hand"
+          },
+          "since": {
+            "description": "Beat given.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "text": {
+            "description": "Your words it came from.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "hand",
+          "text",
+          "since"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "seat": {
+      "description": "Your seat.",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "slow": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "description": "The open slow window, as it concerns you.",
+          "properties": {
+            "held": {
+              "description": "Orders of yours are held in it.",
+              "type": "boolean"
+            },
+            "window": {
+              "description": "Its id.",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "yours": {
+              "description": "You opened it.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "yours",
+            "window",
+            "held"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "null when no window is open."
+    },
+    "visible": {
+      "description": "What you see at your zoom (<= 60): yourself, live rivals, your items, then the district (or world) contents, nearby districts, possessed bodies.",
+      "items": {
+        "$ref": "#/$defs/Entity"
+      },
+      "type": "array"
+    },
+    "you": {
+      "$ref": "#/$defs/YouLine"
+    },
+    "zoom": {
+      "$ref": "#/$defs/Zoom"
+    }
+  },
+  "required": [
+    "seat",
+    "demigod",
+    "name",
+    "alive",
+    "beat",
+    "you",
+    "max_health",
+    "zoom",
+    "focus",
+    "visible",
+    "hands",
+    "items",
+    "debts",
+    "news",
+    "armies",
+    "orders",
+    "slow"
+  ],
+  "title": "Final Night 7 seat view",
+  "type": "object",
+  "x-applies-to": "round.private_state.state, match.snapshot.you.private_state"
+}

@@ -1,0 +1,62 @@
+{
+  "$id": "round_started_public.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "`round.started.public`: the beat's Start (Time's clock, debts coming due), before anyone acts.",
+  "properties": {
+    "alive": {
+      "description": "Demigods still standing.",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "arena_radius_km": {
+      "description": "Safe radius after this beat's shrink.",
+      "type": "number"
+    },
+    "beat": {
+      "description": "This beat (= round).",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "beats_total": {
+      "description": "The Final Night's beat.",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "caught_outside": {
+      "description": "Names of demigods/possessed bodies hurt for being outside the arena.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "debts_due": {
+      "description": "Number of debt collections queued for this beat (all demigods).",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "eliminated": {
+      "description": "Names of demigods that fell during Start.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "final_night": {
+      "description": "True on the last beat: every debt is due and exactly one demigod survives.",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "beat",
+    "beats_total",
+    "final_night",
+    "arena_radius_km",
+    "caught_outside",
+    "debts_due",
+    "eliminated",
+    "alive"
+  ],
+  "title": "round.started public",
+  "type": "object",
+  "x-applies-to": "round.started.public, match.snapshot.started"
+}

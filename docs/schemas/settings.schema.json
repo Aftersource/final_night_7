@@ -1,0 +1,186 @@
+{
+  "$id": "settings.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "description": "Room settings (`room.create.settings`, `room.settings.settings`; all optional) and, once validated, `match.started.rules` / `Room.settings`. Integers may be sent as whole floats (3.0). Unknown keys are dropped silently. Validated `rules` always contain every key except seed/city (when unset), rounds and choose_seconds (when unset).",
+  "properties": {
+    "arena": {
+      "default": "planet",
+      "description": "planet: the whole Earth (regions → cities; `city` = where the Final Night converges). city: one real city (districts → sites).",
+      "enum": [
+        "planet",
+        "city"
+      ],
+      "type": "string"
+    },
+    "beat_ms": {
+      "default": 3000,
+      "description": "Input alias of flow_ms (used when flow_ms is absent); echoed = flow_ms.",
+      "maximum": 120000,
+      "minimum": 500,
+      "type": "integer"
+    },
+    "beats_total": {
+      "default": 100,
+      "description": "The Final Night falls on this beat. One Theatre round = one beat.",
+      "maximum": 1000,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "choose_seconds": {
+      "description": "Unused by Final Night 7 (there is no Choose phase); copied through if set.",
+      "exclusiveMinimum": 0,
+      "maximum": 600.0,
+      "type": "number"
+    },
+    "city": {
+      "description": "Arena city by name (fuzzy match). Absent = a seeded pick among cities >= 1M on land.",
+      "maxLength": 80,
+      "type": "string"
+    },
+    "clusters": {
+      "default": 200,
+      "description": "Population clusters created at setup.",
+      "maximum": 600,
+      "minimum": 8,
+      "type": "integer"
+    },
+    "compose_seconds": {
+      "description": "Compose window (the core's timer, fixed for the room). Default flow_ms / 1000; set it explicitly and it no longer follows flow_ms.",
+      "exclusiveMinimum": 0,
+      "maximum": 600.0,
+      "type": "number"
+    },
+    "debt_due_beats": {
+      "default": 6,
+      "description": "Beats until a bill falls due.",
+      "maximum": 100,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "debt_scale": {
+      "default": 0.04,
+      "description": "Consequence's bill multiplier (echoed back at f32 precision: 0.04, not 0.03999999910593033).",
+      "maximum": 10,
+      "minimum": 0,
+      "type": "number"
+    },
+    "entropy_scale": {
+      "default": 1.0,
+      "description": "Multiplier on every Entropy rise (a playtest dial; 2 = heat death twice as fast). Cooling is not scaled.",
+      "maximum": 10,
+      "minimum": 0,
+      "type": "number"
+    },
+    "flow_ms": {
+      "default": 3000,
+      "description": "Flow beat length in ms: the world's action runs in beats this long whether or not anyone types. compose_seconds defaults to flow_ms / 1000.",
+      "maximum": 120000,
+      "minimum": 500,
+      "type": "integer"
+    },
+    "llm": {
+      "default": true,
+      "description": "false = never call the LLM (every mind uses its rules fallback).",
+      "type": "boolean"
+    },
+    "llm_folds_per_beat": {
+      "default": 2,
+      "description": "Folds written by the fold mind per beat (the rest by rules).",
+      "maximum": 32,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "max_intents_per_hand": {
+      "default": 6,
+      "description": "Acts one hand turns its speech into per beat (orders sent in the beat they open a window).",
+      "maximum": 12,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "max_intents_per_window": {
+      "default": 12,
+      "description": "Acts one hand makes from orders that closed a slow window open at least one beat.",
+      "maximum": 24,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "max_memorize_per_beat": {
+      "default": 6,
+      "description": "People memorized from player mentions per beat.",
+      "maximum": 64,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "max_subagents_per_hand": {
+      "default": 3,
+      "description": "Live subagents + possessions per hand.",
+      "maximum": 10,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "max_witnesses": {
+      "default": 4,
+      "description": "Witnesses recorded per act.",
+      "maximum": 64,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "memory_per_owner": {
+      "default": 40,
+      "description": "Live memories per owner before old ones fold into a summary.",
+      "maximum": 1000,
+      "minimum": 4,
+      "type": "integer"
+    },
+    "mind_timeout_ms": {
+      "default": 6000,
+      "description": "Per-call timeout for every LLM mind; a late call takes its rules fallback.",
+      "maximum": 120000,
+      "minimum": 50,
+      "type": "integer"
+    },
+    "players": {
+      "default": 4,
+      "description": "Demigods in the match (a minimum: every seat gets one; the built-in AI plays the rest).",
+      "maximum": 8,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "resolve_timeout_s": {
+      "description": "The core's resolve timeout. Default 60.",
+      "exclusiveMinimum": 0,
+      "maximum": 1800.0,
+      "type": "number"
+    },
+    "rounds": {
+      "default": 100,
+      "description": "Input-only alias of beats_total (used when beats_total is absent; dropped from `rules`).",
+      "maximum": 1000,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "seed": {
+      "description": "Match seed (u64). Absent = picked at match start (not echoed back in `rules`).",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "slow_ms": {
+      "default": 30000,
+      "description": "How long a slow-time window may stay open (ceil(slow_ms / flow_ms) flow beats).",
+      "maximum": 600000,
+      "minimum": 1000,
+      "type": "integer"
+    },
+    "start_bolts": {
+      "default": 3,
+      "description": "Lightning bolts each demigod starts with.",
+      "maximum": 99,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "title": "Final Night 7 room settings",
+  "type": "object",
+  "x-applies-to": "room.create.settings, room.settings.settings, match.started.rules, Room.settings"
+}

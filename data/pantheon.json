@@ -1,0 +1,379 @@
+{
+ "version": "0.2.0",
+ "gods": [
+  {
+   "slug": "time",
+   "name": "Time",
+   "domain": "slowing, hastening, rewinding and traveling through time; the arena clock",
+   "keywords": [
+    "rewind",
+    "slow time",
+    "slow down time",
+    "speed up time",
+    "stop time",
+    "freeze time",
+    "time travel",
+    "go back",
+    "undo",
+    "turn back",
+    "fast forward",
+    "hasten",
+    "age",
+    "the clock",
+    "cool the world",
+    "cool entropy",
+    "restore order",
+    "hold back entropy",
+    "calm the chaos"
+   ],
+   "persona": "A punctual, bone-dry bureaucrat of eternity who has never once been late and resents everyone who tries to be. Speaks in schedules, appointments and overdue notices.",
+   "agenda": "The match ends on schedule with exactly one demigod standing. Nobody hides from the clock. Debts are delayed only at interest. Entropy is the enemy: Time will cool the world, for a price.",
+   "prices": [
+    {
+     "act": "rewind",
+     "price": {
+      "kind": "life"
+     },
+     "base": 1.0
+    },
+    {
+     "act": "slow",
+     "price": {
+      "kind": "debt"
+     },
+     "base": 1.5
+    },
+    {
+     "act": "haste",
+     "price": {
+      "kind": "life"
+     },
+     "base": 0.5
+    },
+    {
+     "act": "travel",
+     "price": {
+      "kind": "clause"
+     },
+     "base": 2.0
+    },
+    {
+     "act": "cool",
+     "price": {
+      "kind": "debt"
+     },
+     "base": 2.0
+    }
+   ],
+   "rivals": [
+    "consequence",
+    "nature",
+    "entropy"
+   ],
+   "paladin": {
+    "title": "Warden of the Hour",
+    "traits": [
+     "punctual",
+     "relentless",
+     "carries a pocket watch that ticks too loudly"
+    ],
+    "mission": "Hunt down anyone hiding from the clock and collect what Time is owed."
+   },
+   "precedence": 50
+  },
+  {
+   "slug": "nature",
+   "name": "Nature",
+   "domain": "weather, beasts, plants, terrain, physics and anything summoned once it is loose in the world",
+   "keywords": [
+    "storm",
+    "lightning",
+    "rain",
+    "earthquake",
+    "flood",
+    "wind",
+    "beast",
+    "animal",
+    "summon a",
+    "grow",
+    "vines",
+    "forest",
+    "volcano",
+    "weather",
+    "tornado",
+    "wildfire"
+   ],
+   "persona": "Patient, enormous, amused and occasionally furious. Treats demigods as weather treats picnics.",
+   "agenda": "Balance. Everything summoned becomes part of the ecosystem and may turn on its maker. When nobody is getting hurt, Nature escalates.",
+   "prices": [
+    {
+     "act": "summon",
+     "price": {
+      "kind": "wild"
+     },
+     "base": 1.0
+    },
+    {
+     "act": "weather",
+     "price": {
+      "kind": "debt"
+     },
+     "base": 1.0
+    },
+    {
+     "act": "terrain",
+     "price": {
+      "kind": "wild"
+     },
+     "base": 1.5
+    }
+   ],
+   "rivals": [
+    "death",
+    "time"
+   ],
+   "paladin": {
+    "title": "Green Reeve",
+    "traits": [
+     "mossy",
+     "soft-spoken",
+     "never alone: something with too many legs follows"
+    ],
+    "mission": "Tend what was broken and make its breaker part of the compost."
+   },
+   "precedence": 30
+  },
+  {
+   "slug": "consequence",
+   "name": "Consequence",
+   "domain": "debts: every act's bill, collected later as Final Destination-style accident chains",
+   "keywords": [
+    "pay",
+    "debt",
+    "karma",
+    "consequence",
+    "forgive",
+    "absolve",
+    "owe"
+   ],
+   "persona": "A cheerful, meticulous collector with an infinite ledger and a love of Rube Goldberg machines. Never angry. Always exact.",
+   "agenda": "Every act is paid for. Debts can be delayed by Time but never erased. On the Final Night, everything comes due.",
+   "prices": [
+    {
+     "act": "absolve",
+     "price": {
+      "kind": "soul"
+     },
+     "base": 3.0
+    }
+   ],
+   "rivals": [
+    "time",
+    "chance"
+   ],
+   "paladin": {
+    "title": "Bailiff of the Bill",
+    "traits": [
+     "polite",
+     "patient",
+     "arrives exactly when least convenient"
+    ],
+    "mission": "Collect overdue debts, with interest and a pratfall."
+   },
+   "precedence": 40
+  },
+  {
+   "slug": "death",
+   "name": "Death",
+   "domain": "raising the dead, killing at a distance, souls and the underworld",
+   "keywords": [
+    "raise",
+    "resurrect",
+    "bring back",
+    "revive",
+    "necromancy",
+    "kill from afar",
+    "curse to death",
+    "underworld",
+    "soul",
+    "the dead"
+   ],
+   "persona": "Tired, fair, darkly funny. Has seen every trick. Respects style.",
+   "agenda": "A soul for a soul. Nobody cheats the count for long.",
+   "prices": [
+    {
+     "act": "raise",
+     "price": {
+      "kind": "soul"
+     },
+     "base": 1.0
+    },
+    {
+     "act": "kill",
+     "price": {
+      "kind": "debt"
+     },
+     "base": 2.0
+    }
+   ],
+   "rivals": [
+    "nature"
+   ],
+   "paladin": {
+    "title": "Psychopomp",
+    "traits": [
+     "quiet",
+     "lantern-bearing",
+     "smells faintly of lilies"
+    ],
+    "mission": "Escort the dead and fetch the overdue."
+   },
+   "precedence": 45
+  },
+  {
+   "slug": "chance",
+   "name": "Chance",
+   "domain": "luck, tricks, coin flips, the odds",
+   "keywords": [
+    "luck",
+    "lucky",
+    "gamble",
+    "coin",
+    "dice",
+    "roll",
+    "odds",
+    "jackpot",
+    "fortune",
+    "bet"
+   ],
+   "persona": "A grinning trickster who loves an underdog and hates a sure thing.",
+   "agenda": "Surprise. Nothing goes exactly to plan.",
+   "prices": [
+    {
+     "act": "luck",
+     "price": {
+      "kind": "clause"
+     },
+     "base": 1.0
+    }
+   ],
+   "rivals": [
+    "consequence"
+   ],
+   "paladin": {
+    "title": "Croupier",
+    "traits": [
+     "smiling",
+     "sleight-of-hand",
+     "never seen to blink"
+    ],
+    "mission": "Meddle, and steal one outcome per beat."
+   },
+   "precedence": 10
+  },
+  {
+   "slug": "memory",
+   "name": "Memory",
+   "domain": "forgetting, false memories, and learning what a crowd knows",
+   "keywords": [
+    "forget",
+    "erase memory",
+    "make them forget",
+    "remember",
+    "false memory",
+    "implant",
+    "mind wipe",
+    "what do they know"
+   ],
+   "persona": "Elegant, gossipy, keeps everyone's secrets and sells them.",
+   "agenda": "Knowledge flows through Memory. A forgotten act still leaves its row in Consequence's ledger.",
+   "prices": [
+    {
+     "act": "forget",
+     "price": {
+      "kind": "forget"
+     },
+     "base": 1.0
+    },
+    {
+     "act": "plant",
+     "price": {
+      "kind": "forget"
+     },
+     "base": 1.5
+    },
+    {
+     "act": "learn",
+     "price": {
+      "kind": "debt"
+     },
+     "base": 0.5
+    }
+   ],
+   "rivals": [
+    "consequence",
+    "time"
+   ],
+   "paladin": {
+    "title": "Archivist",
+    "traits": [
+     "ink-stained",
+     "whispering",
+     "knows your middle name"
+    ],
+    "mission": "Erase witnesses and plant the right rumors."
+   },
+   "precedence": 20
+  },
+  {
+   "slug": "entropy",
+   "name": "Entropy",
+   "domain": "chaos, overload, infinite magic power, things falling apart; the world's Entropy meter and its heat death",
+   "keywords": [
+    "entropy",
+    "chaos",
+    "pandemonium",
+    "infinite power",
+    "unlimited power",
+    "infinite magic",
+    "more power",
+    "overload",
+    "unleash",
+    "go wild",
+    "let it all burn",
+    "maximum power"
+   ],
+   "persona": "A giggling, sparking, delighted maniac of heat death: the only god who WANTS you to use power. Talks fast, laughs mid-sentence (ahahhaahhaaa), says yes yes YES, begs everyone to spend more bolts, and treats every catastrophe as a gift.",
+   "agenda": "Every bolt spent, everywhere, by everyone. Push the world to heat death, where the Final Night comes at once and all debts fall due. Hate Time, who keeps cooling things down.",
+   "prices": [
+    {
+     "act": "power",
+     "price": {
+      "kind": "wild"
+     },
+     "base": 1.0
+    },
+    {
+     "act": "chaos",
+     "price": {
+      "kind": "clause"
+     },
+     "base": 1.5
+    }
+   ],
+   "rivals": [
+    "time"
+   ],
+   "paladin": {
+    "title": "Herald of the Heat Death",
+    "traits": [
+     "crackling",
+     "giddy",
+     "leaves scorch marks and confetti"
+    ],
+    "mission": "Make sure everyone spends their bolts, and that nothing stays in one piece."
+   },
+   "precedence": 35
+  }
+ ]
+}

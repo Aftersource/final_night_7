@@ -1,0 +1,28 @@
+[package]
+name = "fn7-plugin"
+description = "Final Night 7 as a Theatre GamePlugin: the beat loop, merge, views, fallbacks and recording."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+fn7-model.workspace = true
+fn7-society.workspace = true
+fn7-memory.workspace = true
+fn7-pantheon.workspace = true
+fn7-agents.workspace = true
+theatre-plugin-api.workspace = true
+theatre-toolkit.workspace = true
+theatre-trace.workspace = true
+async-trait.workspace = true
+futures.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+theatre-llm.workspace = true
+theatre-recorder.workspace = true
+rusqlite.workspace = true
+uuid.workspace = true

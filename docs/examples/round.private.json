@@ -1,0 +1,164 @@
+{
+  "d": {
+    "choices": [],
+    "private": {
+      "beat": 6,
+      "cut_off": false,
+      "focus": null,
+      "hands": [
+        {
+          "agent": "ag:2",
+          "name": "Juniper's Left Hand",
+          "said": "",
+          "subagents": []
+        },
+        {
+          "agent": "ag:3",
+          "name": "Juniper's Right Hand",
+          "said": "",
+          "subagents": []
+        }
+      ],
+      "held": false,
+      "news": [
+        {
+          "at": [
+            174.68,
+            -37.0
+          ],
+          "how": "it happened to you",
+          "refs": [
+            "gd:2",
+            "dg:1"
+          ],
+          "region": "Australia and New Zealand",
+          "row": "lg:83",
+          "text": "Consequence collects from Juniper: a banana peel, a ladder and an unusually ambitious crane"
+        },
+        {
+          "at": [
+            174.68,
+            -37.0
+          ],
+          "how": "it happened to you",
+          "refs": [
+            "gd:0",
+            "dg:1"
+          ],
+          "region": "Australia and New Zealand",
+          "row": "lg:82",
+          "text": "Consequence collects from Juniper: a gas leak, a birthday candle and terrible timing"
+        },
+        {
+          "at": [
+            174.68,
+            -37.0
+          ],
+          "how": "it happened to you",
+          "refs": [
+            "gd:2",
+            "dg:1"
+          ],
+          "region": "Australia and New Zealand",
+          "row": "lg:81",
+          "text": "Consequence collects from Juniper: a banana peel, a ladder and an unusually ambitious crane"
+        },
+        {
+          "at": [
+            174.68,
+            -37.0
+          ],
+          "how": "it happened to you",
+          "refs": [
+            "gd:0",
+            "dg:1"
+          ],
+          "region": "Australia and New Zealand",
+          "row": "lg:80",
+          "text": "Consequence collects from Juniper: a banana peel, a ladder and an unusually ambitious crane"
+        },
+        {
+          "at": [
+            174.68,
+            -37.0
+          ],
+          "how": "it happened to you",
+          "refs": [
+            "gd:0",
+            "dg:1"
+          ],
+          "region": "Australia and New Zealand",
+          "row": "lg:79",
+          "text": "Consequence collects from Juniper: a falling sign that says MIND YOUR STEP"
+        },
+        {
+          "at": [
+            174.68,
+            -37.0
+          ],
+          "how": "it happened to you",
+          "refs": [
+            "gd:2",
+            "dg:1"
+          ],
+          "region": "Australia and New Zealand",
+          "row": "lg:78",
+          "text": "Consequence collects from Juniper: a falling sign that says MIND YOUR STEP"
+        }
+      ],
+      "omens": [],
+      "seat": 1,
+      "you": {
+        "bolts": 4,
+        "debt_open": 0.0,
+        "echo_charges": 3,
+        "favor": [
+          {
+            "favor": 0.0,
+            "god": "Time",
+            "god_ref": "gd:0"
+          },
+          {
+            "favor": 0.0,
+            "god": "Nature",
+            "god_ref": "gd:1"
+          },
+          {
+            "favor": 0.0,
+            "god": "Consequence",
+            "god_ref": "gd:2"
+          },
+          {
+            "favor": 0.0,
+            "god": "Death",
+            "god_ref": "gd:3"
+          },
+          {
+            "favor": 0.0,
+            "god": "Chance",
+            "god_ref": "gd:4"
+          },
+          {
+            "favor": 0.0,
+            "god": "Memory",
+            "god_ref": "gd:5"
+          },
+          {
+            "favor": 0.0,
+            "god": "Entropy",
+            "god_ref": "gd:6"
+          }
+        ],
+        "followers": 0,
+        "health": 0.0,
+        "pos": [
+          174.680671,
+          -36.999724
+        ]
+      },
+      "zoom": "world"
+    },
+    "round": 6
+  },
+  "t": "round.private"
+}

@@ -1,0 +1,15 @@
+[package]
+name = "fn7-model"
+description = "Final Night 7 data model: every type in the game state, the ledger, memory, agents, gods, intents, effects and beats. No logic, no I/O."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+schemars = { workspace = true, optional = true }
+
+[features]
+# JSON Schema derives for the types that appear in client payloads (`fn7-schemas` in fn7-tools writes docs/schemas).
+schema = ["dep:schemars"]

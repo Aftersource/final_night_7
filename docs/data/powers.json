@@ -1,0 +1,173 @@
+{
+ "version": "0.1.0",
+ "powers": [
+  {
+   "slug": "lightning",
+   "name": "Lightning bolt",
+   "icon": "lightning",
+   "cost": 1,
+   "radius_km": 30,
+   "target": "unit",
+   "magnitude": 6,
+   "damage": 1.0,
+   "tags": [
+    "sky",
+    "fire",
+    "fast"
+   ],
+   "blurb": "a single white-hot bolt from a clear sky, aimed at one target"
+  },
+  {
+   "slug": "storm_clouds",
+   "name": "Storm clouds",
+   "icon": "storm_clouds",
+   "cost": 1,
+   "radius_km": 400,
+   "target": "region",
+   "magnitude": 4,
+   "damage": 0.3,
+   "tags": [
+    "sky",
+    "water",
+    "weather"
+   ],
+   "blurb": "a lid of black clouds rolls over a region: rain, wind, dread"
+  },
+  {
+   "slug": "volcano",
+   "name": "Volcano",
+   "icon": "volcano",
+   "cost": 3,
+   "radius_km": 150,
+   "target": "point",
+   "magnitude": 9,
+   "damage": 2.0,
+   "tags": [
+    "fire",
+    "earth",
+    "ash"
+   ],
+   "blurb": "the ground splits and a volcano rises where there was none, raining ash and fire"
+  },
+  {
+   "slug": "earthquake",
+   "name": "Earthquake",
+   "icon": "earthquake",
+   "cost": 2,
+   "radius_km": 250,
+   "target": "point",
+   "magnitude": 7,
+   "damage": 1.0,
+   "tags": [
+    "earth",
+    "shaking"
+   ],
+   "blurb": "the earth bucks like a startled horse; towers sway and fall"
+  },
+  {
+   "slug": "flood",
+   "name": "Flood",
+   "icon": "flood",
+   "cost": 2,
+   "radius_km": 300,
+   "target": "point",
+   "magnitude": 7,
+   "damage": 0.7,
+   "tags": [
+    "water"
+   ],
+   "blurb": "rivers jump their banks and the sea walks inland"
+  },
+  {
+   "slug": "wildfire",
+   "name": "Wildfire",
+   "icon": "wildfire",
+   "cost": 2,
+   "radius_km": 200,
+   "target": "point",
+   "magnitude": 7,
+   "damage": 1.0,
+   "tags": [
+    "fire",
+    "plants"
+   ],
+   "blurb": "a wall of fire runs across the land faster than people can"
+  },
+  {
+   "slug": "meteor",
+   "name": "Meteor",
+   "icon": "meteor",
+   "cost": 4,
+   "radius_km": 100,
+   "target": "point",
+   "magnitude": 10,
+   "damage": 2.5,
+   "tags": [
+    "sky",
+    "fire",
+    "impact"
+   ],
+   "blurb": "a burning rock from space, aimed with terrible precision"
+  },
+  {
+   "slug": "raise_land",
+   "name": "Raise land",
+   "icon": "raise_land",
+   "cost": 2,
+   "radius_km": 200,
+   "target": "point",
+   "magnitude": 6,
+   "damage": 0.3,
+   "tags": [
+    "earth",
+    "building"
+   ],
+   "blurb": "a new mountain range or island heaves itself up out of the ground or the sea"
+  },
+  {
+   "slug": "sink_land",
+   "name": "Sink land",
+   "icon": "sink_land",
+   "cost": 3,
+   "radius_km": 200,
+   "target": "point",
+   "magnitude": 8,
+   "damage": 1.2,
+   "tags": [
+    "earth",
+    "water"
+   ],
+   "blurb": "the land drops and the sea pours in; a coast becomes a bay"
+  },
+  {
+   "slug": "grow_forest",
+   "name": "Grow forest",
+   "icon": "grow_forest",
+   "cost": 1,
+   "radius_km": 200,
+   "target": "point",
+   "magnitude": 3,
+   "damage": 0.0,
+   "tags": [
+    "plants",
+    "life"
+   ],
+   "blurb": "an ancient forest erupts in hours, swallowing roads and buildings"
+  },
+  {
+   "slug": "swarm",
+   "name": "Swarm",
+   "icon": "swarm",
+   "cost": 2,
+   "radius_km": 150,
+   "target": "point",
+   "magnitude": 6,
+   "damage": 0.6,
+   "tags": [
+    "beasts",
+    "plague"
+   ],
+   "blurb": "a black cloud of locusts, bats or worse descends"
+  }
+ ]
+}

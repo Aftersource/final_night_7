@@ -1,0 +1,623 @@
+{
+  "$defs": {
+    "Arena": {
+      "description": "The arena: the whole planet (default) or one real city. Time's clock shrinks the safe radius around `center` linearly from start_radius_km (beat 0) to end_radius_km (the Final Night).",
+      "properties": {
+        "center": {
+          "$ref": "#/$defs/LonLat"
+        },
+        "city": {
+          "description": "The city at `center`: on the planet, where the Final Night converges; else the arena city.",
+          "type": "string"
+        },
+        "end_radius_km": {
+          "description": "Safe radius on the Final Night.",
+          "type": "number"
+        },
+        "kind": {
+          "description": "planet: regions → cities; city: districts → sites.",
+          "enum": [
+            "planet",
+            "city"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "description": "\"Earth\" on the planet, else the city's name.",
+          "type": "string"
+        },
+        "radius_km": {
+          "description": "Current safe radius around `center`. Bodies outside take 1-5 damage at each beat's Start.",
+          "type": "number"
+        },
+        "start_radius_km": {
+          "description": "Safe radius at match start.",
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "name",
+        "city",
+        "center",
+        "radius_km",
+        "start_radius_km",
+        "end_radius_km"
+      ],
+      "type": "object"
+    },
+    "Army": {
+      "description": "A live army (a cluster raised from a crowd).",
+      "properties": {
+        "demigod": {
+          "description": "The demigod it marches for.",
+          "type": "string"
+        },
+        "demigod_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "dest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LonLat"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where it is headed, or null."
+        },
+        "name": {
+          "description": "",
+          "type": "string"
+        },
+        "orders": {
+          "description": "Seat view only (your armies): its standing orders.",
+          "type": "string"
+        },
+        "pos": {
+          "$ref": "#/$defs/LonLat"
+        },
+        "ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "region": {
+          "description": "Where it is.",
+          "type": "string"
+        },
+        "size": {
+          "description": "Head count.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What it marches on (a place, or a demigod it hunts)."
+        }
+      },
+      "required": [
+        "ref",
+        "name",
+        "demigod",
+        "demigod_ref",
+        "size",
+        "pos",
+        "region",
+        "dest",
+        "target"
+      ],
+      "type": "object"
+    },
+    "Entropy": {
+      "description": "The world's Entropy meter. Every bolt spent anywhere raises it; thresholds make the world wackier (20 weather, 40 physics, 60 riots, 80 godfall); at `max` heat death makes that beat the Final Night.",
+      "properties": {
+        "delta": {
+          "description": "Change during this beat (outcome only).",
+          "type": "number"
+        },
+        "heat_death": {
+          "description": "The beat heat death struck, or null.",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "key": {
+          "description": "The level's key.",
+          "enum": [
+            "calm",
+            "weather",
+            "physics",
+            "riots",
+            "godfall"
+          ],
+          "type": "string"
+        },
+        "level": {
+          "description": "0..4.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max": {
+          "description": "100: heat death.",
+          "type": "number"
+        },
+        "next_at": {
+          "description": "The value of the next threshold (max at the top level).",
+          "type": "number"
+        },
+        "text": {
+          "description": "What this level does to the world, one line.",
+          "type": "string"
+        },
+        "value": {
+          "description": "0..max.",
+          "type": "number"
+        }
+      },
+      "required": [
+        "value",
+        "max",
+        "level",
+        "key",
+        "text",
+        "next_at",
+        "heat_death"
+      ],
+      "type": "object"
+    },
+    "Influence": {
+      "description": "One demigod's share of one region (district in a city): crowds there weighted by their allegiance, its Following, its armies, its presence. A region's shares sum to at most 1; shares under 0.005 are omitted.",
+      "properties": {
+        "demigod": {
+          "description": "",
+          "type": "string"
+        },
+        "demigod_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "region": {
+          "description": "",
+          "type": "string"
+        },
+        "region_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "share": {
+          "description": "0..1.",
+          "type": "number"
+        }
+      },
+      "required": [
+        "region",
+        "region_ref",
+        "demigod",
+        "demigod_ref",
+        "share"
+      ],
+      "type": "object"
+    },
+    "LonLat": {
+      "description": "[longitude, latitude] in degrees (WGS84). Note the order: longitude first.",
+      "items": {
+        "type": "number"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+    },
+    "Omen": {
+      "description": "A god's ruling as a client sees it (public omens and your own invocations).",
+      "properties": {
+        "at": {
+          "description": "Where it was invoked, [lon, lat].",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "god": {
+          "description": "The god's display name (\"Time\", \"Nature\", \"Consequence\", \"Death\", \"Chance\", \"Memory\", \"Entropy\").",
+          "type": "string"
+        },
+        "god_ref": {
+          "$ref": "#/$defs/Ref",
+          "description": "The god's ref (`gd:<n>`; the table is in round.brief.public.gods)."
+        },
+        "region": {
+          "description": "The region (planet) or district (city).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "speech": {
+          "description": "What the god said. Never starts with the god's name (render `god` yourself).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "god",
+        "god_ref",
+        "speech",
+        "at",
+        "region"
+      ],
+      "type": "object"
+    },
+    "Ref": {
+      "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row. Stable for the whole match.",
+      "examples": [
+        "ch:12"
+      ],
+      "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg):\\d+$",
+      "type": "string"
+    },
+    "SlowState": {
+      "description": "The open slow-time window (public: who opened it, never who else is typing).",
+      "properties": {
+        "beats_left": {
+          "description": "Flow beats left.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "by": {
+          "description": "The initiator's name.",
+          "type": "string"
+        },
+        "by_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "closes_by_beat": {
+          "description": "The last beat it can stay open (it closes by timeout at this beat's resolve).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ms_left": {
+          "description": "beats_left × flow_ms.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "window": {
+          "description": "Its id: the beat it opened. Send it back as `fields.window` with orders typed during it.",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "by",
+        "by_ref",
+        "window",
+        "closes_by_beat",
+        "beats_left",
+        "ms_left"
+      ],
+      "type": "object"
+    },
+    "WorldMod": {
+      "description": "A persistent world mod (left by a cast's ramifications), applied every beat inside its radius.",
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/LonLat"
+        },
+        "by": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The caster."
+        },
+        "description": {
+          "description": "",
+          "type": "string"
+        },
+        "expires_beat": {
+          "description": "null = lasting.",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "id": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "description": "",
+          "type": "string"
+        },
+        "power": {
+          "description": "The power that left it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "radius_km": {
+          "description": "",
+          "type": "number"
+        },
+        "region": {
+          "description": "",
+          "type": "string"
+        },
+        "region_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "since_beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "stacks": {
+          "description": "1..5: the same mod again in the same region stacks.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tags": {
+          "description": "",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "description",
+        "at",
+        "radius_km",
+        "region",
+        "region_ref",
+        "tags",
+        "stacks",
+        "since_beat",
+        "expires_beat",
+        "power",
+        "by"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "public_view.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "`round.committed.public_state` and `match.snapshot.public_state`: the public view after each commit.",
+  "properties": {
+    "alive": {
+      "description": "Demigods still standing.",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "arena": {
+      "$ref": "#/$defs/Arena"
+    },
+    "armies": {
+      "description": "Every live army.",
+      "items": {
+        "$ref": "#/$defs/Army"
+      },
+      "type": "array"
+    },
+    "beat": {
+      "description": "Last beat started.",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "beats_total": {
+      "description": "The Final Night's beat.",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "caption": {
+      "description": "The latest caption written (narrated one beat late, so usually the beat before `beat`).",
+      "type": "string"
+    },
+    "caption_beat": {
+      "description": "The beat `caption` describes; null before the first caption.",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "demigods": {
+      "description": "Every demigod in the match, seats and built-in AI, in id order (dg:0, dg:1, ...).",
+      "items": {
+        "description": "A demigod as everyone sees it. Positions of live demigods are public; health is not.",
+        "oneOf": [
+          {
+            "properties": {
+              "alive": {
+                "const": true
+              }
+            },
+            "required": [
+              "pos",
+              "place"
+            ]
+          },
+          {
+            "properties": {
+              "alive": {
+                "const": false
+              }
+            },
+            "required": [
+              "eliminated_beat",
+              "cause"
+            ]
+          }
+        ],
+        "properties": {
+          "alive": {
+            "type": "boolean"
+          },
+          "bolts": {
+            "description": "Lightning bolts it holds (public).",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "cause": {
+            "description": "Eliminated only: how it fell.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "eliminated_beat": {
+            "description": "Eliminated only.",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "image_kind": {
+            "enum": [
+              "portrait"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "place": {
+            "description": "Alive only: the place name it is in.",
+            "type": "string"
+          },
+          "portrait_prompt": {
+            "description": "An image prompt for its portrait (subject only; stable all match).",
+            "type": "string"
+          },
+          "pos": {
+            "$ref": "#/$defs/LonLat",
+            "description": "Alive only."
+          },
+          "ref": {
+            "$ref": "#/$defs/Ref"
+          },
+          "region": {
+            "description": "Alive only: the region (planet) or district (city) it is in.",
+            "type": "string"
+          },
+          "seat": {
+            "description": "The Theatre seat; null for the built-in AI's demigods.",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "ref",
+          "name",
+          "alive",
+          "seat"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "entropy": {
+      "$ref": "#/$defs/Entropy"
+    },
+    "gods": {
+      "description": "The gods' health.",
+      "items": {
+        "description": "",
+        "properties": {
+          "health": {
+            "description": "0..10; high Entropy wounds gods; at 0 Entropy answers its invocations.",
+            "type": "number"
+          },
+          "name": {
+            "description": "",
+            "type": "string"
+          },
+          "ref": {
+            "$ref": "#/$defs/Ref"
+          }
+        },
+        "required": [
+          "ref",
+          "name",
+          "health"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "influence": {
+      "description": "Each demigod's share of each region.",
+      "items": {
+        "$ref": "#/$defs/Influence"
+      },
+      "type": "array"
+    },
+    "mods": {
+      "description": "Every live world mod.",
+      "items": {
+        "$ref": "#/$defs/WorldMod"
+      },
+      "type": "array"
+    },
+    "omens": {
+      "description": "The last resolved beat's public rulings.",
+      "items": {
+        "$ref": "#/$defs/Omen"
+      },
+      "type": "array"
+    },
+    "slow": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SlowState"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "beat",
+    "beats_total",
+    "arena",
+    "alive",
+    "demigods",
+    "omens",
+    "caption",
+    "caption_beat",
+    "entropy",
+    "slow",
+    "influence",
+    "armies",
+    "mods",
+    "gods"
+  ],
+  "title": "Final Night 7 public view",
+  "type": "object",
+  "x-applies-to": "round.committed.public_state, match.snapshot.public_state"
+}

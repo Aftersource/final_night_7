@@ -1,0 +1,60 @@
+{
+  "d": {
+    "code": "RULNTS",
+    "game": "final_night_7",
+    "host_seat": 0,
+    "limits": {
+      "max_players": 8,
+      "min_players": 1
+    },
+    "room_id": "446f22e4-b010-4ef2-9549-f684c99bd9ed",
+    "seats": [
+      {
+        "connected": true,
+        "display_name": "Rook",
+        "is_bot": false,
+        "player_id": "fec800b7-d949-4a7b-8c75-71552c2c4ec8",
+        "ready": true,
+        "seat": 0,
+        "status": "active"
+      },
+      {
+        "connected": true,
+        "display_name": "Juniper",
+        "is_bot": false,
+        "player_id": "a39f6615-3446-4e70-8afa-0c9db269b057",
+        "ready": false,
+        "seat": 1,
+        "status": "active"
+      }
+    ],
+    "settings": {
+      "arena": "planet",
+      "beat_ms": 1500,
+      "beats_total": 6,
+      "clusters": 200,
+      "compose_seconds": 1.5,
+      "debt_due_beats": 6,
+      "debt_scale": 0.04,
+      "entropy_scale": 1.0,
+      "flow_ms": 1500,
+      "llm": true,
+      "llm_folds_per_beat": 2,
+      "max_intents_per_hand": 6,
+      "max_intents_per_window": 12,
+      "max_memorize_per_beat": 6,
+      "max_subagents_per_hand": 3,
+      "max_witnesses": 4,
+      "memory_per_owner": 40,
+      "mind_timeout_ms": 6000,
+      "players": 4,
+      "resolve_timeout_s": 60.0,
+      "seed": 7,
+      "slow_ms": 30000,
+      "start_bolts": 3
+    },
+    "state": "open",
+    "visibility": "private"
+  },
+  "t": "room.snapshot"
+}

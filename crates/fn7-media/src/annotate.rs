@@ -1,0 +1,149 @@
+//! Payload annotation: walk an outgoing payload and put an image object next to every image prompt.
+//!
+//! | Found in an object | Added beside it | Kind |
+//! |---|---|---|
+//! | `image_prompt: string` | `image` | `image_kind` if given, else inferred (below) |
+//! | `statue_prompt: string` (when no `image_prompt`) | `statue_image` | statue |
+//! | `portrait_prompt: string` | `portrait_image` | portrait |
+//!
+//! Inference when `image_kind` is absent: `statue` inside `piles`/`statues` or next to a `statue_prompt`; `portrait`
+//! under a key containing "portrait" or on an object whose `ref`/`demigod`/`character` is a `dg:`/`ch:` ref; `item` on
+//! an `it:` ref; otherwise `event`.
+//!
+//! **Interim prompts.** Until the plugin sends any `image_prompt` (checked per process), two more rules give the
+//! client something to show: public omens (`omens[]`, the big god rulings) become event images, and demigod lists
+//! (`demigods[]` with a `dg:` ref and a name) get portraits. They switch off for good the first time an `image_prompt`
+//! is seen, so nothing is generated twice under two prompts.
+
+use serde_json::{Map, Value};
+
+use crate::prompt::{ImageKind, ImagePrompt};
+use crate::Media;
+
+impl Media {
+    /// Annotate `payload` in place (see the module doc). Returns how many image objects were added. Never blocks; with
+    /// images off it changes nothing and returns 0.
+    pub fn annotate(&self, payload: &mut Value, match_id: Option<&str>) -> usize {
+        if !self.enabled() {
+            return 0;
+        }
+        if has_key(payload, "image_prompt") {
+            self.note_image_prompt();
+        }
+        let interim = self.interim_prompts();
+        let mut n = 0;
+        self.walk(payload, "", interim, match_id, &mut n);
+        n
+    }
+
+    fn walk(
+        &self,
+        v: &mut Value,
+        parent: &str,
+        interim: bool,
+        match_id: Option<&str>,
+        n: &mut usize,
+    ) {
+        match v {
+            Value::Array(a) => {
+                for x in a {
+                    self.walk(x, parent, interim, match_id, n);
+                }
+            }
+            Value::Object(o) => {
+                for (out, p) in self.prompts_in(o, parent, interim) {
+                    if let Some(p) = p {
+                        o.insert(out.to_string(), self.request(&p, match_id).to_json());
+                        *n += 1;
+                    }
+                }
+                for (k, x) in o.iter_mut() {
+                    if matches!(k.as_str(), "image" | "statue_image" | "portrait_image") {
+                        continue;
+                    }
+                    self.walk(x, k, interim, match_id, n);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn prompts_in(
+        &self,
+        o: &Map<String, Value>,
+        parent: &str,
+        interim: bool,
+    ) -> Vec<(&'static str, Option<ImagePrompt>)> {
+        let s = |k: &str| o.get(k).and_then(Value::as_str);
+        let mut out = vec![];
+        if let Some(text) = s("image_prompt") {
+            let kind = s("image_kind")
+                .and_then(ImageKind::parse)
+                .unwrap_or_else(|| infer_kind(o, parent));
+            out.push(("image", ImagePrompt::from_subject(kind, text)));
+        } else if let Some(text) = s("statue_prompt") {
+            out.push((
+                "statue_image",
+                ImagePrompt::from_subject(ImageKind::Statue, text),
+            ));
+        }
+        if let Some(text) = s("portrait_prompt") {
+            out.push((
+                "portrait_image",
+                ImagePrompt::from_subject(ImageKind::Portrait, text),
+            ));
+        }
+        if interim && out.is_empty() && !o.contains_key("image") {
+            if parent == "omens" {
+                if let (Some(god), Some(speech)) = (s("god"), s("speech")) {
+                    let speech = speech.trim().trim_matches('"');
+                    let subject = format!("the god {god} reaches down into the battle royale of demigods, decreeing \"{speech}\"");
+                    out.push((
+                        "image",
+                        ImagePrompt::from_subject(ImageKind::Event, &subject),
+                    ));
+                }
+            } else if parent == "demigods" {
+                if let (Some(r), Some(name)) = (s("ref"), s("name")) {
+                    if r.starts_with("dg:") {
+                        out.push((
+                            "image",
+                            ImagePrompt::portrait(&crate::prompt::Portrait {
+                                role: "the demigod".into(),
+                                name: name.into(),
+                                ..Default::default()
+                            }),
+                        ));
+                    }
+                }
+            }
+        }
+        out
+    }
+}
+
+fn infer_kind(o: &Map<String, Value>, parent: &str) -> ImageKind {
+    let r = |k: &str| o.get(k).and_then(Value::as_str).unwrap_or("");
+    let refs = [r("ref"), r("demigod"), r("character"), r("item")];
+    if matches!(parent, "piles" | "statues") || o.contains_key("statue_prompt") {
+        ImageKind::Statue
+    } else if parent.contains("portrait")
+        || refs
+            .iter()
+            .any(|x| x.starts_with("dg:") || x.starts_with("ch:"))
+    {
+        ImageKind::Portrait
+    } else if refs.iter().any(|x| x.starts_with("it:")) {
+        ImageKind::Item
+    } else {
+        ImageKind::Event
+    }
+}
+
+fn has_key(v: &Value, key: &str) -> bool {
+    match v {
+        Value::Object(o) => o.contains_key(key) || o.values().any(|x| has_key(x, key)),
+        Value::Array(a) => a.iter().any(|x| has_key(x, key)),
+        _ => false,
+    }
+}

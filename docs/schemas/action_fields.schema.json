@@ -1,0 +1,355 @@
+{
+  "$defs": {
+    "LonLat": {
+      "description": "[longitude, latitude] in degrees (WGS84). Note the order: longitude first.",
+      "items": {
+        "type": "number"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+    }
+  },
+  "$id": "action_fields.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "description": "`action.submit.fields`. If neither `left` nor `right` is present (or both are null), `text` is read instead: lines starting `l:`/`left:` go to the left hand, `r:`/`right:` to the right, other lines to the left. Remember the core caps `text` at 500 chars, so put long speech in the fields.",
+  "properties": {
+    "bolt": {
+      "anyOf": [
+        {
+          "anyOf": [
+            {
+              "description": "One god power: a slug from round.brief.public.powers, or \"custom\" with `text`.",
+              "properties": {
+                "magnitude": {
+                  "description": "custom only: 0..10 (default 5); prices it (1 + magnitude/3 bolts, at most 4).",
+                  "maximum": 10,
+                  "minimum": 0,
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "power": {
+                  "description": "Palette slug or \"custom\". Optional in `bolt`/`bolts` (lightning).",
+                  "maxLength": 40,
+                  "type": "string"
+                },
+                "target": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/LonLat"
+                    },
+                    {
+                      "maxLength": 200,
+                      "type": "string"
+                    }
+                  ],
+                  "description": "Where: a ref (\"dg:2\", any that exists), [lon, lat], \"lon,lat\", or a name (a demigod, region, city, crowd or person)."
+                },
+                "text": {
+                  "description": "custom only: what the power is (required for custom).",
+                  "maxLength": 200,
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "target"
+              ],
+              "type": "object"
+            },
+            {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/LonLat"
+                },
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                }
+              ],
+              "description": "Where: a ref (\"dg:2\", any that exists), [lon, lat], \"lon,lat\", or a name (a demigod, region, city, crowd or person)."
+            }
+          ],
+          "description": "A lightning bolt: {target} or the bare target."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Alias: cast lightning at a target."
+    },
+    "bolts": {
+      "description": "Alias: several lightning bolts.",
+      "items": {
+        "anyOf": [
+          {
+            "description": "One god power: a slug from round.brief.public.powers, or \"custom\" with `text`.",
+            "properties": {
+              "magnitude": {
+                "description": "custom only: 0..10 (default 5); prices it (1 + magnitude/3 bolts, at most 4).",
+                "maximum": 10,
+                "minimum": 0,
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "power": {
+                "description": "Palette slug or \"custom\". Optional in `bolt`/`bolts` (lightning).",
+                "maxLength": 40,
+                "type": "string"
+              },
+              "target": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/LonLat"
+                  },
+                  {
+                    "maxLength": 200,
+                    "type": "string"
+                  }
+                ],
+                "description": "Where: a ref (\"dg:2\", any that exists), [lon, lat], \"lon,lat\", or a name (a demigod, region, city, crowd or person)."
+              },
+              "text": {
+                "description": "custom only: what the power is (required for custom).",
+                "maxLength": 200,
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "target"
+            ],
+            "type": "object"
+          },
+          {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/LonLat"
+              },
+              {
+                "maxLength": 200,
+                "type": "string"
+              }
+            ],
+            "description": "Where: a ref (\"dg:2\", any that exists), [lon, lat], \"lon,lat\", or a name (a demigod, region, city, crowd or person)."
+          }
+        ],
+        "description": "A lightning bolt: {target} or the bare target."
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "cast": {
+      "anyOf": [
+        {
+          "description": "One god power: a slug from round.brief.public.powers, or \"custom\" with `text`.",
+          "properties": {
+            "magnitude": {
+              "description": "custom only: 0..10 (default 5); prices it (1 + magnitude/3 bolts, at most 4).",
+              "maximum": 10,
+              "minimum": 0,
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "power": {
+              "description": "Palette slug or \"custom\". Optional in `bolt`/`bolts` (lightning).",
+              "maxLength": 40,
+              "type": "string"
+            },
+            "target": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/LonLat"
+                },
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                }
+              ],
+              "description": "Where: a ref (\"dg:2\", any that exists), [lon, lat], \"lon,lat\", or a name (a demigod, region, city, crowd or person)."
+            },
+            "text": {
+              "description": "custom only: what the power is (required for custom).",
+              "maxLength": 200,
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "target"
+          ],
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "A god power to cast this beat (never slows time, never carries orders)."
+    },
+    "casts": {
+      "description": "Several casts (at most 5 per action, with `cast`/`bolt`/`bolts`).",
+      "items": {
+        "description": "One god power: a slug from round.brief.public.powers, or \"custom\" with `text`.",
+        "properties": {
+          "magnitude": {
+            "description": "custom only: 0..10 (default 5); prices it (1 + magnitude/3 bolts, at most 4).",
+            "maximum": 10,
+            "minimum": 0,
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "power": {
+            "description": "Palette slug or \"custom\". Optional in `bolt`/`bolts` (lightning).",
+            "maxLength": 40,
+            "type": "string"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/LonLat"
+              },
+              {
+                "maxLength": 200,
+                "type": "string"
+              }
+            ],
+            "description": "Where: a ref (\"dg:2\", any that exists), [lon, lat], \"lon,lat\", or a name (a demigod, region, city, crowd or person)."
+          },
+          "text": {
+            "description": "custom only: what the power is (required for custom).",
+            "maxLength": 200,
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "target"
+        ],
+        "type": "object"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "left": {
+      "description": "What you say to your left hand this beat (<= 2000 chars). Empty = that hand does nothing (no LLM call). Newlines separate commands.",
+      "maxLength": 2000,
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "right": {
+      "description": "What you say to your right hand this beat (<= 2000 chars). Empty = that hand does nothing (no LLM call). Newlines separate commands.",
+      "maxLength": 2000,
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "sent_at": {
+      "description": "Your clock (epoch ms) when this was sent: orders the window's initiator didn't beat are cut off by it, and it measures how long a window stayed open. Without it, your orders can't prove they came before an Enter.",
+      "minimum": 0,
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "slow": {
+      "description": "Text entry: you started typing; slow time (open a window). One window at a time.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "window": {
+      "description": "The window (its opening beat) these orders were typed in; orders for a window that already closed are cut off.",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "zoom": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "maxLength": 0,
+          "type": "string"
+        },
+        {
+          "description": "Case-insensitive; map/planet/globe = world, region = district, person = character.",
+          "enum": [
+            "world",
+            "map",
+            "planet",
+            "globe",
+            "district",
+            "region",
+            "city",
+            "character",
+            "person"
+          ],
+          "type": "string"
+        },
+        {
+          "properties": {
+            "focus": {
+              "description": "A ref (\"ch:12\", any that exists) or the exact name of something visible at district zoom. Unresolvable = no focus (no error).",
+              "maxLength": 200,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "level": {
+              "description": "Case-insensitive; map/planet/globe = world, region = district, person = character.",
+              "enum": [
+                "world",
+                "map",
+                "planet",
+                "globe",
+                "district",
+                "region",
+                "city",
+                "character",
+                "person"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "level"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "Optional view change, applied at the start of Resolve: a level string, or {level, focus}. Null/empty = no change. A level without focus clears your focus."
+    }
+  },
+  "title": "Final Night 7 action fields",
+  "type": "object",
+  "x-applies-to": "action.submit.fields"
+}

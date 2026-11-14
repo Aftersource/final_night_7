@@ -1,0 +1,22 @@
+[package]
+name = "fn7-agents"
+description = "Final Night 7 minds: hand orchestrators, subagents, possessions, god and paladin minds, the world resolver; prompts, schemas and rules fallbacks."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+fn7-model.workspace = true
+fn7-pantheon.workspace = true
+theatre-plugin-api.workspace = true
+theatre-toolkit.workspace = true
+theatre-trace.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+schemars.workspace = true
+futures.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+async-trait.workspace = true

@@ -1,0 +1,522 @@
+{
+  "$defs": {
+    "CastLine": {
+      "description": "One cast this beat (public). A fizzled cast has `fizzled` and no row.",
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/LonLat"
+        },
+        "by": {
+          "description": "Caster's name.",
+          "type": "string"
+        },
+        "by_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "cost": {
+          "description": "Bolts it cost.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fizzled": {
+          "description": "Why it fizzled (not enough bolts, no such target); nothing was spent.",
+          "type": "string"
+        },
+        "icon": {
+          "description": "The power's icon key (= its slug for palette powers).",
+          "type": "string"
+        },
+        "off_target": {
+          "description": "Entropy ≥ 40: physics threw it off its aim.",
+          "type": "boolean"
+        },
+        "place": {
+          "description": "The most specific place it struck (a city, or the region).",
+          "type": "string"
+        },
+        "power": {
+          "description": "The power's slug (`powers[].slug`, or \"custom\").",
+          "type": "string"
+        },
+        "power_name": {
+          "description": "Display name.",
+          "type": "string"
+        },
+        "region": {
+          "description": "Region (planet) or district (city) it struck.",
+          "type": "string"
+        },
+        "region_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "row": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Its ledger row."
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What it hit directly, or null (a point)."
+        },
+        "target_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "by",
+        "by_ref",
+        "power",
+        "icon",
+        "power_name",
+        "cost"
+      ],
+      "type": "object"
+    },
+    "Entropy": {
+      "description": "The world's Entropy meter. Every bolt spent anywhere raises it; thresholds make the world wackier (20 weather, 40 physics, 60 riots, 80 godfall); at `max` heat death makes that beat the Final Night.",
+      "properties": {
+        "delta": {
+          "description": "Change during this beat (outcome only).",
+          "type": "number"
+        },
+        "heat_death": {
+          "description": "The beat heat death struck, or null.",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "key": {
+          "description": "The level's key.",
+          "enum": [
+            "calm",
+            "weather",
+            "physics",
+            "riots",
+            "godfall"
+          ],
+          "type": "string"
+        },
+        "level": {
+          "description": "0..4.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max": {
+          "description": "100: heat death.",
+          "type": "number"
+        },
+        "next_at": {
+          "description": "The value of the next threshold (max at the top level).",
+          "type": "number"
+        },
+        "text": {
+          "description": "What this level does to the world, one line.",
+          "type": "string"
+        },
+        "value": {
+          "description": "0..max.",
+          "type": "number"
+        }
+      },
+      "required": [
+        "value",
+        "max",
+        "level",
+        "key",
+        "text",
+        "next_at",
+        "heat_death"
+      ],
+      "type": "object"
+    },
+    "LonLat": {
+      "description": "[longitude, latitude] in degrees (WGS84). Note the order: longitude first.",
+      "items": {
+        "type": "number"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+    },
+    "Omen": {
+      "description": "A god's ruling as a client sees it (public omens and your own invocations).",
+      "properties": {
+        "at": {
+          "description": "Where it was invoked, [lon, lat].",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "god": {
+          "description": "The god's display name (\"Time\", \"Nature\", \"Consequence\", \"Death\", \"Chance\", \"Memory\", \"Entropy\").",
+          "type": "string"
+        },
+        "god_ref": {
+          "$ref": "#/$defs/Ref",
+          "description": "The god's ref (`gd:<n>`; the table is in round.brief.public.gods)."
+        },
+        "region": {
+          "description": "The region (planet) or district (city).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "speech": {
+          "description": "What the god said. Never starts with the god's name (render `god` yourself).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "god",
+        "god_ref",
+        "speech",
+        "at",
+        "region"
+      ],
+      "type": "object"
+    },
+    "Ref": {
+      "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row. Stable for the whole match.",
+      "examples": [
+        "ch:12"
+      ],
+      "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg):\\d+$",
+      "type": "string"
+    },
+    "SlowEvent": {
+      "description": "One slow-window announcement this beat.",
+      "properties": {
+        "after_ms": {
+          "description": "closed only: how long it stayed open (client timestamps, else beats × flow_ms).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "beats_left": {
+          "description": "Flow beats left (0 once closed).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "by": {
+          "description": "The initiator's name.",
+          "type": "string"
+        },
+        "by_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "closes_by_beat": {
+          "description": "Last beat it can stay open.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "event": {
+          "description": "opened this beat, still open, or closed this beat.",
+          "enum": [
+            "opened",
+            "open",
+            "closed"
+          ],
+          "type": "string"
+        },
+        "how": {
+          "description": "closed only: the initiator's orders (Enter), the deadline, or the initiator fell.",
+          "enum": [
+            "enter",
+            "timeout",
+            "fell"
+          ],
+          "type": "string"
+        },
+        "ms_left": {
+          "description": "beats_left × flow_ms.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "text": {
+          "description": "\"<name> slowed time\", or the closing line.",
+          "type": "string"
+        },
+        "window": {
+          "description": "The window's id (its opening beat).",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event",
+        "by",
+        "by_ref",
+        "window",
+        "closes_by_beat",
+        "beats_left",
+        "ms_left",
+        "text"
+      ],
+      "type": "object"
+    },
+    "Stage": {
+      "enum": [
+        "intake",
+        "route",
+        "act",
+        "merge",
+        "consequence",
+        "narrate",
+        "broadcast"
+      ],
+      "type": "string"
+    },
+    "WorldEvent": {
+      "description": "A public, geotagged world event (one ledger row): casts and their ramifications, armies raised, marching and fighting, freak weather, world mods, wounded gods, eliminations.",
+      "properties": {
+        "at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LonLat"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where, [lon, lat]."
+        },
+        "image_kind": {
+          "description": "With image_prompt.",
+          "enum": [
+            "event"
+          ],
+          "type": "string"
+        },
+        "image_prompt": {
+          "description": "Only on the truly big ones (a cast, an elimination, magnitude ≥ 8): an image prompt (subject only).",
+          "type": "string"
+        },
+        "kind": {
+          "description": "The row's verb: cast, happen, march, raise_army, shrink, damage, mood_shift, mod, unmod, wound, eliminate...",
+          "type": "string"
+        },
+        "magnitude": {
+          "description": "0..10.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "refs": {
+          "description": "The actor, then the targets.",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "type": "array"
+        },
+        "region": {
+          "description": "Region (planet) or district (city).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "row": {
+          "$ref": "#/$defs/Ref"
+        },
+        "text": {
+          "description": "What happened, in prose.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "row",
+        "kind",
+        "text",
+        "at",
+        "region",
+        "refs",
+        "magnitude"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "outcome_public.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "`round.outcome.public`: what everyone sees after the beat resolves. The narrator runs one beat late (off the critical path), so the narration here describes beat `caption_beat` (the previous beat), not `beat`.",
+  "properties": {
+    "alive": {
+      "description": "Demigods still standing.",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "arena_radius_km": {
+      "description": "Current safe radius.",
+      "type": "number"
+    },
+    "beat": {
+      "description": "The beat that resolved.",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "beats_total": {
+      "description": "The Final Night's beat.",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "callouts": {
+      "description": "Same as `previous_callouts` (kept for older clients).",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "caption": {
+      "description": "Same text as `previous_caption` (kept for older clients).",
+      "type": "string"
+    },
+    "caption_beat": {
+      "description": "The beat `previous_caption` / `previous_callouts` describe (beat - 1); null on the first beat.",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "casts": {
+      "description": "Every cast this beat, in the order settled.",
+      "items": {
+        "$ref": "#/$defs/CastLine"
+      },
+      "type": "array"
+    },
+    "eliminated": {
+      "description": "Names of demigods that fell during this beat's resolve.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "entropy": {
+      "$ref": "#/$defs/Entropy"
+    },
+    "events": {
+      "description": "Public geotagged world events this beat, in order (<= 40).",
+      "items": {
+        "$ref": "#/$defs/WorldEvent"
+      },
+      "type": "array"
+    },
+    "omens": {
+      "description": "Public god rulings this beat (magnitude >= 6, or one that sent a paladin; Entropy's yes to every cast of magnitude >= 6).",
+      "items": {
+        "$ref": "#/$defs/Omen"
+      },
+      "type": "array"
+    },
+    "previous_callouts": {
+      "description": "0-3 short asides for beat `caption_beat` (god quips, kill lines). Without the LLM these repeat the omen speeches.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "previous_caption": {
+      "description": "The narrator's caption for beat `caption_beat` (\"\" on the first beat). Template text when the LLM is off or late.",
+      "type": "string"
+    },
+    "slow": {
+      "description": "Slow-window announcements this beat (opened / open / closed).",
+      "items": {
+        "$ref": "#/$defs/SlowEvent"
+      },
+      "type": "array"
+    },
+    "timing": {
+      "description": "Server-side wall-clock timings of the resolve (diagnostics).",
+      "properties": {
+        "llm_calls": {
+          "description": "LLM minds called this beat.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "llm_fallbacks": {
+          "description": "Of those, how many used their rules fallback.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "stages": {
+          "description": "Per stage, in order.",
+          "items": {
+            "description": "",
+            "properties": {
+              "ms": {
+                "description": "",
+                "type": "number"
+              },
+              "stage": {
+                "$ref": "#/$defs/Stage"
+              }
+            },
+            "required": [
+              "stage",
+              "ms"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "total_ms": {
+          "description": "Whole resolve.",
+          "type": "number"
+        }
+      },
+      "required": [
+        "total_ms",
+        "stages",
+        "llm_calls",
+        "llm_fallbacks"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "beat",
+    "beats_total",
+    "previous_caption",
+    "previous_callouts",
+    "caption_beat",
+    "caption",
+    "callouts",
+    "eliminated",
+    "alive",
+    "arena_radius_km",
+    "omens",
+    "entropy",
+    "slow",
+    "casts",
+    "events",
+    "timing"
+  ],
+  "title": "round.outcome public",
+  "type": "object",
+  "x-applies-to": "round.outcome.public, match.snapshot.outcome"
+}

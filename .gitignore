@@ -1,0 +1,16 @@
+target/
+.env
+.cargo/
+.llm_cache/
+runs/*.sqlite
+runs/*.sqlite-*
+runs/*.log
+runs/forks/
+runs/playtests/
+runs/timeline*.json
+/data/rooms/
+.DS_Store
+runs/lan/
+runs/*
+!runs/.gitkeep
+docs/**/*.sqlite

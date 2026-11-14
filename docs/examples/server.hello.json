@@ -1,0 +1,8 @@
+{
+  "d": {
+    "game": "final_night_7",
+    "protocol": 1,
+    "server_version": "0.1.0"
+  },
+  "t": "server.hello"
+}

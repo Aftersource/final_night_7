@@ -1,0 +1,238 @@
+{
+  "d": {
+    "public_state": {
+      "alive": 1,
+      "arena": {
+        "center": [
+          106.827492,
+          -6.172472
+        ],
+        "city": "Jakarta",
+        "end_radius_km": 1500.0,
+        "kind": "planet",
+        "name": "Earth",
+        "radius_km": 1500.0,
+        "start_radius_km": 20037.5
+      },
+      "armies": [],
+      "beat": 6,
+      "beats_total": 6,
+      "caption": "Beat 5: Time's clock catches Juniper outside the arena, and 11 more things went sideways.",
+      "caption_beat": 5,
+      "demigods": [
+        {
+          "alive": false,
+          "bolts": 20,
+          "cause": "caught outside the arena by Time's clock",
+          "eliminated_beat": 4,
+          "image_kind": "portrait",
+          "name": "Rook",
+          "portrait_prompt": "Rook, a demigod: a larger-than-life figure with two glowing orchestrator hands floating at their sides and lightning crackling between their fingers",
+          "ref": "dg:0",
+          "seat": 0
+        },
+        {
+          "alive": false,
+          "bolts": 4,
+          "cause": "caught outside the arena by Time's clock",
+          "eliminated_beat": 6,
+          "image_kind": "portrait",
+          "name": "Juniper",
+          "portrait_prompt": "Juniper, a demigod: a larger-than-life figure with two glowing orchestrator hands floating at their sides and lightning crackling between their fingers",
+          "ref": "dg:1",
+          "seat": 1
+        },
+        {
+          "alive": false,
+          "bolts": 23,
+          "cause": "caught outside the arena by Time's clock",
+          "eliminated_beat": 4,
+          "image_kind": "portrait",
+          "name": "Quill",
+          "portrait_prompt": "Quill, a demigod: a larger-than-life figure with two glowing orchestrator hands floating at their sides and lightning crackling between their fingers",
+          "ref": "dg:2",
+          "seat": 2
+        },
+        {
+          "alive": true,
+          "bolts": 21,
+          "image_kind": "portrait",
+          "name": "Moth",
+          "place": "Honiara",
+          "portrait_prompt": "Moth, a demigod: a larger-than-life figure with two glowing orchestrator hands floating at their sides and lightning crackling between their fingers",
+          "pos": [
+            159.953494,
+            -9.596226
+          ],
+          "ref": "dg:3",
+          "region": "Melanesia",
+          "seat": 3
+        }
+      ],
+      "entropy": {
+        "heat_death": null,
+        "key": "calm",
+        "level": 0,
+        "max": 100.0,
+        "next_at": 20.0,
+        "text": "The world is holding together, mostly.",
+        "value": 10.2
+      },
+      "gods": [
+        {
+          "health": 10.0,
+          "name": "Time",
+          "ref": "gd:0"
+        },
+        {
+          "health": 10.0,
+          "name": "Nature",
+          "ref": "gd:1"
+        },
+        {
+          "health": 10.0,
+          "name": "Consequence",
+          "ref": "gd:2"
+        },
+        {
+          "health": 10.0,
+          "name": "Death",
+          "ref": "gd:3"
+        },
+        {
+          "health": 10.0,
+          "name": "Chance",
+          "ref": "gd:4"
+        },
+        {
+          "health": 10.0,
+          "name": "Memory",
+          "ref": "gd:5"
+        },
+        {
+          "health": 10.0,
+          "name": "Entropy",
+          "ref": "gd:6"
+        }
+      ],
+      "influence": [
+        {
+          "demigod": "Moth",
+          "demigod_ref": "dg:3",
+          "region": "Australia and New Zealand",
+          "region_ref": "pl:1",
+          "share": 0.01
+        },
+        {
+          "demigod": "Moth",
+          "demigod_ref": "dg:3",
+          "region": "Central America",
+          "region_ref": "pl:9",
+          "share": 0.01
+        },
+        {
+          "demigod": "Moth",
+          "demigod_ref": "dg:3",
+          "region": "Central Asia",
+          "region_ref": "pl:13",
+          "share": 0.01
+        },
+        {
+          "demigod": "Moth",
+          "demigod_ref": "dg:3",
+          "region": "Melanesia",
+          "region_ref": "pl:29",
+          "share": 0.05
+        },
+        {
+          "demigod": "Moth",
+          "demigod_ref": "dg:3",
+          "region": "Northern America",
+          "region_ref": "pl:41",
+          "share": 0.01
+        },
+        {
+          "demigod": "Moth",
+          "demigod_ref": "dg:3",
+          "region": "Western Asia",
+          "region_ref": "pl:73",
+          "share": 0.01
+        }
+      ],
+      "mods": [
+        {
+          "at": [
+            76.85,
+            29.64
+          ],
+          "by": "dg:3",
+          "description": "The earthquake leaves Southern Asia changed for good",
+          "expires_beat": 15,
+          "id": 0,
+          "name": "Earthquake scar",
+          "power": "earthquake",
+          "radius_km": 250.0,
+          "region": "Southern Asia",
+          "region_ref": "pl:61",
+          "since_beat": 1,
+          "stacks": 2,
+          "tags": [
+            "earth",
+            "shaking"
+          ]
+        },
+        {
+          "at": [
+            -76.08,
+            40.6
+          ],
+          "by": "dg:1",
+          "description": "The flood leaves New York changed for good",
+          "expires_beat": 15,
+          "id": 1,
+          "name": "Flood scar",
+          "power": "flood",
+          "radius_km": 300.0,
+          "region": "Northern America",
+          "region_ref": "pl:41",
+          "since_beat": 5,
+          "stacks": 1,
+          "tags": [
+            "water"
+          ]
+        }
+      ],
+      "omens": [
+        {
+          "at": [
+            -74.0,
+            40.71
+          ],
+          "god": "Entropy",
+          "god_ref": "gd:6",
+          "region": "Northern America",
+          "speech": "\"MORE POWER. That's the whole note. More. Power. Ahahhaahhaaa!\""
+        },
+        {
+          "at": [
+            77.21,
+            28.61
+          ],
+          "god": "Entropy",
+          "god_ref": "gd:6",
+          "region": "Southern Asia",
+          "speech": "\"Yes! Of course yes! I have never once said no and I am not starting now, ahahhaa!\""
+        }
+      ],
+      "slow": null
+    },
+    "round": 6,
+    "scores": {
+      "0": 0.0,
+      "1": 0.0,
+      "2": 0.0,
+      "3": 1000001.0
+    }
+  },
+  "t": "round.committed"
+}

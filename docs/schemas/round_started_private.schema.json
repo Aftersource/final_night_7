@@ -1,0 +1,38 @@
+{
+  "$id": "round_started_private.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "`round.started.private`: your demigod after Start.",
+  "properties": {
+    "alive": {
+      "description": "False = you were eliminated (you are now a spectator).",
+      "type": "boolean"
+    },
+    "beat": {
+      "description": "This beat.",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "debt_due": {
+      "description": "Damage points Consequence collects from you this beat (resolved in this beat's merge; a Time delay can push it back).",
+      "type": "number"
+    },
+    "health": {
+      "description": "Your health after Start.",
+      "type": "number"
+    },
+    "outside_arena": {
+      "description": "You are outside the safe radius: move inward or keep taking damage each beat.",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "beat",
+    "health",
+    "alive",
+    "outside_arena",
+    "debt_due"
+  ],
+  "title": "round.started private",
+  "type": "object",
+  "x-applies-to": "round.started.private, match.snapshot.you.started"
+}

@@ -1,0 +1,20 @@
+{
+  "d": {
+    "fields": {
+      "cast": {
+        "power": "flood",
+        "target": [
+          -74.0,
+          40.71
+        ]
+      },
+      "left": "steal the",
+      "right": "call lightning",
+      "sent_at": 1794616846362,
+      "zoom": "world"
+    },
+    "round": 5,
+    "text": "l: steal the\nr: call lightning"
+  },
+  "t": "action.submit"
+}

@@ -1,0 +1,523 @@
+{
+  "$defs": {
+    "Entropy": {
+      "description": "The world's Entropy meter. Every bolt spent anywhere raises it; thresholds make the world wackier (20 weather, 40 physics, 60 riots, 80 godfall); at `max` heat death makes that beat the Final Night.",
+      "properties": {
+        "delta": {
+          "description": "Change during this beat (outcome only).",
+          "type": "number"
+        },
+        "heat_death": {
+          "description": "The beat heat death struck, or null.",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "key": {
+          "description": "The level's key.",
+          "enum": [
+            "calm",
+            "weather",
+            "physics",
+            "riots",
+            "godfall"
+          ],
+          "type": "string"
+        },
+        "level": {
+          "description": "0..4.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max": {
+          "description": "100: heat death.",
+          "type": "number"
+        },
+        "next_at": {
+          "description": "The value of the next threshold (max at the top level).",
+          "type": "number"
+        },
+        "text": {
+          "description": "What this level does to the world, one line.",
+          "type": "string"
+        },
+        "value": {
+          "description": "0..max.",
+          "type": "number"
+        }
+      },
+      "required": [
+        "value",
+        "max",
+        "level",
+        "key",
+        "text",
+        "next_at",
+        "heat_death"
+      ],
+      "type": "object"
+    },
+    "Ref": {
+      "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row. Stable for the whole match.",
+      "examples": [
+        "ch:12"
+      ],
+      "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg):\\d+$",
+      "type": "string"
+    }
+  },
+  "$id": "match_summary.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "`match.ended.summary`.",
+  "properties": {
+    "champion_seat": {
+      "description": "The champion's Theatre seat; null when a built-in AI demigod won (then match.ended.winners is []).",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "champions": {
+      "description": "The survivor (one entry; if nobody stands, the last to fall).",
+      "items": {
+        "description": "",
+        "properties": {
+          "demigod": {
+            "$ref": "#/$defs/Ref"
+          },
+          "health": {
+            "description": "Health at the end.",
+            "type": "number"
+          },
+          "name": {
+            "description": "",
+            "type": "string"
+          },
+          "seat": {
+            "description": "Theatre seat; null for the built-in AI's demigods.",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "demigod",
+          "name",
+          "seat",
+          "health"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "entropy": {
+      "$ref": "#/$defs/Entropy"
+    },
+    "final_cut": {
+      "description": "The match's story.",
+      "properties": {
+        "fallback": {
+          "description": "True = the captions, not an LLM story.",
+          "type": "boolean"
+        },
+        "story": {
+          "description": "Narrator's final cut (<= 250 words), or the beat captions joined by newlines when fallback.",
+          "type": "string"
+        },
+        "title": {
+          "description": "",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "story",
+        "fallback"
+      ],
+      "type": "object"
+    },
+    "heat_death": {
+      "description": "The beat heat death struck (the Final Night came early), or null.",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "last_caption": {
+      "description": "The last beat's caption (narrated one beat late, so it is written at the end of the match, with the champion given to the narrator). Absent when the last beat saw nothing to narrate.",
+      "properties": {
+        "beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "caption": {
+          "description": "",
+          "type": "string"
+        }
+      },
+      "required": [
+        "beat",
+        "caption"
+      ],
+      "type": "object"
+    },
+    "piles": {
+      "description": "One per demigod, in id order.",
+      "items": {
+        "description": "Everything one demigod held and summoned, its stats and an image prompt for its statue (the end screen).",
+        "properties": {
+          "alive": {
+            "description": "",
+            "type": "boolean"
+          },
+          "bolts": {
+            "description": "Bolts it held at the end.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "demigod": {
+            "$ref": "#/$defs/Ref"
+          },
+          "image_kind": {
+            "enum": [
+              "statue"
+            ],
+            "type": "string"
+          },
+          "items": {
+            "description": "Items it or its agents/bodies ever held.",
+            "items": {
+              "description": "",
+              "properties": {
+                "item": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "name": {
+                  "description": "",
+                  "type": "string"
+                },
+                "origin": {
+                  "description": "How it came to be: starting kit, summoned, found, echoed (a copy of `origin_ref`) or granted by the god `origin_ref`.",
+                  "enum": [
+                    "starting",
+                    "summoned",
+                    "found",
+                    "echoed",
+                    "granted"
+                  ],
+                  "type": "string"
+                },
+                "origin_ref": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/Ref"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The source item (`it:<n>`) for echoed, the god (`gd:<n>`) for granted, else null."
+                }
+              },
+              "required": [
+                "item",
+                "name",
+                "origin",
+                "origin_ref"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "name": {
+            "description": "",
+            "type": "string"
+          },
+          "seat": {
+            "description": "Theatre seat; null for the built-in AI's demigods.",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "slows": {
+            "description": "Times it slowed time.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "stats": {
+            "description": "",
+            "properties": {
+              "acts": {
+                "description": "Ledger rows it (or its agents/bodies) acted in.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "debt_paid": {
+                "description": "Debt collected or settled.",
+                "type": "number"
+              },
+              "memorized_people": {
+                "description": "People it memorized.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "rulings": {
+                "description": "God rulings it invoked.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "subagents": {
+                "description": "Subagents and possessions it spawned.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "words": {
+                "description": "Words spoken to its hands.",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "words",
+              "acts",
+              "debt_paid",
+              "rulings",
+              "memorized_people",
+              "subagents"
+            ],
+            "type": "object"
+          },
+          "statue_prompt": {
+            "description": "An image-generation prompt for its amiibo-style statue.",
+            "type": "string"
+          },
+          "summons": {
+            "description": "Items it created.",
+            "items": {
+              "description": "",
+              "properties": {
+                "item": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "name": {
+                  "description": "",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "item",
+                "name"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "demigod",
+          "name",
+          "seat",
+          "alive",
+          "items",
+          "summons",
+          "stats",
+          "statue_prompt",
+          "image_kind",
+          "bolts",
+          "slows"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "standings": {
+      "description": "Every demigod, best first.",
+      "items": {
+        "description": "One demigod's final place.",
+        "properties": {
+          "alive": {
+            "description": "",
+            "type": "boolean"
+          },
+          "cause": {
+            "description": "How it fell.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "demigod": {
+            "$ref": "#/$defs/Ref"
+          },
+          "eliminated_beat": {
+            "description": "",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "name": {
+            "description": "",
+            "type": "string"
+          },
+          "rank": {
+            "description": "1 = champion.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "score": {
+            "description": "Same formula as round.committed scores: 1e6 if alive + followers + 100 x total favor.",
+            "type": "number"
+          },
+          "seat": {
+            "description": "Theatre seat; null for the built-in AI's demigods.",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "rank",
+          "demigod",
+          "name",
+          "seat",
+          "alive",
+          "eliminated_beat",
+          "cause",
+          "score"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "stats": {
+      "description": "Match totals.",
+      "properties": {
+        "agents": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "armies": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "beats": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "beats_total": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "casts": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "characters": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "eliminations": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "intents": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ledger_rows": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "llm_calls": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "llm_fallbacks": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "memories": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "memorized": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "mods": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rulings": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "slows": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "beats",
+        "beats_total",
+        "ledger_rows",
+        "characters",
+        "memorized",
+        "agents",
+        "rulings",
+        "intents",
+        "memories",
+        "llm_calls",
+        "llm_fallbacks",
+        "eliminations",
+        "casts",
+        "slows",
+        "armies",
+        "mods"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "champions",
+    "champion_seat",
+    "standings",
+    "piles",
+    "final_cut",
+    "stats",
+    "entropy",
+    "heat_death"
+  ],
+  "title": "match.ended summary",
+  "type": "object",
+  "x-applies-to": "match.ended.summary"
+}

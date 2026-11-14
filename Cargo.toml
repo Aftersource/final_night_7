@@ -1,0 +1,58 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/fn7-model",
+    "crates/fn7-society",
+    "crates/fn7-memory",
+    "crates/fn7-pantheon",
+    "crates/fn7-agents",
+    "crates/fn7-plugin",
+    "crates/fn7-server",
+    "crates/fn7-tools",
+    "crates/fn7-media",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace.dependencies]
+# The Theatre. Local development: .cargo/config.toml patches these to ../theatre (gitignored).
+theatre-plugin-api = { git = "https://github.com/Aftersource/theatre", branch = "main" }
+theatre-llm = { git = "https://github.com/Aftersource/theatre", branch = "main" }
+theatre-server = { git = "https://github.com/Aftersource/theatre", branch = "main", default-features = false }
+theatre-protocol = { git = "https://github.com/Aftersource/theatre", branch = "main" }
+theatre-toolkit = { git = "https://github.com/Aftersource/theatre", branch = "main", features = ["embedded-geo"] }
+# Generic recording (moves into the Theatre core with theatre_worker's P1).
+theatre-trace = { path = "../demo_final_night/trace" }
+theatre-recorder = { path = "../demo_final_night/recorder" }
+
+fn7-model = { path = "crates/fn7-model" }
+fn7-society = { path = "crates/fn7-society" }
+fn7-memory = { path = "crates/fn7-memory" }
+fn7-pantheon = { path = "crates/fn7-pantheon" }
+fn7-agents = { path = "crates/fn7-agents" }
+fn7-plugin = { path = "crates/fn7-plugin" }
+fn7-media = { path = "crates/fn7-media" }
+
+tokio = { version = "1.54", features = ["full"] }
+futures = "0.3"
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+dotenvy = "0.15"
+clap = { version = "4", features = ["derive", "env"] }
+strsim = "0.11"
+schemars = "1"
+rusqlite = { version = "0.42", features = ["bundled", "serde_json"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tokio-tungstenite = "0.26"
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

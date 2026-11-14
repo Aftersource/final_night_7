@@ -1,0 +1,13 @@
+[package]
+name = "fn7-memory"
+description = "Final Night 7 memory: per-mind stores, recall for prompts, folding old memories into summaries."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+fn7-model.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
