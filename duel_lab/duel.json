@@ -1,0 +1,117 @@
+{
+  "duel_id": "lab:ninja-1",
+  "place": "Jakarta",
+  "time_of_day": "night",
+  "intro_ms": 2600,
+  "outro_ms": 2400,
+  "a": { "name": "Chris's Left Hand", "skin": "gold", "aura": "#ff3b2f", "start": [-3, 0], "hp": 10 },
+  "b": { "name": "Vex's Right Hand", "skin": "obsidian", "aura": "#2fd0ff", "start": [3, 0], "hp": 10 },
+  "set": [
+    { "shape": "pillar", "at": [0, -3], "size": 1.6, "tint": "#6d6257" },
+    { "shape": "box", "at": [-2, -2], "size": 1.0, "tint": "#7a5a3c" },
+    { "shape": "box", "at": [3, -3], "size": 0.8, "tint": "#6a4d35" },
+    { "shape": "cone", "at": [-5, -2], "size": 1.2, "tint": "#2f5a3a" },
+    { "shape": "cone", "at": [4, -1], "size": 1.1, "tint": "#2a4f36" },
+    { "shape": "ico", "at": [5, -3], "size": 0.5, "tint": "#55595f" },
+    { "shape": "octa", "at": [-1, -4], "size": 0.45, "tint": "#b08a3a" },
+    { "shape": "tetra", "at": [4, -4], "size": 0.5, "tint": "#55595f" }
+  ],
+  "panels": [
+    {
+      "caption": "Two wills, one hex. The box opens.",
+      "shot": "wide", "play_ms": 2600, "input_ms": 2000,
+      "a": { "line": "circle left, wait for the blink", "segs": [ { "clip": "taunt", "ms": 2600 } ] },
+      "b": { "line": "hold the centre", "segs": [ { "clip": "idle_guard", "ms": 2600, "loop": true } ] },
+      "hp": { "a": 10, "b": 10 }
+    },
+    {
+      "caption": "Gold breaks first: three strides and a leap off the crate.",
+      "shot": "side", "play_ms": 3000, "input_ms": 2300,
+      "a": { "line": "run the crate and dive on him", "segs": [
+        { "clip": "run", "ms": 900, "loop": true, "to": [-2, -1], "path": "dash" },
+        { "clip": "jump_attack", "ms": 2100, "at": 1500, "speed": 1.6, "to": [1, 0], "path": "leap", "h": 2.6 } ] },
+      "b": { "line": "roll under it", "segs": [
+        { "clip": "idle_guard", "ms": 1500, "loop": true },
+        { "clip": "evade_roll", "ms": 1500, "to": [2, 2], "path": "dash" } ] },
+      "contacts": [ { "t_ms": 2450, "by": "a", "text": "WHUMP", "miss": true } ],
+      "hp": { "a": 10, "b": 10 }
+    },
+    {
+      "caption": "Obsidian comes up cutting. The parry rings like a bell.",
+      "shot": "over_b", "play_ms": 2600, "input_ms": 2000, "flip": true,
+      "a": { "line": "parry high and turn him", "segs": [
+        { "clip": "evade_spin", "ms": 900, "to": [1, 1], "path": "dash" },
+        { "clip": "parry_high", "ms": 1700 } ] },
+      "b": { "line": "slash on the rise", "segs": [
+        { "clip": "run", "ms": 700, "loop": true, "to": [2, 1], "path": "dash" },
+        { "clip": "strike_slash", "ms": 1900 } ] },
+      "contacts": [ { "t_ms": 1450, "by": "b", "text": "KLANG" } ],
+      "hp": { "a": 10, "b": 10 }
+    },
+    {
+      "caption": "A boot to the chest. Obsidian skids two hexes.",
+      "shot": "low", "play_ms": 2400, "input_ms": 1800,
+      "a": { "line": "kick him off the stage", "segs": [ { "clip": "kick", "ms": 2400 } ] },
+      "b": { "line": "guard", "segs": [
+        { "clip": "block", "ms": 900 },
+        { "clip": "stagger_back", "ms": 1500, "to": [4, 1], "path": "knock", "h": 0.5 } ] },
+      "contacts": [ { "t_ms": 900, "by": "a", "text": "KRAK" } ],
+      "hp": { "a": 10, "b": 7.5 }
+    },
+    {
+      "caption": "He answers with the pillar: up, over, behind.",
+      "shot": "wide", "play_ms": 3000, "input_ms": 2300, "flip": true,
+      "a": { "line": "follow, heavy overhead", "segs": [
+        { "clip": "run", "ms": 1000, "loop": true, "to": [3, 1], "path": "dash" },
+        { "clip": "heavy_hammer", "ms": 2000, "speed": 1.3 } ] },
+      "b": { "line": "flip over him, cut the spine", "segs": [
+        { "clip": "run", "ms": 700, "loop": true, "to": [3, 0], "path": "dash" },
+        { "clip": "jump_attack", "ms": 1300, "at": 1700, "speed": 1.8, "to": [1, 1], "path": "flip", "h": 3.0 },
+        { "clip": "strike_side", "ms": 1000, "speed": 1.4 } ] },
+      "contacts": [ { "t_ms": 2450, "by": "b", "text": "SHHK" } ],
+      "hp": { "a": 7, "b": 7.5 }
+    },
+    {
+      "caption": "Gold catches the wrist. The world goes sideways.",
+      "shot": "over_a", "play_ms": 3000, "input_ms": 2300, "flip": true,
+      "a": { "line": "grab the arm and throw", "segs": [ { "clip": "throw_shoulder", "ms": 3000, "speed": 1.2 } ] },
+      "b": { "line": "break the grip", "segs": [
+        { "clip": "stagger_waist", "ms": 1100 },
+        { "clip": "airborne_hit", "ms": 1100, "to": [-2, 1], "path": "knock", "h": 2.4 },
+        { "clip": "downed", "ms": 800 } ] },
+      "contacts": [ { "t_ms": 2150, "by": "a", "text": "THOOM" } ],
+      "hp": { "a": 7, "b": 4 }
+    },
+    {
+      "caption": "On one knee, Obsidian calls on Death.",
+      "shot": "close_b", "play_ms": 2800, "input_ms": 2100,
+      "a": { "line": "charge before he finishes", "segs": [
+        { "clip": "idle_guard", "ms": 800, "loop": true },
+        { "clip": "run", "ms": 900, "loop": true, "to": [-1, 1], "path": "dash" },
+        { "clip": "heavy_charged", "ms": 1100, "speed": 1.6 } ] },
+      "b": { "line": "Death, take his year", "segs": [
+        { "clip": "rise", "ms": 1200, "speed": 1.6 },
+        { "clip": "invoke", "ms": 1600, "speed": 1.4 } ] },
+      "contacts": [ { "t_ms": 2500, "by": "b", "text": "VMMM" } ],
+      "hp": { "a": 5, "b": 4 }
+    },
+    {
+      "caption": "Three cuts. The third one is the answer.",
+      "shot": "low", "play_ms": 3200, "input_ms": 2400,
+      "a": { "line": "finish it: three cuts", "segs": [ { "clip": "combo_triple", "ms": 3200, "speed": 1.2 } ] },
+      "b": { "line": "parry parry par", "segs": [
+        { "clip": "parry_back", "ms": 1200 },
+        { "clip": "block_cross", "ms": 900 },
+        { "clip": "defeat", "ms": 1100, "speed": 1.5 } ] },
+      "contacts": [ { "t_ms": 900, "by": "a", "text": "TK" }, { "t_ms": 1700, "by": "a", "text": "TK" }, { "t_ms": 2400, "by": "a", "text": "KRAAK" } ],
+      "hp": { "a": 5, "b": 0 }
+    },
+    {
+      "caption": "The box remembers who stood.",
+      "shot": "close_a", "play_ms": 2600, "input_ms": 0,
+      "a": { "segs": [ { "clip": "victory", "ms": 2600 } ] },
+      "b": { "segs": [ { "clip": "defeat", "ms": 2600, "at": 99999 } ] },
+      "hp": { "a": 5, "b": 0 }
+    }
+  ]
+}

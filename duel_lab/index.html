@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Duel Lab</title>
+<style>
+  :root { --ink:#1b140d; --parch:#e9dcbd; --gold:#d8a94a; --a:#ff3b2f; --b:#2fd0ff; }
+  html,body { margin:0; height:100%; background:#07060a; color:var(--parch); font:14px/1.35 Georgia, 'Times New Roman', serif; overflow:hidden; }
+  canvas { display:block; }
+  #flash { position:fixed; inset:0; background:#fff; opacity:0; pointer-events:none; mix-blend-mode:screen; }
+  #caption { position:fixed; left:24px; top:20px; max-width:440px; background:var(--parch); color:var(--ink); padding:10px 14px; border:3px solid var(--ink);
+    box-shadow:6px 6px 0 #000a; font-size:18px; font-style:italic; transform:rotate(-1.2deg); }
+  #caption b { display:block; font:700 11px/1 Georgia; letter-spacing:.18em; font-style:normal; margin-bottom:5px; color:#7a4a12; }
+  #burst { position:fixed; left:50%; top:38%; font:900 96px/1 Impact, 'Arial Black', sans-serif; color:#ffe14a; -webkit-text-stroke:4px #1b140d;
+    text-shadow:6px 6px 0 #c22; transform:translate(-50%,-50%) scale(0) rotate(-8deg); pointer-events:none; letter-spacing:.02em; }
+  #flip { position:fixed; right:28px; top:22px; font:900 28px/1 Impact, sans-serif; color:#fff; -webkit-text-stroke:2px #1b140d; opacity:0; letter-spacing:.08em; }
+  .hp { position:fixed; top:74px; width:300px; }
+  #hpA { left:24px; top:118px; } #hpB { right:24px; top:64px; text-align:right; }
+  .hp .n { font-weight:700; letter-spacing:.04em; text-shadow:0 2px 0 #000; }
+  .hp .bar { height:12px; background:#0009; border:2px solid #000; margin-top:4px; }
+  .hp .bar i { display:block; height:100%; width:100%; }
+  #hpA i { background:var(--a); } #hpB i { background:var(--b); margin-left:auto; }
+  #tray { position:fixed; left:50%; bottom:74px; transform:translateX(-50%); width:min(760px,92vw); background:#2a1c10ee; border:2px solid #000;
+    box-shadow:0 8px 24px #000c; padding:10px 14px 12px; border-radius:4px; }
+  .line { font:16px/1.5 'Courier New', monospace; white-space:nowrap; overflow:hidden; min-height:24px; }
+  .line.a { color:var(--a); } .line.b { color:var(--b); }
+  .line .who { display:inline-block; width:150px; font:700 11px/1 Georgia; letter-spacing:.1em; opacity:.8; }
+  #win { position:relative; height:10px; background:#0008; border:1px solid #000; margin-top:8px; }
+  #win i { position:absolute; left:0; top:0; bottom:0; background:var(--gold); }
+  #win u { position:absolute; top:-4px; bottom:-4px; width:3px; background:#fff; }
+  #winlab { font:700 11px/1 Georgia; letter-spacing:.14em; margin-top:6px; display:flex; justify-content:space-between; }
+  #bar { position:fixed; left:0; right:0; bottom:0; padding:10px 16px 14px; background:linear-gradient(#0000,#000d 40%); display:flex; gap:10px; align-items:center; }
+  #bar button, #bar select { background:#2a1c10; color:var(--parch); border:1px solid #6b5230; padding:6px 10px; font:inherit; border-radius:3px; cursor:pointer; }
+  #bar button:hover { background:#3a2917; }
+  #tl { flex:1; position:relative; height:26px; }
+  #tl input { width:100%; margin:0; position:absolute; top:6px; }
+  #ticks { position:absolute; left:0; right:0; top:0; height:6px; }
+  #ticks i { position:absolute; top:0; width:1px; height:6px; background:var(--gold); }
+  #time { width:92px; text-align:right; font-variant-numeric:tabular-nums; }
+  #load { position:fixed; inset:0; display:grid; place-items:center; background:#07060a; font-size:18px; letter-spacing:.1em; }
+</style>
+</head>
+<body>
+<div id="flash"></div>
+<div id="caption"><b id="pn">PANEL</b><span id="ct"></span></div>
+<div id="burst"></div>
+<div id="flip">INITIATIVE FLIPS</div>
+<div class="hp" id="hpA"><div class="n" id="nA"></div><div class="bar"><i></i></div></div>
+<div class="hp" id="hpB"><div class="n" id="nB"></div><div class="bar"><i></i></div></div>
+<div id="tray">
+  <div class="line a"><span class="who" id="wA"></span><span id="lA"></span></div>
+  <div class="line b"><span class="who" id="wB"></span><span id="lB"></span></div>
+  <div id="win"><i></i><u></u></div>
+  <div id="winlab"><span id="wl">YOUR WINDOW</span><span id="wr"></span></div>
+</div>
+<div id="bar">
+  <button id="play">Pause</button><button id="replay">Replay</button>
+  <select id="speed"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option></select>
+  <div id="tl"><div id="ticks"></div><input id="scrub" type="range" min="0" max="1000" value="0" step="1"></div>
+  <span id="time"></span>
+  <select id="skA"></select><select id="skB"></select>
+</div>
+<div id="load">OPENING THE BOX…</div>
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }</script>
+<script type="module" src="main.js"></script>
+</body>
+</html>
