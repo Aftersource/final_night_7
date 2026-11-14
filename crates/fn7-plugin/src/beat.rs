@@ -753,6 +753,7 @@ pub fn split_turn(w: &World, seat: u8, lead: DemigodId, input: Input) -> Vec<Tur
                 summons: if is_lead { input.summons.clone() } else { vec![] },
                 god_powers: if is_lead { input.god_powers.clone() } else { vec![] },
                 challenge: None,
+                tick: None,
                 blow: None,
             },
         });

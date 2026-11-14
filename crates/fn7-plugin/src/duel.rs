@@ -696,6 +696,14 @@ pub struct Bout {
     /// `duel.deadline_ms` already includes them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pauses: Vec<[i64; 2]>,
+    /// Schema 9 (rules 0.8.2, [`crate::panel`]): the duel's scene (`duel.scene`), every panel so far (`duel.panel`)
+    /// and where the panel cycle stands.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scene: Option<Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub panels: Vec<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cycle: Option<crate::panel::Cycle>,
 }
 
 impl Bout {
@@ -704,13 +712,14 @@ impl Bout {
         let flow = crate::choreo::Flow::new(&duel.level);
         Bout { duel, hp, n: 0, last_ms: [None; 2], last_seq: [None; 2], said: [vec![], vec![]], log: vec![], strikes: vec![],
                ko: None, typed: 0, lines: vec![], flow, invoked: [0; 2], applied: [0.0; 2], paid: [0; 2], opened: false, delivered_seq: 0,
-               blows: vec![], full: false, pauses: vec![] }
+               blows: vec![], full: false, pauses: vec![], scene: None, panels: vec![], cycle: None }
     }
 
     /// [`Bout::new`] in `w`'s rules: a schema-8 state keeps the duel's whole timeline.
     pub fn new_in(w: &World, duel: Duel) -> Bout {
         let mut b = Bout::new(duel);
         b.full = w.resume_rules();
+        crate::panel::open(&mut b, w);
         b
     }
 
@@ -730,6 +739,7 @@ impl Bout {
         if self.duel.deadline_ms > 0 && to_ms > from {
             self.duel.deadline_ms += to_ms - from;
             self.pauses.push([from, to_ms]);
+            crate::panel::shift(self, to_ms - from);
         }
     }
 
@@ -1235,7 +1245,20 @@ pub fn on_instant(live: &LiveCache, w: &World, seat: u8, a: &Action, i: &Input) 
 /// Schema 8: the AI's challenges at the round's start, as `challenge.lock` events.
 pub fn round_start_now(j: &crate::present::Journal, w: &World) -> Vec<Value> {
     let st = crate::world::settings(w);
-    j.live(w, &st).bouts.iter().filter(|b| b.duel.by_seat.is_none() && !b.opened).map(|b| lock_json(w, &b.duel)).collect()
+    j.live(w, &st)
+        .bouts
+        .iter()
+        .filter(|b| b.duel.by_seat.is_none() && !b.opened)
+        .map(|b| {
+            let mut lock = lock_json(w, &b.duel);
+            // Rules 0.8.2: its scene and panel 0 come with it.
+            let also = crate::panel::since(b, true, 0);
+            if !also.is_empty() {
+                lock["also"] = also.into();
+            }
+            lock
+        })
+        .collect()
 }
 
 /// Schema 8: `validate_action` for a challenge or a duel line, against the duels as they stand now.
@@ -1254,6 +1277,18 @@ pub fn validate_now(j: &crate::present::Journal, w: &World, seat: u8, i: &Input)
         }
         find(&mut lv.bouts, w, seat, b)?;
     }
+    if let Some(id) = &i.tick {
+        // Refusals: panels_off (a state before rules 0.8.2), no_duel (no such duel under way, or its panels are
+        // done), not_yours (only its duellists tick).
+        if !w.panel_rules() {
+            return Err("panels_off".into());
+        }
+        let bout = lv.bouts.iter().find(|x| x.duel.id == *id).ok_or("no_duel")?;
+        bout.duel.side_of(seat).ok_or("not_yours")?;
+        if !crate::panel::running(bout) {
+            return Err("no_duel".into());
+        }
+    }
     Ok(())
 }
 
@@ -1265,11 +1300,34 @@ pub fn on_instant_now(j: &crate::present::Journal, w: &World, seat: u8, a: &Acti
     if let Some(b) = &i.blow {
         find(&mut lv.bouts, w, seat, b).ok()?;
     }
-    let act = Act { seat, seq: a.seq, at_ms: a.received_at_ms, challenge: i.challenge.clone(), blow: i.blow.clone(), summons: vec![] };
-    let mut v = apply_act(w, &st, w.meta.beat, &mut lv.bouts, &mut lv.moved, &act, false)?;
-    match &i.challenge {
-        Some(c) => crate::world::event("duel_lock", Some(Ref::Demigod(c.demigod).to_string()), v.clone()),
-        None => crate::world::event("duel_blow", i.blow.as_ref().map(|b| b.duel_id.clone()), v.clone()),
+    let act = Act { seat, seq: a.seq, at_ms: a.received_at_ms, challenge: i.challenge.clone(), blow: i.blow.clone(), summons: vec![],
+                    tick: i.tick.clone() };
+    // Rules 0.8.2: the panels this action makes due go out with its event (`also[]`).
+    let target = i.blow.as_ref().map(|b| b.duel_id.clone()).or(i.tick.clone());
+    let had = target.as_ref().and_then(|id| lv.bouts.iter().find(|b| b.duel.id == *id)).map(|b| b.panels.len());
+    let ev = apply_act(w, &st, w.meta.beat, &mut lv.bouts, &mut lv.moved, &act, false);
+    let id = target.or_else(|| ev.as_ref().and_then(|v| v["duel_id"].as_str().map(str::to_string)))?;
+    let bout = lv.bouts.iter().find(|b| b.duel.id == id)?;
+    let mut also = crate::panel::since(bout, had.is_none(), had.unwrap_or(0));
+    let mut v = match ev {
+        Some(v) => v,
+        // A tick: the first panel it made due is the event (none due: nothing to show).
+        None if i.tick.is_some() && !also.is_empty() => also.remove(0),
+        None => return None,
+    };
+    match (&i.challenge, &i.blow) {
+        (Some(c), _) => crate::world::event("duel_lock", Some(Ref::Demigod(c.demigod).to_string()), v.clone()),
+        (_, Some(b)) => crate::world::event("duel_blow", Some(b.duel_id.clone()), v.clone()),
+        _ => {}
+    }
+    for p in &also {
+        crate::world::event(if p["event"] == "duel.scene" { "duel_scene" } else { "duel_panel" }, Some(id.clone()), p.clone());
+    }
+    if i.tick.is_some() {
+        crate::world::event("duel_panel", Some(id.clone()), v.clone());
+    }
+    if !also.is_empty() {
+        v["also"] = also.into();
     }
     v["seq"] = a.seq.into();
     v["received_at_ms"] = a.received_at_ms.into();
@@ -1290,6 +1348,8 @@ pub struct Act {
     pub blow: Option<BlowOrder>,
     /// Rules 0.8.1: summonings in the same stream (a later challenge fights from their destination).
     pub summons: Vec<crate::actions::SummonOrder>,
+    /// Rules 0.8.2: a panel tick for this duel.
+    pub tick: Option<String>,
 }
 
 /// This resolve's challenge and duel input: the acts in arrival order, plus the batch's newest receive stamp (the
@@ -1306,7 +1366,7 @@ pub struct Acts {
 /// An instant action as an [`Act`], when it is a challenge, a duel line or a summoning.
 pub fn act_of(seat: u8, text: &str, fields: &Value, seq: u64, at_ms: i64) -> Option<Act> {
     let i = crate::actions::parse(text, fields).ok()?;
-    (i.is_duel() || !i.summons.is_empty()).then_some(Act { seat, seq, at_ms, challenge: i.challenge, blow: i.blow, summons: i.summons })
+    (i.is_duel() || !i.summons.is_empty()).then_some(Act { seat, seq, at_ms, challenge: i.challenge, blow: i.blow, summons: i.summons, tick: i.tick })
 }
 
 /// This resolve's challenge and duel actions (instant, from real seats), in arrival order: by `seq`; in a schema-8
@@ -1319,7 +1379,7 @@ pub fn acts_of(actions: &[Action], by_stamp: bool) -> Acts {
         .filter_map(|a| {
             let i = crate::actions::parse(&a.text, &a.fields).ok()?;
             (i.is_duel() || !i.summons.is_empty()).then_some(Act {
-                seat: a.seat, seq: a.seq, at_ms: a.received_at_ms, challenge: i.challenge, blow: i.blow, summons: i.summons,
+                seat: a.seat, seq: a.seq, at_ms: a.received_at_ms, challenge: i.challenge, blow: i.blow, summons: i.summons, tick: i.tick,
             })
         })
         .collect();
@@ -1345,6 +1405,8 @@ pub struct Pending {
     pub human: bool,
     /// Why it ended: `ko`, `deadline`, `fallen` or `auto` (two built-in AIs, fought out at once).
     pub reason: &'static str,
+    /// Rules 0.8.2: the panels it had before its last resolve (`challenge.end.panels` carries the rest).
+    pub panels_from: usize,
 }
 
 /// What this resolve did with the duels.
@@ -1371,6 +1433,9 @@ pub fn process(w: &mut World, beat: u32, input: &Acts, pantheon: &Pantheon, st: 
         return Resolved::default();
     }
     let mut bouts: Vec<Bout> = open_bouts(w);
+    // Rules 0.8.2: the panels each duel had before this resolve (the outcome carries the ones it adds).
+    let had: Vec<(String, usize)> = bouts.iter().map(|b| (b.duel.id.clone(), b.panels.len())).collect();
+    let had = |id: &str| had.iter().find(|x| x.0 == id).map(|x| x.1).unwrap_or(0);
     bouts.extend(ai_challenges(w, beat, st).iter().map(|c| ai_bout(w, beat, c)));
     let mut moved: Vec<Moved> = bouts.iter().filter(|b| !b.opened).filter_map(|b| b.duel.leap).collect();
     for act in &input.acts {
@@ -1398,17 +1463,29 @@ pub fn process(w: &mut World, beat: u32, input: &Acts, pantheon: &Pantheon, st: 
             bout.auto(w, st);
         }
         let reason = if bout.ko.is_some() { Some("ko") } else { reason };
+        // Rules 0.8.2: the panels due by this batch's clock; an ended duel plays out to its outro.
+        if input.now_ms > 0 {
+            crate::panel::advance(&mut bout, input.now_ms, false);
+        }
+        if reason.is_some() {
+            crate::panel::finish(&mut bout);
+        }
+        let from = had(&bout.duel.id);
         out.pinned.extend(bout.duel.f.iter().map(|f| f.id));
         if let Some(m) = bout.duel.leap.filter(|_| !bout.opened) {
             out.leapt.push(m.demigod);
         }
         match reason {
-            Some(why) => out.ended.push(apply(w, beat, bout, pantheon, st, Some(why)).expect("final")),
+            Some(why) => {
+                let mut p = apply(w, beat, bout, pantheon, st, Some(why)).expect("final");
+                p.panels_from = from;
+                out.ended.push(p);
+            }
             None => {
                 let mut bout = bout;
                 let log = std::mem::take(&mut bout.log);
                 apply_segment(w, beat, &mut bout, pantheon, st, false);
-                out.open.push(open_json(&bout, log));
+                out.open.push(open_json(&bout, log, from));
                 still.push(serde_json::to_value(&bout).unwrap_or(Value::Null));
             }
         }
@@ -1444,10 +1521,18 @@ pub fn apply_act(w: &World, st: &Settings, beat: u32, bouts: &mut Vec<Bout>, mov
             Err(_) => {}
         }
     }
+    // Rules 0.8.2: a duellist's tick moves its duel's panel cycle on (and nothing else).
+    if let Some(id) = &act.tick {
+        if let Some(bout) = bouts.iter_mut().find(|x| x.duel.id == *id && x.duel.side_of(act.seat).is_some()) {
+            crate::panel::advance(bout, act.at_ms, true);
+        }
+    }
     if let Some(b) = &act.blow {
         let bout = bouts.iter_mut().find(|x| x.duel.id == b.duel_id)?;
         let side = bout.duel.side_of(act.seat)?;
         if w.demigods[bout.duel.f[side].id.ix()].alive {
+            // The windows this line's stamp has passed close first: it belongs to the one open now.
+            crate::panel::advance(bout, act.at_ms, false);
             out = bout.step(w, st, side, &b.text, act.at_ms, act.seq);
         }
     }
@@ -1455,12 +1540,18 @@ pub fn apply_act(w: &World, st: &Settings, beat: u32, bouts: &mut Vec<Bout>, mov
 }
 
 /// The public `challenge.open` entry of a duel still under way after this resolve.
-pub fn open_json(b: &Bout, log: Vec<Value>) -> Value {
+pub fn open_json(b: &Bout, log: Vec<Value>, panels_from: usize) -> Value {
     let d = &b.duel;
-    json!({ "event": "challenge.open", "duel_id": d.id, "a": Ref::Demigod(d.f[0].id), "b": Ref::Demigod(d.f[1].id),
+    let mut v = json!({ "event": "challenge.open", "duel_id": d.id, "a": Ref::Demigod(d.f[0].id), "b": Ref::Demigod(d.f[1].id),
             "hp": b.hp_json(), "blows": b.n, "typed": b.typed, "ends_beat": d.ends_beat,
             "deadline_ms": (d.deadline_ms > 0).then_some(d.deadline_ms), "range": b.flow.range,
-            "initiative": if b.flow.initiative == 0 { "a" } else { "b" }, "log": log })
+            "initiative": if b.flow.initiative == 0 { "a" } else { "b" }, "log": log });
+    // Rules 0.8.2: the panels this resolve made due (by number; a client that missed one live has it here).
+    if b.cycle.is_some() {
+        v["panels"] = crate::panel::since(b, false, panels_from).into();
+        v["panels_total"] = b.panels.len().into();
+    }
+    v
 }
 
 /// Apply what the duel did since the last resolve: its lock and the AI's leap (once), every die, the invokes' bolts
@@ -1601,7 +1692,7 @@ fn apply(w: &mut World, beat: u32, mut bout: Bout, pantheon: &Pantheon, st: &Set
         seed: Rng::derive(w.meta.seed, &[hash_str(&d.id), 0xDEED]).next_u64(),
     };
     let human = d.f.iter().any(|f| !f.ai);
-    Some(Pending { bout, ctx, human, reason })
+    Some(Pending { bout, ctx, human, reason, panels_from: 0 })
 }
 
 /// The `challenge.end` payload (`log`: the blows this final resolve was handed; the earlier ones came live and in
@@ -1611,12 +1702,18 @@ pub fn end_json(p: &Pending, deed: &str) -> Value {
     let d = &b.duel;
     let r = b.result();
     let t = b.taken();
-    json!({ "event": "challenge.end", "duel_id": d.id, "a": Ref::Demigod(d.f[0].id), "b": Ref::Demigod(d.f[1].id),
+    let mut v = json!({ "event": "challenge.end", "duel_id": d.id, "a": Ref::Demigod(d.f[0].id), "b": Ref::Demigod(d.f[1].id),
             "a_name": d.f[0].name, "b_name": d.f[1].name,
             "winner": r.map(|x| Ref::Demigod(d.f[x.0].id)), "loser": r.map(|x| Ref::Demigod(d.f[x.1].id)),
             "ko": b.ko.is_some(), "reason": p.reason, "damage": { "a": n1(t[0]), "b": n1(t[1]) }, "hp": { "a": n1(b.hp[0]), "b": n1(b.hp[1]) },
             "blows": b.n, "typed": b.typed, "deed": deed, "at": d.at, "pos": d.at, "cell": d.cell, "level": d.level, "place": d.place,
-            "locked_beat": d.beat, "log": b.log })
+            "locked_beat": d.beat, "log": b.log });
+    // Rules 0.8.2: the rest of its panels, through the outro (play them out; `starts_at_ms` may lie ahead).
+    if b.cycle.is_some() {
+        v["panels"] = crate::panel::since(b, false, p.panels_from).into();
+        v["panels_total"] = b.panels.len().into();
+    }
+    v
 }
 
 /// Record the told deeds: `duel.end` in the memory at the duel's hex, a tale for both duellists. Returns the public

@@ -461,6 +461,8 @@ pub fn duel_json(w: &World, b: &Bout, at_ms: i64, paused: bool) -> Value {
         "deadline_ms": (d.deadline_ms > 0).then_some(d.deadline_ms),
         "ends_beat": d.ends_beat,
         "pauses": b.pauses,
+        // Rules 0.8.2: the scene and every panel so far (`duel.scene`, `duel.panel`).
+        "scene": b.scene, "panels": b.panels,
         "clock": clock.map(|(elapsed, left)| json!({ "at_ms": at_ms, "elapsed_ms": elapsed, "remaining_ms": left.max(0),
                                                      "running": !paused && !over })),
         "over": over,

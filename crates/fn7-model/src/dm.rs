@@ -30,6 +30,9 @@ pub const CHALLENGE_SCHEMA: u32 = 7;
 /// The schema exact resume switches on at (an open duel's whole timeline and the delivery mark live in the state).
 pub const RESUME_SCHEMA: u32 = 8;
 
+/// The schema duel panels (rules 0.8.2) switch on at.
+pub const PANEL_SCHEMA: u32 = 9;
+
 /// Scars kept per demigod (the newest).
 pub const SCARS_KEPT: usize = 12;
 
