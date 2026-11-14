@@ -2531,6 +2531,36 @@
             },
             "type": "array"
           },
+          "persona": {
+            "additionalProperties": false,
+            "description": "Accounts (docs/ACCOUNTS.md): the character the seat's signed-in player wrote for this demigod, already moderated. Player text: show it as written, never interpret it. Absent for every demigod whose player wrote nothing (guests, bots, the built-in AI). Also on the demigod objects of game.gods / game.standings and match.ended's players.",
+            "properties": {
+              "creed": {
+                "maxLength": 200,
+                "type": "string"
+              },
+              "personality": {
+                "maxLength": 600,
+                "type": "string"
+              },
+              "pronouns": {
+                "description": "The player's pronouns from their settings; absent when unspecified.",
+                "enum": [
+                  "she",
+                  "he",
+                  "they",
+                  "it"
+                ],
+                "type": "string"
+              },
+              "style": {
+                "description": "Speaking style.",
+                "maxLength": 200,
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
           "place": {
             "description": "Alive only: the place name it is in.",
             "type": "string"
