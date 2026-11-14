@@ -98,6 +98,64 @@ pub struct Settings {
     pub entropy_per_mega: f32,
     /// Entropy a mini cast adds (× entropy_scale).
     pub entropy_per_mini: f32,
+    /// Rules 0.8.0 (the DM's rulebook): beats in one game day (dawn, day, dusk, night).
+    pub beats_per_day: u32,
+    /// Rules 0.8.0: the step radius in km (a demigod steps on a hex when its move this beat passes this close; the
+    /// planet's value, a city arena uses a hundredth).
+    pub dm_reach_km: f32,
+    /// Rules 0.8.0: encounter hexes the DM may mark per beat.
+    pub dm_encounters_per_beat: u32,
+    /// Rules 0.8.0: most hidden encounter hexes on the board at once.
+    pub dm_encounters_max: u32,
+    /// Rules 0.8.0: beats an unfound encounter hex stays marked before it fades.
+    pub dm_encounter_fade_beats: u32,
+    /// Rules 0.8.0: multiplier on the damage encounters do.
+    pub dm_encounter_damage_scale: f32,
+    /// Rules 0.8.0: beats a settlement must hold its level before it grows or shrinks another step.
+    pub dm_settlement_step_beats: u32,
+    /// Rules 0.8.0: traffic wear at which a path between two settlements becomes a road.
+    pub dm_road_wear: f32,
+    /// Rules 0.8.0: wear an unused path loses per beat (a road fades below half `dm_road_wear`).
+    pub dm_road_decay: f32,
+    /// Rules 0.8.0: most shrines one demigod may have.
+    pub dm_shrines_per_demigod: u32,
+    /// Rules 0.8.0: a spark shrine grants its player a spark every this many beats (one fewer per level above 1, at
+    /// least 2).
+    pub dm_shrine_spark_every: u32,
+    /// Rules 0.8.0: health a heal shrine restores per level per beat to its demigods within reach.
+    pub dm_shrine_heal: f32,
+    /// Rules 0.8.0: damage a ward shrine does per level per beat to rival demigods within reach.
+    pub dm_shrine_ward: f32,
+    /// Rules 0.8.0: most memory lines fed to one LLM DM prompt.
+    pub dm_memory_lines: u32,
+    /// Rules 0.8.0, fault lines: a mega cast this close (km, great circle) to a plate boundary gets the full near
+    /// bonus.
+    pub fault_near_km: f32,
+    /// Rules 0.8.0: a mega cast this far (km) from any plate boundary gets the full far penalty (interpolated in
+    /// between).
+    pub fault_far_km: f32,
+    /// Rules 0.8.0: magnitude added to a mega cast near a fault line.
+    pub fault_near_magnitude: f32,
+    /// Rules 0.8.0: magnitude added to a mega cast far from any fault line (negative: milder).
+    pub fault_far_magnitude: f32,
+    /// Rules 0.8.0: radius multiplier of a mega cast near a fault line.
+    pub fault_near_radius: f32,
+    /// Rules 0.8.0: radius multiplier of a mega cast far from any fault line.
+    pub fault_far_radius: f32,
+    /// Rules 0.8.0: damage multiplier of a mega cast near a fault line.
+    pub fault_near_damage: f32,
+    /// Rules 0.8.0: damage multiplier of a mega cast far from any fault line.
+    pub fault_far_damage: f32,
+    /// Rules 0.8.0: players may summon their demigods across the board (an instant `fields.summon`).
+    pub summon_enabled: bool,
+    /// Rules 0.8.0: beats between two summonings of the same demigod (1 = once a beat).
+    pub summon_cooldown_beats: u32,
+    /// Rules 0.8.0: multiplier on the health a reckless summoning costs (0 = summoning never hurts).
+    pub summon_loss_scale: f32,
+    /// Rules 0.8.0: bolts a god-tier power costs (each god's signature power, resolved as its ruling).
+    pub god_power_cost: u32,
+    /// Rules 0.8.0: bolts every OTHER player gains when someone casts a god-tier power (like a mega).
+    pub god_power_gift: u32,
 }
 
 impl Default for Settings {
@@ -143,6 +201,33 @@ impl Default for Settings {
             spark_gift: 0,
             entropy_per_mega: 10.0,
             entropy_per_mini: 1.0,
+            beats_per_day: 8,
+            dm_reach_km: 30.0,
+            dm_encounters_per_beat: 1,
+            dm_encounters_max: 10,
+            dm_encounter_fade_beats: 20,
+            dm_encounter_damage_scale: 1.0,
+            dm_settlement_step_beats: 6,
+            dm_road_wear: 4.0,
+            dm_road_decay: 0.05,
+            dm_shrines_per_demigod: 3,
+            dm_shrine_spark_every: 6,
+            dm_shrine_heal: 0.15,
+            dm_shrine_ward: 0.1,
+            dm_memory_lines: 6,
+            fault_near_km: 150.0,
+            fault_far_km: 1500.0,
+            fault_near_magnitude: 3.0,
+            fault_far_magnitude: -2.0,
+            fault_near_radius: 1.5,
+            fault_far_radius: 1.0,
+            fault_near_damage: 1.6,
+            fault_far_damage: 0.6,
+            summon_enabled: true,
+            summon_cooldown_beats: 1,
+            summon_loss_scale: 1.0,
+            god_power_cost: 3,
+            god_power_gift: 1,
         }
     }
 }
@@ -161,7 +246,10 @@ pub const DEFAULT_MUSTER_SCALE: f32 = 0.25;
 /// The f32 settings, echoed back at f32 precision.
 const F32_KEYS: &[&str] =
     &["debt_scale", "entropy_scale", "instant_order_debt", "accident_scale", "army_strike_scale", "army_first_host_scale",
-      "manifest_scale", "manifest_muster_scale", "entropy_per_mega", "entropy_per_mini"];
+      "manifest_scale", "manifest_muster_scale", "entropy_per_mega", "entropy_per_mini", "dm_reach_km",
+      "dm_encounter_damage_scale", "dm_road_wear", "dm_road_decay", "dm_shrine_heal", "dm_shrine_ward", "fault_near_km", "fault_far_km",
+      "fault_near_magnitude", "fault_far_magnitude", "fault_near_radius", "fault_far_radius", "fault_near_damage",
+      "fault_far_damage", "summon_loss_scale"];
 
 /// The shortest decimal that reads back as `x` (so `0.04f32` is `0.04`, not `0.03999999910593033`).
 fn f32_decimal(x: f32) -> f64 {
@@ -267,6 +355,33 @@ impl Settings {
             spark_gift: int("spark_gift", d.spark_gift, 0, 10)?,
             entropy_per_mega: num("entropy_per_mega", d.entropy_per_mega, 0.0, 100.0)?,
             entropy_per_mini: num("entropy_per_mini", d.entropy_per_mini, 0.0, 20.0)?,
+            beats_per_day: int("beats_per_day", d.beats_per_day, 2, 200)?,
+            dm_reach_km: num("dm_reach_km", d.dm_reach_km, 0.1, 2000.0)?,
+            dm_encounters_per_beat: int("dm_encounters_per_beat", d.dm_encounters_per_beat, 0, 8)?,
+            dm_encounters_max: int("dm_encounters_max", d.dm_encounters_max, 0, 64)?,
+            dm_encounter_fade_beats: int("dm_encounter_fade_beats", d.dm_encounter_fade_beats, 1, 1000)?,
+            dm_encounter_damage_scale: num("dm_encounter_damage_scale", d.dm_encounter_damage_scale, 0.0, 10.0)?,
+            dm_settlement_step_beats: int("dm_settlement_step_beats", d.dm_settlement_step_beats, 1, 100)?,
+            dm_road_wear: num("dm_road_wear", d.dm_road_wear, 0.5, 1000.0)?,
+            dm_road_decay: num("dm_road_decay", d.dm_road_decay, 0.0, 10.0)?,
+            dm_shrines_per_demigod: int("dm_shrines_per_demigod", d.dm_shrines_per_demigod, 0, 20)?,
+            dm_shrine_spark_every: int("dm_shrine_spark_every", d.dm_shrine_spark_every, 1, 100)?,
+            dm_shrine_heal: num("dm_shrine_heal", d.dm_shrine_heal, 0.0, 5.0)?,
+            dm_shrine_ward: num("dm_shrine_ward", d.dm_shrine_ward, 0.0, 5.0)?,
+            dm_memory_lines: int("dm_memory_lines", d.dm_memory_lines, 0, 30)?,
+            fault_near_km: num("fault_near_km", d.fault_near_km, 0.0, 5000.0)?,
+            fault_far_km: num("fault_far_km", d.fault_far_km, 1.0, 20000.0)?,
+            fault_near_magnitude: num("fault_near_magnitude", d.fault_near_magnitude, -10.0, 10.0)?,
+            fault_far_magnitude: num("fault_far_magnitude", d.fault_far_magnitude, -10.0, 10.0)?,
+            fault_near_radius: num("fault_near_radius", d.fault_near_radius, 0.1, 10.0)?,
+            fault_far_radius: num("fault_far_radius", d.fault_far_radius, 0.1, 10.0)?,
+            fault_near_damage: num("fault_near_damage", d.fault_near_damage, 0.0, 10.0)?,
+            fault_far_damage: num("fault_far_damage", d.fault_far_damage, 0.0, 10.0)?,
+            summon_enabled: boolean("summon_enabled", d.summon_enabled)?,
+            summon_cooldown_beats: int("summon_cooldown_beats", d.summon_cooldown_beats, 1, 100)?,
+            summon_loss_scale: num("summon_loss_scale", d.summon_loss_scale, 0.0, 10.0)?,
+            god_power_cost: int("god_power_cost", d.god_power_cost, 0, 20)?,
+            god_power_gift: int("god_power_gift", d.god_power_gift, 0, 10)?,
         };
         let s = Settings { start_bolts: s.bolt_start, ..s };
         let mut out = match serde_json::to_value(&s).map_err(|e| e.to_string())? {

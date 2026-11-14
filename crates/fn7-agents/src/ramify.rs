@@ -41,6 +41,8 @@ pub struct CastLine {
 
 #[derive(Debug, Clone)]
 pub struct RamifyCtx {
+    /// Rules 0.8.0 (schema 6): the Lens and the Engine joins the system prompt (older worlds: unchanged).
+    pub lens: bool,
     pub region: PlaceId,
     pub region_name: String,
     pub beat: u32,
@@ -196,7 +198,8 @@ pub fn max_tokens(n: usize) -> u32 {
 }
 
 pub fn build_request(ctx: &RamifyCtx) -> LlmRequest {
-    request(&system_prompt(), &user_prompt(ctx), max_tokens(ctx.n), 1.0)
+    let sys = if ctx.lens { format!("{}\n\n{}", system_prompt(), crate::rulebook::LENS) } else { system_prompt() };
+    request(&sys, &user_prompt(ctx), max_tokens(ctx.n), 1.0)
 }
 
 /// How many ramifications a set of casts earns: 1 + cost + magnitude/3 per cast, at most 10.
@@ -497,6 +500,7 @@ mod tests {
 
     fn ctx() -> RamifyCtx {
         RamifyCtx {
+            lens: false,
             region: PlaceId(3),
             region_name: "Western Africa".into(),
             beat: 4,

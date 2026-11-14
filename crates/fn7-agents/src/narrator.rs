@@ -12,6 +12,8 @@ pub const STEP: &str = "narrator";
 
 #[derive(Debug, Clone, Default)]
 pub struct NarratorCtx {
+    /// Rules 0.8.0 (schema 6): the Lens and the Engine joins the system prompt (older worlds: unchanged).
+    pub lens: bool,
     pub beat: u32,
     pub beats_total: u32,
     pub alive_demigods: u32,
@@ -132,7 +134,8 @@ pub fn user_prompt(ctx: &NarratorCtx) -> String {
 pub const MAX_TOKENS: u32 = 300;
 
 pub fn build_request(ctx: &NarratorCtx) -> LlmRequest {
-    request(&system_prompt(), &user_prompt(ctx), MAX_TOKENS, 1.0)
+    let sys = if ctx.lens { format!("{}\n\n{}", system_prompt(), crate::rulebook::LENS) } else { system_prompt() };
+    request(&sys, &user_prompt(ctx), MAX_TOKENS, 1.0)
 }
 
 /// Clean a narration (no prompt labels) and check every line against the engine's facts: a caption that has an
@@ -320,6 +323,7 @@ mod tests {
 
     fn ctx() -> NarratorCtx {
         NarratorCtx {
+            lens: false,
             beat: 7,
             beats_total: 7,
             alive_demigods: 1,

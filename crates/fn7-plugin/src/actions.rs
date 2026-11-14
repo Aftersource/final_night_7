@@ -42,6 +42,26 @@ pub struct CastOrder {
     pub scale: Option<CastScale>,
 }
 
+/// Rules 0.8.0: a summoning (`fields.summon {demigod, target}`): move one of your demigods there this beat.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SummonOrder {
+    pub demigod: DemigodId,
+    pub target: LonLat,
+    /// The cell key asked for, if the target was a cell.
+    pub cell: Option<String>,
+    pub seq: u64,
+}
+
+/// Rules 0.8.0: a god-tier power (`fields.cast {power: "god_<slug>", tier: "god", target}`): that god's signature
+/// power, resolved as its ruling.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GodPowerOrder {
+    /// The god's slug ("time").
+    pub god: String,
+    pub target: CastTarget,
+    pub seq: u64,
+}
+
 /// One seat's input for one beat. Two separate paths: text entry (orders to the hands: the God of Time interaction,
 /// typed in a core action window opened by `action.begin`) and casts (UX god powers, sent as instant actions). Casts
 /// never carry orders and never slow time.
@@ -53,6 +73,10 @@ pub struct Input {
     pub zoom: Option<(Zoom, Option<String>)>,
     /// God powers to cast this beat (in order).
     pub casts: Vec<CastOrder>,
+    /// Rules 0.8.0: summonings (instant actions).
+    pub summons: Vec<SummonOrder>,
+    /// Rules 0.8.0: god-tier powers (instant actions).
+    pub god_powers: Vec<GodPowerOrder>,
 }
 
 impl Input {
@@ -151,12 +175,39 @@ fn cast_of(v: &Value, default_power: Option<&str>) -> Result<CastOrder, String> 
     })
 }
 
-fn casts_of(fields: &Value) -> Result<Vec<CastOrder>, String> {
+/// The gods with a god-tier power (rules 0.8.0), by slug.
+pub const GOD_POWERS: &[&str] = &["time", "nature", "consequence", "death", "chance", "memory", "entropy"];
+
+/// A god-tier power (`tier: "god"` or a `god_<slug>` power), if `v` is one.
+fn god_power_of(v: &Value) -> Result<Option<GodPowerOrder>, String> {
+    let Value::Object(o) = v else { return Ok(None) };
+    let power = o.get("power").and_then(Value::as_str).map(|p| p.trim().to_lowercase()).unwrap_or_default();
+    let god_tier = o.get("tier").or(o.get("scale")).and_then(Value::as_str).is_some_and(|t| t.eq_ignore_ascii_case("god"));
+    if !god_tier && !power.starts_with("god_") {
+        return Ok(None);
+    }
+    let slug = power.strip_prefix("god_").unwrap_or(&power).to_string();
+    if !GOD_POWERS.contains(&slug.as_str()) {
+        return Err(format!("unknown god-tier power `{power}` (god_time, god_nature, god_consequence, god_death, god_chance, god_memory, god_entropy)"));
+    }
+    let target = cast_target(o.get("target").ok_or("a god-tier power needs `target`")?)?;
+    Ok(Some(GodPowerOrder { god: slug, target, seq: 0 }))
+}
+
+fn casts_of(fields: &Value) -> Result<(Vec<CastOrder>, Vec<GodPowerOrder>), String> {
     let mut out = vec![];
+    let mut gods = vec![];
+    let mut one = |v: &Value, default: Option<&str>| -> Result<(), String> {
+        match god_power_of(v)? {
+            Some(g) => gods.push(g),
+            None => out.push(cast_of(v, default)?),
+        }
+        Ok(())
+    };
     for (k, default) in [("cast", None), ("bolt", Some("lightning"))] {
         match fields.get(k) {
             None | Some(Value::Null) => {}
-            Some(v) => out.push(cast_of(v, default)?),
+            Some(v) => one(v, default)?,
         }
     }
     for (k, default) in [("casts", None), ("bolts", Some("lightning"))] {
@@ -164,16 +215,34 @@ fn casts_of(fields: &Value) -> Result<Vec<CastOrder>, String> {
             None | Some(Value::Null) => {}
             Some(Value::Array(a)) => {
                 for v in a {
-                    out.push(cast_of(v, default)?);
+                    one(v, default)?;
                 }
             }
             Some(_) => return Err(format!("`{k}` must be an array")),
         }
     }
-    if out.len() > MAX_CASTS {
+    if out.len() + gods.len() > MAX_CASTS {
         return Err(format!("at most {MAX_CASTS} casts per action"));
     }
-    Ok(out)
+    Ok((out, gods))
+}
+
+/// `fields.summon: {demigod: "dg:N", target: [lon, lat] | "<cell key>"}` (rules 0.8.0).
+fn summon_of(fields: &Value) -> Result<Vec<SummonOrder>, String> {
+    let Some(v) = fields.get("summon").filter(|v| !v.is_null()) else { return Ok(vec![]) };
+    // Refusals use the client's reason words: not_yours (no such demigod of yours), bad_target.
+    let o = v.as_object().ok_or("bad_target")?;
+    let demigod = match o.get("demigod").and_then(Value::as_str).map(|s| s.trim().parse::<Ref>()) {
+        Some(Ok(Ref::Demigod(d))) => d,
+        _ => return Err("not_yours".into()),
+    };
+    let t = o.get("target").ok_or("bad_target")?;
+    let (target, cell) = match (lonlat(t), t.as_str().and_then(|s| fn7_model::hexgrid::HexCell::parse(s.trim()))) {
+        (Some(p), _) => (p, None),
+        (None, Some(c)) => (c.center(), Some(c.key())),
+        _ => return Err("bad_target".into()),
+    };
+    Ok(vec![SummonOrder { demigod, target, cell, seq: 0 }])
 }
 
 pub fn parse_zoom_level(s: &str) -> Option<Zoom> {
@@ -271,7 +340,10 @@ pub fn parse(text: &str, fields: &Value) -> Result<Input, String> {
             ));
         }
     }
-    i.casts = casts_of(fields)?;
+    let (casts, gods) = casts_of(fields)?;
+    i.casts = casts;
+    i.god_powers = gods;
+    i.summons = summon_of(fields)?;
     for (k, s) in [("left", &i.left), ("right", &i.right)] {
         if s.chars().count() > MAX_HAND_CHARS {
             return Err(format!("`{k}` is longer than {MAX_HAND_CHARS} characters"));
@@ -500,6 +572,14 @@ pub fn bot_lines(w: &World, d: DemigodId, beat: u32) -> Input {
     } else {
         right
     };
+    // Rules 0.8.0: now and then it raises a shrine to itself where it stands. Drawn only in schema-6 worlds.
+    let right = if w.dm_rules() && right.is_empty() && rng.below(24) == 0 {
+        ["raise a shrine to me here", "build a temple of light in my name", "erect a healing shrine to me",
+         "carve a monument of war to my glory"][rng.below(4) as usize]
+            .to_string()
+    } else {
+        right
+    };
 
     let zoom = match rng.below(12) {
         0 => Some((Zoom::World, None)),
@@ -578,6 +658,7 @@ pub fn bot_lines(w: &World, d: DemigodId, beat: u32) -> Input {
         right,
         zoom,
         casts,
+        ..Default::default()
     }
 }
 

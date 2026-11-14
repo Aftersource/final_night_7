@@ -176,6 +176,7 @@ pub fn narrator_ctx(w: &World, b: u32) -> NarratorCtx {
         }
     }
     NarratorCtx {
+        lens: w.dm_rules(),
         beat: b,
         beats_total: w.meta.beats_total,
         alive_demigods: standing.len() as u32,
@@ -300,7 +301,7 @@ pub fn invoke_cost(def: &GodDef, magnitude: u8) -> u32 {
     }
 }
 
-fn god_prop(ruling: &Ruling, intent: &Intent, effect: Effect, act: String) -> Proposal {
+pub(crate) fn god_prop(ruling: &Ruling, intent: &Intent, effect: Effect, act: String) -> Proposal {
     Proposal {
         source: Source::God {
             god: ruling.god,
@@ -591,6 +592,8 @@ pub fn split_turn(w: &World, seat: u8, lead: DemigodId, input: Input) -> Vec<Tur
                 right: right_text,
                 zoom: if is_lead { input.zoom.clone() } else { None },
                 casts: if is_lead { input.casts.clone() } else { vec![] },
+                summons: if is_lead { input.summons.clone() } else { vec![] },
+                god_powers: if is_lead { input.god_powers.clone() } else { vec![] },
             },
         });
     }
@@ -752,6 +755,12 @@ pub async fn resolve(
     record_mut(w, beat);
     let alive_at_start: Vec<DemigodId> = w.alive_demigods().map(|d| d.id).collect();
     let pos_at_start: Vec<LonLat> = w.demigods.iter().map(|d| d.pos).collect();
+    // Rules 0.8.0 (the DM's step reads these): health, armies and the memory/manifest heads at the beat's start.
+    let health_at_start: Vec<f32> = w.demigods.iter().map(|d| if d.alive { d.health } else { 0.0 }).collect();
+    let armies_at_start: Vec<(ClusterId, LonLat)> =
+        w.clusters.iter().filter_map(|c| c.army.as_ref().map(|a| (c.id, a.pos))).collect();
+    let memory_start = w.dm.memory.len();
+    let manifest_start = w.manifests.len();
     let entropy_at_start = w.meta.entropy;
     let row_start = w.ledger.rows.len();
     let first_new_intent = w.intents.len();
@@ -774,6 +783,8 @@ pub async fn resolve(
     let flow = crate::flow::process(w, beat, subs, closed, pantheon, &st, &ordered);
     // ---- (0a') casts: god powers from the UX, settled in arrival order (ramifications run in the act batch) --------
     let casts = crate::casts::process(w, beat, &turns, pantheon, &st);
+    // Rules 0.8.0: summonings land now (the move, the mishap's d20, the health); their deeds are told in the act batch.
+    let summons = if w.dm_rules() { crate::summon::process(w, beat, &turns, pantheon, &st) } else { vec![] };
     // Who spoke this beat (their hands, subagents and resolvers use the LLM; everyone else continues by rules).
     let spoke: std::collections::BTreeSet<DemigodId> = turns
         .iter()
@@ -783,6 +794,8 @@ pub async fn resolve(
     let loud = !spoke.is_empty() || !casts.ramify.is_empty();
     // Intents from here on are the hands' (cast intents above are Entropy's, already settled).
     let route_from = w.intents.len();
+    // Rules 0.8.0: god-tier powers are paid now and become invocations the route sends to their gods.
+    let god_tier = if w.dm_rules() { crate::godtier::process(w, beat, &turns, pantheon, &st) } else { vec![] };
     let llm_all = llm;
 
     // ---- (0b) background: last beat's narrator and this beat's LLM folds, alongside everything until the narrate stage
@@ -1055,6 +1068,12 @@ pub async fn resolve(
                         Some(Ref::Demigod(d).to_string()),
                         json!({ "beat": beat, "intent": intent.id, "manifestation": j.m }),
                     );
+                    // Rules 0.8.0: the attempt's d20 is shown (and remembered: the same attempt, the same roll).
+                    if let Some(r) = &j.dice {
+                        let pos = j.m.at.unwrap_or(w.demigods[d.ix()].pos);
+                        let reason = format!("manifesting a {}", j.m.verdict.tier.as_str());
+                        crate::dm::record_roll(w, beat, &j.m.id.to_string(), Ref::Demigod(d), r, &reason, pos);
+                    }
                     judged.push(j);
                 }
             }
@@ -1136,8 +1155,15 @@ pub async fn resolve(
                         .collect(),
                     context: context.join("\n"),
                     bolts: me.bolts,
-                    cost: invoke_cost(&def, intent.magnitude),
+                    // A god-tier power's bolts were paid when it was cast.
+                    cost: if intent.how == crate::godtier::HOW { 0 } else { invoke_cost(&def, intent.magnitude) },
                     world: fn7_society::entropy_prose(w),
+                    dm: w.dm_rules(),
+                    dm_memory: if w.dm_rules() {
+                        crate::dm::prompt_lines(w, district_of(w, me.place), beat, st.dm_memory_lines as usize)
+                    } else {
+                        vec![]
+                    },
                 }));
                 let g = &mut w.gods[god.ix()];
                 g.attention = 1.0;
@@ -1342,6 +1368,8 @@ pub async fn resolve(
     let mut resolver_llm: Vec<bool> = vec![];
     let entropy_line = fn7_society::entropy_prose(w);
     for (place, acts) in vicinities {
+        // Rules 0.8.0: each act's d20 and the DM's memory of this place.
+        let dm_view = w.dm_rules().then(|| crate::dm::resolver_view(w, beat, place, &acts, &st));
         resolver_llm.push(acts.iter().any(|a| spoke.contains(&a.intent.demigod) && a.intent.beat == beat && !is_standing(w, &a.intent)));
         let mut world_lines = vec![entropy_line.clone()];
         if is_final_wish(w, beat) {
@@ -1387,6 +1415,7 @@ pub async fn resolve(
             world: world_lines,
             accident_scale: st.accident_scale,
             items_by_engine: w.two_bodies(),
+            dm: dm_view,
         }));
     }
     clock.lap(Stage::Route);
@@ -1426,6 +1455,13 @@ pub async fn resolve(
             manifest_of.push(k);
         }
     }
+    // Rules 0.8.0: the summon mind tells each summoning's transit (the LLM for a player's summon when it is on).
+    let first_summon = calls.len();
+    for p in &summons {
+        calls.push(MindCall::Summon(p.ctx.clone()));
+        use_llm.push(true);
+    }
+    let mut summon_deeds: Vec<String> = vec![String::new(); summons.len()];
     let mut manifest_words: BTreeMap<usize, (fn7_agents::manifest::ManifestOut, bool)> = BTreeMap::new();
     let t0 = Instant::now();
     let rep = overlap(run_split(llm, calls.clone(), use_llm.clone(), timeout), &mut bg, &mut bg_rep).await;
@@ -1441,7 +1477,12 @@ pub async fn resolve(
     for (k, (call, o)) in calls.iter().zip(rep.replies).enumerate() {
         match (call, o.value) {
             (MindCall::Resolver(_), MindReply::Resolver(r)) => {
-                props.extend(r.proposals);
+                // Rules 0.8.0: a result that contradicts the recorded dice is reconciled to the record.
+                if w.dm_rules() {
+                    props.extend(crate::dm::reconcile_resolver(w, beat, r.proposals));
+                } else {
+                    props.extend(r.proposals);
+                }
             }
             (MindCall::God(ctx), MindReply::God(g)) => {
                 let mut ruling = g.ruling;
@@ -1483,6 +1524,10 @@ pub async fn resolve(
                 }
                 event("ruling", Some(ruling.god.to_string()), json!(ruling));
                 record_mut(w, beat).rulings.push(ruling.id);
+                // Rules 0.8.0: a god-tier power's signature effect, unless the god refused.
+                if ctx.intent.how == crate::godtier::HOW && ruling.verdict != Verdict::Refuse {
+                    props.extend(crate::godtier::signature(w, pantheon, &ruling, &ctx.intent));
+                }
                 // Time, asked to put off a debt, delays the invoker's open debts (a Delay beats a Collect).
                 let text = format!("{} {} {}", ctx.intent.verb, ctx.intent.span, ctx.intent.how)
                     .to_lowercase();
@@ -1579,6 +1624,11 @@ pub async fn resolve(
                 }
                 props.push(crate::society::orders_prop(w, m, j, asked));
             }
+            (MindCall::Summon(_), MindReply::Summon(out)) => {
+                if let Some(x) = summon_deeds.get_mut(k - first_summon) {
+                    *x = out.deed;
+                }
+            }
             (MindCall::Manifest(_), MindReply::Manifest(words)) => {
                 let asked = use_llm.get(k).copied().unwrap_or(false) && llm.is_some() && o.fallback.is_none();
                 if let Some(j) = manifest_of.get(k - first_manifest) {
@@ -1618,6 +1668,10 @@ pub async fn resolve(
         }
         let _ = (k, nr, ng, ns);
     }
+    // Rules 0.8.0: the summonings' deeds, in the story and the memory at both places.
+    if !summons.is_empty() {
+        crate::summon::record(w, beat, &summons, &summon_deeds);
+    }
     // Manifestations: the payment, debt, backfire and Entropy, then the attempt itself (its row and its item).
     for (k, j) in judged.iter().enumerate() {
         props.extend(j.props.iter().cloned());
@@ -1632,6 +1686,10 @@ pub async fn resolve(
     props.extend(army_props);
     props.extend(fn7_society::entropy_proposals(w, beat, pantheon.id_of("entropy")));
     props.extend(fn7_society::mod_proposals(w, beat));
+    // Rules 0.8.0: a demigod summoned this beat stays where it was summoned (its hands' travel this beat is void).
+    if !summons.is_empty() {
+        props.retain(|p| !matches!(&p.effect, Effect::Move { who: Ref::Demigod(d), .. } if summons.iter().any(|s| s.demigod == *d)));
+    }
     let entropy_before = entropy_at_start;
     let n_props = props.len();
     let (props, applied) = merge::run(w, props, pantheon, beat, st.max_witnesses as usize);
@@ -1727,6 +1785,20 @@ pub async fn resolve(
     if w.two_bodies() {
         crate::items::sync_hosts(w, beat);
         crate::occupancy::enforce(w, beat, row_start, &pos_at_start);
+    }
+    // Rules 0.8.0: the Dungeon Master's step (encounters, shrines, loot, story pieces, settlements, roads).
+    if w.dm_rules() {
+        let start = crate::dm::Start {
+            alive: &alive_at_start,
+            pos: &pos_at_start,
+            health: &health_at_start,
+            armies: &armies_at_start,
+            row_start,
+            intent_start: first_new_intent,
+            manifest_start,
+            memory_start,
+        };
+        crate::dm::step(w, beat, &start, pantheon, &st);
     }
     clock.lap(Stage::Merge);
 
@@ -1915,6 +1987,24 @@ pub async fn resolve(
             .filter(|m| m.beat == beat && m.public)
             .map(|m| crate::items::manifest_json(w, m, false))
             .collect();
+    }
+    if w.dm_rules() {
+        crate::dm::beat_public(w, beat, memory_start, &st, &mut public);
+        public["god_powers"] = god_tier.into();
+        let summoned: Vec<Value> = public["dm_events"]
+            .as_array()
+            .map(|e| e.iter().filter(|x| x["event"] == "summoned").cloned().collect())
+            .unwrap_or_default();
+        // The client's contract: each `summoned` also rides in `events[]` (kind "summoned", at its landing).
+        if let Some(ev) = public["events"].as_array_mut() {
+            for x in &summoned {
+                let mut e = x.clone();
+                e["kind"] = "summoned".into();
+                e["at"] = x["to"]["pos"].clone();
+                ev.push(e);
+            }
+        }
+        public["summons"] = summoned.into();
     }
     clock.lap(Stage::Broadcast);
 

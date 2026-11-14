@@ -219,6 +219,7 @@ fn world() -> World {
         battles: vec![],
         soc: Default::default(),
         manifests: vec![],
+        dm: Default::default(),
     }
 }
 

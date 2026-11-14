@@ -10,6 +10,7 @@
 
 pub mod agents;
 pub mod beat;
+pub mod dm;
 pub mod gods;
 pub mod hexgrid;
 pub mod hier;
@@ -41,7 +42,11 @@ use serde::{Deserialize, Serialize};
 /// Schema 5 (rules 0.7.0): two demigods per seat (`Demigod::side`, `Demigod::player`), each with its own health,
 /// position and elimination; manifestations (`World::manifests`) and item-engine fields on items (`Item::ext`). Rules
 /// that changed in 0.7.0 read [`World::two_bodies`] (or `meta.schema`), so a schema-4 recording replays exactly.
-pub const STATE_SCHEMA: u32 = 5;
+///
+/// Schema 6 (rules 0.8.0): the Dungeon Master's place × time memory and the eight features it governs
+/// ([`World::dm`], [`dm::Dm`]; docs/DM_RULEBOOK.md). Rules that changed in 0.8.0 read [`World::dm_rules`], so schema-4
+/// and schema-5 recordings replay exactly.
+pub const STATE_SCHEMA: u32 = 6;
 
 /// Match-wide settings and clocks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -340,6 +345,9 @@ pub struct World {
     /// Schema 5: every manifestation attempt (`mf:N` = index), made or not. Append-only.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub manifests: Vec<manifest::Manifestation>,
+    /// Schema 6: the Dungeon Master's memory and the features it governs (empty, and absent from the JSON, before).
+    #[serde(default, skip_serializing_if = "dm::Dm::is_empty")]
+    pub dm: dm::Dm,
 }
 
 /// One seat's view: what it is zoomed on. Changed only by `Route::Zoom` intents or the action's `zoom` field.
@@ -364,6 +372,10 @@ impl World {
     /// Schema 5 rules are on: two demigods per player, the people-level occupancy rule, the item engine.
     pub fn two_bodies(&self) -> bool {
         self.meta.schema >= 5
+    }
+    /// Schema 6 rules are on (rules 0.8.0): the Dungeon Master's rulebook, its place × time memory and its features.
+    pub fn dm_rules(&self) -> bool {
+        self.meta.schema >= dm::DM_SCHEMA
     }
     /// A seat's demigods, in id order (Left then Right in schema 5).
     pub fn bodies_of_seat(&self, seat: u8) -> impl Iterator<Item = &Demigod> {

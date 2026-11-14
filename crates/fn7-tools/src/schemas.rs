@@ -228,6 +228,8 @@ fn shared_defs() -> Map<String, Value> {
             ("target", json!({ "anyOf": [{ "$ref": "#/$defs/Ref" }, { "type": "null" }], "description": "What it is aimed at directly, or null (a point)." })),
             ("target_name", json!({ "type": ["string", "null"] })),
             ("fizzled", string("Its target doesn't exist (it will fizzle).")),
+            ("fault_km", num("Rules 0.8.0, megas only: great-circle distance (km) from the aim to the nearest fault line.")),
+            ("fault_factor", num("Rules 0.8.0, megas only: the damage multiplier the fault rule gives (1.6 near a fault .. 0.6 far).")),
         ],
     );
     d.insert(
@@ -255,6 +257,8 @@ fn shared_defs() -> Map<String, Value> {
                 ("place", string("First cast: place aimed at.")),
                 ("target", json!({ "anyOf": [{ "$ref": "#/$defs/Ref" }, { "type": "null" }] })),
                 ("target_name", json!({ "type": ["string", "null"] })),
+                ("fault_km", num("Rules 0.8.0: first cast, a mega: distance (km) to the nearest fault line.")),
+                ("fault_factor", num("Rules 0.8.0: first cast, a mega: the fault rule's damage multiplier.")),
             ],
         ),
     );
@@ -284,6 +288,8 @@ fn shared_defs() -> Map<String, Value> {
                 ("off_target", boolean("Entropy ≥ 40: physics threw it off its aim.")),
                 ("row", json!({ "anyOf": [{ "$ref": "#/$defs/Ref" }, { "type": "null" }], "description": "Its ledger row." })),
                 ("fizzled", string("Why it fizzled (not enough bolts, no such target); nothing was spent.")),
+                ("fault_km", num("Rules 0.8.0, megas only: distance (km) from where it struck to the nearest fault line.")),
+                ("fault_factor", num("Rules 0.8.0, megas only: the fault rule's damage multiplier (radius and magnitude scale with it).")),
             ],
         ),
     );
@@ -740,6 +746,35 @@ fn settings_schema() -> Value {
     p("spark_gift", i(0, 10, json!(0), "Rules 0.7.0: sparks every OTHER player gains when someone casts a mega power."));
     p("entropy_per_mega", json!({ "type": "number", "minimum": 0, "maximum": 100, "default": 10.0, "description": "Rules 0.7.0: Entropy a mega cast adds (x entropy_scale)." }));
     p("entropy_per_mini", json!({ "type": "number", "minimum": 0, "maximum": 20, "default": 1.0, "description": "Rules 0.7.0: Entropy a mini cast adds (x entropy_scale)." }));
+    // Rules 0.8.0: the DM's rulebook (docs/DM_RULEBOOK.md, appendix).
+    let f = |min: f64, max: f64, def: f64, desc: &str| json!({ "type": "number", "minimum": min, "maximum": max, "default": def, "description": desc });
+    p("beats_per_day", i(2, 200, json!(8), "Rules 0.8.0: beats in one game day (dawn, day, dusk, night)."));
+    p("dm_reach_km", f(0.1, 2000.0, 30.0, "Rules 0.8.0: the step radius (km): a demigod steps on a hex when its move passes this close (planet; a city arena uses a hundredth)."));
+    p("dm_encounters_per_beat", i(0, 8, json!(1), "Rules 0.8.0: encounter hexes the DM may mark per beat."));
+    p("dm_encounters_max", i(0, 64, json!(10), "Rules 0.8.0: most hidden encounter hexes at once."));
+    p("dm_encounter_fade_beats", i(1, 1000, json!(20), "Rules 0.8.0: beats an unfound encounter stays marked."));
+    p("dm_encounter_damage_scale", f(0.0, 10.0, 1.0, "Rules 0.8.0: multiplier on encounter damage."));
+    p("dm_settlement_step_beats", i(1, 100, json!(6), "Rules 0.8.0: beats a settlement holds its level before another step."));
+    p("dm_road_wear", f(0.5, 1000.0, 4.0, "Rules 0.8.0: traffic wear at which a path becomes a road."));
+    p("dm_road_decay", f(0.0, 10.0, 0.05, "Rules 0.8.0: wear an unused path loses per beat."));
+    p("dm_shrines_per_demigod", i(0, 20, json!(3), "Rules 0.8.0: most shrines per demigod."));
+    p("dm_shrine_spark_every", i(1, 100, json!(6), "Rules 0.8.0: a spark shrine's interval in beats (one fewer per level above 1, at least 2)."));
+    p("dm_shrine_heal", f(0.0, 5.0, 0.15, "Rules 0.8.0: a heal shrine's healing per level per beat."));
+    p("dm_shrine_ward", f(0.0, 5.0, 0.1, "Rules 0.8.0: a ward shrine's damage per level per beat to rivals within reach."));
+    p("dm_memory_lines", i(0, 30, json!(6), "Rules 0.8.0: most memory lines in one LLM DM prompt."));
+    p("fault_near_km", f(0.0, 5000.0, 150.0, "Rules 0.8.0: a mega this close to a fault line gets the full near bonus."));
+    p("fault_far_km", f(1.0, 20000.0, 1500.0, "Rules 0.8.0: a mega this far from any fault line gets the full far penalty."));
+    p("fault_near_magnitude", f(-10.0, 10.0, 3.0, "Rules 0.8.0: magnitude added near a fault line."));
+    p("fault_far_magnitude", f(-10.0, 10.0, -2.0, "Rules 0.8.0: magnitude added far from any fault line."));
+    p("fault_near_radius", f(0.1, 10.0, 1.5, "Rules 0.8.0: radius multiplier near a fault line."));
+    p("fault_far_radius", f(0.1, 10.0, 1.0, "Rules 0.8.0: radius multiplier far from any fault line."));
+    p("fault_near_damage", f(0.0, 10.0, 1.6, "Rules 0.8.0: damage multiplier near a fault line."));
+    p("fault_far_damage", f(0.0, 10.0, 0.6, "Rules 0.8.0: damage multiplier far from any fault line."));
+    p("summon_enabled", json!({ "type": "boolean", "default": true, "description": "Rules 0.8.0: players may summon their demigods (fields.summon)." }));
+    p("summon_cooldown_beats", i(1, 100, json!(1), "Rules 0.8.0: beats between two summonings of one demigod."));
+    p("summon_loss_scale", f(0.0, 10.0, 1.0, "Rules 0.8.0: multiplier on a reckless summoning's health cost."));
+    p("god_power_cost", i(0, 20, json!(3), "Rules 0.8.0: bolts a god-tier power costs."));
+    p("god_power_gift", i(0, 10, json!(1), "Rules 0.8.0: bolts every other player gains per god-tier power."));
     p(
         "memory_per_owner",
         i(
@@ -822,8 +857,8 @@ fn action_fields_schema() -> Value {
             "target": target.clone(),
             "text": { "type": ["string", "null"], "maxLength": 200, "description": "custom only: what the power is (required for custom)." },
             "magnitude": { "type": ["number", "null"], "minimum": 0, "maximum": 10, "description": "custom only: 0..10 (default 5); prices it (1 + magnitude/3 bolts, at most 4) before rules 0.7.0." },
-            "tier": { "type": ["string", "null"], "enum": ["mega", "mini", null], "description": "Rules 0.7.0: mega (a lightning bolt, map scale, every other god gains a bolt) or mini (a spark, the board). Default mini, so old clients never burn bolts. `scale` is accepted as an alias." },
-            "scale": { "type": ["string", "null"], "enum": ["mega", "mini", null], "description": "Alias of tier." }
+            "tier": { "type": ["string", "null"], "enum": ["mega", "mini", "god", null], "description": "Rules 0.7.0: mega (a lightning bolt, map scale, every other god gains a bolt) or mini (a spark, the board). Default mini, so old clients never burn bolts. `scale` is accepted as an alias. Rules 0.8.0: god (a god-tier power `god_<slug>`: god_power_cost bolts, resolved as that god's ruling)." },
+            "scale": { "type": ["string", "null"], "enum": ["mega", "mini", "god", null], "description": "Alias of tier." }
         },
         "required": ["target"]
     });
@@ -847,6 +882,15 @@ fn action_fields_schema() -> Value {
             "casts": { "type": ["array", "null"], "items": cast, "description": "Several casts (at most 5 per action, with `cast`/`bolt`/`bolts`)." },
             "bolt": { "anyOf": [bolt.clone(), { "type": "null" }], "description": "Alias: cast lightning at a target." },
             "bolts": { "type": ["array", "null"], "items": bolt, "description": "Alias: several lightning bolts." },
+            "summon": { "anyOf": [{ "type": "null" }, {
+                "type": "object",
+                "description": "Rules 0.8.0: summon one of your demigods there, this beat (an instant action, any phase).",
+                "properties": {
+                    "demigod": { "type": "string", "pattern": "^dg:\\d+$", "description": "One of your two demigods." },
+                    "target": { "description": "[lon, lat] or a hex cell key.", "anyOf": [{ "$ref": "#/$defs/LonLat" }, { "type": "string" }] }
+                },
+                "required": ["demigod", "target"]
+            }] },
             "zoom": {
                 "description": "Optional view change, applied at the start of Resolve: a level string, or {level, focus}. \
                                 Null/empty = no change. A level without focus clears your focus.",
@@ -946,6 +990,10 @@ fn brief_public() -> Value {
                 &[
                     ("mega", object("Rules 0.7.0: the MEGA variant (map scale; send `cast.tier: \"mega\"`).", &[("radius_km", num("")), ("magnitude", int("")), ("damage", num("Its target's damage; rival demigods within the radius take 40%.")), ("cost", int("1 bolt."))], &[])),
                     ("mini", object("Rules 0.7.0: the MINI variant (the board; `cast.tier: \"mini\"`, the default).", &[("radius_km", num("")), ("magnitude", int("")), ("damage", num("")), ("cost", int("1 spark."))], &[])),
+                    ("tier", json!({ "const": "god", "description": "Rules 0.8.0: a god-tier power (cast with `tier: \"god\"`; `cost` in bolts)." })),
+                    ("god", string("Rules 0.8.0: the god's slug.")),
+                    ("god_ref", nullable(r("Ref"))),
+                    ("blurb", string("Rules 0.8.0: what it does.")),
                 ],
             ), "The power palette, then the custom entry.")),
             ("entropy", r("Entropy")),
@@ -970,7 +1018,9 @@ fn brief_public() -> Value {
                 &[],
             ), "Every region, in id order.")),
         ],
-        &[("final_wish", boolean("Rules 0.7.0: this beat is THE FINAL WISH (beat 1): your orders are your final wish; both hands get the window act budget and +final_wish_magnitude."))],
+        &[("final_wish", boolean("Rules 0.7.0: this beat is THE FINAL WISH (beat 1): your orders are your final wish; both hands get the window act budget and +final_wish_magnitude.")),
+          ("time_of_day", r("TimeOfDay")),
+          ("time_of_day_phase", r("DayPhase"))],
     )
 }
 
@@ -1033,7 +1083,7 @@ fn outcome_public() -> Value {
             ("entropy", r("Entropy")),
             ("slow", array(r("SlowEvent"), "Slow-time announcements this beat (open / closed / instant).")),
             ("casts", array(r("CastLine"), "Every cast this beat, in the order settled.")),
-            ("events", array(r("WorldEvent"), "Public geotagged world events this beat, in order (<= 40).")),
+            ("events", array(json!({ "anyOf": [r("WorldEvent"), r("DmEvent")] }), "Public geotagged world events this beat, in order (<= 40). Rules 0.8.0: a summoning adds its `summoned` event here too (`kind` and `event` \"summoned\", `at` its landing; see DmEvent).")),
             ("timing", object(
                 "Server-side wall-clock timings of the resolve (diagnostics).",
                 &[
@@ -1054,6 +1104,12 @@ fn outcome_public() -> Value {
             ("society", json!({ "type": ["object", "null"], "additionalProperties": true, "description": "The society's public summary (schema 4). Its shape is not frozen yet (the society build is in progress); read defensively." })),
             ("players_alive", int("Rules 0.7.0: players with a demigod standing.")),
             ("manifests", array(r("Manifestation"), "Rules 0.7.0: public manifestations this beat (made things of tier relic or up, or legend+ attempts).")),
+            ("dice", array(r("DiceRolled"), "Rules 0.8.0: every d20 the DM rolled this beat (at most 60), in order.")),
+            ("god_powers", array(r("GodPowerLine"), "Rules 0.8.0: god-tier powers settled this beat (each then ruled on by its god: see `omens`).")),
+            ("summons", array(r("DmEvent"), "Rules 0.8.0: the `summoned` events of this beat (also in dm_events): {demigod, from {pos, cell}, to {pos, cell}, deed, health_lost}.")),
+            ("dm_events", array(r("DmEvent"), "Rules 0.8.0: the DM's public decisions this beat (at most 40): settlements growing, encounters, loot, roads, shrines, scars, the time of day.")),
+            ("time_of_day", r("TimeOfDay")),
+            ("time_of_day_phase", r("DayPhase")),
         ],
     )
 }
@@ -1094,7 +1150,8 @@ fn public_view() -> Value {
             "debt_open": { "type": "number" },
             "hand": { "$ref": "#/$defs/SeatHand" },
             "orders": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
-            "manifests": { "type": "array", "items": { "$ref": "#/$defs/Manifestation" } }
+            "manifests": { "type": "array", "items": { "$ref": "#/$defs/Manifestation" } },
+            "story": { "$ref": "#/$defs/Story", "description": "Rules 0.8.0: what its piece carries (followers, items, wardrobe, scars)." }
         },
         "required": ["ref", "name", "alive", "seat"],
         "oneOf": [
@@ -1123,7 +1180,10 @@ fn public_view() -> Value {
         ],
         &[("players_alive", int("Rules 0.7.0: players with a demigod standing.")),
           ("players", array(r("Player"), "Rules 0.7.0: the seat list, one entry per player.")),
-          ("society", json!({ "type": ["object", "null"], "additionalProperties": true, "description": "The society's public summary (schema 4). Its shape is not frozen yet (the society build is in progress); read defensively." }))],
+          ("society", json!({ "type": ["object", "null"], "additionalProperties": true, "description": "The society's public summary (schema 4). Its shape is not frozen yet (the society build is in progress); read defensively." })),
+          ("shrines", array(r("Shrine"), "Rules 0.8.0: every shrine on the board.")),
+          ("time_of_day", r("TimeOfDay")),
+          ("time_of_day_phase", r("DayPhase"))],
     )
 }
 
@@ -1261,6 +1321,133 @@ fn match_summary() -> Value {
 
 /// Every schema, as (file stem, schema).
 /// Rules 0.7.0 payload pieces: items, manifestations, the seat list, Time's live bill, hotspots, a demigod in full.
+/// Rules 0.8.0: the DM rulebook features (docs/CLIENT_API.md "DM rulebook features (0.8.0)").
+fn v08_defs() -> Map<String, Value> {
+    let mut d = Map::new();
+    let e = |vals: &[&str], desc: &str| json!({ "type": "string", "enum": vals, "description": desc });
+    let sint = |desc: &str| json!({ "type": "integer", "description": desc });
+    let verdicts = ["crit_fail", "fail", "success", "crit_success"];
+    let kinds = ["monster", "treasure", "trap", "stranger", "undead", "ghost", "thief"];
+    d.insert("DayPhase".into(), e(&["dawn", "day", "dusk", "night"], "Rules 0.8.0: the phase of the game day."));
+    d.insert("TimeOfDay".into(), object(
+        "Rules 0.8.0: the time of day (`beats_per_day` beats a day).",
+        &[("day", int("Game day, from 1.")), ("phase", r("DayPhase")), ("light", num("0 (midnight) .. 1 (noon); 0.5 at dawn and dusk."))],
+        &[("beat_in_day", int("1..beats_per_day.")), ("beats_per_day", int(""))],
+    ));
+    d.insert("DiceRolled".into(), object(
+        "Rules 0.8.0: one d20 the DM rolled (seeded, recorded: the same question always gives the same roll).",
+        &[
+            ("event", json!({ "const": "dice.rolled" })),
+            ("who", r("Ref")),
+            ("die", json!({ "const": "d20" })),
+            ("roll", json!({ "type": "integer", "minimum": 1, "maximum": 20, "description": "The face." })),
+            ("modifier", sint("")),
+            ("total", sint("roll + modifier.")),
+            ("target_dc", sint("")),
+            ("verdict", e(&verdicts, "A natural 1 is crit_fail, a natural 20 crit_success, else total vs DC.")),
+            ("reason", string("What it was for, in public words (\"a strike\", \"a monster encounter\", \"manifesting a relic\").")),
+            ("at", r("LonLat")),
+            ("cell", string("People-level hex.")),
+            ("beat", int("")),
+        ],
+        &[],
+    ));
+    d.insert("DmEvent".into(), json!({
+        "type": "object", "additionalProperties": true,
+        "description": "Rules 0.8.0: one public decision of the DM this beat: `event` (settlement.grew, settlement.shrank, settlement.building, encounter.marked, encounter.revealed, encounter.faded, loot.dropped, loot.taken, road.formed, road.faded, shrine.built, shrine.level, story.scar, story.wardrobe, story.followers, time.phase), `text` (one line), `memory` (its memory entry id) and the decision's own fields (docs/CLIENT_API.md).",
+        "properties": { "event": { "type": "string" }, "text": { "type": "string" }, "memory": { "type": "integer", "minimum": 0 } },
+        "required": ["event", "text", "memory"]
+    }));
+    d.insert("GodPowerLine".into(), object(
+        "Rules 0.8.0: a god-tier power this beat. A fizzled one has `fizzled` and nothing was spent.",
+        &[("by", string("")), ("by_ref", r("Ref")), ("power", string("god_<slug>")), ("power_name", string("")),
+          ("tier", json!({ "const": "god" })), ("god", string("")), ("god_ref", r("Ref")), ("cost", int("Bolts.")), ("seq", int(""))],
+        &[("at", r("LonLat")), ("target", nullable(r("Ref"))), ("place", string("")), ("region_ref", r("Ref")), ("fizzled", string(""))],
+    ));
+    d.insert("Summoning".into(), object(
+        "Rules 0.8.0: `phase.event.public` the moment a summoning or a god-tier power is accepted (it lands at the next resolve).",
+        &[("event", e(&["summoning", "god_power"], "")), ("by", string("")), ("by_ref", r("Ref")), ("by_seat", int("")),
+          ("summons", array(object("", &[("demigod", r("Ref")), ("to", r("LonLat")), ("cell", string(""))], &[]), "")),
+          ("god_powers", array(object("", &[("power", string("")), ("tier", json!({ "const": "god" }))], &[]), "")),
+          ("seq", int("")), ("received_at_ms", int(""))],
+        &[("demigod", nullable(r("Ref"))), ("from", nullable(r("LonLat"))), ("to", nullable(r("LonLat")))],
+    ));
+    d.insert("Tale".into(), object("Rules 0.8.0: a deed the DM told.", &[("beat", int("")), ("kind", string("")), ("text", string(""))], &[]));
+    d.insert("Scar".into(), object("Rules 0.8.0: a scar.", &[("beat", int("")), ("cause", string("")), ("place", string(""))], &[("cell", string(""))]));
+    d.insert("Story".into(), object(
+        "Rules 0.8.0: what a demigod's piece carries.",
+        &[
+            ("followers", int("Its Following's headcount.")),
+            ("items", array(object("", &[("ref", r("Ref")), ("icon", string(""))], &[]), "Items it holds now (pegs).")),
+            ("wardrobe", object("Its outfit.", &[
+                ("stage", json!({ "type": "integer", "minimum": 0, "maximum": 4 })),
+                ("name", e(&["plain", "marked", "adorned", "regalia", "mythic"], "")),
+                ("condition", json!({ "type": ["string", "null"], "enum": ["scorched", "ragged", null] }))], &[])),
+            ("scars", array(r("Scar"), "Newest last, at most 12.")),
+        ],
+        &[("deeds", num("The wardrobe's input.")), ("tales", array(r("Tale"), "Rules 0.8.0: the newest 8 tales (summonings), oldest first."))],
+    ));
+    d.insert("Settlement".into(), object(
+        "Rules 0.8.0: a settlement's growth.",
+        &[("level", int("1 hamlet .. 5 great city; 6-7 legendary.")), ("size", int("People.")), ("prosperity", num("0..1")),
+          ("target", int("The level the rules aim at.")), ("since_beat", int("")), ("center_cell", string("People-level hex at its centre.")),
+          ("settlement_cells", array(json!({ "type": "string" }), "Village-level hexes it covers."))],
+        &[],
+    ));
+    let outcome = object("Revealed only.", &[
+        ("beat", int("")), ("by", r("Ref")), ("by_name", string("")), ("roll", int("")), ("modifier", sint("")),
+        ("total", sint("")), ("target_dc", sint("")), ("verdict", e(&verdicts, "")), ("text", string("")), ("damage", num("")),
+        ("item", nullable(r("Ref"))), ("item_icon", json!({ "type": ["string", "null"] })), ("character", nullable(r("Ref"))),
+        ("sparks", sint(""))], &[]);
+    d.insert("Encounter".into(), object(
+        "Rules 0.8.0: a marked hex. Hidden: only `id`, `cell`, `marked`. Revealed: its type and outcome, forever.",
+        &[("id", int("")), ("cell", string("People- or house-level hex.")), ("marked", json!({ "const": true }))],
+        &[("revealed", boolean("")), ("type", e(&kinds, "")), ("night", boolean("Placed at night.")), ("at", r("LonLat")),
+          ("region_ref", r("Ref")), ("outcome", outcome), ("faded_beat", int(""))],
+    ));
+    d.insert("LootToken".into(), object(
+        "Rules 0.8.0: an item token lying on a hex.",
+        &[("ref", r("Ref")), ("icon", string("")), ("cell", string("")), ("since_beat", int("")), ("pile", int("")), ("at", r("LonLat"))],
+        &[],
+    ));
+    d.insert("Road".into(), object(
+        "Rules 0.8.0: a road worn in between two settlements.",
+        &[("from_cell", string("")), ("to_cell", string("")), ("wear", num("")), ("since_beat", nullable(int(""))),
+          ("from_ref", r("Ref")), ("to_ref", r("Ref")), ("from_name", string("")), ("to_name", string("")),
+          ("path", array(r("LonLat"), "The two settlement centres."))],
+        &[],
+    ));
+    d.insert("Shrine".into(), object(
+        "Rules 0.8.0: a shrine to a demigod.",
+        &[("id", int("")), ("cell", string("House-level hex.")), ("owner_seat", nullable(int(""))),
+          ("side", json!({ "type": ["string", "null"], "enum": ["left", "right", null] })), ("worshippers", int("")),
+          ("power", e(&["spark", "heal", "ward"], "")), ("level", int("1..5")), ("owner", r("Ref")), ("owner_name", string("")),
+          ("player", string("")), ("name", string("")), ("at", r("LonLat")), ("region_ref", r("Ref")), ("built_beat", int("")),
+          ("owner_alive", boolean(""))],
+        &[],
+    ));
+    d.insert("MemoryEntry".into(), object(
+        "Rules 0.8.0: one decision in the DM's memory.",
+        &[("id", int("")), ("beat", int("")), ("scope", e(&["cell", "settlement", "region", "world"], "")),
+          ("place", string("A hex key, a `pl:` ref or \"world\".")), ("up", array(json!({ "type": "string" }), "Its ancestors, nearest first.")),
+          ("kind", string("")), ("query", json!({ "type": ["string", "null"] })), ("text", string("")),
+          ("data", json!({ "description": "The decision's fields (by kind)." }))],
+        &[],
+    ));
+    d.insert("HexState".into(), object(
+        "Rules 0.8.0: a hex as the DM knows it now (observed, or extrapolated from its last observation).",
+        &[("cell", string("")), ("level", e(&["people", "houses", "villages", "regions"], "")), ("center", r("LonLat")),
+          ("settlement", nullable(r("Ref"))), ("region", r("Ref")), ("people", int("")), ("buildings", int("")),
+          ("parent_population", int("")), ("settlement_level", int("")), ("terrain", json!({ "type": ["string", "null"] })),
+          ("encounters", array(r("Encounter"), "")), ("loot_items", int("")), ("shrines", array(json!({ "type": "integer" }), "Shrine ids.")),
+          ("on_road", boolean("")), ("weather", string("")),
+          ("time_of_day", object("", &[("day", int("")), ("phase", r("DayPhase")), ("light", num(""))], &[])),
+          ("changes_since", array(json!({ "type": "string" }), "Its parent's notable changes since it was last observed."))],
+        &[],
+    ));
+    d
+}
+
 fn v07_defs() -> Map<String, Value> {
     let mut d = Map::new();
     let e = |vals: &[&str], desc: &str| json!({ "type": "string", "enum": vals, "description": desc });
@@ -1345,6 +1532,7 @@ pub fn all() -> Vec<(&'static str, Value)> {
     let mut pool = model_defs();
     pool.extend(shared_defs());
     pool.extend(v07_defs());
+    pool.extend(v08_defs());
     pool.extend(queries::defs());
     let mut round_private = pool["SeatDelta"].clone();
     if let Some(props) = round_private["properties"].as_object_mut() {
@@ -1372,7 +1560,7 @@ pub fn all() -> Vec<(&'static str, Value)> {
         ("match_summary", finish("match_summary", "match.ended summary", "match.ended.summary", match_summary(), &pool)),
         ("phase_event", finish("phase_event", "phase.event public", "phase.event.public (pushed at once: who slowed time, a cast's streak)",
             json!({ "description": "`phase.event.public`: an immediate push from the game. `event` says which.",
-                    "oneOf": [r("Slowed"), r("Streak")] }), &pool)),
+                    "oneOf": [r("Slowed"), r("Streak"), r("Summoning")] }), &pool)),
     ];
     out.extend(query_schemas(&pool));
     out

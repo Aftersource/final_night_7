@@ -78,6 +78,8 @@ pub struct Judged {
     pub call: Option<ManifestCtx>,
     /// Whether the call may use the LLM (big tiers and twists, within the beat's budget).
     pub ask: bool,
+    /// Rules 0.8.0 (schema 6): the attempt's d20 (`mf:N`), recorded and shown once the attempt is judged.
+    pub dice: Option<fn7_model::dm::DiceRoll>,
 }
 
 /// Judge `intent` as manifestation number `k` of this beat (its id is `w.manifests.len() + k`). `spent` tracks bolts
@@ -115,7 +117,13 @@ pub fn judge(
     let recent = w.manifests.iter().filter(|m| m.demigod == d && m.beat + REPEAT_WINDOW > beat).count() as u32;
     let odds = odds(&OddsInputs { tier, cost, favor, stance: None, entropy: w.meta.entropy, recent });
     let id = ManifestationId::from_ix(w.manifests.len() + k);
-    let u = Rng::derive(w.meta.seed, &[MANIFEST_SALT, beat as u64, id.0 as u64]).f64();
+    let (u, dice) = if w.dm_rules() {
+        // Rules 0.8.0: the d20 decides (the DC carries the odds; see `dm::manifest_d20`).
+        let (r, u) = crate::dm::manifest_d20(w, id.0, odds.success, fn7_model::manifest::TIER_BASE_P[tier.index()]);
+        (u, Some(r))
+    } else {
+        (Rng::derive(w.meta.seed, &[MANIFEST_SALT, beat as u64, id.0 as u64]).f64(), None)
+    };
     let outcome = roll(&odds, u);
     let made = outcome.made().then(|| {
         let (c, t) = if outcome == Outcome::Partial { partial_of(req.kind, req.count, tier) } else { (req.count, tier) };
@@ -220,7 +228,7 @@ pub fn judge(
         rules_name: rules_name_for(kind, t, count, &intent.span),
     });
     let ask = made.is_some_and(|(_, t, _)| t >= Tier::Wonder) || outcome == Outcome::Twisted;
-    Some(Judged { m, made, props, call, ask })
+    Some(Judged { m, made, props, call, ask, dice })
 }
 
 /// The `Effect::Manifest` proposal for a judged attempt, with its words (`None`: nothing appeared).

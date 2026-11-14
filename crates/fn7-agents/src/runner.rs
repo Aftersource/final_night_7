@@ -20,6 +20,7 @@ use crate::narrator::{self, Narration, NarratorCtx};
 use crate::ramify::{self, RamifyCtx, RamifyOut};
 use crate::resolver::{self, ResolverCtx, ResolverOut};
 use crate::step::{self, StepCtx, StepOut};
+use crate::summon::{self, SummonCtx, SummonOut};
 
 /// Run one mind future with a timeout; on timeout, the fallback (recorded as `Fallback::Timeout`).
 pub async fn run_job<T, F>(
@@ -57,6 +58,8 @@ pub enum MindCall {
     General(GeneralCtx),
     /// Rules 0.7.0: words for an item-engine verdict.
     Manifest(ManifestCtx),
+    /// Rules 0.8.0: the transit deed of a summoned demigod.
+    Summon(SummonCtx),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -72,6 +75,7 @@ pub enum MindReply {
     Ramify(RamifyOut),
     General(fn7_model::Judgment),
     Manifest(ManifestOut),
+    Summon(SummonOut),
 }
 
 impl MindCall {
@@ -88,6 +92,7 @@ impl MindCall {
             MindCall::Ramify(_) => ramify::STEP,
             MindCall::General(_) => general::STEP,
             MindCall::Manifest(_) => manifest::STEP,
+            MindCall::Summon(_) => summon::STEP,
         }
     }
 
@@ -104,6 +109,7 @@ impl MindCall {
             MindCall::Ramify(c) => Some(c.region.to_string()),
             MindCall::General(c) => Some(c.army.to_string()),
             MindCall::Manifest(c) => Some(c.demigod.to_string()),
+            MindCall::Summon(c) => Some(c.demigod.to_string()),
         }
     }
 
@@ -119,6 +125,7 @@ impl MindCall {
             MindCall::Ramify(c) => ramify::run(llm, c).await.map(MindReply::Ramify),
             MindCall::General(c) => general::run(llm, c).await.map(MindReply::General),
             MindCall::Manifest(c) => manifest::run(llm, c).await.map(MindReply::Manifest),
+            MindCall::Summon(c) => summon::run(llm, c).await.map(MindReply::Summon),
         }
     }
 
@@ -134,6 +141,7 @@ impl MindCall {
             MindCall::Ramify(c) => MindReply::Ramify(ramify::fallback(c)),
             MindCall::General(c) => MindReply::General(general::fallback(c)),
             MindCall::Manifest(c) => MindReply::Manifest(manifest::fallback(c)),
+            MindCall::Summon(c) => MindReply::Summon(summon::fallback(c)),
         }
     }
 }

@@ -196,6 +196,8 @@ fn god_ctx(slug: &str, favor: f32, i: Intent) -> GodCtx {
         bolts: 3,
         cost: 1,
         world: "Entropy 5/100 (calm)".into(),
+        dm: false,
+        dm_memory: vec![],
     }
 }
 
@@ -233,6 +235,7 @@ fn resolver_ctx() -> ResolverCtx {
         eliminated: vec![],
         accident_scale: 1.0,
         items_by_engine: false,
+        dm: None,
     }
 }
 
@@ -912,6 +915,7 @@ async fn resolver_fallback_rules() {
 
 fn narrator_ctx() -> NarratorCtx {
     NarratorCtx {
+        lens: false,
         beat: 7,
         beats_total: 40,
         alive_demigods: 3,

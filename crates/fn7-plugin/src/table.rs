@@ -11,7 +11,8 @@
 //!
 //! **Mid-match join** ([`seat_takeover`], the engine's `on_seat_takeover`, called at the round boundary before
 //! `on_round_start`, room setting `allow_midmatch_join`):
-//! - a taken-over **bot seat** keeps its demigod, which is now human-controlled;
+//! - a taken-over **bot seat** keeps its demigod, which is now human-controlled (rules 0.8.0: renamed for the joiner,
+//!   `"<name>'s Left Hand"` / `"<name>'s Right Hand"`, same refs);
 //! - a **new seat** takes over one of the built-in AI demigods that is still alive: the one with the most health, then
 //!   the lowest id (deterministic). Its synthetic seat becomes the new seat, so its hands follow that seat's orders
 //!   from this beat on (and its eliminations are reported to the Theatre);
@@ -55,6 +56,39 @@ pub fn add_table_fields(w: &World, d: &Demigod, v: &mut Value) {
     }
 }
 
+/// Rules 0.8.0: a taken-over bot seat's demigods are renamed `"<name>'s Left Hand"` / `"<name>'s Right Hand"` (a name
+/// another demigod already carries gets the seat appended), with their hand agents; each change is remembered.
+fn rename_bodies(w: &mut World, seat: u8, name: &str, round: u32) {
+    let ids: Vec<DemigodId> = w.bodies_of_seat(seat).filter(|d| d.side.is_some()).map(|d| d.id).collect();
+    for d in ids {
+        let side = if w.demigods[d.ix()].side == Some(Hand::Right) { "Right" } else { "Left" };
+        let mut new = format!("{name}'s {side} Hand");
+        if w.demigods.iter().any(|x| x.id != d && x.name == new) {
+            new = format!("{new} ({seat})");
+        }
+        let old = std::mem::replace(&mut w.demigods[d.ix()].name, new.clone());
+        if old == new {
+            continue;
+        }
+        for h in w.demigods[d.ix()].hands {
+            if let Some(a) = w.agents.get_mut(h.ix()) {
+                a.name = new.clone();
+            }
+        }
+        let pos = w.demigods[d.ix()].pos;
+        let wh = crate::dm::locate(w, pos, fn7_model::hexgrid::HexLevel::People);
+        crate::dm::remember(w, round, &wh, crate::dm::Decision {
+            scope: fn7_model::dm::Scope::Cell,
+            kind: "seat.takeover",
+            query: Some(format!("takeover:{round}:{}", d.0)),
+            public: true,
+            text: format!("{name} took up the mantle of {old}"),
+            data: json!({ "demigod": Ref::Demigod(d), "from": old, "to": new, "seat": seat }),
+        });
+        event("demigod_renamed", Some(Ref::Demigod(d).to_string()), json!({ "round": round, "from": old, "to": new }));
+    }
+}
+
 /// A human starts playing `t.seat` (see the module doc). Returns whether the world changed.
 pub fn seat_takeover(w: &mut World, t: &SeatTakeover) -> bool {
     let base = json!({ "round": t.round, "seat": t.seat, "display_name": t.display_name, "new_seat": t.new_seat,
@@ -74,13 +108,18 @@ pub fn seat_takeover(w: &mut World, t: &SeatTakeover) -> bool {
         let d = w.seats[i].demigod;
         let was_bot = w.seats[i].is_bot;
         w.seats[i].is_bot = false;
-        // Schema 5: the seat's player is now the joiner (for profiles); their demigods keep their names this match.
+        // Schema 5: the seat's player is now the joiner (for profiles); before schema 6 their demigods keep their names.
         if w.two_bodies() && was_bot && !t.display_name.trim().is_empty() {
             let name: String = t.display_name.trim().chars().take(40).collect();
             w.seats[i].display_name = name.clone();
             let seat = w.seats[i].seat;
             for x in w.demigods.iter_mut().filter(|x| x.seat == seat && x.side.is_some()) {
                 x.player = name.clone();
+            }
+            // Rules 0.8.0: the bot's demigods take the joiner's names (refs stay; their hand agents follow), so the
+            // portraits and dioramas prewarmed under those names apply, and the DM remembers the change of hands.
+            if w.dm_rules() {
+                rename_bodies(w, seat, &name, t.round);
             }
         }
         let x = &w.demigods[d.ix()];

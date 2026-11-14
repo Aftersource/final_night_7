@@ -53,12 +53,18 @@ async fn a_taken_over_bot_seat_keeps_its_demigod_and_turns_human() {
     let w = world::load(&s2).unwrap();
     let st = world::seat_state(&w, 1).unwrap();
     assert_eq!((st.demigod, st.is_bot), (DemigodId(1), false), "same demigod, now human");
-    assert_eq!(w.demigods[1].name, "Brix's Left Hand", "the demigod keeps its name");
+    // Rules 0.8.0: the bot's demigods take the joiner's names (refs stable; hand agents follow; remembered).
+    assert_eq!(w.demigods[1].name, "Benito's Left Hand", "renamed for the joiner");
+    let right = w.siblings(DemigodId(1)).into_iter().find(|x| *x != DemigodId(1)).unwrap();
+    assert_eq!(w.demigods[right.ix()].name, "Benito's Right Hand");
+    assert_eq!(w.agents[w.demigods[1].hands[0].ix()].name, "Benito's Left Hand");
+    assert!(w.dm.memory.iter().any(|e| e.kind == "seat.takeover" && e.text == "Benito took up the mantle of Brix's Left Hand"));
     assert_eq!((w.demigods[1].player.as_str(), w.seats[1].display_name.as_str()), ("Benito", "Benito"), "the joiner is the player now");
     let after = by_ref(&demigods(&p.public_view(&s2)), "dg:1").clone();
     assert_eq!(after["controller"], "human");
     assert!(after["connected"].is_null(), "presence is the core's: null for a human");
     assert_eq!(after["seat"], 1);
+    assert_eq!(after["name"], "Benito's Left Hand");
     // Nothing else moved.
     for r in ["dg:0", "dg:2", "dg:3", "dg:4", "dg:6", "dg:7"] {
         assert_eq!(by_ref(&demigods(&before), r), by_ref(&demigods(&p.public_view(&s2)), r));
@@ -196,7 +202,18 @@ async fn the_diorama_prompt_is_stable_and_drawable_by_ref() {
     .await
     .unwrap();
     assert!(!seen.is_empty());
-    assert!(seen.iter().all(|x| *x == first), "diorama prompts never change during a match");
+    // Rules 0.8.0: only the taken-over seat's two demigods change, to the joiner's names (and their prewarmed images).
+    let seat1: Vec<usize> = ds.iter().enumerate().filter(|(_, d)| d["seat"] == 1).map(|(i, _)| i).collect();
+    assert_eq!(seat1.len(), 2);
+    for x in &seen {
+        for (i, (a, b)) in x.iter().zip(&first).enumerate() {
+            if !seat1.contains(&i) {
+                assert_eq!(a, b, "diorama prompts never change during a match, except a takeover's");
+            }
+        }
+    }
+    let last = seen.last().unwrap();
+    assert!(seat1.iter().all(|i| last[*i].as_str().unwrap().contains("Benito's")), "the joiner's demigods");
 }
 
 #[tokio::test]
@@ -290,4 +307,17 @@ async fn each_hand_is_a_demigod_with_its_own_identity_images() {
     }
     assert_eq!((ds[0]["side"].as_str(), ha[1]["side"].as_str()), (Some("left"), Some("right")));
     assert_eq!(payload::hand_names("Ash"), ["Ash's Left Hand".to_string(), "Ash's Right Hand".to_string()]);
+}
+
+/// Schema 5 (rules 0.7.0) keeps the old behaviour: a taken-over bot's demigods keep their names, so old recordings replay.
+#[tokio::test]
+async fn a_schema_5_takeover_keeps_the_names() {
+    let (p, s) = start(5).await;
+    let mut w = world::load(&s).unwrap();
+    w.meta.schema = 5;
+    let s5 = world::save(&w);
+    let s2 = p.on_seat_takeover(&s5, &takeover(1, false)).expect("state changes");
+    let w2 = world::load(&s2).unwrap();
+    assert_eq!(w2.demigods[1].name, "Brix's Left Hand");
+    assert!(w2.dm.memory.is_empty());
 }

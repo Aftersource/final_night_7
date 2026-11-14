@@ -498,6 +498,20 @@ pub(crate) fn who_json(w: &World, c: Option<CharId>) -> Value {
 pub fn node_json(w: &World, p: PlaceId) -> Value {
     let Some(n) = w.nodes.get(p.ix()) else { return Value::Null };
     let pl = &w.places[p.ix()];
+    let mut v = node_json_v5(w, p, n, pl);
+    // Rules 0.8.0: a settlement's level and size, and the hexes it covers.
+    if w.dm_rules() {
+        if let Some(s) = crate::dm::settlement_json(w, p) {
+            v["settlement"] = s;
+        }
+        // Places with a node are simulated every beat: observed now, never extrapolated.
+        v["observed_beat"] = w.meta.beat.into();
+        v["extrapolated"] = false.into();
+    }
+    v
+}
+
+fn node_json_v5(w: &World, p: PlaceId, n: &Node, pl: &Place) -> Value {
     json!({ "ref": Ref::Place(p), "name": pl.name, "level": n.level, "population": n.population, "base": n.base,
             "mood": mood_json(&n.mood), "need": n.need, "allegiance": alleg_json(w, &n.allegiance),
             "worship": n.worship.iter().map(|(g, x)| json!({ "god": w.name_of(Ref::God(*g)), "god_ref": Ref::God(*g), "value": x })).collect::<Vec<_>>(),

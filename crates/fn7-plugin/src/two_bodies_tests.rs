@@ -23,7 +23,7 @@ fn act(seat: Seat, fields: Value) -> Action {
 #[test]
 fn every_player_has_two_full_demigods() {
     let w = testkit::world(4, 3);
-    assert_eq!((w.meta.schema, w.demigods.len(), w.player_seats().len()), (5, 8, 4));
+    assert_eq!((w.meta.schema, w.demigods.len(), w.player_seats().len()), (6, 8, 4));
     for seat in w.player_seats() {
         let ds: Vec<&Demigod> = w.bodies_of_seat(seat).collect();
         assert_eq!(ds.len(), 2);
@@ -52,7 +52,7 @@ fn every_player_has_two_full_demigods() {
 #[test]
 fn the_left_text_drives_the_left_demigod_and_the_right_text_the_right() {
     let mut w = testkit::world(2, 4);
-    let input = Input { left: "go to Lagos".into(), right: "forge a sword".into(), zoom: None, casts: vec![] };
+    let input = Input { left: "go to Lagos".into(), right: "forge a sword".into(), zoom: None, casts: vec![], ..Default::default() };
     let turns = beat::split_turn(&w, 200, DemigodId(0), input.clone());
     assert_eq!(turns.len(), 2);
     assert_eq!((turns[0].demigod, turns[0].input.left.as_str(), turns[0].input.right.as_str()), (DemigodId(0), "go to Lagos", ""));

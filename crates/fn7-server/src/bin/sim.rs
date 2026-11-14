@@ -311,6 +311,27 @@ async fn main() -> anyhow::Result<()> {
         w.characters.len(),
         w.agents.len()
     );
+    if w.dm_rules() {
+        // Rules 0.8.0: what the Dungeon Master decided.
+        let dm = &w.dm;
+        let kind = |k: &str| dm.memory.iter().filter(|e| e.kind == k).count();
+        println!(
+            "dm: {} decisions ({} d20 rolls); encounters {} marked, {} revealed, {} faded; loot {} piles ({} taken); \
+             roads {}; shrines {}; settlements grew {} / shrank {}; scars {}",
+            dm.memory.len(),
+            kind("dice.rolled"),
+            dm.encounters.len(),
+            dm.encounters.iter().filter(|e| e.outcome.is_some()).count(),
+            dm.encounters.iter().filter(|e| e.faded_beat.is_some()).count(),
+            dm.loot.len(),
+            dm.loot.iter().filter(|l| l.taken_beat.is_some()).count(),
+            dm.roads().count(),
+            dm.shrines.len(),
+            kind("settlement.grew"),
+            kind("settlement.shrank"),
+            kind("story.scar"),
+        );
+    }
     society_report(&w, &soc_ms, a.examples);
     if let Some(r) = recorder {
         r.flush();

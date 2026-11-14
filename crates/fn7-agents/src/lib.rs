@@ -30,8 +30,10 @@ pub mod materialize;
 pub mod narrator;
 pub mod ramify;
 pub mod resolver;
+pub mod rulebook;
 pub mod runner;
 pub mod step;
+pub mod summon;
 
 pub use common::{Entity, Fallback, Labels, Outcome};
 pub use runner::{run_job, run_minds, MindCall, MindReply, RunReport};

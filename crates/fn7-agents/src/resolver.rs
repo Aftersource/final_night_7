@@ -1,6 +1,7 @@
 //! The world resolver: Final Night's game master, one call per active vicinity per beat. Everyone's ordinary acts in one
 //! place → one outcome and the proposals that make it so.
 
+use fn7_model::dm::{DiceRoll, DiceVerdict};
 use fn7_model::seed::Rng;
 use fn7_model::{Effect, Intent, LonLat, Mention, PlaceId, Proposal, Ref, Source, Target};
 use schemars::JsonSchema;
@@ -50,6 +51,40 @@ pub struct ResolverCtx {
     /// "make" act into an item (old fallbacks named items after bare verbs: "search", "take"). `false` for schema-4
     /// worlds, which keep the old behaviour so their recordings replay.
     pub items_by_engine: bool,
+    /// Rules 0.8.0 (state schema 6): the Dungeon Master's view of this vicinity: the core rulebook joins the system
+    /// prompt, the memory of this place and each act's d20 join the user prompt, and the rules fallback follows the
+    /// dice. `None` for older worlds, whose prompts and fallback stay exactly as they were (their recordings replay).
+    pub dm: Option<DmView>,
+}
+
+/// The DM's view of a vicinity (rules 0.8.0).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct DmView {
+    /// Settled memory lines about this place (bounded, oldest first).
+    pub memory: Vec<String>,
+    /// Each act's d20 (same order as `acts`; `None`: not rolled).
+    pub dice: Vec<Option<DiceRoll>>,
+    /// The time of day, one line ("Night, day 2").
+    pub time: String,
+}
+
+impl ResolverCtx {
+    fn dice(&self, k: usize) -> Option<&DiceRoll> {
+        self.dm.as_ref().and_then(|d| d.dice.get(k)).and_then(|x| x.as_ref())
+    }
+}
+
+/// A d20 roll as the LLM DM reads it.
+pub fn dice_line(d: &DiceRoll) -> String {
+    format!(
+        "d20 rolled {} {} {} = {} vs DC {}: {}",
+        d.roll,
+        if d.modifier < 0 { "-" } else { "+" },
+        d.modifier.abs(),
+        d.total,
+        d.target_dc,
+        d.verdict.as_str()
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -191,6 +226,26 @@ pub fn system_prompt() -> String {
     format!("{GAME_MASTER}\n- {LABEL_RULE}\n- {UNTRUSTED_RULE}\n\n{VOICE}")
 }
 
+/// Rules 0.8.0 (state schema 6): the game master's prompt with the Dungeon Master's core rules.
+pub fn system_prompt_dm() -> String {
+    format!(
+        "{GAME_MASTER}\n- {LABEL_RULE}\n- {UNTRUSTED_RULE}\n- each act shows its d20: honor it (one effect per act, \
+         its size following the verdict); a natural 1 on an act with no intent to harm is a Final Destination accident on \
+         its actor.\n\n{}\n{}\n\n{VOICE}",
+        crate::rulebook::DM_CORE,
+        crate::rulebook::LENS
+    )
+}
+
+/// The system prompt this context is asked with.
+pub fn system_prompt_for(ctx: &ResolverCtx) -> String {
+    if ctx.dm.is_some() {
+        system_prompt_dm()
+    } else {
+        system_prompt()
+    }
+}
+
 pub fn user_prompt(ctx: &ResolverCtx) -> String {
     let l = labels(ctx);
     let mut u = format!(
@@ -201,6 +256,17 @@ pub fn user_prompt(ctx: &ResolverCtx) -> String {
     );
     for w in &ctx.world {
         u.push_str(&format!("{}\n", line(w, 200)));
+    }
+    if let Some(dm) = &ctx.dm {
+        if !dm.time.is_empty() {
+            u.push_str(&format!("Time of day: {}.\n", line(&dm.time, 60)));
+        }
+        if !dm.memory.is_empty() {
+            u.push_str(&format!("{}\n", crate::rulebook::MEMORY_HEADING));
+            for m in &dm.memory {
+                u.push_str(&format!("- {}\n", line(m, 200)));
+            }
+        }
     }
     if !ctx.eliminated.is_empty() {
         u.push_str(&format!(
@@ -263,6 +329,9 @@ pub fn user_prompt(ctx: &ResolverCtx) -> String {
             untrusted(&format!("ACT {n}", n = i + 1), &body),
             n = i + 1
         ));
+        if let Some(d) = ctx.dice(i) {
+            u.push_str(&format!("Act {n} dice: {}.\n", dice_line(d), n = i + 1));
+        }
     }
     u.push_str("\nReply with JSON: the effects (one per act, at most one accident; each text at most 12 words).");
     u
@@ -280,7 +349,7 @@ pub fn max_effects(acts: usize) -> usize {
 
 pub fn build_request(ctx: &ResolverCtx) -> LlmRequest {
     request(
-        &system_prompt(),
+        &system_prompt_for(ctx),
         &user_prompt(ctx),
         max_tokens(ctx.acts.len()),
         1.0,
@@ -547,10 +616,11 @@ pub fn fallback(ctx: &ResolverCtx) -> ResolverOut {
     let l = labels(ctx);
     let everyone = default_witnesses(ctx);
     let mut proposals = Vec::new();
-    for a in &ctx.acts {
+    for (k, a) in ctx.acts.iter().enumerate() {
         let i = &a.intent;
         let target = i.targets.first().cloned();
         let class = classify(&i.verb);
+        let dice = ctx.dice(k);
         let m = i.magnitude as f32;
         let who = l.name(a.actor);
         let tname = target.as_ref().map(|t| match t {
@@ -629,6 +699,25 @@ pub fn fallback(ctx: &ResolverCtx) -> ResolverOut {
         } else {
             kind
         };
+        // Rules 0.8.0: the act's d20 sizes its result (a natural 1 misses, a fail lands half, a natural 20 half again).
+        let (kind, amount, text) = match dice.map(|d| d.verdict) {
+            Some(v) if matches!(kind, ResKind::Damage | ResKind::Relation | ResKind::Mood) => {
+                let f = match v {
+                    DiceVerdict::CritFail => 0.0,
+                    DiceVerdict::Fail => 0.5,
+                    DiceVerdict::Success => 1.0,
+                    DiceVerdict::CritSuccess => 1.5,
+                };
+                if f == 0.0 {
+                    (ResKind::Note, 0.0, format!("{text}, and it comes to nothing"))
+                } else if kind == ResKind::Damage {
+                    (kind, (amount * f).round().clamp(1.0, 7.0), text)
+                } else {
+                    (kind, amount * f, text)
+                }
+            }
+            _ => (kind, amount, text),
+        };
         proposals.extend(proposals_for(
             ctx,
             &l,
@@ -647,7 +736,14 @@ pub fn fallback(ctx: &ResolverCtx) -> ResolverOut {
         ));
         if class != ActClass::Attack {
             let mut rng = Rng::derive(ctx.beat as u64, &[ctx.place.0 as u64, i.id.0 as u64]);
-            if rng.f64() < ctx.accident_scale as f64 / ACCIDENT_ODDS as f64 {
+            let chance = rng.f64() < ctx.accident_scale as f64 / ACCIDENT_ODDS as f64;
+            // Rules 0.8.0: the accident is the act's own d20: a natural 1, confirmed (`(roll - 1) + confirm < scale`,
+            // the same 1 in 20 × accident_scale).
+            let accident = match dice {
+                Some(d) => ((d.roll as f64 - 1.0) + d.confirm) < ctx.accident_scale as f64,
+                None => chance,
+            };
+            if accident {
                 let text = format!(
                     "a Final Destination moment: a loose sign, a wet floor and {who} meet at speed"
                 );

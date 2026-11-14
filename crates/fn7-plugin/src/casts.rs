@@ -141,7 +141,7 @@ pub fn resolve_name(w: &World, s: &str) -> Option<Ref> {
 }
 
 /// A cast's aim → (strike point, the thing it hits directly).
-fn aim(w: &World, t: &CastTarget, power: &PowerDef) -> Option<(LonLat, Option<Ref>)> {
+pub(crate) fn aim(w: &World, t: &CastTarget, power: &PowerDef) -> Option<(LonLat, Option<Ref>)> {
     let r = match t {
         CastTarget::At(p) => return Some((*p, None)),
         CastTarget::Ref(r) => *r,
@@ -181,6 +181,13 @@ pub fn streak(w: &World, d: DemigodId, seat: u8, casts: &[CastOrder]) -> Option<
             }
             match aim(w, &o.target, &p) {
                 Some((at, target)) => {
+                    // Rules 0.8.0: a mega's strength follows the nearest fault line (shown before it lands).
+                    if scale == Some(CastScale::Mega) && w.dm_rules() {
+                        let (q, f) = crate::faults::apply(p.clone(), at, &crate::world::settings(w));
+                        v["radius_km"] = json!(q.radius_km);
+                        v["fault_km"] = f["fault_km"].clone();
+                        v["fault_factor"] = f["fault_factor"].clone();
+                    }
                     let (region, rname) = region_name(w, at);
                     v["at"] = json!(at);
                     v["region"] = rname.into();
@@ -197,7 +204,8 @@ pub fn streak(w: &World, d: DemigodId, seat: u8, casts: &[CastOrder]) -> Option<
     let first = lines.first()?.clone();
     let mut out = json!({ "event": "streak", "by": name, "by_ref": Ref::Demigod(d), "by_seat": seat,
                           "casts": lines });
-    for k in ["power", "power_name", "icon", "cost", "at", "region", "region_ref", "place", "target", "target_name"] {
+    for k in ["power", "power_name", "icon", "cost", "at", "region", "region_ref", "place", "target", "target_name", "fault_km",
+              "fault_factor"] {
         if let Some(x) = first.get(k) {
             out[k] = x.clone();
         }
@@ -289,6 +297,15 @@ pub fn process(
                     off = true;
                 }
             }
+            // Rules 0.8.0: a mega lands stronger near a fault line and milder far from one (minis are unaffected).
+            let mut fault = Value::Null;
+            let p = if scale == Some(CastScale::Mega) && w.dm_rules() {
+                let (q, f) = crate::faults::apply(p, at, st);
+                fault = f;
+                q
+            } else {
+                p
+            };
             let place = place_at(w, at);
             let (region, rname) = region_name(w, at);
             let place_name = w.name_of(Ref::Place(place));
@@ -359,6 +376,15 @@ pub fn process(
             v["target_name"] = json!(tname);
             v["off_target"] = off.into();
             v["row"] = json!(row.map(Ref::Ledger));
+            if !fault.is_null() {
+                v["fault_km"] = fault["fault_km"].clone();
+                v["fault_factor"] = fault["fault_factor"].clone();
+                v["radius_km"] = json!(p.radius_km);
+                event("fault", Some(Ref::Demigod(d).to_string()),
+                      json!({ "beat": beat, "power": p.slug, "at": at, "fault_km": fault["fault_km"],
+                              "fault_factor": fault["fault_factor"], "magnitude": p.magnitude, "damage": p.damage,
+                              "radius_km": p.radius_km }));
+            }
             event("cast", Some(Ref::Demigod(d).to_string()),
                   json!({ "beat": beat, "by": d, "power": p.slug, "cost": p.cost, "at": at, "region": region,
                           "target": target, "damage": p.damage, "off_target": off, "row": row,
@@ -419,6 +445,7 @@ pub fn process(
             .collect();
         out.ramify_intents.push((first.1, first.0.by, first.0.at));
         out.ramify.push(RamifyCtx {
+            lens: w.dm_rules(),
             region,
             region_name: w.name_of(Ref::Place(region)),
             beat,

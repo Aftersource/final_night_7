@@ -47,6 +47,11 @@ pub struct GodCtx {
     pub cost: u32,
     /// How wacky the world is (the Entropy line).
     pub world: String,
+    /// Rules 0.8.0 (state schema 6): the Dungeon Master's core rules join the system prompt and `dm_memory` the user
+    /// prompt. `false` for older worlds (their recordings replay with the old prompts).
+    pub dm: bool,
+    /// Settled memory lines about the invoker's region (rules 0.8.0; empty before).
+    pub dm_memory: Vec<String>,
 }
 
 impl GodCtx {
@@ -263,7 +268,17 @@ Magnitude of the request: {mag}/10. Lightning bolts they hold: {bolts}; this cos
 pub const MAX_TOKENS: u32 = 400;
 
 pub fn build_request(ctx: &GodCtx) -> LlmRequest {
-    request(&system_prompt(ctx), &user_prompt(ctx), MAX_TOKENS, 0.9)
+    let (mut sys, mut user) = (system_prompt(ctx), user_prompt(ctx));
+    if ctx.dm {
+        sys = format!("{sys}\n\n{}\n{}", crate::rulebook::DM_CORE, crate::rulebook::LENS);
+        if !ctx.dm_memory.is_empty() {
+            user.push_str(&format!("\n{}\n", crate::rulebook::MEMORY_HEADING));
+            for m in &ctx.dm_memory {
+                user.push_str(&format!("- {}\n", line(m, 200)));
+            }
+        }
+    }
+    request(&sys, &user, MAX_TOKENS, 0.9)
 }
 
 /// The price-table row for this invocation: the named act, else the act word found in the request, else the first row.

@@ -666,7 +666,7 @@ fn last_public(w: &World) -> (Vec<Omen>, String, Option<u32>) {
 /// What everyone may see: the arena, the demigods' public positions, public omens and the last caption.
 pub fn public_view(w: &World) -> Value {
     let (omens, caption, caption_beat) = last_public(w);
-    tidied(json!({
+    with_dm(w, tidied(json!({
         "beat": w.meta.beat,
         "beats_total": w.meta.beats_total,
         "arena": arena_json(w),
@@ -685,7 +685,17 @@ pub fn public_view(w: &World) -> Value {
         "mods": crate::payload::mods_json(w),
         "gods": w.gods.iter().map(|g| json!({ "ref": Ref::God(g.id), "name": g.name, "health": g.health }))
             .collect::<Vec<_>>(),
-    }))
+    })))
+}
+
+/// Rules 0.8.0 (schema 6) additions to the PublicView: shrine summaries and the time of day.
+fn with_dm(w: &World, mut v: Value) -> Value {
+    if w.dm_rules() {
+        v["shrines"] = crate::dm::shrines_under(w, None).into();
+        crate::dm::add_time_of_day(&mut v, w.meta.beat, &settings(w));
+        crate::payload::tidy(&mut v);
+    }
+    v
 }
 
 /// One demigod as everyone sees it: never health; a live one's position, place, region and people-level hex `cell`, a
@@ -705,6 +715,9 @@ pub(crate) fn demigod_public(w: &World, d: &Demigod) -> Value {
         v["aura"] = crate::payload::aura(w, d.seat).into();
         v["sibling"] = json!(w.siblings(d.id).into_iter().find(|s| *s != d.id).map(Ref::Demigod));
         v["items"] = json!(crate::items::public_items_of(w, d.id));
+    }
+    if w.dm_rules() {
+        v["story"] = crate::dm::story_json(w, d.id);
     }
     if d.alive {
         v["pos"] = json!(d.pos);
@@ -845,7 +858,7 @@ pub fn seat_view(w: &World, seat: Seat) -> Value {
 }
 
 pub fn brief_public(w: &World, round: u32, pantheon: &Pantheon) -> Value {
-    tidied(json!({
+    let mut v = tidied(json!({
         "title": if crate::beat::is_final_wish(w, round) {
             format!("The Final Wish: beat {round} of {}", w.meta.beats_total)
         } else {
@@ -876,7 +889,17 @@ pub fn brief_public(w: &World, round: u32, pantheon: &Pantheon) -> Value {
             "slow": crate::payload::slow_json(w),
         },
         "regions": crate::payload::regions_json(w),
-    }))
+    }));
+    // Rules 0.8.0: the brief carries the coming beat's time of day, and the gods' god-tier powers join the palette.
+    if w.dm_rules() {
+        crate::dm::add_time_of_day(&mut v, round, &settings(w));
+        if let Some(a) = v["powers"].as_array_mut() {
+            // Before the custom entry, which stays last.
+            let at = a.len().saturating_sub(1);
+            a.splice(at..at, crate::godtier::powers_json(pantheon, &settings(w)));
+        }
+    }
+    v
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

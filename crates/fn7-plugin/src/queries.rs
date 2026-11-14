@@ -55,8 +55,10 @@ pub fn specs() -> Vec<QuerySpec> {
              obj(json!({ "ref": r#ref(r"^pl:\d+$", "The region (a `pl:` ref of a region; in a city arena, a district)."),
                          "cursor": cursor, "limit": limit(10, 50) }), &["ref"])),
         spec("node", true,
-             "One hierarchy node by ref: a place (planet, region, city, district: its node, child nodes and a page of its crowds), a crowd (`cl:`, not an army), a cell (`ce:`) or a mob (`mb:`), with the people known there.",
-             obj(json!({ "ref": r#ref(r"^(pl|cl|ce|mb):\d+$", "The node."), "cursor": cursor, "limit": limit(20, 100) }), &["ref"])),
+             "One hierarchy node by ref: a place (planet, region, city, district: its node, child nodes and a page of its crowds), a crowd (`cl:`, not an army), a cell (`ce:`) or a mob (`mb:`), with the people known there. Rules 0.8.0: or a hex (`cell`: a hex cell key) zoomed into: its state now, observed or extrapolated from the DM's memory.",
+             obj(json!({ "ref": r#ref(r"^(pl|cl|ce|mb):\d+$", "The node (or give `cell`)."),
+                         "cell": { "type": "string", "description": "Rules 0.8.0: a hex cell key (\"<face>:<level>:<q>:<r>\") instead of `ref`." },
+                         "cursor": cursor, "limit": limit(20, 100) }), &[])),
         spec("person", true,
              "One person (`ch:`): role, rank, place. For your seat also the allegiance you know and a page of the memories you can see.",
              obj(json!({ "ref": r#ref(r"^ch:\d+$", "The person."), "cursor": cursor, "limit": limit(20, 100) }), &["ref"])),
@@ -85,6 +87,14 @@ pub fn specs() -> Vec<QuerySpec> {
         spec("item", true,
              "Rules 0.7.0: one item (`it:`) with its manifestation (verdict, provenance) and custody history. A private item only for its holder's seat.",
              obj(json!({ "ref": r#ref(r"^it:\d+$", "The item.") }), &["ref"])),
+        spec("memory", true,
+             "Rules 0.8.0: the Dungeon Master's memory of a place: every public decision about it, or anything above or below it (cell → settlement → region → world), at or before a beat, newest first.",
+             obj(json!({ "place": { "type": "string", "description": "A hex cell key (\"0:people:12:-3\"), a `pl:` ref (settlement or region) or \"world\"." },
+                         "until_beat": { "type": ["integer", "string"], "minimum": 0, "description": "Only decisions made at or before this beat (default: now)." },
+                         "limit": limit(50, 200) }), &["place"])),
+        spec("encounters", true,
+             "Rules 0.8.0: the encounter hexes on the board: hidden ones only as {id, cell, marked}; revealed ones with their type and outcome. Optionally one region's.",
+             obj(json!({ "region": r#ref(r"^pl:\d+$", "Only encounters in this region.") }), &[])),
         spec("piles_final", true,
              "Every demigod's end-of-match pile (items, summons, stats, statue prompt). An error until the match is over.",
              obj(json!({}), &[])),
@@ -102,13 +112,15 @@ pub fn query(pantheon: &Pantheon, state: &Value, seat: Option<Seat>, name: &str,
         "army" => army(state, seat, &args),
         "events" => events(state, &args),
         "me" => me(state, seat),
-        "powers" => Ok(json!({ "powers": payload::powers_json() })),
+        "powers" => powers(pantheon, state),
         "gods" => gods(state, pantheon),
         "standings" => standings(state),
         "piles_final" => piles_final(state),
         "items" => items(state, seat, &args),
         "item" => item(state, seat, &args),
         "media" => media(state, seat, &args),
+        "memory" => memory(state, &args),
+        "encounters" => encounters(state, &args),
         other => Err(format!("unknown query {other}")),
     }?;
     payload::tidy(&mut v);
@@ -139,6 +151,8 @@ enum T {
     Battles,
     Slow,
     Manifests,
+    Dm,
+    DmLite,
 }
 
 fn table<D: serde::de::DeserializeOwned + Default>(state: &Value, key: &str, want: bool) -> Result<D, String> {
@@ -182,7 +196,60 @@ fn world(state: &Value, t: &[T]) -> Result<World, String> {
         battles: table(state, "battles", has(T::Battles))?,
         soc: Default::default(),
         manifests: table(state, "manifests", has(T::Manifests))?,
+        // Rules 0.8.0: the DM's state. Its memory (the big part) only for the queries that read it; demigods carry
+        // their story pieces, so the rest of it comes with them.
+        dm: if has(T::Dm) { table(state, "dm", true)? } else { dm_lite(state, has(T::Demigods) || has(T::DmLite))? },
     })
+}
+
+/// The DM's state without its memory (the queries that only show the board).
+fn dm_lite(state: &Value, want: bool) -> Result<fn7_model::dm::Dm, String> {
+    #[derive(Deserialize, Default)]
+    #[serde(default)]
+    struct Lite {
+        settlements: Vec<fn7_model::dm::Settlement>,
+        stories: Vec<fn7_model::dm::Story>,
+        encounters: Vec<fn7_model::dm::Encounter>,
+        loot: Vec<fn7_model::dm::LootPile>,
+        trails: Vec<fn7_model::dm::Trail>,
+        shrines: Vec<fn7_model::dm::Shrine>,
+    }
+    let l: Lite = table(state, "dm", want)?;
+    Ok(fn7_model::dm::Dm { memory: vec![], settlements: l.settlements, stories: l.stories, encounters: l.encounters,
+                           loot: l.loot, trails: l.trails, shrines: l.shrines })
+}
+
+/// Memory entries passing `keep` (tested on the unparsed entry), oldest first: only those are deserialized.
+fn memory_where(state: &Value, keep: impl Fn(&Value) -> bool) -> Vec<fn7_model::dm::DmEntry> {
+    state
+        .pointer("/dm/memory")
+        .and_then(Value::as_array)
+        .map(|m| m.iter().filter(|e| keep(e)).filter_map(|e| fn7_model::dm::DmEntry::deserialize(e).ok()).collect())
+        .unwrap_or_default()
+}
+
+fn str_of<'a>(e: &'a Value, k: &str) -> &'a str {
+    e.get(k).and_then(Value::as_str).unwrap_or("")
+}
+
+/// The memory a hex's state reads: its observations and its parent's roll-ups.
+fn hex_memory(w: &mut World, state: &Value, key: &str) {
+    let Some(c) = fn7_model::hexgrid::HexCell::parse(key) else { return };
+    let wh = crate::dm::locate(w, c.center(), c.level);
+    let parent = Ref::Place(wh.settlement.unwrap_or(wh.region)).to_string();
+    w.dm.memory = memory_where(state, |e| {
+        (str_of(e, "kind") == "place.observed" && str_of(e, "place") == key)
+            || (str_of(e, "kind") == "memory.rollup" && str_of(e, "place") == parent)
+    });
+}
+
+/// The latest `memory.rollup` entry about `key`, read from the end of the unparsed memory (only it is deserialized).
+fn latest_rollup(state: &Value, key: &str) -> Option<fn7_model::dm::DmEntry> {
+    let mem = state.pointer("/dm/memory")?.as_array()?;
+    mem.iter()
+        .rev()
+        .find(|e| e.get("kind").and_then(Value::as_str) == Some("memory.rollup") && e.get("place").and_then(Value::as_str) == Some(key))
+        .and_then(|e| fn7_model::dm::DmEntry::deserialize(e).ok())
 }
 
 /// The ledger rows, unparsed (`lg:N` is index N).
@@ -388,10 +455,10 @@ fn regions_with_hotspots(w: &World, state: &Value) -> Vec<Value> {
 fn globe(state: &Value, a: &Args) -> Result<Value, String> {
     let w = world(
         state,
-        &[T::Places, T::Clusters, T::Characters, T::Demigods, T::Gods, T::Mods, T::Seats, T::Items, T::Mobs, T::Battles],
+        &[T::Places, T::Clusters, T::Characters, T::Demigods, T::Gods, T::Mods, T::Seats, T::Items, T::Mobs, T::Battles, T::DmLite],
     )?;
     let events = event_page(&w, state, a.uint("since")?, a.limit(30, 200)?, None);
-    Ok(json!({
+    let mut v = json!({
         "beat": w.meta.beat,
         "beats_total": w.meta.beats_total,
         "final_night": w.meta.beat >= w.meta.beats_total,
@@ -405,7 +472,13 @@ fn globe(state: &Value, a: &Args) -> Result<Value, String> {
         "mods": payload::mods_json(&w),
         "armies": fn7_society::armies(&w).map(|(c, x)| army_marker(&w, c, x)).collect::<Vec<_>>(),
         "events": events,
-    }))
+    });
+    if w.dm_rules() {
+        v["roads"] = crate::dm::roads_under(&w, None).into();
+        v["shrines"] = crate::dm::shrines_under(&w, None).into();
+        crate::dm::add_time_of_day(&mut v, w.meta.beat, &crate::world::settings(&w));
+    }
+    Ok(v)
 }
 
 /// A `pl:` ref that is a region (a district in a city arena).
@@ -431,7 +504,7 @@ fn crowds_under(w: &World, p: PlaceId) -> Vec<&Cluster> {
 fn region(state: &Value, a: &Args) -> Result<Value, String> {
     let w = world(
         state,
-        &[T::Places, T::Nodes, T::Clusters, T::Characters, T::Cells, T::Mobs, T::Demigods, T::Gods, T::Mods, T::Seats, T::Items, T::Battles],
+        &[T::Places, T::Nodes, T::Clusters, T::Characters, T::Cells, T::Mobs, T::Demigods, T::Gods, T::Mods, T::Seats, T::Items, T::Battles, T::DmLite],
     )?;
     let p = region_ref(&w, a.need_ref("ref")?)?;
     let hotspot = crate::hotspots::hotspots(&w, &recent_rows(&w, state)).get(&p).map(|h| h.to_json());
@@ -444,7 +517,7 @@ fn region(state: &Value, a: &Args) -> Result<Value, String> {
         .collect();
     let here = |at: LonLat| fn7_society::geo::region_at(&w, at) == p;
     let reg = Ref::Place(p).to_string();
-    Ok(json!({
+    let mut v = json!({
         "ref": Ref::Place(p),
         "name": pl.name,
         "center": pl.center,
@@ -460,11 +533,116 @@ fn region(state: &Value, a: &Args) -> Result<Value, String> {
         "mods": payload::mods_json(&w).into_iter().filter(|m| m["region_ref"] == reg.as_str()).collect::<Vec<_>>(),
         "influence": payload::influence_json(&w).into_iter().filter(|m| m["region_ref"] == reg.as_str()).collect::<Vec<_>>(),
         "events": event_page(&w, state, None, 10, Some(p)),
-    }))
+    });
+    add_dm(&w, state, &mut v, Some(p), true);
+    Ok(v)
+}
+
+/// Rules 0.8.0: the DM's pieces under a place (`None`: the whole board): encounters, loot, shrines and (with
+/// `roads`) roads.
+fn add_dm(w: &World, state: &Value, v: &mut Value, p: Option<PlaceId>, roads: bool) {
+    if !w.dm_rules() {
+        return;
+    }
+    v["encounters"] = crate::dm::encounters_under(w, p).into();
+    v["loot"] = crate::dm::loot_under(w, p).into();
+    v["shrines"] = crate::dm::shrines_under(w, p).into();
+    if roads {
+        v["roads"] = crate::dm::roads_under(w, p).into();
+    }
+    // The integrated truth beneath this place: its latest roll-up (counts, notable events, state now).
+    let key = p.filter(|p| *p != w.meta.arena).map(|p| Ref::Place(p).to_string()).unwrap_or_else(|| "world".into());
+    v["memory_summary"] = latest_rollup(state, &key).as_ref().map(crate::dm::entry_json).unwrap_or(Value::Null);
+    v["observed_beat"] = w.meta.beat.into();
+    v["extrapolated"] = false.into();
+    crate::dm::add_time_of_day(v, w.meta.beat, &crate::world::settings(w));
+}
+
+/// Rules 0.8.0: a hex zoomed into: its state now (observed this beat, or extrapolated from its last observation).
+fn cell_node(w: &World, key: &str) -> Result<Value, String> {
+    if !w.dm_rules() {
+        return Err("hex cells are known from rules 0.8.0 (state schema 6) on".into());
+    }
+    let (node, observed, extrapolated) = crate::dm::cell_state(w, key, w.meta.beat)?;
+    Ok(json!({ "kind": "hex", "cell": key, "node": node, "observed_beat": observed, "extrapolated": extrapolated,
+               "beat": w.meta.beat }))
+}
+
+/// The palette; rules 0.8.0 adds the god-tier powers.
+fn powers(pantheon: &Pantheon, state: &Value) -> Result<Value, String> {
+    let mut v = payload::powers_json();
+    if let Some(w) = world(state, &[]).ok().filter(|w| w.dm_rules()) {
+        let at = v.len().saturating_sub(1);
+        v.splice(at..at, crate::godtier::powers_json(pantheon, &crate::world::settings(&w)));
+    }
+    Ok(json!({ "powers": v }))
+}
+
+fn memory(state: &Value, a: &Args) -> Result<Value, String> {
+    let mut w = world(state, &[T::Places, T::DmLite, T::Nodes, T::Items, T::Demigods])?;
+    let place = match a.get("place") {
+        Some(Value::String(s)) => s.trim().to_string(),
+        Some(_) => return Err("`place` must be a string: a hex cell key, a `pl:` ref or \"world\"".into()),
+        None => return Err("`place` is required".into()),
+    };
+    let until = a.uint("until_beat")?.map(|b| b as u32).unwrap_or(w.meta.beat);
+    let limit = a.limit(50, 200)?;
+    let ancestors = crate::dm::ancestors_of_key(&w, &place)?;
+    // Only the entries about this place (or above or below it) are deserialized, newest first, up to the page.
+    let mut items: Vec<Value> = vec![];
+    if let Some(mem) = state.pointer("/dm/memory").and_then(Value::as_array) {
+        for e in mem.iter().rev() {
+            if items.len() >= limit {
+                break;
+            }
+            if e.get("public").and_then(Value::as_bool) != Some(true) || e.get("beat").and_then(Value::as_u64).unwrap_or(0) > until as u64 {
+                continue;
+            }
+            let p = str_of(e, "place");
+            let up = e.get("up").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+            if p == place || up.iter().any(|u| u.as_str() == Some(place.as_str())) || ancestors.iter().any(|a| a == p) {
+                if let Ok(x) = fn7_model::dm::DmEntry::deserialize(e) {
+                    items.push(crate::dm::entry_json(&x));
+                }
+            }
+        }
+    }
+    if fn7_model::hexgrid::HexCell::parse(&place).is_some() {
+        hex_memory(&mut w, state, &place);
+    }
+    let mut v = json!({ "place": place, "ancestors": ancestors, "until_beat": until, "beat": w.meta.beat, "items": items });
+    // A hex: its state at that beat too (observed or extrapolated).
+    if fn7_model::hexgrid::HexCell::parse(&place).is_some() {
+        let (node, observed, extrapolated) = crate::dm::cell_state(&w, &place, until)?;
+        v["state"] = node;
+        v["observed_beat"] = json!(observed);
+        v["extrapolated"] = extrapolated.into();
+    } else {
+        v["observed_beat"] = until.into();
+        v["extrapolated"] = false.into();
+    }
+    Ok(v)
+}
+
+fn encounters(state: &Value, a: &Args) -> Result<Value, String> {
+    let w = world(state, &[T::Places, T::DmLite, T::Items, T::Demigods])?;
+    let region = match a.r#ref("region")? {
+        None => None,
+        Some(r) => Some(region_ref(&w, r)?),
+    };
+    let list = crate::dm::encounters_under(&w, region);
+    let revealed = list.iter().filter(|e| e.get("revealed").is_some()).count();
+    Ok(json!({ "beat": w.meta.beat, "region": region.map(Ref::Place), "hidden": list.len() - revealed,
+               "revealed": revealed, "encounters": list }))
 }
 
 fn node(state: &Value, a: &Args) -> Result<Value, String> {
-    let w = world(state, &[T::Places, T::Nodes, T::Clusters, T::Characters, T::Cells, T::Mobs, T::Demigods, T::Gods])?;
+    if let Some(Value::String(key)) = a.get("cell") {
+        let mut w = world(state, &[T::Places, T::Nodes, T::Demigods, T::Items, T::DmLite])?;
+        hex_memory(&mut w, state, key.trim());
+        return cell_node(&w, key.trim());
+    }
+    let w = world(state, &[T::Places, T::Nodes, T::Clusters, T::Characters, T::Cells, T::Mobs, T::Demigods, T::Gods, T::DmLite, T::Items])?;
     let r = a.need_ref("ref")?;
     let cursor = a.uint("cursor")?.unwrap_or(0);
     let limit = a.limit(20, 100)?;
@@ -481,7 +659,9 @@ fn node(state: &Value, a: &Args) -> Result<Value, String> {
                 .map(|c| node_json(&w, c.id))
                 .collect();
             let crowds = page(crowds_under(&w, p), cursor, limit, |c| crowd_json(&w, c.id));
-            Ok(json!({ "kind": "place", "ref": r, "node": node_json(&w, p), "children": children, "crowds": crowds }))
+            let mut v = json!({ "kind": "place", "ref": r, "node": node_json(&w, p), "children": children, "crowds": crowds });
+            add_dm(&w, state, &mut v, Some(p), true);
+            Ok(v)
         }
         Ref::Cluster(k) if k.ix() < w.clusters.len() => {
             if w.clusters[k.ix()].army.is_some() {

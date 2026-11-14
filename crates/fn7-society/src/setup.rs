@@ -150,6 +150,7 @@ pub fn setup(cfg: &SetupConfig, seats: &[(u8, String)], pantheon: &Pantheon) -> 
         battles: vec![],
         soc: Default::default(),
         manifests: vec![],
+        dm: Default::default(),
     };
 
     // ---- places -------------------------------------------------------------------------------------------------
