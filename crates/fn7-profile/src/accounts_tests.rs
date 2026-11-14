@@ -398,6 +398,16 @@ fn settings_demigods_entitlements_round_trip() {
     assert!(s.demigod_name_conflict(&b.id, "left", "Benito").unwrap().is_none(), "its own player name is fine");
     assert!(s.demigod_name_conflict(&b.id, "left", "\u{200b}").unwrap().is_some());
 
+    // A lapsed guest's names are free again.
+    let (c, _) = s.create_guest("Cyra", "", None).unwrap();
+    let doc = DemigodDoc { name: Some("Cinder Oath".into()), ..Default::default() };
+    s.put_demigod(&c.id, "left", &doc, &doc, "ok", "", &[], "rules").unwrap();
+    assert!(s.demigod_name_conflict(&b.id, "left", "Cinder Oath").unwrap().is_some());
+    assert!(s.demigod_name_conflict(&b.id, "left", "Cyra").unwrap().is_some());
+    expire(&s, &c.id);
+    assert!(s.demigod_name_conflict(&b.id, "left", "Cinder Oath").unwrap().is_none());
+    assert!(s.demigod_name_conflict(&b.id, "left", "Cyra").unwrap().is_none());
+
     assert!(s.entitlements(&a.id).unwrap().is_empty(), "no rows: the free tier");
     s.grant_entitlement(&a.id, "founder", "active", "grant", Some(99)).unwrap();
     let e = s.entitlements(&a.id).unwrap();

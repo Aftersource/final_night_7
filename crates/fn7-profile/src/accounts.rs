@@ -850,25 +850,22 @@ impl ProfileStore {
         if other_hand.is_some() {
             return Ok(Some("your two demigods need different names".into()));
         }
-        let demigod: Option<String> = conn
-            .query_row(
-                "SELECT name FROM account_demigods WHERE account_id <> ?1 AND name_skeleton = ?2 LIMIT 1",
-                params![account, skel],
-                |r| r.get(0),
-            )
-            .optional()?;
-        if demigod.is_some() {
-            return Ok(Some("another player's demigod has that name, or one that reads the same".into()));
+        // Only active accounts hold names: a lapsed guest's demigod names and display name are free again.
+        let now = now_ms();
+        let owners = |sql: &str| -> rusqlite::Result<Vec<String>> {
+            let mut st = conn.prepare(sql)?;
+            let rows = st.query_map(params![account, skel], |r| r.get(0))?;
+            rows.collect()
+        };
+        for other in owners("SELECT DISTINCT account_id FROM account_demigods WHERE account_id <> ?1 AND name_skeleton = ?2")? {
+            if is_active(&conn, &other, now)? {
+                return Ok(Some("another player's demigod has that name, or one that reads the same".into()));
+            }
         }
-        let player: Option<String> = conn
-            .query_row(
-                "SELECT display_name FROM accounts WHERE id <> ?1 AND skeleton = ?2 LIMIT 1",
-                params![account, skel],
-                |r| r.get(0),
-            )
-            .optional()?;
-        if player.is_some() {
-            return Ok(Some("that is another player's name, or reads like it".into()));
+        for other in owners("SELECT id FROM accounts WHERE id <> ?1 AND skeleton = ?2")? {
+            if is_active(&conn, &other, now)? {
+                return Ok(Some("that is another player's name, or reads like it".into()));
+            }
         }
         Ok(None)
     }
