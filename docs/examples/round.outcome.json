@@ -1,247 +1,309 @@
 {
   "d": {
     "public": {
-      "alive": 2,
-      "arena_radius_km": 4589.58,
-      "beat": 5,
-      "beats_total": 6,
+      "alive": 4,
+      "arena_radius_km": 1781.69,
+      "beat": 7,
+      "beats_total": 8,
       "callouts": [
-        "Rook is out. Somewhere, Consequence takes a bow.",
-        "Quill is out. Somewhere, Consequence takes a bow."
+        "4 demigods left. Place your bets."
       ],
-      "caption": "Beat 4: Time's clock catches Rook outside the arena, and 3 more things went sideways.",
-      "caption_beat": 4,
+      "caption": "Beat 6: In Cairo the harvest fails; meanwhile 19259 of the Hospital nurses of Manila leave Manila for Bangkok: Time's circle has passed them by.",
+      "caption_beat": 6,
       "casts": [
         {
           "at": [
-            -74.0,
-            40.71
+            3.38,
+            6.52
           ],
           "by": "Juniper",
           "by_ref": "dg:1",
-          "cost": 2,
-          "icon": "flood",
+          "cost": 1,
+          "icon": "lightning",
+          "instant": true,
           "off_target": false,
-          "place": "New York",
-          "power": "flood",
-          "power_name": "Flood",
-          "region": "Northern America",
-          "region_ref": "pl:41",
-          "row": "lg:52",
+          "place": "Lagos",
+          "power": "lightning",
+          "power_name": "Lightning bolt",
+          "region": "Western Africa",
+          "region_ref": "pl:69",
+          "row": "lg:165",
+          "seq": 44,
           "target": null,
           "target_name": null
         },
         {
           "at": [
-            77.21,
-            28.61
+            -46.63,
+            -23.55
           ],
-          "by": "Moth",
-          "by_ref": "dg:3",
+          "by": "Rook",
+          "by_ref": "dg:0",
           "cost": 2,
-          "icon": "earthquake",
+          "icon": "wildfire",
+          "instant": true,
           "off_target": false,
-          "place": "Southern Asia",
-          "power": "earthquake",
-          "power_name": "Earthquake",
-          "region": "Southern Asia",
-          "region_ref": "pl:61",
-          "row": "lg:53",
+          "place": "São Paulo",
+          "power": "wildfire",
+          "power_name": "Wildfire",
+          "region": "South America",
+          "region_ref": "pl:49",
+          "row": "lg:166",
+          "seq": 45,
+          "target": null,
+          "target_name": null
+        },
+        {
+          "at": [
+            -46.63,
+            -23.55
+          ],
+          "by": "Quill",
+          "by_ref": "dg:2",
+          "cost": 2,
+          "icon": "wildfire",
+          "instant": true,
+          "off_target": false,
+          "place": "São Paulo",
+          "power": "wildfire",
+          "power_name": "Wildfire",
+          "region": "South America",
+          "region_ref": "pl:49",
+          "row": "lg:167",
+          "seq": 46,
           "target": null,
           "target_name": null
         }
       ],
       "eliminated": [],
       "entropy": {
-        "delta": 2.9,
+        "delta": 4.5,
         "heat_death": null,
         "key": "calm",
         "level": 0,
         "max": 100.0,
         "next_at": 20.0,
         "text": "The world is holding together, mostly.",
-        "value": 9.3
+        "value": 19.21
       },
       "events": [
         {
           "at": [
-            -74.0,
-            40.71
+            3.38,
+            6.52
           ],
           "image_kind": "event",
-          "image_prompt": "Juniper casts flood on New York, in New York, Northern America",
+          "image_prompt": "Juniper casts lightning bolt on Lagos, in Lagos, Western Africa",
           "kind": "cast",
-          "magnitude": 7,
+          "magnitude": 6,
           "refs": [
             "dg:1"
           ],
-          "region": "Northern America",
-          "row": "lg:52",
-          "text": "Juniper casts flood on New York"
+          "region": "Western Africa",
+          "row": "lg:165",
+          "text": "Juniper casts lightning bolt on Lagos"
         },
         {
           "at": [
-            77.21,
-            28.61
+            -46.63,
+            -23.55
           ],
           "image_kind": "event",
-          "image_prompt": "Moth casts earthquake on Southern Asia, in Southern Asia",
+          "image_prompt": "Rook casts wildfire on São Paulo, in São Paulo, South America",
           "kind": "cast",
           "magnitude": 7,
           "refs": [
-            "dg:3"
+            "dg:0"
           ],
-          "region": "Southern Asia",
-          "row": "lg:53",
-          "text": "Moth casts earthquake on Southern Asia"
+          "region": "South America",
+          "row": "lg:166",
+          "text": "Rook casts wildfire on São Paulo"
         },
         {
           "at": [
-            -74.52,
-            40.87
+            -46.63,
+            -23.55
+          ],
+          "image_kind": "event",
+          "image_prompt": "Quill casts wildfire on São Paulo, in São Paulo, South America",
+          "kind": "cast",
+          "magnitude": 7,
+          "refs": [
+            "dg:2"
+          ],
+          "region": "South America",
+          "row": "lg:167",
+          "text": "Quill casts wildfire on São Paulo"
+        },
+        {
+          "at": [
+            -46.09,
+            -24.42
           ],
           "kind": "happen",
           "magnitude": 5,
           "refs": [
             "gd:6"
           ],
-          "region": "Northern America",
-          "row": "lg:58",
-          "text": "The flood tears through New York"
+          "region": "South America",
+          "row": "lg:186",
+          "text": "The wildfire tears through São Paulo"
         },
         {
           "at": [
-            -74.0,
-            40.72
-          ],
-          "kind": "mood_shift",
-          "magnitude": 4,
-          "refs": [
-            "gd:6",
-            "cl:110"
-          ],
-          "region": "Northern America",
-          "row": "lg:59",
-          "text": "Crowds in New York run screaming from the flood"
-        },
-        {
-          "at": [
-            -76.08,
-            40.6
+            -46.09,
+            -24.42
           ],
           "kind": "mod",
           "magnitude": 7,
           "refs": [
             "gd:6",
-            "pl:41"
+            "pl:49"
           ],
-          "region": "Northern America",
-          "row": "lg:60",
-          "text": "The flood leaves New York changed for good"
+          "region": "South America",
+          "row": "lg:187",
+          "text": "The wildfire leaves São Paulo changed for good"
         },
         {
           "at": [
-            -74.1,
-            40.36
+            -47.16,
+            -24.19
           ],
           "kind": "happen",
           "magnitude": 5,
           "refs": [
             "gd:6"
           ],
-          "region": "Northern America",
-          "row": "lg:61",
-          "text": "Insurance offices in New York close for the week"
+          "region": "South America",
+          "row": "lg:188",
+          "text": "The wildfire tears through São Paulo"
         }
       ],
       "omens": [
         {
           "at": [
-            -74.0,
-            40.71
+            96.74,
+            2.64
           ],
-          "god": "Entropy",
-          "god_ref": "gd:6",
-          "region": "Northern America",
-          "speech": "\"MORE POWER. That's the whole note. More. Power. Ahahhaahhaaa!\""
+          "god": "Time",
+          "god_ref": "gd:0",
+          "region": "South-Eastern Asia",
+          "speech": "\"Granted, for the usual price. Read the fine print later.\""
         },
         {
           "at": [
-            77.21,
-            28.61
+            114.62,
+            -11.94
+          ],
+          "god": "Death",
+          "god_ref": "gd:3",
+          "region": "South-Eastern Asia",
+          "speech": "\"Granted, for the usual price. Read the fine print later.\""
+        },
+        {
+          "at": [
+            -46.63,
+            -23.55
           ],
           "god": "Entropy",
           "god_ref": "gd:6",
-          "region": "Southern Asia",
+          "region": "South America",
+          "speech": "\"YES! Yes yes yes, use it ALL, ahahhaahhaaa! Infinite power! Do it again!\""
+        },
+        {
+          "at": [
+            3.38,
+            6.52
+          ],
+          "god": "Entropy",
+          "god_ref": "gd:6",
+          "region": "Western Africa",
           "speech": "\"Yes! Of course yes! I have never once said no and I am not starting now, ahahhaa!\""
         }
       ],
       "previous_callouts": [
-        "Rook is out. Somewhere, Consequence takes a bow.",
-        "Quill is out. Somewhere, Consequence takes a bow."
+        "4 demigods left. Place your bets."
       ],
-      "previous_caption": "Beat 4: Time's clock catches Rook outside the arena, and 3 more things went sideways.",
+      "previous_caption": "Beat 6: In Cairo the harvest fails; meanwhile 19259 of the Hospital nurses of Manila leave Manila for Bangkok: Time's circle has passed them by.",
       "slow": [
         {
-          "beats_left": 20,
+          "after_ms": 148,
           "by": "Juniper",
           "by_ref": "dg:1",
-          "closes_by_beat": 25,
-          "event": "opened",
-          "ms_left": 30000,
-          "text": "Juniper slowed time",
-          "window": 5
-        },
-        {
-          "after_ms": 0,
-          "beats_left": 0,
-          "by": "Juniper",
-          "by_ref": "dg:1",
-          "closes_by_beat": 25,
+          "debt": 1.27,
           "event": "closed",
           "how": "enter",
-          "ms_left": 0,
+          "paid_bolt": true,
           "text": "Time snaps back: Juniper's window closed",
-          "window": 5
+          "window_id": 7
         }
       ],
+      "society": {
+        "battles": [],
+        "mobs": [],
+        "people_by_role": {
+          "prophet": 3,
+          "witness": 3
+        },
+        "population": 141995054,
+        "totals": {
+          "battles": 0,
+          "clashes": 0,
+          "cults": 3,
+          "deaths": 0,
+          "defections": 0,
+          "deserters": 0,
+          "hosts": 0,
+          "migrants": 598615,
+          "migrations": 10,
+          "mobs_dissolved": 0,
+          "mobs_formed": 0,
+          "mutinies": 0,
+          "people_emerged": 6,
+          "promotions": 0
+        }
+      },
       "timing": {
-        "llm_calls": 7,
-        "llm_fallbacks": 7,
+        "llm_calls": 16,
+        "llm_fallbacks": 16,
+        "society_dropped": 1,
+        "society_emerged": 1,
+        "society_events": 0,
+        "society_ms": 3.28,
         "stages": [
           {
-            "ms": 2.08,
+            "ms": 5.27,
             "stage": "intake"
           },
           {
-            "ms": 0.06,
+            "ms": 67.78,
             "stage": "route"
           },
           {
-            "ms": 1.66,
+            "ms": 3.15,
             "stage": "act"
           },
           {
-            "ms": 0.62,
+            "ms": 175.33,
             "stage": "merge"
           },
           {
-            "ms": 1.28,
+            "ms": 3.04,
             "stage": "consequence"
           },
           {
-            "ms": 0.2,
+            "ms": 0.51,
             "stage": "narrate"
           },
           {
-            "ms": 0.55,
+            "ms": 5.91,
             "stage": "broadcast"
           }
         ],
-        "total_ms": 6.45
+        "total_ms": 260.99
       }
     },
-    "round": 5
+    "round": 7
   },
   "t": "round.outcome"
 }

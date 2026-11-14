@@ -1,20 +1,14 @@
 {
   "d": {
     "fields": {
-      "cast": {
-        "power": "flood",
-        "target": [
-          -74.0,
-          40.71
-        ]
-      },
-      "left": "steal the",
-      "right": "call lightning",
-      "sent_at": 1794616846362,
+      "left": "build a barricade across",
+      "right": "release the baker raise",
       "zoom": "world"
     },
-    "round": 5,
-    "text": "l: steal the\nr: call lightning"
+    "round": 7,
+    "text": "l: build a barricade across\nr: release the baker raise",
+    "window_id": 7
   },
+  "id": "Juniper-orders-7",
   "t": "action.submit"
 }

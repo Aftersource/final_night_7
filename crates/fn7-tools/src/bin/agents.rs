@@ -1,11 +1,14 @@
 //! fn7-agents: AI players that play Final Night 7 through a real Theatre server over WebSocket, exactly like a client.
-//! Each player has two hands and, every beat, submits `action.submit { round, text, fields: { left, right, zoom } }`
-//! during Compose. Every frame in both directions is recorded verbatim (ms timestamps) to `protocol_frames`; with
-//! `--claude`, every LLM call the players make is recorded to `llm_calls` / `http_exchanges`.
+//! Each player has two hands. Every beat, at Compose, it sends `action.begin` (it started typing: the God of Time
+//! interaction, which may slow time), writes its orders, and submits `action.submit { round, text, fields: { left,
+//! right, zoom }, window_id? }` into the open slow window (its own, or a rival's: hidden meddling), or as a plain
+//! Compose action when no window opened. God powers go separately as instant actions (`instant: true`). Every frame in both directions is recorded verbatim (ms timestamps) as `frame` records in a
+//! client run (`<record dir>/<run>.jsonl`, the Theatre core's JSONL format, so `fn7-project` ingests it like a server
+//! recording); with `--claude`, every LLM call the players make is recorded as `llm_call` / `http` records.
 //!
-//!   fn7-agents --url ws://127.0.0.1:8080/ws --players 4 --rounds 20 --beat-ms 6000 --wpm 150 --record runs/fn7-agents.sqlite
+//!   fn7-agents --url ws://127.0.0.1:8080/ws --players 4 --rounds 20 --beat-ms 6000 --wpm 150 --record runs/agents
 //!   fn7-agents --claude ...                       # Claude writes each hand's lines (ANTHROPIC_API_KEY from env/.env)
-//!   fn7-agents --resume runs/fn7-agents.sqlite-players.json   # rejoin a running or restored match
+//!   fn7-agents --resume runs/agents/<run>-players.json   # rejoin a running or restored match
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -14,8 +17,7 @@ use clap::Parser;
 use fn7_tools::players::{self, Claude, Script, Submission};
 use futures::{SinkExt, StreamExt};
 use serde_json::{json, Value};
-use theatre_recorder::trace::{self, Sink};
-use theatre_recorder::SqliteSink;
+use theatre_trace::{self as trace, JsonlSink, Sink};
 use tokio::sync::{mpsc, watch};
 use tokio_tungstenite::tungstenite::Message;
 
@@ -38,7 +40,9 @@ struct Args {
     /// Speaking speed of the scripted players (words per minute, split over both hands). Also the budget for --claude.
     #[arg(long, default_value_t = 150.0)]
     wpm: f64,
-    #[arg(long, default_value = "runs/fn7-agents.sqlite")]
+    /// Recording directory: the client run is written as `<dir>/<run>.jsonl` (the core's format; `fn7-project` ingests
+    /// it), resume tokens as `<dir>/<run>-players.json`.
+    #[arg(long, default_value = "runs/agents")]
     record: String,
     /// Seeds the phrase bank (player i uses seed + i) and is passed to the room.
     #[arg(long, default_value_t = 7)]
@@ -124,6 +128,12 @@ struct Seat {
     private_state: Value,
     script: Script,
     last_round: Option<u32>,
+    /// The open slow window `(window_id, by_seat)`, from `window.opened` / `window.closed`.
+    window: Option<(u64, u64)>,
+    /// Orders written but not yet sent (waiting to learn whether our begin opened a window).
+    pending: Option<(u32, Submission)>,
+    /// The request id of this beat's `action.begin` (its `ack` comes after any `window.opened` it caused).
+    begin_id: Option<String>,
 }
 
 impl Seat {
@@ -185,7 +195,6 @@ async fn compose(args: &Args, s: &mut Seat, round: u32, claude: Option<&Claude>)
                         "character".into()
                     };
                 }
-                sub.sent_at = Some(now_ms());
                 return sub;
             }
             Ok(_) => trace::event("agent_llm_empty", Some(&s.name), json!({ "round": round })),
@@ -196,16 +205,7 @@ async fn compose(args: &Args, s: &mut Seat, round: u32, claude: Option<&Claude>)
             ),
         }
     }
-    let mut sub = s.script.beat(n);
-    sub.sent_at = Some(now_ms());
-    sub
-}
-
-fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
+    s.script.beat(n)
 }
 
 async fn submit(
@@ -219,8 +219,32 @@ async fn submit(
         return;
     }
     s.last_round = Some(round);
+    // Text entry is the God of Time interaction: say "I started typing" first (it may slow time), then write.
+    let bid = format!("{}-begin-{round}", s.name);
+    let _ = out.send(players::action_begin(&bid));
     let sub = compose(args, s, round, claude).await;
-    let _ = out.send(players::action_submit(round, &sub));
+    if let Some(c) = &sub.cast {
+        // God powers are a separate path: an instant action, never carrying orders.
+        let _ = out.send(players::cast_submit(round, c, Some(&format!("{}-cast-{round}", s.name))));
+    }
+    s.begin_id = Some(bid);
+    s.pending = Some((round, sub));
+    if let Some((w, _)) = s.window {
+        flush(s, out, Some(w));
+    }
+}
+
+/// Send the written orders: into slow window `window` (with its id), or as a Compose action.
+fn flush(s: &mut Seat, out: &mpsc::UnboundedSender<String>, window: Option<u64>) {
+    if let Some((round, sub)) = s.pending.take() {
+        let id = format!("{}-orders-{round}", s.name);
+        trace::event(
+            "agent_orders",
+            Some(&s.name),
+            json!({ "round": round, "window_id": window, "words": sub.words() }),
+        );
+        let _ = out.send(players::action_submit(round, &sub, window, Some(&id)));
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -280,6 +304,9 @@ async fn play(
         private_state: Value::Null,
         script: Script::new(args.seed.wrapping_add(idx as u64)),
         last_round: None,
+        window: None,
+        pending: None,
+        begin_id: None,
     };
     let claude = claude.as_deref();
     let mut started = false;
@@ -413,6 +440,31 @@ async fn play(
                     submit(&args, &mut s, round, claude, &out_tx).await;
                 }
             }
+            "window.opened" => {
+                let (id, by) = (d["window_id"].as_u64().unwrap_or(0), d["by_seat"].as_u64().unwrap_or(u64::MAX));
+                s.window = Some((id, by));
+                // Our own window, or a rival's we can meddle in: the written orders go in now.
+                if s.pending.is_some() {
+                    flush(&mut s, &out_tx, Some(id));
+                }
+            }
+            "window.closed" => {
+                if s.window.map(|w| w.0) == d["window_id"].as_u64() {
+                    s.window = None;
+                }
+            }
+            "ack" => {
+                // Our begin was acknowledged without a window (refused: no bolt, or none needed): plain Compose.
+                if v["re"].as_str().is_some() && v["re"].as_str() == s.begin_id.as_deref() && s.pending.is_some() {
+                    let w = s.window.map(|w| w.0);
+                    flush(&mut s, &out_tx, w);
+                }
+            }
+            "action.received" => {
+                if d["accepted"] == Value::Bool(false) {
+                    trace::event("agent_rejected", Some(&name), d.clone());
+                }
+            }
             "match.ended" => {
                 summary = d.clone();
                 break;
@@ -480,8 +532,9 @@ async fn main() -> anyhow::Result<()> {
         })
         .collect();
 
-    let sink = Arc::new(SqliteSink::open(&args.record)?);
+    let sink = JsonlSink::new(&args.record)?;
     let run = format!("fn7-agents-{}", uuid::Uuid::new_v4());
+    let rec_path = std::path::Path::new(&args.record).join(format!("{run}.jsonl"));
     sink.write(trace::Record::RunStart {
         run: run.clone(),
         plugin: "fn7-agents".into(),
@@ -492,13 +545,16 @@ async fn main() -> anyhow::Result<()> {
                       "players": names.iter().map(|n| json!({ "name": n, "persona": persona_of(n) })).collect::<Vec<_>>() }),
     });
     let tokens = Arc::new(Tokens {
-        path: format!("{}-players.json", args.record),
+        path: std::path::Path::new(&args.record)
+            .join(format!("{run}-players.json"))
+            .display()
+            .to_string(),
         ..Default::default()
     });
     let (code_tx, code_rx) = watch::channel(None::<String>);
     let mut tasks = Vec::new();
     for (i, name) in names.iter().enumerate() {
-        let mut ctx = trace::Ctx::new(sink.clone(), run.clone());
+        let mut ctx = trace::Ctx::new(sink.clone() as Arc<dyn Sink>, run.clone());
         ctx.actor = Some(name.clone());
         let (a, r, c, t, tx, rx) = (
             args.clone(),
@@ -539,10 +595,11 @@ async fn main() -> anyhow::Result<()> {
         at: trace::now_ms(),
         summary: summary.clone(),
     });
-    sink.close();
+    sink.flush();
     println!(
         "agents run {run} recorded to {} (resume tokens: {})",
-        args.record, tokens.path
+        rec_path.display(),
+        tokens.path
     );
     if let Some(w) = summary["winners"].as_array() {
         println!(

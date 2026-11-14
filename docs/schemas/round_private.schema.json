@@ -223,11 +223,11 @@
       "type": "object"
     },
     "Ref": {
-      "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row. Stable for the whole match.",
+      "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row, ce cell, mb mob. Stable for the whole match.",
       "examples": [
         "ch:12"
       ],
-      "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg):\\d+$",
+      "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg|ce|mb):\\d+$",
       "type": "string"
     },
     "SubagentKind": {
@@ -397,11 +397,6 @@
       "minimum": 0,
       "type": "integer"
     },
-    "cut_off": {
-      "default": false,
-      "description": "Your orders were cut off: the window's initiator pressed Enter before you sent them. They did not go through.",
-      "type": "boolean"
-    },
     "focus": {
       "anyOf": [
         {
@@ -420,10 +415,8 @@
       },
       "type": "array"
     },
-    "held": {
-      "default": false,
-      "description": "Your orders this beat are held in someone else's slow-time window; they go through when it closes.",
-      "type": "boolean"
+    "hierarchy": {
+      "description": "The hierarchy at your zoom (schema 4): the node in view with its path, children, crowds and cells, people,\narmies with their chains of command, mobs and recent battles. Shape: `docs/CLIENT_API.md` (\"Hierarchy\")."
     },
     "news": {
       "description": "Ledger rows new this beat that you know about, newest first, at most one line per row.",
@@ -462,9 +455,7 @@
     "news",
     "you",
     "hands",
-    "omens",
-    "held",
-    "cut_off"
+    "omens"
   ],
   "title": "round.private private (SeatDelta)",
   "type": "object",

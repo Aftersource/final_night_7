@@ -43,7 +43,9 @@ document explains them and pins down everything that gets recorded.
 | `seats` | `SeatState` | seat, demigod, is_bot, zoom, focus: each seat's view (set by the plugin; synthetic seats ≥ 200 are the plugin's own AI demigods) | fixed |
 | `pending` | `Proposal` | Consequence's collections of the debts due this beat, queued at the beat's Start and merged in its Resolve (so a Time delay can beat them); empty between beats | per beat |
 | `mods` | `WorldMod` | id, region, place, at, radius_km, name, description, tags, per_beat (`ModEffects`: harm, heal, anger, fear, hope, devotion), since_beat, expires_beat, stacks, by, power; live only (≤ `MAX_MODS` = 24; `mod_seq` is the next id) | casts' ramifications |
-| `slow` | `SlowWindow` | the open slow-time window: initiator, opened_beat (its id), deadline_beat, opened_at (client ms), paid (the bolt), held (`HeldOrders`: demigod, left, right, beat, sent_at) | at most one |
+| `slow` | `SlowWindow` | always `None` since theatre faa7220 (the core owns the live window and hands closed ones to the resolve); kept for older states | at most one |
+| `slow_settled` | `SettledWindow` | the last 16 settled windows (window_id, begun_ms = the core's opened_ms) | ≤ 16 |
+| `out_reported` | `DemigodId` | seated demigods reported eliminated to the Theatre and not yet revived (a revive reports them back: `seat.revived`) | small |
 
 **Field notes (schema 2).**
 - `max_health` (default 10) is per body. `Price { kind: Life }` lowers it (health clamps to it; a cap of 0 kills), and
@@ -114,10 +116,24 @@ summaries past a threshold. The folded originals stay in the recording, so nothi
 
 ## 3. Data capture: everything is recorded
 
-Recording goes through `theatre-trace` / `theatre-recorder` (shared with Final Night, and moving into the Theatre core with
-P1). Each match is a run carrying its rules version, pantheon version and `STATE_SCHEMA`.
+Recording is the Theatre core's (P1, theatre `2b2b9e3`+): with `THEATRE_RECORD=full`, every match is one run (run id =
+match id) written as JSON lines to `<THEATRE_RECORD_DIR>/<match_id>.jsonl`, one `theatre_trace::Record` per line tagged
+by `"type"`: `run_start` (settings, seats), `ruleset` (twice: the core's, with `PluginInfo.version` and
+`rules_version` as `label`; the plugin's own body with mechanics, prompts, pantheon version and `STATE_SCHEMA`),
+`event`, `hook` (each async hook's input and output, state replaced by `"<see snapshot>"`; at `full` also the sync hooks
+`on_action_begin` with its `PhaseControl`, `on_instant`, `query`), `llm_call`, `snapshot`, `frame` and `http` (`full`),
+`run_end`. **The JSONL file is the store of record.** The plugin emits its events with `theatre_trace::event` inside the
+hooks, which the core runs in the run's trace context. `fn7-sim` and `fn7-agents` write the same format
+(`fn7-server::record`, the engine's `JsonlSink`), and `fn7-project` loads any of them into SQLite (§4).
 
-**Snapshots** (full `World`) at: `match_start`, each beat's `round_start` and `resolved`, `committed`, and `final`.
+The core runs the sync hooks (`on_action_begin`, `on_instant`) and `fallback_outcome` outside the trace context
+(theatre faa7220); the plugin re-enters its match's run there (remembered by match seed from the async hooks), so their
+events (`slow_begin`, `slow_engaged`, `slow_refused`, `cast_streak`, a fallback beat's rows) are recorded too.
+
+**Snapshots** (full `World`, labels are the core's): `on_match_start` (round 0) and each beat's `commit_round`; at `full`
+also `on_round_start` and `resolve_round` (after a fallback too). The final state is the last `commit_round`. A forked
+match (admin API) starts from a `fork` snapshot after round N. Older SQLite recordings used `match_start`,
+`round_start`, `resolved`, `committed`, `final`; `fn7-project` still reads them.
 
 **LLM steps.** Each call is annotated with step and actor, so prompts, every sample, raw HTTP and headers are recorded:
 
@@ -172,13 +188,17 @@ LLM call.
 | `elimination` | `{demigod, beat, cause, chain: [LedgerId] (the harmful rows that beat, then their causes), name}` |
 | `final_night_survivor` | `{beat, demigod, revived, final_night}` (the survivor rule fired) |
 | `llm_fallback` | `{step, why}` (from `fn7-agents`) |
-| `slow_started` | `{beat, initiator, window, sent_at, deadline_beat, paid_bolt, with_orders}`: a seat opened a slow window (text entry) |
-| `slow_closed` | `{beat, initiator, window, how: enter/timeout/fell, beats_open, ms_open, measured: client/beats, opened_at, enter_at, released, cut_off, debt, entropy, recent_slows, paid_bolt}`: time-to-Enter is `ms_open` |
-| `slow_refused` | `{beat, demigod, window, reason}`: a second slow request while a window is open |
-| `orders_held` / `orders_released` | `{beat, demigod, window, sent_at}` / `{beat, window, demigods}`: orders sent during someone's window, and their release at its close |
-| `orders_cut_off` | `{beat, demigod, window, reason, sent_at, enter_at}`: orders that came after the initiator's Enter (or for a closed window) |
+| `slow_begin` | `{round, seat, demigod, window_id (the core's exact next_window_id), begun_ms, deadline_ms, slow_ms, bolts}`: `on_action_begin` opened a window (real ms) |
+| `slow_engaged` | `{round, seat, window_id, by_seat, opened_ms, at_ms}`: another seat began typing in an open window (hidden; data only) |
+| `slow_refused` | `{round, seat, reason: fallen / no bolt to pay Time, bolts}`: a begin that opened no window |
+| `slow_started` | `{beat, window_id, initiator, by_seat, opened_ms, begun_ms, deadline_ms, measured: core/compose, recent_slows}`: the resolve that settles a window the core closed (or a window-less instant Enter, `window_id: null`) |
+| `slow_closed` | `{beat, window_id, initiator, by_seat, how: enter/timeout/compose, opened_ms, closed_ms, core_closed_ms, deadline_ms, ms_open, measured, submitted, engaged, dropped, seqs, debt, entropy, recent_slows, paid_bolt}`: Time's bill, from the core's `RoundContext.windows_closed` (theatre faa7220). `ms_open` (real ms) runs from `info.opened_ms` to the Enter (`closed_ms`), or to the deadline on a timeout, including a window nobody submitted to. `engaged` / `dropped` are hidden information (data only, never in a payload) |
+| `slow_late_orders` | `{beat, window_id, seats}`: safety net: windowed orders whose window isn't in the resolve's context (no bill) |
+| `orders_ignored` | `{beat, seat, seq, reason}`: safety net: orders in an instant action (the plugin's `validate_action` already refuses them on arrival with `SubmitKind::Instant`) |
+| `cast_streak` | the `Streak` pushed by `on_instant` (who, casts with power/icon/at/region/target, seq, received_at_ms) |
+| `revived` | `{demigod, beat, seat, name, reason, row, health}`: a reported-eliminated demigod is back (`Committed.revived` / `RoundStart.revived`) |
 | `standing_orders` | `{beat, demigod, hand, orders}`: a hand's standing orders after its player spoke |
-| `cast` / `cast_fizzled` | `{beat, by, power, cost, at, region, target, damage, off_target, row, bolts_left, custom, entropy}` / `{beat, by, power, cost?, have?, reason}` |
+| `cast` / `cast_fizzled` | `{beat, by, power, cost, at, region, target, damage, off_target, row, bolts_left, custom, entropy, seq, instant}` / `{beat, by, power, cost?, have?, reason, seq, instant}` |
 | `ramifications` | `{beat, region, n, casts, proposals, ruling, fallback}` (the proposals follow as `proposal`/`ledger_row` events) |
 | `entropy` / `entropy_level` / `heat_death` | `{beat, before, after, delta, level}` / `{beat, from, to, key}` / `{beat, entropy, beats_total}` |
 | `mod_created` / `mod_expired` | `{beat, mod: WorldMod, stacked, row}` / `{beat, id, row, reason?}` |
@@ -199,13 +219,17 @@ first with one line per ledger row, and floats are rounded (2 decimals; position
 state and the snapshots keep full f32 values, so replays stay byte-identical. Shapes: `docs/CLIENT_API.md` and
 `docs/schemas/`.
 
-**Protocol frames**: every WebSocket frame in both directions, verbatim, with millisecond timestamps (`fn7-agents` and the
-core's message log).
+**Protocol frames**: every WebSocket frame in both directions, verbatim, with millisecond timestamps: the core records
+them at `THEATRE_RECORD=full` (`frame` records; a broadcast is one record with `recipients`), `fn7-agents` records its
+own side as a client run (`runs/agents/<run>.jsonl`).
 
 ## 4. SQL projection (`fn7-project`)
 
-The recorder's tables stay generic. `fn7-project` reads a run's events and writes typed tables next to them, so analysis
-and the UI's post-match views are plain SQL:
+`fn7-project --db runs/fn7.sqlite <recording.jsonl | dir>...` first loads each core JSONL recording into generic
+tables (`runs` with `plugin_version` / `rules_version`, `rulesets`, `hooks`, `llm_calls`, `http_exchanges`, `events`,
+`snapshots`, `protocol_frames`; re-ingesting a run replaces it; record ids are shifted past those already in the file),
+then reads each run's events and writes typed tables next to them, so analysis and the UI's post-match views are plain
+SQL:
 
 ```sql
 CREATE TABLE fn7_entities   (run_id, ref, kind, name, origin, cluster_ref, created_beat, ended_beat, PRIMARY KEY (run_id, ref));
@@ -222,9 +246,14 @@ CREATE TABLE fn7_beats      (run_id, beat, started_at, intake_ms, route_ms, act_
                              total_ms, llm_calls, llm_fallbacks, words, intents, applied, caption);
 CREATE TABLE fn7_geo        (run_id, row_ref, beat, lon, lat, place_ref, PRIMARY KEY (run_id, row_ref));   -- every row's geotag
 CREATE TABLE fn7_casts      (run_id, beat, by_ref, power, cost, lon, lat, region_ref, target_ref, row_ref, off_target, fizzled);
-CREATE TABLE fn7_slows      (run_id, window, initiator_ref, opened_beat, closed_beat, how, beats_open, ms_open, measured,
-                             released, cut_off, debt, entropy, paid_bolt);
-CREATE TABLE fn7_cutoffs    (run_id, beat, demigod_ref, window, reason, sent_at, enter_at);
+CREATE TABLE fn7_windows    (run_id, window_id, initiator_ref, by_seat, opened_beat, closed_beat, how, opened_ms, closed_ms,
+                             deadline_ms, ms_open, measured, submitted, engaged, debt, entropy, paid_bolt);   -- Time's bills
+CREATE TABLE fn7_begins     (run_id, round, seat, demigod_ref, kind, window_id, at_ms, reason);  -- begin / engaged / refused
+CREATE TABLE fn7_streaks    (run_id, seq, seat, by_ref, power, icon, lon, lat, region_ref, target_ref, received_at_ms);
+CREATE TABLE fn7_actions    (run_id, beat, pos, seq, seat, windowed, window_id, instant, defaulted, received_at_ms, chars);
+                                                                    -- delivery order to resolve_round (from hooks)
+CREATE TABLE fn7_cuts       (run_id, at, actor, round, window_id);  -- private cut replies (server frames at full, or client runs)
+CREATE TABLE fn7_revivals   (run_id, beat, demigod_ref, seat, reason, row_ref);
 CREATE TABLE fn7_entropy    (run_id, beat, before, after, level);
 CREATE TABLE fn7_mods       (run_id, mod_id, beat, region_ref, name, lon, lat, radius_km, stacked, expired_beat);
 CREATE INDEX fn7_ledger_actor  ON fn7_ledger (run_id, actor_ref, beat);

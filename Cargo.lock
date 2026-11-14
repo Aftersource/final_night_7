@@ -561,12 +561,10 @@ dependencies = [
  "fn7-pantheon",
  "fn7-society",
  "futures",
- "rusqlite",
  "serde",
  "serde_json",
  "theatre-llm",
  "theatre-plugin-api",
- "theatre-recorder",
  "theatre-toolkit",
  "theatre-trace",
  "tokio",
@@ -579,7 +577,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "axum",
  "clap",
  "dotenvy",
  "fn7-media",
@@ -588,11 +585,9 @@ dependencies = [
  "futures",
  "http-body-util",
  "reqwest",
- "rusqlite",
  "serde_json",
  "theatre-llm",
  "theatre-plugin-api",
- "theatre-recorder",
  "theatre-server",
  "theatre-toolkit",
  "theatre-trace",
@@ -630,7 +625,6 @@ dependencies = [
  "serde",
  "serde_json",
  "theatre-protocol",
- "theatre-recorder",
  "theatre-trace",
  "tokio",
  "tokio-tungstenite 0.26.2",
@@ -2186,6 +2180,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "theatre-plugin-api",
+ "theatre-trace",
  "tokio",
  "tracing",
 ]
@@ -2198,6 +2193,7 @@ dependencies = [
  "async-trait",
  "serde",
  "serde_json",
+ "theatre-trace",
 ]
 
 [[package]]
@@ -2211,26 +2207,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "theatre-recorder"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "rusqlite",
- "serde",
- "serde_json",
- "theatre-plugin-api",
- "theatre-trace",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
 name = "theatre-server"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum",
  "clap",
  "dashmap",
@@ -2244,6 +2225,7 @@ dependencies = [
  "theatre-llm",
  "theatre-plugin-api",
  "theatre-protocol",
+ "theatre-trace",
  "tokio",
  "tokio-util",
  "tower-http",

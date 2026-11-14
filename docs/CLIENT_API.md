@@ -34,11 +34,12 @@ generic (PROTOCOL.md §auth, §room). A few limits matter more than usual here:
 Each seat is a **demigod** with health 10 somewhere on **the whole planet** (the default arena; `arena: "city"` plays
 one real city instead). The planet is divided into **regions** (UN subregions such as "Western Africa"), each with its
 largest **cities**. The world's action runs in fast **flow beats** whether or not anyone types. You have two separate
-inputs. **Text entry** is the God of Time interaction: you slow time (everyone is told who did), type orders to your two
+inputs. **Text entry** is the God of Time interaction: you start typing and time slows (a Theatre action window;
+everyone is told who did), type orders to your two
 **hands** (LLM orchestrators that act, raise **armies**, spawn **subagents**, possess people and invoke the seven gods:
 Time, Nature, Consequence, Death, Chance, Memory and **Entropy**), and your Enter sends them and cuts off anyone who
 typed slower. **Casts** are god powers (lightning, a volcano, a flood, a custom power...) thrown at any point of the
-globe at any time, paid in **lightning bolts**: every bolt anyone spends gives every other demigod 2, and raises
+globe at any time as instant actions (everyone sees the streak at once), paid in **lightning bolts**: every bolt anyone spends gives every other demigod 2, and raises
 **Entropy**, which makes the world wackier until heat death brings the Final Night at once. Every act runs up a bill with
 Consequence. Time's clock shrinks a circle toward one city. The last demigod standing wins; on the Final Night exactly
 one survives. Demigods no seat plays are played by the plugin's own AI (no Theatre seat).
@@ -56,8 +57,14 @@ match start):
  10  S→C phase.changed       { round: 1, phase: "brief" }
  11  S→C round.brief         { round, public: BriefPublic, private: SeatView }
  11  S→C phase.changed       { round: 1, phase: "compose", deadline }   ← deadline = epoch ms
- 11  C→S action.submit       { round: 1, text, fields: { left, right, zoom, slow, sent_at, window, cast } }
+ 11  C→S action.submit       { round: 1, text, fields: { left, right, zoom } }   (orders without a window)
  12  S→C action.received     { round: 1, accepted: true }
+         … at any time, in any phase (see "Real-time input"):
+     C→S action.begin        {}                       → window.opened { window_id, by_seat, deadline } + phase.event Slowed
+     C→S action.submit       { round, text, fields, window_id }   → action.received { accepted, window_id } (or reason "cut")
+     S→C window.closed       { window_id, by_seat?, reason }
+     C→S action.submit       { round, text: "", fields: { cast }, instant: true }  → action.received { instant: true }
+     S→C phase.event         { round, phase, public: Streak }      (everyone, at once)
      S→C phase.progress      { round, phase: "compose", done, total }   (as seats submit)
  13  S→C phase.changed       { round: 1, phase: "resolve" }             ← all LLM work happens here
  23  S→C phase.changed       { round: 1, phase: "reveal" }
@@ -83,16 +90,20 @@ match start):
 | `round.committed.public_state` | public view | [public_view](schemas/public_view.schema.json) | [round.committed](examples/round.committed.json) |
 | `round.private_state.state` | seat view | [seat_view](schemas/seat_view.schema.json) | [round.private_state](examples/round.private_state.json) |
 | `match.ended.summary` | the end screen | [match_summary](schemas/match_summary.schema.json) | [match.ended](examples/match.ended.json) |
+| `phase.event.public` | an immediate push: who slowed time (`Slowed`), a cast's streak (`Streak`) | [phase_event](schemas/phase_event.schema.json) | [phase.event](examples/phase.event.json) |
 
 Generic frames recorded in the same match: [server.hello](examples/server.hello.json), [auth.login](examples/auth.login.json),
 [auth.ok](examples/auth.ok.json), [room.create](examples/room.create.json), [room.join](examples/room.join.json),
 [room.snapshot](examples/room.snapshot.json), [room.ready](examples/room.ready.json), [room.updated](examples/room.updated.json),
 [room.start](examples/room.start.json), [room.countdown](examples/room.countdown.json), [phase.changed](examples/phase.changed.json),
-[action.received](examples/action.received.json), [seat.eliminated](examples/seat.eliminated.json).
+[action.received](examples/action.received.json), [seat.eliminated](examples/seat.eliminated.json), and the real-time
+frames [action.begin](examples/action.begin.json), [window.opened](examples/window.opened.json),
+[window.closed](examples/window.closed.json).
 
 On reconnect (`auth.resume`), `match.snapshot` carries the same objects: `public_state` is a PublicView, `started` /
 `brief` / `outcome` hold the public parts of this round's messages, `you.private_state` is a SeatView, and
-`you.started` / `you.brief` / `you.outcome` hold the private parts.
+`you.started` / `you.brief` / `you.outcome` hold the private parts. It also carries `window` (the open action window,
+`{ window_id, by_seat, deadline }`, or null) and `you.window_submitted` (you already have orders in it).
 
 ### Conventions
 
@@ -169,8 +180,7 @@ beat. `debt_due` is the number of damage points Consequence will collect from yo
                 "target": "unit", "magnitude": 6, "damage": 1.0, "tags": ["sky", "fire", "fast"] }, …,
               { "slug": "custom", "name": "Custom power", "icon": "custom", "cost": null, … } ],
   "entropy": { "value": 12.4, "max": 100.0, "level": 0, "key": "calm", "text": "…", "next_at": 20.0, "heat_death": null },
-  "flow": { "flow_ms": 3000, "slow_ms": 30000, "window_beats": 10,
-            "slow": { "by": "Rook", "by_ref": "dg:0", "window": 4, "closes_by_beat": 14, "beats_left": 9, "ms_left": 27000 } },
+  "flow": { "flow_ms": 3000, "slow_ms": 30000, "slow": null },
   "regions": [ { "ref": "pl:1", "name": "Australia and New Zealand", "center": [151.5, -35.3], "radius_km": 1200.0,
                  "cities": [ { "ref": "pl:2", "name": "Sydney", "center": [151.18, -33.92] }, … ] }, … ] }
 ```
@@ -181,7 +191,8 @@ beat. `debt_due` is the number of damage points Consequence will collect from yo
 - `entropy` is the meter (also in the outcome and the PublicView): thresholds at 20 (`weather`: freak weather), 40
   (`physics`: demigods flung, a third of casts off target), 60 (`riots`: crowds riot and worship), 80 (`godfall`: the
   gods take damage), 100 = heat death.
-- `flow.slow` is the open slow window (null when none): `window` is its id (send it back with orders typed during it).
+- `flow.slow` is always null since theatre faa7220 (the game no longer tracks open windows; kept for older clients). The
+  live window is the Theatre's: `window.opened` / `window.closed` and `match.snapshot.window`.
 - `regions` lists every region with its cities (in a city arena: the districts and their sites).
 
 `private` is your **SeatView** (below) as it stands at the start of the beat, with `beat` set to the coming beat.
@@ -209,7 +220,7 @@ commit.
 | `news` | NewsLine[] (≤ 20) | Ledger rows you know about from the last ~3 beats, newest first, one line per row |
 | `armies` | Army[] | Your live armies, with their `orders` |
 | `orders` | `{hand, text, since}`[] | Your hands' standing orders: what they keep doing, by rules, while you are silent |
-| `slow` | null \| `{yours, window, held}` | The open slow window as it concerns you: you opened it; orders of yours are held in it |
+| `slow` | null | Always null since theatre faa7220 (kept for older clients); the open window is the core's `window.opened` / `match.snapshot.window` |
 
 **Entity** (one thing you can see): `{ ref, name, kind, pos? }`. `kind` is one of `demigod`, `character`, `cluster`,
 `group`, `god`, `place`, `item`, `agent` or `ledger`, matching the ref prefix. A cluster entity adds `size` (head
@@ -258,10 +269,12 @@ happened to you"`, `"you saw it"`, `"you were told"`, `"your followers heard"` o
   "alive": 4, "arena_radius_km": 10.08,
   "omens": [ { "god": "Time", "god_ref": "gd:0", "speech": "\"Granted, for the usual price. …\"" } ],
   "entropy": { "value": 8.9, "max": 100.0, "level": 0, "key": "calm", "text": "…", "next_at": 20.0, "heat_death": null, "delta": 2.1 },
-  "slow": [ { "event": "opened", "by": "Juniper", "by_ref": "dg:1", "window": 5, "closes_by_beat": 15, "beats_left": 10,
-              "ms_left": 30000, "text": "Juniper slowed time" },
-            { "event": "closed", "by": "Juniper", …, "how": "enter", "after_ms": 4200, "text": "Time snaps back: …" } ],
+  "slow": [ { "event": "closed", "by": "Rook", "by_ref": "dg:0", "window_id": 4, "how": "enter", "after_ms": 4200,
+              "debt": 0.71, "paid_bolt": true, "text": "Time snaps back: Rook's window closed" },
+            { "event": "instant", "by": "Vex", "by_ref": "dg:2", "after_ms": 0, "debt": 0.5, "paid_bolt": true,
+              "text": "Vex gave orders without slowing time" } ],
   "casts": [ { "by": "Vex", "by_ref": "dg:2", "power": "flood", "icon": "flood", "power_name": "Flood", "cost": 2,
+               "seq": 41, "instant": true,
                "at": [90.41, 23.72], "region": "Southern Asia", "region_ref": "pl:61", "place": "Dhaka",
                "target": null, "target_name": null, "off_target": false, "row": "lg:83" } ],
   "events": [ { "row": "lg:83", "kind": "cast", "text": "Vex casts flood on Dhaka", "at": [90.41, 23.72],
@@ -272,11 +285,15 @@ happened to you"`, `"you saw it"`, `"you were told"`, `"your followers heard"` o
   "timing": { "total_ms": 6.8, "llm_calls": 19, "llm_fallbacks": 19,
               "stages": [ { "stage": "intake", "ms": 0.85 }, { "stage": "route", "ms": 2.33 }, … ] } }
 ```
-- `slow` lists this beat's slow-window announcements: `opened` (with who; never who else is typing), `open` (each
-  further beat), `closed` (`how`: `enter` = the initiator's orders, `timeout`, `fell`; `after_ms` = how long it stayed
-  open).
-- `casts` lists every cast settled this beat in arrival order; a fizzled one has `fizzled` (the reason) and cost
-  nothing. Entropy's answer to each region's casts is an omen (`god: "Entropy"`, public when the cast's magnitude is
+- `slow` lists this resolve's slow-time settlements: `closed` (Time's bill for a window the core closed since the last
+  resolve: `how` = `enter` (the initiator's submit) or `timeout` (the deadline; billed the full `slow_ms` even if
+  nobody submitted), `after_ms` = the real time it stayed open, `debt`, `paid_bolt`), and `instant` (orders sent
+  without a window, billed as a zero-second slow). Never who else engaged or was cut off. (`event: "open"` is no longer
+  sent since theatre faa7220: the window itself is announced by the core's `window.opened` and the `Slowed`
+  `phase.event`.)
+- `casts` lists every cast settled this beat in arrival order (`seq`: the Theatre's room-wide order; the built-in AI's
+  casts have `seq` 0 and go first); a fizzled one has `fizzled` (the reason: its caster could no longer pay, or the
+  target doesn't exist) and cost nothing. Entropy's answer to each region's casts is an omen (`god: "Entropy"`, public when the cast's magnitude is
   ≥ 6), and the casts' ramifications are rows in `events` (and in the news of those who know them).
 - `events` are the public, geotagged world events of the beat, in order (≤ 40): casts and their ramifications, armies
   raised, marching and fighting, freak weather, world mods appearing, stacking and fading, wounded gods, eliminations.
@@ -317,9 +334,8 @@ happened to you"`, `"you saw it"`, `"you were told"`, `"your followers heard"` o
   `hands[i].subagents` are SubagentLine objects (same as the SeatView), with `line` = what each said this beat.
 - `news` holds only the ledger rows that are **new this beat** and that you know about, newest first, one line per row.
 - `omens` are the public rulings plus your own invocations, even small ones, as `{god, god_ref, speech}`.
-- `held: true`: orders you sent are held in someone else's slow window; they go through when it closes. `cut_off: true`:
-  orders you sent came after the window's initiator pressed Enter (or were for a window that had already closed); they
-  did not go through.
+- Cut-offs are not in the SeatDelta: the Theatre answers the late submit itself with a private
+  `action.received { accepted: false, reason: "cut" }` (rules 0.5 removed `held` / `cut_off`).
 - `zoom` and `focus` reflect your view after this beat's changes. `focus` is an Entity object (or null), as in the
   SeatView.
 
@@ -345,7 +361,7 @@ numbers themselves mean little. `public_state` is the **PublicView**:
 | Field | Meaning |
 |---|---|
 | `entropy` | The Entropy meter (as in the brief) |
-| `slow` | The open slow window (`{by, by_ref, window, closes_by_beat, beats_left, ms_left}`) or null |
+| `slow` | Always null since theatre faa7220 (kept for older clients; the open window is the core's `window.opened` / `match.snapshot.window`) |
 | `influence` | `[{region, region_ref, demigod, demigod_ref, share}]`: each demigod's share (0..1) of each region's people (crowds weighted by allegiance, its Following, its armies, its presence). A region's shares sum to ≤ 1; shares under 0.005 are left out |
 | `armies` | Every live army (Army objects, without `orders`) |
 | `mods` | Every live world mod: `{id, name, description, at, radius_km, region, region_ref, tags, stacks, since_beat, expires_beat, power, by}`. A mod is a lasting change a cast left (a permanent storm over a city, half gravity in a region): every beat it harms or heals demigods and armies inside its radius and sways nearby crowds, × its stacks (the same mod again in the same region stacks, up to 5). `expires_beat: null` = lasting. At most 24 live; the oldest is pushed out |
@@ -384,51 +400,77 @@ numbers themselves mean little. `public_state` is the **PublicView**:
 - `final_cut` is the Narrator's story of the match (≤ 250 words). With `fallback: true`, the beat captions are joined
   with newlines instead.
 
-## The action: `action.submit { round, text, fields }`
+## The action: `action.begin`, `action.submit { round, text, fields, window_id?, instant? }`
 
-There are **two separate input paths**, and one action may carry either or both.
+There are **two separate input paths**, on the Theatre's real-time input (engine v2.2; PROTOCOL.md "Real-time input"):
+text entry goes into slow-time windows, casts are instant actions. One action carries one path: an action with both
+orders and casts is refused, and an instant action carrying orders is refused on arrival (`action.received {accepted:
+false}` with the reason; the game sees how each submit arrived since theatre faa7220).
+
+### Real-time input: what the server sends and when
+
+| Frame | Who gets it | Meaning for FN7 |
+|---|---|---|
+| C→S `action.begin {}` | (never broadcast) | You started typing: the God of Time interaction. One per seat per window (or per round when no window is open). |
+| S→C `window.opened { window_id, by_seat, deadline }` | everyone | Time slowed: a window opened by `by_seat` until `deadline` (epoch ms; `slow_ms` after it opened). It comes **before** the `phase.event` that names the demigod and before the `ack` to the opener's `action.begin`. |
+| S→C `phase.event { round, phase, public: Slowed }` | everyone | `{ event: "slowed", by, by_ref, by_seat, slow_ms, text: "<name> slowed time" }` |
+| C→S `action.submit { round, text, fields, window_id }` | | Orders into the open window (any phase). Resubmitting before it closes replaces yours. |
+| S→C `action.received { round, accepted: true, window_id }` | you | Held, hidden. Nobody learns you typed or submitted. |
+| S→C `window.closed { window_id, by_seat?, reason }` | everyone | `reason`: `submitted` (the initiator's Enter; `by_seat` = the initiator), `deadline`, `match_ended`. |
+| S→C `action.received { accepted: false, reason: "cut", window_id }` | only you | You submitted to a window that had already closed: your orders did not go through. Nobody else is told you tried. |
+| C→S `action.submit { round, text: "", fields: { cast }, instant: true }` | | A cast, any phase. Rate-limited per seat (2/s, burst 4; `rate_limited` beyond). |
+| S→C `action.received { round, accepted, reason?, instant: true }` | you | `accepted: false` with the validation message (e.g. not enough bolts) when refused. |
+| S→C `phase.event { round, phase, public: Streak }` | everyone | The cast's streak, at once: `{ event: "streak", by, by_ref, by_seat, casts: [...], seq, received_at_ms, power, power_name, icon, cost, at, region, region_ref, place, target, target_name }` (the top-level fields repeat the first cast). |
+| S→C `seat.revived { seat, round, reason }` | everyone | An eliminated seat is back in play (then `room.updated` shows it `active`). |
+
+`match.snapshot` (on resume) carries `window` (`{ window_id, by_seat, deadline }` or null) and `you.window_submitted`.
+Windows don't survive a server restart.
 
 ### 1. Text entry: orders to your hands (the God of Time interaction)
 
 ```json
+{ "t": "action.begin", "id": "b7", "d": {} }
 { "t": "action.submit", "id": "a7",
-  "d": { "round": 12, "text": "",
+  "d": { "round": 12, "text": "", "window_id": 11,
          "fields": { "left": "raise an army from the dockworkers and march on Lagos",
                      "right": "slow time and delay my debt\nsend a scout to spy on Vex",
-                     "zoom": { "level": "city", "focus": "pl:41" },
-                     "sent_at": 1763049612345, "window": 11 } } }
+                     "zoom": { "level": "city", "focus": "pl:41" } } } }
 ```
 
 | Field | Type | Meaning |
 |---|---|---|
-| `fields.slow` | bool | You started typing: slow time. Opens a slow window if none is open (one at a time). |
+| `window_id` | int | The open window (`window.opened.window_id`). Without it, while a window is open, the server targets the open one; with no window open the orders are this round's Compose action. |
 | `fields.left` / `fields.right` | string \| null, ≤ 2000 chars | Your orders to that hand: free speech, several commands, newline-separated. Sending them is your **Enter**. An empty hand does nothing and makes no LLM call. |
-| `fields.sent_at` | number (epoch ms) | Your clock when you sent it. The cut-off rule orders submissions by it, and it measures how long your window stayed open. Without it your orders can't prove they came before an Enter. |
-| `fields.window` | int | The window (its id, `round.brief.public.flow.slow.window`) you typed these orders in. Orders for a window that already closed are cut off. |
 | `fields.zoom` | null \| `""` \| level \| `{ level, focus? }` | An optional view change. `level` is `world`, `district`, `city` or `character` (case-insensitive; `map`/`planet`/`globe` = world, `region` = district, `person` = character). |
 | `fields.zoom.focus` | string \| null, ≤ 200 chars | A ref (`"ch:12"`, `"pl:41"`, any ref that exists) or the exact name (case-insensitive) of something visible at district zoom. |
-| `text` | string, ≤ 500 chars (core cap) | **Fallback** when `left` and `right` are both absent or null: lines starting `l:`/`left:` go to the left hand, `r:`/`right:` to the right hand, any other line to the left hand, and a line `/slow` is `fields.slow`. |
+| `text` | string, ≤ 500 chars (core cap) | **Fallback** when `left` and `right` are both absent or null: lines starting `l:`/`left:` go to the left hand, `r:`/`right:` to the right hand, any other line to the left hand. |
 
-**How a slow window works (v0).**
-- **Opening.** `slow: true`, or orders sent while no window is open, opens a window. Its initiator is whoever sent first
-  that beat (by `sent_at`; the plugin's AI demigods count as first). Everyone gets `round.outcome.public.slow` =
-  `{event: "opened", by, text: "<name> slowed time", window, beats_left, ms_left}`; nobody is ever told who else is
-  typing. Time takes **1 bolt** for it (every other demigod gains 2); with no bolt, Time's debt below doubles.
-- **The world keeps moving.** A window lasts up to `ceil(slow_ms / flow_ms)` flow beats (`flow.window_beats`), and
-  those beats keep resolving: standing orders, armies, casts, Entropy, the AI.
-- **Others may type.** Orders another seat sends while the window is open are **held** (`round.private.held: true`),
-  hidden, and go through when it closes.
-- **Enter.** The initiator's orders close the window in the beat they arrive. Orders sent with the slow request itself
-  close it at once. Held orders go through with them, and so do other seats' orders that arrived in that same beat
-  **before** the initiator's (by `sent_at`). Orders sent after the Enter, or tagged with a window that already closed,
-  are **cut off**: they don't go through (`round.private.cut_off: true`). If the initiator never presses Enter, the
-  window closes by timeout at `closes_by_beat` (held orders still go through); if the initiator falls, it closes too.
-- **Time's penalty**, written when it closes: a debt to Time of `0.5 × (1 + seconds open / 10) × (1 + 0.5 × slows in
-  the last 20 beats)` damage points (doubled if the bolt couldn't be paid), due in `debt_due_beats`; and Entropy rises
-  by `0.5 + seconds / 30`. "Seconds open" comes from your `sent_at`s (the slow request to the Enter), else beats ×
-  `flow_ms`. Pressing Enter early is cheap, and it cuts off whoever is slower.
-- Orders from a window open at least one beat get up to `max_intents_per_window` acts per hand (12); orders sent in
-  the beat they open their window get `max_intents_per_hand` (6).
+The v0 fields `fields.slow`, `fields.sent_at`, `fields.window` and a `/slow` text line were removed in rules 0.5 and
+are refused (`bad_request`, with a message pointing at `action.begin`). The server stamps arrival order itself.
+
+**How a slow window works.**
+- **Opening.** `action.begin` from a live demigod with at least 1 bolt opens a window (one per room) for `slow_ms`
+  (default 30 s), closed by the opener's own submit. Everyone gets `window.opened` and the `Slowed` `phase.event`
+  (who). A demigod that has fallen or holds no bolt gets only the `ack`: no window (its orders can still go as a
+  Compose action).
+- **The world keeps moving.** Flow beats keep resolving while the window is open: standing orders, armies, casts,
+  Entropy, the AI. Nothing is settled until the window closes.
+- **Others may type.** Another seat's `action.begin` while a window is open only registers it (never shown). Its
+  `action.submit` with the `window_id` is held, hidden.
+- **Enter.** The opener's submit closes the window at once (`window.closed { reason: "submitted" }`). Everyone who
+  submitted before it goes through (at the next resolve, in arrival order); anyone who submits after gets the private
+  `cut` reply. If the opener never presses Enter, it closes at its deadline (`reason: "deadline"`) and whatever was
+  submitted goes through.
+- **Time's penalty**, settled at the first resolve after it closes: Time takes **1 bolt** (every other demigod gains
+  2) and writes a debt of `0.5 × (1 + seconds open / 10) × (1 + 0.5 × the opener's slows in the last 20 beats)` damage
+  points (doubled if the bolt can't be paid), due in `debt_due_beats`; Entropy rises by `0.5 + seconds / 30`. "Seconds
+  open" is real time: from the window's opening to the server closing it on the Enter (or the deadline: a window that
+  times out bills its opener the full `slow_ms`, even if nobody submitted). Pressing Enter
+  early is cheap, and it cuts off whoever is slower.
+- **Orders without a window** (a Compose submit with no window open) are an instant Enter: the same bill for zero
+  seconds (`{event: "instant"}`).
+- Orders from a window open at least one flow beat (`flow_ms`) get up to `max_intents_per_window` acts per hand (12);
+  others get `max_intents_per_hand` (6).
 
 **What the hands do with orders.** A hand turns speech into acts, in the order spoken. Each act is one of:
   - an ordinary act: walk, talk, fight, recruit, build, at any zoom level (planet, region, city, person)
@@ -450,13 +492,12 @@ There are **two separate input paths**, and one action may carry either or both.
   every other beat while you're silent: no LLM call. Typed text never casts a power (a "lightning" in your words is
   Nature's business).
 
-### 2. Casts: god powers (instant UX actions)
+### 2. Casts: god powers (instant actions)
 
 ```json
 { "t": "action.submit", "id": "a8",
-  "d": { "round": 12, "text": "",
-         "fields": { "cast": { "power": "volcano", "target": [3.38, 6.52] },
-                     "bolts": ["dg:2"], "sent_at": 1763049612345 } } }
+  "d": { "round": 12, "text": "", "instant": true,
+         "fields": { "cast": { "power": "volcano", "target": [3.38, 6.52] }, "bolts": ["dg:2"] } } }
 ```
 
 | Field | Type | Meaning |
@@ -468,25 +509,31 @@ There are **two separate input paths**, and one action may carry either or both.
 | `text` | string ≤ 200 | `custom` only (required): what the power is ("a rain of frogs over the stadium"). |
 | `magnitude` | 0..10 | `custom` only (default 5): its size; it costs `1 + magnitude/3` bolts (at most 4). |
 
-- A cast costs its `cost` in bolts. **Every other live demigod gains 2 bolts per bolt spent**, and Entropy rises 0.4 per
-  bolt. Casts are settled at the start of Resolve in arrival order (the plugin's AI first, then `sent_at`, then
-  demigod), before anything else in the beat; a cast you can't pay for **fizzles** (`casts[].fizzled`, nothing spent).
+- **On arrival** (any phase) the server checks the action against the last committed state: known powers, valid
+  targets, and enough bolts for the action's total. A refused cast gets a private `accepted: false` with the reason.
+  An accepted one is shown to everyone at once as a `Streak` `phase.event` (its aim; nothing is paid yet).
+- **At the next resolve** casts are paid in arrival order (`seq`; the plugin's AI first), before anything else in the
+  beat. A cast costs its `cost` in bolts. **Every other live demigod gains 2 bolts per bolt spent**, and Entropy rises
+  0.4 per bolt. A cast its caster can no longer pay (several casts each validated against the same last commit, or
+  bolts spent on Time first) **fizzles** (`casts[].fizzled`, nothing spent).
 - Every cast gets **Entropy's check, which always says yes** (an omen in Entropy's voice). Then the ramifications: one
   LLM call per region with casts this beat writes N ramifications (`1 + cost + magnitude/3` per cast, at most 10):
   harm, healing, crowds' moods, people flung about, things happening at points near the strike, and **world mods**
   (lasting changes: `public_state.mods`). They arrive as geotagged `events` and news rows.
 - At Entropy ≥ 40 (physics), a third of casts land 50–400 km off target (`off_target: true`).
-- A cast never carries orders and never slows time; it can ride on the same `action.submit` as text entry.
+- A cast never carries orders and never slows time: an action with both is refused. (Casts in a Compose or windowed
+  action are still settled, by `seq`; instant is the path for clients.)
 
 ### Both paths
 
 - **Errors:** a malformed action (`left` not a string, an unknown zoom level, a hand over 2000 chars, an unknown power,
   a custom power without `text`, more than 5 casts) gets an `error` reply with `bad_request` and a readable `message`.
-  Submitting outside Compose, for the wrong round, or while eliminated gets `wrong_phase`. A `text` over 500 chars gets
-  `too_long`.
+  An instant action with a validation problem gets `action.received { accepted: false, reason }` instead. A non-instant
+  submit outside Compose with no window open, for the wrong round, or while eliminated gets `wrong_phase`. A `text` over
+  500 chars gets `too_long`.
 - **Default action:** if you don't submit before the deadline, you get silence. The world keeps moving: Time's clock,
   debts, your standing orders, armies and live subagents all still run.
-- **Resubmitting** while Compose is open replaces your action (send the casts again with it).
+- **Resubmitting** while Compose (or the window) is open replaces your orders. Each instant cast is its own action.
 
 ## Room settings (`room.create { settings }` / `room.settings`, returned as `match.started.rules`)
 
@@ -501,7 +548,7 @@ readable `bad_request`. **Unknown keys are dropped silently.**
 | `players` | int | 4 | 1–8 | Demigods in the match. Every seat gets one, and the built-in AI plays the rest. Effectively `max(seats, players)`. |
 | `beats_total` (alias `rounds`) | int | 100 | 1–1000 | The Final Night falls on this beat. `rounds` applies only when `beats_total` is absent. |
 | `flow_ms` | int | 3000 | 500–120000 | Flow beat length. `compose_seconds` defaults to `flow_ms / 1000`. |
-| `slow_ms` | int | 30000 | 1000–600000 | Longest a slow window stays open: `ceil(slow_ms / flow_ms)` flow beats |
+| `slow_ms` | int | 30000 | 1000–600000 | How long a slow window stays open at most (the Theatre window's deadline) |
 | `beat_ms` | int | = `flow_ms` | 500–120000 | Alias of `flow_ms` (used when `flow_ms` is absent; echoed as `flow_ms`) |
 | `start_bolts` | int | 3 | 0–99 | Lightning bolts each demigod starts with |
 | `entropy_scale` | number | 1.0 | 0–10 | Multiplier on every Entropy rise (a playtest dial: 4 = heat death four times as fast) |
@@ -513,8 +560,8 @@ readable `bad_request`. **Unknown keys are dropped silently.**
 | `debt_due_beats` | int | 6 | 1–100 | Beats until a bill falls due |
 | `memory_per_owner` | int | 40 | 4–1000 | Live memories per owner before old ones fold into a summary |
 | `llm_folds_per_beat` | int | 2 | 0–32 | Memory folds the LLM writes per beat (the rest are done by rules) |
-| `max_intents_per_hand` | int | 6 | 1–12 | Acts one hand makes from orders sent in the beat they open their window |
-| `max_intents_per_window` | int | 12 | 1–24 | Acts one hand makes from orders that closed (or were held in) a window open at least one beat |
+| `max_intents_per_hand` | int | 6 | 1–12 | Acts one hand makes from orders (other than the next row's) |
+| `max_intents_per_window` | int | 12 | 1–24 | Acts one hand makes from orders delivered from a window open at least `flow_ms` |
 | `max_memorize_per_beat` | int | 6 | 0–64 | People memorized from player mentions per beat |
 | `max_witnesses` | int | 4 | 1–64 | Witnesses recorded per act |
 | `compose_seconds` | number | `flow_ms / 1000` | (0, 600] | The core's Compose timer (fixed for the room). If you set it explicitly, it no longer follows `flow_ms`. |
@@ -530,8 +577,8 @@ every key above except `rounds`, plus `seed`, `city` and `choose_seconds` only w
 |---|---|---|---|
 | `start` | no | Time's clock shrinks the arena and hurts bodies outside it, debts fall due, subagents expire | `round.started`, maybe `seat.eliminated` + `room.updated` |
 | `brief` | no | | `round.brief` |
-| `compose` | **yes**: `deadline` = epoch ms, `compose_seconds` (= `flow_ms`) after it opens | You type, slow time, cast | `phase.progress { done, total }` |
-| `resolve` | no (capped by `resolve_timeout_s`, default 60) | Slow windows and cut-offs → casts → hands → mentions → route → one batch of acts (resolvers, gods, subagents, paladins, possessions, ramifications) → merge with the world's rules (armies, Entropy, mods) → consequence; the previous beat's narrator runs alongside | `phase.progress` at least every 5 s |
+| `compose` | **yes**: `deadline` = epoch ms, `compose_seconds` (= `flow_ms`) after it opens | Orders without a window (windows and casts work in every phase) | `phase.progress { done, total }` |
+| `resolve` | no (capped by `resolve_timeout_s`, default 60) | Time's bills for closed slow windows → casts (in `seq` order) → hands → mentions → route → one batch of acts (resolvers, gods, subagents, paladins, possessions, ramifications) → merge with the world's rules (armies, Entropy, mods) → consequence; the previous beat's narrator runs alongside | `phase.progress` at least every 5 s |
 | `reveal` | no | | `round.outcome`, `round.private` |
 | `choose` | never entered | | |
 | `commit` | no | Heat death's collections, eliminations and the Final Night survivor rule | `round.committed`, maybe `seat.eliminated` + `room.updated`, `round.private_state` |
@@ -540,16 +587,11 @@ every key above except `rounds`, plus `seed`, `city` and `choose_seconds` only w
   resolves, whether or not anyone submitted. A beat nobody spoke or cast in makes no LLM call and resolves in
   milliseconds; a beat with orders or casts takes the LLM's time (the hands, then one batch of acts; each call capped
   by `mind_timeout_ms`).
-- **Compose closes early once every active seat has submitted.** So submit only when you have something (orders, a
-  slow request, a cast); an idle client should not submit, or it shortens everyone's flow beat. A submission that
-  arrives after Compose has closed gets `wrong_phase`: hold it for the next beat.
-- **What the engine doesn't do yet** (engine proposal v2.2, requested from the Theatre): the core's Compose timer is
-  fixed per room (it reads `compose_seconds` from the room settings), so a slow window can't lengthen or end a Compose
-  phase; the initiator's submission can't close Compose on its own; the core delivers each beat's actions keyed by seat,
-  without their arrival order (hence `sent_at`); there is no mid-phase push and no "started typing" message; and
-  `phase.progress { done, total }` counts submissions, so it shows that *someone* submitted. Slow windows, held orders
-  and the cut-off are therefore game rules the plugin applies at Resolve to the actions the core delivered, over flow
-  beats. Casts ride on the normal `action.submit` until the engine's instant actions arrive.
+- **Compose closes early once every active seat has submitted a Compose action.** Windowed and instant actions don't
+  count toward it. A Compose submission that arrives after Compose has closed (with no window open) gets
+  `wrong_phase`.
+- **Windows and instant actions ignore phases.** A window stays open across beats; held orders and casts reach the
+  game at the next resolve after they arrive (a window's orders: after it closes).
 - Use `deadline` against your clock and correct for skew with `sys.pong.server_time`.
 
 ## Hidden information
@@ -560,7 +602,7 @@ every key above except `rounds`, plus `seed`, `city` and `choose_seconds` only w
 | Every live demigod's position and place name; who fell, when and how | Your hands' replies and your subagents/possessions |
 | The (previous beat's) caption, the callouts, and the public omens (big rulings, or ones that send a paladin) | Your view at your zoom (`visible`, `focus`) |
 | Every demigod's bolts; casts and their ramifications; armies; world mods; freak weather; Entropy; influence per region | Your armies' orders, your standing orders |
-| Who opened a slow window, and when it closed (and how long it stayed open) | Whether your orders are held or were cut off. Nobody ever learns whether anyone else typed |
+| Who opened a slow window (`window.opened`, `Slowed`), when it closed, how long it stayed open and Time's bill; every cast's streak the moment it is accepted | Your `action.received` replies, including a `cut`. Nobody ever learns whether anyone else typed, engaged or submitted |
 | How many demigods are alive; the score ranking | `news`: ledger rows you **know** (below) |
 | Names of demigods hurt by Time's clock | Your own god rulings, including small ones |
 
@@ -598,7 +640,7 @@ send = lambda t, d, id=None: ws.send(json({"t": t, "id": id, "d": d}))
 send("auth.login", {"display_name": "Botty", "client": {"kind": "my-bot", "version": "1"}}, "1")
 send("room.quickjoin", {}, "2")              # or room.create {visibility, settings} / room.join {code}
 send("room.ready", {"ready": True}, "3")
-me = None; view = None; last_ping = now()
+me = None; view = None; window = None; last_ping = now()
 
 while True:
     if now() - last_ping > 20: send("sys.ping", {}); last_ping = now()
@@ -608,9 +650,12 @@ while True:
     if t == "auth.ok":                save(d["resume_token"])            # for auth.resume after a drop
     elif t == "room.snapshot":       me = seat_of(d["seats"], my_player_id)
     elif t == "round.brief":         view = d["private"]                # SeatView: you, visible, debts, news
-    # Every submission with orders is text entry (it slows time and costs a bolt); a real bot speaks every few beats and
-    # casts now and then (fields.cast). Without anything to say, don't submit: the flow beat runs on.
+    # Text entry is the God of Time interaction (Time bills it): begin, write, then submit into your window. Casts go
+    # as instant actions (any time). Without anything to say, don't submit: the flow beat runs on.
+    elif t == "window.opened":       window = d["window_id"]
+    elif t == "window.closed":       window = None
     elif t == "phase.changed" and d["phase"] == "compose" and view and view["alive"] and d["round"] % 3 == 0:
+        send("action.begin", {}, "b%d" % d["round"])                   # time slows (if you have a bolt)
         rivals  = [e for e in view["visible"] if e["kind"] == "demigod" and e["ref"] != view["demigod"]]
         crowds  = [e for e in view["visible"] if e["kind"] == "cluster"]
         left, right = [], []
@@ -623,9 +668,14 @@ while True:
         if view["you"]["debt_open"] > 2:   right.append("slow time and delay my debt")
         elif len(view["hands"][1]["subagents"]) == 0 and rivals:
             right.append("send a scout to spy on " + rivals[0]["name"])
-        send("action.submit", {"round": d["round"], "text": "",
-             "fields": {"left": "\n".join(left), "right": "\n".join(right), "zoom": "district",
-                        "sent_at": now_ms()}}, "a%d" % d["round"])
+        sub = {"round": d["round"], "text": "",
+               "fields": {"left": "\n".join(left), "right": "\n".join(right), "zoom": "district"}}
+        if window: sub["window_id"] = window                             # your window (or a rival's)
+        send("action.submit", sub, "a%d" % d["round"])
+        if rivals and view["you"]["bolts"] >= 1:
+            send("action.submit", {"round": d["round"], "text": "", "instant": True,
+                 "fields": {"bolt": rivals[0]["ref"]}}, "c%d" % d["round"])
+    elif t == "action.received" and d.get("reason") == "cut": log("cut off")
     elif t == "round.outcome":       show(d["public"]["caption_beat"], d["public"]["previous_caption"], d["public"]["omens"])
     elif t == "round.private":       show(d["private"]["hands"], d["private"]["news"])
     elif t == "round.private_state": view = d["state"]
@@ -641,9 +691,10 @@ for LLM players). Run it against a server for a full 4-player match:
 
 ## Things that trip clients up
 
-1. **Two paths:** orders (text entry) and casts are separate. Typed words never cast; a cast never carries orders or
-   slows time. Send `sent_at` with everything.
+1. **Two paths:** orders (text entry: `action.begin`, then `action.submit` with the `window_id`) and casts (instant
+   actions) are separate. Typed words never cast; a cast never carries orders or slows time.
 2. **Don't submit when idle:** Compose closes once every seat has submitted, which shortens the flow beat for everyone.
+   Windowed and instant actions don't count.
 3. **`text` vs `fields`:** `text` is capped at 500 chars by the core, while `fields.left`/`right` allow 2000 each. If
    either hand field is present, `text` is ignored completely.
 4. **The narration is one beat late:** `round.outcome` of beat N narrates beat N−1 (`caption_beat`). Don't label beat

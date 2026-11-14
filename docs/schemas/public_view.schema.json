@@ -260,21 +260,16 @@
       "type": "object"
     },
     "Ref": {
-      "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row. Stable for the whole match.",
+      "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row, ce cell, mb mob. Stable for the whole match.",
       "examples": [
         "ch:12"
       ],
-      "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg):\\d+$",
+      "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg|ce|mb):\\d+$",
       "type": "string"
     },
     "SlowState": {
-      "description": "The open slow-time window (public: who opened it, never who else is typing).",
+      "description": "The open slow-time window as of the last resolve (public: who opened it, never who else is typing). The live window is the Theatre's: `window.opened` / `window.closed` and `match.snapshot.window`.",
       "properties": {
-        "beats_left": {
-          "description": "Flow beats left.",
-          "minimum": 0,
-          "type": "integer"
-        },
         "by": {
           "description": "The initiator's name.",
           "type": "string"
@@ -282,18 +277,23 @@
         "by_ref": {
           "$ref": "#/$defs/Ref"
         },
-        "closes_by_beat": {
-          "description": "The last beat it can stay open (it closes by timeout at this beat's resolve).",
+        "deadline_ms": {
+          "description": "When it closes at the latest (epoch ms).",
           "minimum": 0,
           "type": "integer"
         },
-        "ms_left": {
-          "description": "beats_left × flow_ms.",
+        "opened_beat": {
+          "description": "The first beat that resolved while it was open.",
           "minimum": 0,
           "type": "integer"
         },
-        "window": {
-          "description": "Its id: the beat it opened. Send it back as `fields.window` with orders typed during it.",
+        "opened_ms": {
+          "description": "When it opened (epoch ms).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "window_id": {
+          "description": "The Theatre's window id (`window.opened.window_id`); submit orders with it.",
           "minimum": 0,
           "type": "integer"
         }
@@ -301,10 +301,10 @@
       "required": [
         "by",
         "by_ref",
-        "window",
-        "closes_by_beat",
-        "beats_left",
-        "ms_left"
+        "window_id",
+        "opened_ms",
+        "deadline_ms",
+        "opened_beat"
       ],
       "type": "object"
     },
@@ -598,6 +598,14 @@
         {
           "type": "null"
         }
+      ]
+    },
+    "society": {
+      "additionalProperties": true,
+      "description": "The society's public summary (schema 4). Its shape is not frozen yet (the society build is in progress); read defensively.",
+      "type": [
+        "object",
+        "null"
       ]
     }
   },

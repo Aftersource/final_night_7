@@ -1,8 +1,8 @@
-//! `fn7-project`: projects a recording's generic `events` and `snapshots` into the typed `fn7_*` tables of
-//! docs/DATA_MODEL.md §4, plus a few analysis views.
+//! `fn7-project`: projects a recording's generic `events` and `snapshots` (a core JSONL recording loaded by
+//! [`crate::ingest`]) into the typed `fn7_*` tables of docs/DATA_MODEL.md §4, plus a few analysis views.
 //!
-//! Sources, in order (later wins for the same row): the `match_start` snapshot, the events (in recording order), then the
-//! last `final` (or `committed`) snapshot. Rows folded out of the live state survive through their events. Event `data`
+//! Sources, in order (later wins for the same row): the `on_match_start` snapshot, the events (in recording order), then
+//! the last `commit_round` snapshot (older recordings: `match_start` / `final` / `committed`). Rows folded out of the live state survive through their events. Event `data`
 //! is read as loose JSON, so extra or missing fields never break a projection; ids may be bare numbers (`5`) or refs
 //! (`"lg:5"`).
 
@@ -28,9 +28,13 @@ CREATE TABLE IF NOT EXISTS fn7_beats      (run_id, beat, started_at, intake_ms, 
                                            total_ms, llm_calls, llm_fallbacks, words, intents, applied, caption);
 CREATE TABLE IF NOT EXISTS fn7_geo        (run_id, row_ref, beat, lon, lat, place_ref, PRIMARY KEY (run_id, row_ref));
 CREATE TABLE IF NOT EXISTS fn7_casts      (run_id, beat, by_ref, power, cost, lon, lat, region_ref, target_ref, row_ref, off_target, fizzled);
-CREATE TABLE IF NOT EXISTS fn7_slows      (run_id, window, initiator_ref, opened_beat, closed_beat, how, beats_open, ms_open, measured,
-                                           released, cut_off, debt, entropy, paid_bolt);
-CREATE TABLE IF NOT EXISTS fn7_cutoffs    (run_id, beat, demigod_ref, window, reason, sent_at, enter_at);
+CREATE TABLE IF NOT EXISTS fn7_windows    (run_id, window_id, initiator_ref, by_seat, opened_beat, closed_beat, how, opened_ms, closed_ms,
+                                           deadline_ms, ms_open, measured, submitted, engaged, debt, entropy, paid_bolt);
+CREATE TABLE IF NOT EXISTS fn7_begins     (run_id, round, seat, demigod_ref, kind, window_id, at_ms, reason);
+CREATE TABLE IF NOT EXISTS fn7_streaks    (run_id, seq, seat, by_ref, power, icon, lon, lat, region_ref, target_ref, received_at_ms);
+CREATE TABLE IF NOT EXISTS fn7_actions    (run_id, beat, pos, seq, seat, windowed, window_id, instant, defaulted, received_at_ms, chars);
+CREATE TABLE IF NOT EXISTS fn7_cuts       (run_id, at, actor, round, window_id);
+CREATE TABLE IF NOT EXISTS fn7_revivals   (run_id, beat, demigod_ref, seat, reason, row_ref);
 CREATE TABLE IF NOT EXISTS fn7_entropy    (run_id, beat, before, after, level);
 CREATE TABLE IF NOT EXISTS fn7_mods       (run_id, mod_id, beat, region_ref, name, lon, lat, radius_km, stacked, expired_beat);
 CREATE INDEX IF NOT EXISTS fn7_ledger_actor  ON fn7_ledger (run_id, actor_ref, beat);
@@ -90,10 +94,10 @@ LEFT JOIN fn7_membership m
       AND (m.from_beat IS NULL OR m.from_beat <= h.beat) AND (m.to_beat IS NULL OR m.to_beat > h.beat);
 "#;
 
-/// Needs the recorder's `v_http_by_step` (assumes Theatre round = FN7 beat).
+/// Needs the ingested `v_http_by_step` (crate::ingest) (assumes Theatre round = FN7 beat).
 pub const BEAT_COST_VIEW: &str = r#"
 DROP VIEW IF EXISTS v_fn7_beat_cost;
--- Where each beat's time and tokens went: fn7_beats joined to the recorder's per-round HTTP spend.
+-- Where each beat's time and tokens went: fn7_beats joined to the per-round HTTP spend (v_http_by_step).
 CREATE VIEW v_fn7_beat_cost AS
 SELECT b.run_id, b.beat, b.total_ms, b.llm_calls, b.llm_fallbacks, b.words, b.intents, b.applied,
        COALESCE(SUM(h.requests), 0) AS http_requests,
@@ -118,8 +122,12 @@ pub const TABLES: &[&str] = &[
     "fn7_beats",
     "fn7_geo",
     "fn7_casts",
-    "fn7_slows",
-    "fn7_cutoffs",
+    "fn7_windows",
+    "fn7_begins",
+    "fn7_streaks",
+    "fn7_actions",
+    "fn7_cuts",
+    "fn7_revivals",
     "fn7_entropy",
     "fn7_mods",
 ];
@@ -130,7 +138,11 @@ pub const EVENT_KINDS: &[&str] = &[
     "cast_fizzled",
     "slow_started",
     "slow_closed",
-    "orders_cut_off",
+    "slow_begin",
+    "slow_engaged",
+    "slow_refused",
+    "cast_streak",
+    "revived",
     "entropy",
     "mod_created",
     "mod_expired",
@@ -367,9 +379,10 @@ fn ids(data: &Value, keys: &[&str], prefix: &str) -> Vec<String> {
     vec![]
 }
 
-/// Find the `World` inside a snapshot state (unwrapping the recorder's run tag and an optional `world` key).
+/// Find the `World` inside a snapshot state (unwrapping an old recorder's `{"__theatre_recorder", "state"}` tag or an
+/// optional `world` key).
 fn world_of(state: &Value) -> Value {
-    let (_, s) = theatre_recorder::unwrap_state(state);
+    let s = state.clone();
     if s.get("ledger").is_some() || s.get("meta").is_some() {
         return s;
     }
@@ -867,8 +880,8 @@ impl Proj {
                     );
                 }
             }
-            "cast" | "cast_fizzled" | "slow_started" | "slow_closed" | "orders_cut_off" | "entropy"
-            | "mod_created" | "mod_expired" => {
+            "cast" | "cast_fizzled" | "slow_started" | "slow_closed" | "slow_begin" | "slow_engaged"
+            | "slow_refused" | "cast_streak" | "revived" | "entropy" | "mod_created" | "mod_expired" => {
                 let mut d = data.clone();
                 if let (Some(a), Value::Object(o)) = (actor, &mut d) {
                     o.entry("actor").or_insert(a.into());
@@ -1125,7 +1138,7 @@ fn project_run(tx: &Transaction, run: &str) -> Result<RunSummary> {
     )? > 0;
 
     if have_snaps {
-        if let Some((label, s)) = load_snapshot(tx, run, &["match_start"], false)? {
+        if let Some((label, s)) = load_snapshot(tx, run, &["on_match_start", "fork", "match_start"], false)? {
             p.world(&world_of(&s), true);
             summary.snapshots.push(label);
         }
@@ -1158,7 +1171,15 @@ fn project_run(tx: &Transaction, run: &str) -> Result<RunSummary> {
         if let Some((label, s)) = load_snapshot(
             tx,
             run,
-            &["final", "committed", "resolved", "round_start"],
+            &[
+                "commit_round",
+                "final",
+                "committed",
+                "resolve_round",
+                "resolved",
+                "on_round_start",
+                "round_start",
+            ],
             true,
         )? {
             p.world(&world_of(&s), false);
@@ -1447,7 +1468,12 @@ fn project_run(tx: &Transaction, run: &str) -> Result<RunSummary> {
     Ok(summary)
 }
 
-/// The planet edition's tables: geotags of every ledger row, casts, slow windows, cut-offs, the Entropy curve, mods.
+fn table_exists(tx: &Transaction, name: &str) -> Result<bool> {
+    Ok(tx.query_row("SELECT COUNT(*) FROM sqlite_master WHERE name = ?1", params![name], |r| r.get::<_, i64>(0))? > 0)
+}
+
+/// The planet edition's tables: geotags of every ledger row, casts, instant streaks, slow windows (core action windows)
+/// and begins, the delivery order of every action, cut-offs, revivals, the Entropy curve, mods.
 fn write_planet(tx: &Transaction, run: &str, p: &Proj) -> Result<()> {
     let lonlat = |v: Option<&Value>| -> (Option<f64>, Option<f64>) {
         match v.and_then(Value::as_array) {
@@ -1463,11 +1489,14 @@ fn write_planet(tx: &Transaction, run: &str, p: &Proj) -> Result<()> {
         }
     }
     let mut cast = tx.prepare("INSERT INTO fn7_casts (run_id, beat, by_ref, power, cost, lon, lat, region_ref, target_ref, row_ref, off_target, fizzled) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)")?;
-    let mut slow = tx.prepare("INSERT INTO fn7_slows (run_id, window, initiator_ref, opened_beat, closed_beat, how, beats_open, ms_open, measured, released, cut_off, debt, entropy, paid_bolt) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)")?;
-    let mut cut = tx.prepare("INSERT INTO fn7_cutoffs (run_id, beat, demigod_ref, window, reason, sent_at, enter_at) VALUES (?1,?2,?3,?4,?5,?6,?7)")?;
+    let mut win = tx.prepare("INSERT INTO fn7_windows (run_id, window_id, initiator_ref, by_seat, opened_beat, closed_beat, how, opened_ms, closed_ms, deadline_ms, ms_open, measured, submitted, engaged, debt, entropy, paid_bolt) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)")?;
+    let mut begin = tx.prepare("INSERT INTO fn7_begins (run_id, round, seat, demigod_ref, kind, window_id, at_ms, reason) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)")?;
+    let mut streak = tx.prepare("INSERT INTO fn7_streaks (run_id, seq, seat, by_ref, power, icon, lon, lat, region_ref, target_ref, received_at_ms) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)")?;
+    let mut rev = tx.prepare("INSERT INTO fn7_revivals (run_id, beat, demigod_ref, seat, reason, row_ref) VALUES (?1,?2,?3,?4,?5,?6)")?;
     let mut ent = tx.prepare("INSERT INTO fn7_entropy (run_id, beat, before, after, level) VALUES (?1,?2,?3,?4,?5)")?;
     let mut md = tx.prepare("INSERT INTO fn7_mods (run_id, mod_id, beat, region_ref, name, lon, lat, radius_km, stacked, expired_beat) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)")?;
-    let mut opened: BTreeMap<i64, (Option<String>, Option<i64>)> = BTreeMap::new();
+    #[allow(clippy::type_complexity)]
+    let mut opened: BTreeMap<(i64, Option<String>, Option<i64>), Value> = BTreeMap::new();
     for (kind, beat, d) in &p.planet {
         match kind.as_str() {
             "cast" | "cast_fizzled" => {
@@ -1480,25 +1509,43 @@ fn write_planet(tx: &Transaction, run: &str, p: &Proj) -> Result<()> {
                 ])?;
             }
             "slow_started" => {
-                if let Some(wi) = int(d.get("window")) {
-                    opened.insert(wi, (rf(d.get("initiator"), "dg"), *beat));
-                }
+                // Keyed by window id (core windows) or, for a window-less instant Enter, by (initiator, beat).
+                let key = (int(d.get("window_id")), rf(d.get("initiator"), "dg"), *beat);
+                opened.insert(key.0.map(|w| (w, None, None)).unwrap_or((-1, key.1.clone(), *beat)), d.clone());
             }
             "slow_closed" => {
-                let wi = int(d.get("window"));
-                slow.execute(params![
-                    run, wi, rf(d.get("initiator"), "dg"), wi, beat, st(d, "how"), int(d.get("beats_open")),
-                    int(d.get("ms_open")), st(d, "measured"), int(d.get("released")), int(d.get("cut_off")),
-                    num(d.get("debt")), num(d.get("entropy")), d.get("paid_bolt").and_then(Value::as_bool)
+                let wi = int(d.get("window_id"));
+                let who = rf(d.get("initiator"), "dg");
+                let k = wi.map(|w| (w, None, None)).unwrap_or((-1, who.clone(), *beat));
+                opened.remove(&k);
+                let opened_beat = int(d.get("opened_beat")).or(*beat);
+                let seats = |k: &str| d.get(k).filter(|v| !v.is_null()).map(|v| v.to_string());
+                win.execute(params![
+                    run, wi, who, int(d.get("by_seat")), opened_beat, beat, st(d, "how"), int(d.get("opened_ms")),
+                    int(d.get("closed_ms")), int(d.get("deadline_ms")), int(d.get("ms_open")), st(d, "measured"),
+                    seats("submitted"), seats("engaged"), num(d.get("debt")), num(d.get("entropy")),
+                    d.get("paid_bolt").and_then(Value::as_bool)
                 ])?;
-                if let Some(w) = wi {
-                    opened.remove(&w);
-                }
             }
-            "orders_cut_off" => {
-                cut.execute(params![
-                    run, beat, rf(d.get("demigod"), "dg"), int(d.get("window")), st(d, "reason"),
-                    int(d.get("sent_at")), int(d.get("enter_at"))
+            "slow_begin" | "slow_engaged" | "slow_refused" => {
+                let k = kind.trim_start_matches("slow_");
+                let who = rf(d.get("demigod"), "dg").or_else(|| d.get("actor").and_then(|a| any_ref(Some(a))));
+                begin.execute(params![
+                    run, int(d.get("round")), int(d.get("seat")), who, k, int(d.get("window_id")),
+                    int(d.get("begun_ms")).or(int(d.get("at_ms"))), st(d, "reason")
+                ])?;
+            }
+            "cast_streak" => {
+                let (lon, lat) = lonlat(d.get("at"));
+                streak.execute(params![
+                    run, int(d.get("seq")), int(d.get("by_seat")), rf(d.get("by_ref"), "dg"), st(d, "power"),
+                    st(d, "icon"), lon, lat, rf(d.get("region_ref"), "pl"),
+                    d.get("target").and_then(|t| any_ref(Some(t))), int(d.get("received_at_ms"))
+                ])?;
+            }
+            "revived" => {
+                rev.execute(params![
+                    run, beat, rf(d.get("demigod"), "dg"), int(d.get("seat")), st(d, "reason"), rf(d.get("row"), "lg")
                 ])?;
             }
             "entropy" => {
@@ -1522,10 +1569,45 @@ fn write_planet(tx: &Transaction, run: &str, p: &Proj) -> Result<()> {
         }
     }
     // Windows still open at the end of the recording.
-    for (w, (who, b)) in opened {
-        slow.execute(params![run, w, who, b, Option::<i64>::None, "open", Option::<i64>::None, Option::<i64>::None,
-            Option::<String>::None, Option::<i64>::None, Option::<i64>::None, Option::<f64>::None, Option::<f64>::None,
+    for ((w, who, b), d) in opened {
+        win.execute(params![run, (w >= 0).then_some(w), who.or_else(|| rf(d.get("initiator"), "dg")),
+            int(d.get("by_seat")), b.or(int(d.get("beat"))), Option::<i64>::None, "open", int(d.get("opened_ms")),
+            Option::<i64>::None, int(d.get("deadline_ms")), Option::<i64>::None, st(&d, "measured"),
+            Option::<String>::None, Option::<String>::None, Option::<f64>::None, Option::<f64>::None,
             Option::<bool>::None])?;
+    }
+    // Delivery order as the core handed it to resolve_round (Compose in seat order, then windowed / instant by seq).
+    if table_exists(tx, "hooks")? {
+        let mut act = tx.prepare("INSERT INTO fn7_actions (run_id, beat, pos, seq, seat, windowed, window_id, instant, defaulted, received_at_ms, chars) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)")?;
+        let mut q = tx.prepare("SELECT round, input FROM hooks WHERE run_id = ?1 AND hook IN ('resolve_round', 'fallback_outcome') ORDER BY id")?;
+        let rows: Vec<(Option<i64>, Option<String>)> =
+            q.query_map(params![run], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_, _>>()?;
+        for (round, input) in rows {
+            let v: Value = input.and_then(|i| serde_json::from_str(&i).ok()).unwrap_or(Value::Null);
+            for (i, a) in v["actions"].as_array().into_iter().flatten().enumerate() {
+                act.execute(params![
+                    run, round, i as i64, int(a.get("seq")), int(a.get("seat")),
+                    a.get("windowed").and_then(Value::as_bool), int(a.get("window_id")),
+                    a.get("instant").and_then(Value::as_bool), a.get("defaulted").and_then(Value::as_bool),
+                    int(a.get("received_at_ms")), a["text"].as_str().map(|t| t.chars().count() as i64)
+                ])?;
+            }
+        }
+    }
+    // Cut-offs: the core tells only the cut player (a private `action.received { accepted: false, reason: "cut" }`):
+    // server recordings at `full` hold it as a sent frame (actor = the recipient), client recordings (fn7-agents) as
+    // a received one.
+    if table_exists(tx, "protocol_frames")? {
+        let mut cut = tx.prepare("INSERT INTO fn7_cuts (run_id, at, actor, round, window_id) VALUES (?1,?2,?3,?4,?5)")?;
+        let mut q = tx.prepare("SELECT at, actor, raw FROM protocol_frames WHERE run_id = ?1 AND frame_type = 'action.received' ORDER BY id")?;
+        let rows: Vec<(i64, Option<String>, String)> =
+            q.query_map(params![run], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<Result<_, _>>()?;
+        for (at, actor, raw) in rows {
+            let v: Value = serde_json::from_str(&raw).unwrap_or(Value::Null);
+            if v["d"]["reason"] == "cut" {
+                cut.execute(params![run, at, actor, int(v["d"].get("round")), int(v["d"].get("window_id"))])?;
+            }
+        }
     }
     Ok(())
 }

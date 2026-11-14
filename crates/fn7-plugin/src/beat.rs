@@ -677,7 +677,9 @@ fn match_named(w: &World, m: &Mention) -> Option<Ref> {
 pub async fn resolve(
     w: &mut World,
     beat: u32,
-    mut turns: Vec<Turn>,
+    turns: Vec<Turn>,
+    subs: &[crate::flow::Sub],
+    closed: &[theatre_plugin_api::ClosedWindow],
     llm: Option<&dyn LlmProvider>,
     pantheon: &Arc<Pantheon>,
 ) -> BeatOut {
@@ -715,8 +717,8 @@ pub async fn resolve(
         }
     }
 
-    // ---- (0a) text entry (the God of Time interaction): slow windows, held and cut-off orders ---------------------
-    let flow = crate::flow::process(w, beat, &mut turns, pantheon, &st);
+    // ---- (0a) text entry (the God of Time interaction): settle the core's slow windows (Time's bill) ---------------
+    let flow = crate::flow::process(w, beat, subs, closed, pantheon, &st);
     // ---- (0a') casts: god powers from the UX, settled in arrival order (ramifications run in the act batch) --------
     let casts = crate::casts::process(w, beat, &turns, pantheon, &st);
     // Who spoke this beat (their hands, subagents and resolvers use the LLM; everyone else continues by rules).
@@ -805,7 +807,9 @@ pub async fn resolve(
             };
             event("utterance", Some(Ref::Demigod(d).to_string()), json!(u));
             hand_text.insert(agent, lines.clone());
-            let vis = visible(w, d, zoom, focus, 40);
+            let mut vis = visible(w, d, zoom, focus, 40);
+            // Fallen demigods stay nameable (Death's "raise Kai from the dead" needs a target that isn't standing).
+            vis.extend(w.demigods.iter().filter(|x| !x.alive && x.id != d).map(|x| Ref::Demigod(x.id)));
             let subs = live_children(w, agent)
                 .into_iter()
                 .map(|a| {
@@ -2124,7 +2128,7 @@ fn seat_deltas(
     row_end: usize,
     said: &BTreeMap<AgentId, String>,
     step_said: &BTreeMap<AgentId, String>,
-    flow: &crate::flow::FlowOut,
+    _flow: &crate::flow::FlowOut,
 ) -> Vec<(Seat, Value)> {
     let rows = &w.ledger.rows[row_start..row_end];
     let mut out = vec![];
@@ -2156,8 +2160,6 @@ fn seat_deltas(
             you: you_line(w, d),
             hands,
             omens,
-            held: flow.held.contains(&d),
-            cut_off: flow.cut_off.contains(&d),
             hierarchy: Some(crate::society::hierarchy_json(w, d, s.zoom, s.focus)).filter(|v| !v.is_null()),
         };
         let mut v = json!(delta);

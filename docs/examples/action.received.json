@@ -1,7 +1,10 @@
 {
   "d": {
-    "accepted": true,
-    "round": 1
+    "accepted": false,
+    "reason": "cut",
+    "round": 2,
+    "window_id": 2
   },
+  "re": "Juniper-orders-2",
   "t": "action.received"
 }

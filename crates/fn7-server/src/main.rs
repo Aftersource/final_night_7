@@ -1,9 +1,10 @@
 //! `fn7-server`: the Theatre server with Final Night 7 compiled in. Same configuration as `theatre` (THEATRE_*, LLM_*
 //! env vars; THEATRE_GAME is ignored). Claude via `ANTHROPIC_API_KEY` (model `LLM_DEFAULT_MODEL`, default
 //! `claude-haiku-5-5`, effort `ANTHROPIC_EFFORT`, default low) when `LLM_BASE_URL` is unset; otherwise the core's
-//! OpenAI-compatible gateway, or no LLM at all (every mind uses its rules fallback). Every match is recorded to
-//! `THEATRE_RECORD` (default `runs/fn7.sqlite`; `off` disables). Images: `FN7_IMAGES` (off by default) and the `/media`
-//! routes, see `docs/MEDIA.md`.
+//! OpenAI-compatible gateway, or no LLM at all (every mind uses its rules fallback); `THEATRE_REPLAY_FROM` answers every
+//! call from a recording instead. Recording is the core's (theatre P1): `THEATRE_RECORD=off|events|full` (use `full`)
+//! writes `<THEATRE_RECORD_DIR>/<match_id>.jsonl`; the admin API (`THEATRE_ADMIN_TOKEN`) reads and forks those.
+//! Images: `FN7_IMAGES` (off by default) and the `/media` routes, see `docs/MEDIA.md`.
 
 use std::sync::Arc;
 
@@ -31,31 +32,21 @@ async fn main() -> anyhow::Result<()> {
     let built = fn7_server::llm::from_config(&cfg)?;
     tracing::info!(llm = %built.label, "LLM");
 
-    let record = std::env::var("THEATRE_RECORD").unwrap_or_else(|_| "runs/fn7.sqlite".into());
     // Images (fn7-media): off unless FN7_IMAGES=mock|openai; see docs/MEDIA.md. The /media routes are always served.
     let media = fn7_media::Media::from_env()?;
     tracing::info!(images = %media.config().note, dir = %media.config().dir.display(), "media");
-    let game = || fn7_server::media::MediaPlugin::new(FinalNight7Plugin::new(), media.clone());
-    let plugin: Arc<dyn GamePlugin> = if record == "off" {
-        Arc::new(game())
-    } else {
-        if let Some(dir) = std::path::Path::new(&record)
-            .parent()
-            .filter(|d| !d.as_os_str().is_empty())
-        {
-            std::fs::create_dir_all(dir)?;
-        }
-        let sink = Arc::new(theatre_recorder::SqliteSink::open(&record)?);
-        tracing::info!(path = %record, "recording matches");
-        Arc::new(theatre_recorder::RecordingPlugin::new(game(), sink))
-    };
+    // The core records every match (THEATRE_RECORD / THEATRE_RECORD_DIR) and runs every hook in the match's trace
+    // context, so the plugin's events, LLM calls and the images' media_* events land in its run.
+    let plugin: Arc<dyn GamePlugin> =
+        Arc::new(fn7_server::media::MediaPlugin::new(FinalNight7Plugin::new(), media.clone()));
     let app = AppState::new(cfg.clone(), plugin, built.llm);
     restore(&app);
 
     let listener = TcpListener::bind(cfg.bind).await?;
     tracing::info!(addr = %listener.local_addr()?, game = fn7_plugin::PLUGIN_ID, rules = fn7_plugin::RULES_VERSION,
                    "final night 7 listening (ws at /ws, images at /media)");
-    fn7_server::media::serve(listener, app, media, async {
+    // The engine's own serve, with the /media routes merged in (engine route extension, theatre 330896e).
+    theatre_server::serve_with(listener, app, fn7_media::http::router(media), async {
         let _ = tokio::signal::ctrl_c().await;
     })
     .await

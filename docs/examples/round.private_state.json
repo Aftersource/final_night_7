@@ -1,57 +1,65 @@
 {
   "d": {
-    "round": 5,
+    "round": 7,
     "state": {
       "alive": true,
       "armies": [],
-      "beat": 5,
+      "beat": 7,
       "debts": [
         {
-          "amount": 0.5,
-          "due_beat": 7,
-          "owed_to": "Time",
-          "owed_to_ref": "gd:0",
-          "row": "lg:1",
-          "status": "open"
-        },
-        {
-          "amount": 0.05,
-          "due_beat": 7,
-          "owed_to": "Consequence",
-          "owed_to_ref": "gd:2",
-          "row": "lg:16",
-          "status": "open"
-        },
-        {
           "amount": 0.75,
-          "due_beat": 8,
-          "owed_to": "Time",
-          "owed_to_ref": "gd:0",
-          "row": "lg:18",
-          "status": "open"
-        },
-        {
-          "amount": 0.05,
-          "due_beat": 8,
-          "owed_to": "Consequence",
-          "owed_to_ref": "gd:2",
-          "row": "lg:30",
-          "status": "open"
-        },
-        {
-          "amount": 1.0,
-          "due_beat": 9,
-          "owed_to": "Time",
-          "owed_to_ref": "gd:0",
-          "row": "lg:34",
-          "status": "open"
-        },
-        {
-          "amount": 1.25,
           "due_beat": 10,
           "owed_to": "Time",
           "owed_to_ref": "gd:0",
-          "row": "lg:42",
+          "row": "lg:65",
+          "status": "open"
+        },
+        {
+          "amount": 0.06,
+          "due_beat": 10,
+          "owed_to": "Consequence",
+          "owed_to_ref": "gd:2",
+          "row": "lg:81",
+          "status": "open"
+        },
+        {
+          "amount": 0.11,
+          "due_beat": 11,
+          "owed_to": "Consequence",
+          "owed_to_ref": "gd:2",
+          "row": "lg:122",
+          "status": "open"
+        },
+        {
+          "amount": 1.01,
+          "due_beat": 12,
+          "owed_to": "Time",
+          "owed_to_ref": "gd:0",
+          "row": "lg:134",
+          "status": "open"
+        },
+        {
+          "amount": 0.09,
+          "due_beat": 12,
+          "owed_to": "Consequence",
+          "owed_to_ref": "gd:2",
+          "row": "lg:155",
+          "status": "open"
+        },
+        {
+          "amount": 1.27,
+          "due_beat": 13,
+          "owed_to": "Time",
+          "owed_to_ref": "gd:0",
+          "row": "lg:163",
+          "status": "open"
+        },
+        {
+          "amount": 0.17,
+          "due_beat": 13,
+          "owed_to": "Consequence",
+          "owed_to_ref": "gd:2",
+          "row": "lg:202",
           "status": "open"
         }
       ],
@@ -68,19 +76,839 @@
           "agent": "ag:3",
           "live": true,
           "name": "Juniper's Right Hand",
-          "subagents": []
+          "subagents": [
+            {
+              "agent": "ag:16",
+              "beats_left": 3,
+              "body": null,
+              "goal": "send someone to follow",
+              "kind": "subagent",
+              "line": "send someone to follow",
+              "name": "Juniper's Send #1",
+              "parent": "ag:3"
+            },
+            {
+              "agent": "ag:19",
+              "beats_left": null,
+              "body": "ch:67",
+              "goal": "Act as Juniper's puppet: take over the baker",
+              "kind": "possession",
+              "line": "Act as Juniper's puppet: take over the baker",
+              "name": "Hester Ferrante (steered by Juniper)",
+              "parent": "ag:3"
+            }
+          ]
         }
       ],
+      "hierarchy": {
+        "armies": [],
+        "battles": [],
+        "children": [
+          {
+            "allegiance": [
+              {
+                "demigod": "Rook",
+                "demigod_ref": "dg:0",
+                "value": 0.02
+              },
+              {
+                "demigod": "Juniper",
+                "demigod_ref": "dg:1",
+                "value": 0.27
+              }
+            ],
+            "at": [
+              156.98,
+              -36.18
+            ],
+            "base": 15039150,
+            "dead": 0,
+            "leader": null,
+            "level": "region",
+            "mood": {
+              "anger": 0.46,
+              "devotion": 0.32,
+              "fear": 0.35,
+              "hope": 0.31
+            },
+            "name": "Australia and New Zealand",
+            "need": {
+              "faith": 0.11,
+              "food": 0.12,
+              "safety": 0.32
+            },
+            "parent": "pl:0",
+            "population": 15039150,
+            "ref": "pl:1",
+            "stance": "restless",
+            "supply": 0.98,
+            "worship": [
+              {
+                "god": "Nature",
+                "god_ref": "gd:1",
+                "value": 0.2
+              },
+              {
+                "god": "Death",
+                "god_ref": "gd:3",
+                "value": 0.14
+              },
+              {
+                "god": "Chance",
+                "god_ref": "gd:4",
+                "value": 0.13
+              },
+              {
+                "god": "Entropy",
+                "god_ref": "gd:6",
+                "value": 0.02
+              }
+            ]
+          },
+          {
+            "allegiance": [
+              {
+                "demigod": "Rook",
+                "demigod_ref": "dg:0",
+                "value": 0.02
+              },
+              {
+                "demigod": "Juniper",
+                "demigod_ref": "dg:1",
+                "value": 0.01
+              }
+            ],
+            "at": [
+              -74.88,
+              20.05
+            ],
+            "base": 13991508,
+            "dead": 0,
+            "leader": null,
+            "level": "region",
+            "mood": {
+              "anger": 0.34,
+              "devotion": 0.3,
+              "fear": 0.24,
+              "hope": 0.38
+            },
+            "name": "Caribbean",
+            "need": {
+              "faith": 0.18,
+              "food": 0.11,
+              "safety": 0.34
+            },
+            "parent": "pl:0",
+            "population": 13991508,
+            "ref": "pl:5",
+            "stance": "calm",
+            "supply": 0.99,
+            "worship": [
+              {
+                "god": "Nature",
+                "god_ref": "gd:1",
+                "value": 0.17
+              },
+              {
+                "god": "Consequence",
+                "god_ref": "gd:2",
+                "value": 0.11
+              },
+              {
+                "god": "Chance",
+                "god_ref": "gd:4",
+                "value": 0.02
+              },
+              {
+                "god": "Memory",
+                "god_ref": "gd:5",
+                "value": 0.07
+              }
+            ]
+          },
+          {
+            "allegiance": [
+              {
+                "demigod": "Rook",
+                "demigod_ref": "dg:0",
+                "value": 0.02
+              },
+              {
+                "demigod": "Juniper",
+                "demigod_ref": "dg:1",
+                "value": 0.01
+              }
+            ],
+            "at": [
+              -96.23,
+              19.61
+            ],
+            "base": 5751353,
+            "dead": 0,
+            "leader": null,
+            "level": "region",
+            "mood": {
+              "anger": 0.41,
+              "devotion": 0.3,
+              "fear": 0.29,
+              "hope": 0.34
+            },
+            "name": "Central America",
+            "need": {
+              "faith": 0.24,
+              "food": 0.05,
+              "safety": 0.34
+            },
+            "parent": "pl:0",
+            "population": 5751353,
+            "ref": "pl:9",
+            "stance": "calm",
+            "supply": 1.05,
+            "worship": [
+              {
+                "god": "Time",
+                "god_ref": "gd:0",
+                "value": 0.18
+              },
+              {
+                "god": "Chance",
+                "god_ref": "gd:4",
+                "value": 0.03
+              },
+              {
+                "god": "Memory",
+                "god_ref": "gd:5",
+                "value": 0.06
+              }
+            ]
+          },
+          {
+            "allegiance": [
+              {
+                "demigod": "Rook",
+                "demigod_ref": "dg:0",
+                "value": 0.02
+              },
+              {
+                "demigod": "Juniper",
+                "demigod_ref": "dg:1",
+                "value": 0.01
+              },
+              {
+                "demigod": "Quill",
+                "demigod_ref": "dg:2",
+                "value": 0.02
+              }
+            ],
+            "at": [
+              70.88,
+              40.91
+            ],
+            "base": 6968163,
+            "dead": 0,
+            "leader": null,
+            "level": "region",
+            "mood": {
+              "anger": 0.31,
+              "devotion": 0.31,
+              "fear": 0.27,
+              "hope": 0.36
+            },
+            "name": "Central Asia",
+            "need": {
+              "faith": 0.07,
+              "food": 0.11,
+              "safety": 0.3
+            },
+            "parent": "pl:0",
+            "population": 6959575,
+            "ref": "pl:13",
+            "stance": "calm",
+            "supply": 0.99,
+            "worship": [
+              {
+                "god": "Time",
+                "god_ref": "gd:0",
+                "value": 0.25
+              },
+              {
+                "god": "Consequence",
+                "god_ref": "gd:2",
+                "value": 0.15
+              },
+              {
+                "god": "Chance",
+                "god_ref": "gd:4",
+                "value": 0.13
+              },
+              {
+                "god": "Memory",
+                "god_ref": "gd:5",
+                "value": 0.03
+              }
+            ]
+          },
+          {
+            "allegiance": [
+              {
+                "demigod": "Rook",
+                "demigod_ref": "dg:0",
+                "value": 0.01
+              },
+              {
+                "demigod": "Juniper",
+                "demigod_ref": "dg:1",
+                "value": 0.01
+              }
+            ],
+            "at": [
+              38.26,
+              0.32
+            ],
+            "base": 7068055,
+            "dead": 0,
+            "leader": null,
+            "level": "region",
+            "mood": {
+              "anger": 0.32,
+              "devotion": 0.29,
+              "fear": 0.25,
+              "hope": 0.38
+            },
+            "name": "Eastern Africa",
+            "need": {
+              "faith": 0.13,
+              "food": 0.06,
+              "safety": 0.32
+            },
+            "parent": "pl:0",
+            "population": 7073301,
+            "ref": "pl:17",
+            "stance": "calm",
+            "supply": 1.04,
+            "worship": [
+              {
+                "god": "Time",
+                "god_ref": "gd:0",
+                "value": 0.15
+              },
+              {
+                "god": "Nature",
+                "god_ref": "gd:1",
+                "value": 0.22
+              },
+              {
+                "god": "Death",
+                "god_ref": "gd:3",
+                "value": 0.02
+              },
+              {
+                "god": "Chance",
+                "god_ref": "gd:4",
+                "value": 0.08
+              }
+            ]
+          },
+          {
+            "allegiance": [
+              {
+                "demigod": "Rook",
+                "demigod_ref": "dg:0",
+                "value": 0.02
+              },
+              {
+                "demigod": "Juniper",
+                "demigod_ref": "dg:1",
+                "value": 0.0
+              }
+            ],
+            "at": [
+              132.23,
+              33.87
+            ],
+            "base": 5792033,
+            "dead": 0,
+            "leader": null,
+            "level": "region",
+            "mood": {
+              "anger": 0.22,
+              "devotion": 0.53,
+              "fear": 0.28,
+              "hope": 0.47
+            },
+            "name": "Eastern Asia",
+            "need": {
+              "faith": 0.13,
+              "food": 0.1,
+              "safety": 0.29
+            },
+            "parent": "pl:0",
+            "population": 5772229,
+            "ref": "pl:21",
+            "stance": "calm",
+            "supply": 1.0,
+            "worship": [
+              {
+                "god": "Time",
+                "god_ref": "gd:0",
+                "value": 0.24
+              },
+              {
+                "god": "Nature",
+                "god_ref": "gd:1",
+                "value": 0.01
+              },
+              {
+                "god": "Consequence",
+                "god_ref": "gd:2",
+                "value": 0.05
+              },
+              {
+                "god": "Death",
+                "god_ref": "gd:3",
+                "value": 0.07
+              },
+              {
+                "god": "Memory",
+                "god_ref": "gd:5",
+                "value": 0.01
+              },
+              {
+                "god": "Entropy",
+                "god_ref": "gd:6",
+                "value": 0.06
+              }
+            ]
+          }
+        ],
+        "crowds": [],
+        "level": "planet",
+        "mobs": [],
+        "node": {
+          "allegiance": [
+            {
+              "demigod": "Rook",
+              "demigod_ref": "dg:0",
+              "value": 0.03
+            },
+            {
+              "demigod": "Juniper",
+              "demigod_ref": "dg:1",
+              "value": 0.04
+            },
+            {
+              "demigod": "Quill",
+              "demigod_ref": "dg:2",
+              "value": 0.01
+            },
+            {
+              "demigod": "Moth",
+              "demigod_ref": "dg:3",
+              "value": 0.01
+            }
+          ],
+          "at": [
+            106.83,
+            -6.17
+          ],
+          "base": 141995064,
+          "dead": 0,
+          "leader": null,
+          "level": "planet",
+          "mood": {
+            "anger": 0.36,
+            "devotion": 0.34,
+            "fear": 0.29,
+            "hope": 0.37
+          },
+          "name": "Earth",
+          "need": {
+            "faith": 0.13,
+            "food": 0.1,
+            "safety": 0.31
+          },
+          "parent": null,
+          "population": 141995054,
+          "ref": "pl:0",
+          "stance": "calm",
+          "supply": 1.0,
+          "worship": [
+            {
+              "god": "Time",
+              "god_ref": "gd:0",
+              "value": 0.09
+            },
+            {
+              "god": "Nature",
+              "god_ref": "gd:1",
+              "value": 0.1
+            },
+            {
+              "god": "Consequence",
+              "god_ref": "gd:2",
+              "value": 0.05
+            },
+            {
+              "god": "Death",
+              "god_ref": "gd:3",
+              "value": 0.03
+            },
+            {
+              "god": "Chance",
+              "god_ref": "gd:4",
+              "value": 0.08
+            },
+            {
+              "god": "Memory",
+              "god_ref": "gd:5",
+              "value": 0.04
+            },
+            {
+              "god": "Entropy",
+              "god_ref": "gd:6",
+              "value": 0.05
+            }
+          ]
+        },
+        "path": [
+          {
+            "level": "planet",
+            "name": "Earth",
+            "ref": "pl:0"
+          }
+        ],
+        "people": [
+          {
+            "alive": true,
+            "ambition": 0.38,
+            "army": null,
+            "at": [
+              139.7,
+              35.78
+            ],
+            "cell": "ce:0",
+            "competence": 0.9,
+            "courage": 0.27,
+            "cruelty": -0.09,
+            "deeds": 6,
+            "died_beat": null,
+            "emerged_as": "prophet",
+            "emerged_beat": 1,
+            "goal": {
+              "goal": "preach"
+            },
+            "grudges": [],
+            "kills": 0,
+            "loyalty": [
+              {
+                "demigod": "Rook",
+                "demigod_ref": "dg:0",
+                "value": 0.01
+              },
+              {
+                "demigod": "Juniper",
+                "demigod_ref": "dg:1",
+                "value": 0.01
+              },
+              {
+                "demigod": "Quill",
+                "demigod_ref": "dg:2",
+                "value": 0.01
+              }
+            ],
+            "mob": null,
+            "name": "Uma Moreau",
+            "need": {
+              "faith": 0.0,
+              "food": 0.17,
+              "safety": 0.3
+            },
+            "place": "pl:111",
+            "rank": {
+              "level": "cell",
+              "of": "gr:60",
+              "title": "prophet of the Quiet Flame of Death"
+            },
+            "ref": "ch:60",
+            "role": "prophet",
+            "traits": [
+              "patient",
+              "learned",
+              "remembers the last flood"
+            ]
+          },
+          {
+            "alive": true,
+            "ambition": 0.84,
+            "army": null,
+            "at": [
+              24.96,
+              60.39
+            ],
+            "cell": "ce:1",
+            "competence": 0.62,
+            "courage": 0.52,
+            "cruelty": -0.65,
+            "deeds": 0,
+            "died_beat": null,
+            "emerged_as": "prophet",
+            "emerged_beat": 2,
+            "goal": {
+              "goal": "preach"
+            },
+            "grudges": [],
+            "kills": 0,
+            "loyalty": [
+              {
+                "demigod": "Rook",
+                "demigod_ref": "dg:0",
+                "value": 0.03
+              },
+              {
+                "demigod": "Quill",
+                "demigod_ref": "dg:2",
+                "value": 0.01
+              }
+            ],
+            "mob": null,
+            "name": "Hugo Osei",
+            "need": {
+              "faith": 0.0,
+              "food": 0.08,
+              "safety": 0.33
+            },
+            "place": "pl:153",
+            "rank": {
+              "level": "cell",
+              "of": "gr:61",
+              "title": "prophet of the Burning Choir of Time"
+            },
+            "ref": "ch:61",
+            "role": "prophet",
+            "traits": [
+              "paranoid",
+              "loud",
+              "sings in a ruined voice"
+            ]
+          },
+          {
+            "alive": true,
+            "ambition": 0.45,
+            "army": null,
+            "at": [
+              44.5,
+              33.52
+            ],
+            "cell": "ce:2",
+            "competence": 0.26,
+            "courage": 0.52,
+            "cruelty": 0.39,
+            "deeds": 1,
+            "died_beat": null,
+            "emerged_as": "prophet",
+            "emerged_beat": 4,
+            "goal": {
+              "goal": "preach"
+            },
+            "grudges": [],
+            "kills": 0,
+            "loyalty": [
+              {
+                "demigod": "Rook",
+                "demigod_ref": "dg:0",
+                "value": 0.0
+              }
+            ],
+            "mob": null,
+            "name": "Yusuf Rasmussen",
+            "need": {
+              "faith": 0.0,
+              "food": 0.2,
+              "safety": 0.33
+            },
+            "place": "pl:191",
+            "rank": {
+              "level": "cell",
+              "of": "gr:62",
+              "title": "prophet of the Red Kneel of Chance"
+            },
+            "ref": "ch:64",
+            "role": "prophet",
+            "traits": [
+              "wary",
+              "credulous",
+              "smells of smoke"
+            ]
+          },
+          {
+            "alive": true,
+            "ambition": 0.45,
+            "army": null,
+            "at": [
+              -74.07,
+              40.82
+            ],
+            "cell": null,
+            "competence": 0.79,
+            "courage": 0.65,
+            "cruelty": 0.13,
+            "deeds": 0,
+            "died_beat": null,
+            "emerged_as": "witness",
+            "emerged_beat": 4,
+            "goal": {
+              "goal": "survive"
+            },
+            "grudges": [],
+            "kills": 0,
+            "loyalty": [
+              {
+                "demigod": "Rook",
+                "demigod_ref": "dg:0",
+                "value": 0.01
+              },
+              {
+                "demigod": "Juniper",
+                "demigod_ref": "dg:1",
+                "value": 0.0
+              }
+            ],
+            "mob": null,
+            "name": "Odile Marchetti",
+            "need": {
+              "faith": 0.14,
+              "food": 0.06,
+              "safety": 0.39
+            },
+            "place": "pl:143",
+            "rank": {
+              "level": "person",
+              "of": "lg:67",
+              "title": "witness: Quill casts flood on New York"
+            },
+            "ref": "ch:63",
+            "role": "witness",
+            "traits": [
+              "quick",
+              "hungry",
+              "knows a secret about the council"
+            ]
+          },
+          {
+            "alive": true,
+            "ambition": 0.38,
+            "army": null,
+            "at": [
+              -74.0,
+              40.98
+            ],
+            "cell": null,
+            "competence": 0.82,
+            "courage": 0.32,
+            "cruelty": -0.25,
+            "deeds": 0,
+            "died_beat": null,
+            "emerged_as": "witness",
+            "emerged_beat": 5,
+            "goal": {
+              "goal": "survive"
+            },
+            "grudges": [],
+            "kills": 0,
+            "loyalty": [
+              {
+                "demigod": "Rook",
+                "demigod_ref": "dg:0",
+                "value": 0.01
+              },
+              {
+                "demigod": "Juniper",
+                "demigod_ref": "dg:1",
+                "value": 0.0
+              }
+            ],
+            "mob": null,
+            "name": "Desmond Falk",
+            "need": {
+              "faith": 0.14,
+              "food": 0.06,
+              "safety": 0.39
+            },
+            "place": "pl:143",
+            "rank": {
+              "level": "person",
+              "of": "lg:90",
+              "title": "witness: Juniper casts flood on New York"
+            },
+            "ref": "ch:66",
+            "role": "witness",
+            "traits": [
+              "observant",
+              "hungry",
+              "sings in a ruined voice"
+            ]
+          },
+          {
+            "alive": true,
+            "ambition": 0.48,
+            "army": null,
+            "at": [
+              -46.5,
+              -23.58
+            ],
+            "cell": null,
+            "competence": 0.35,
+            "courage": 0.45,
+            "cruelty": 0.25,
+            "deeds": 0,
+            "died_beat": null,
+            "emerged_as": "witness",
+            "emerged_beat": 7,
+            "goal": {
+              "goal": "survive"
+            },
+            "grudges": [],
+            "kills": 0,
+            "loyalty": [
+              {
+                "demigod": "Rook",
+                "demigod_ref": "dg:0",
+                "value": 0.03
+              },
+              {
+                "demigod": "Juniper",
+                "demigod_ref": "dg:1",
+                "value": 0.01
+              }
+            ],
+            "mob": null,
+            "name": "Cosmo Petrov",
+            "need": {
+              "faith": 0.05,
+              "food": 0.09,
+              "safety": 0.42
+            },
+            "place": "pl:156",
+            "rank": {
+              "level": "person",
+              "of": "lg:166",
+              "title": "witness: Rook casts wildfire on São Paulo"
+            },
+            "ref": "ch:69",
+            "role": "witness",
+            "traits": [
+              "strong",
+              "practical",
+              "never takes off their hat"
+            ]
+          }
+        ]
+      },
       "items": [
         {
           "kind": "item",
-          "name": "make",
-          "ref": "it:0"
-        },
-        {
-          "kind": "item",
-          "name": "steal",
-          "ref": "it:1"
+          "name": "build",
+          "ref": "it:2"
         }
       ],
       "max_health": 9.2,
@@ -88,94 +916,95 @@
       "news": [
         {
           "at": [
-            174.68,
-            -37.0
+            114.62,
+            -11.94
           ],
           "how": "it happened to you",
           "refs": [
             "gd:2",
             "dg:1"
           ],
-          "region": "Australia and New Zealand",
-          "row": "lg:68",
-          "text": "Consequence writes up Juniper's bill for this beat (3 acts)"
+          "region": "South-Eastern Asia",
+          "row": "lg:202",
+          "text": "Consequence writes up Juniper's bill for this beat (5 acts)"
         },
         {
           "at": [
-            174.68,
-            -37.0
-          ],
-          "how": "it happened to you",
-          "refs": [
-            "gd:1",
-            "dg:1"
-          ],
-          "region": "Australia and New Zealand",
-          "row": "lg:57",
-          "text": "Juniper pays Nature its price (a summons gone wild 0.8)"
-        },
-        {
-          "at": [
-            174.68,
-            -37.0
-          ],
-          "how": "it happened to you",
-          "refs": [
-            "gd:1",
-            "dg:1"
-          ],
-          "region": "Australia and New Zealand",
-          "row": "lg:55",
-          "text": "Juniper pays Nature 1 bolts"
-        },
-        {
-          "at": [
-            174.68,
-            -37.0
+            104.03,
+            3.03
           ],
           "how": "you did it",
           "refs": [
-            "dg:1",
-            "it:1"
+            "ch:67"
           ],
-          "region": "Australia and New Zealand",
-          "row": "lg:54",
-          "text": "steal: something Juniper turned up while trying to steal"
+          "region": "South-Eastern Asia",
+          "row": "lg:185",
+          "text": "Hester Ferrante (steered by Juniper) works at it: release the baker raise"
         },
         {
           "at": [
-            -74.0,
-            40.71
+            100.56,
+            13.66
           ],
           "how": "you did it",
           "refs": [
-            "dg:1"
+            "ch:67",
+            "ch:68",
+            "cl:144"
           ],
-          "region": "Northern America",
-          "row": "lg:52",
-          "text": "Juniper casts flood on New York"
+          "region": "South-Eastern Asia",
+          "row": "lg:184",
+          "text": "Hester Ferrante (steered by Juniper) singles out baker raise"
         },
         {
           "at": null,
-          "how": "you saw it",
+          "how": "you did it",
           "refs": [
-            "gd:0"
+            "ag:16"
           ],
           "region": null,
-          "row": "lg:51",
-          "text": "The world lurches back up to speed, a little wackier"
+          "row": "lg:181",
+          "text": "Juniper's Send #1 works at it: send someone to follow"
+        },
+        {
+          "at": [
+            114.62,
+            -11.94
+          ],
+          "how": "it happened to you",
+          "refs": [
+            "gd:3",
+            "dg:1"
+          ],
+          "region": "South-Eastern Asia",
+          "row": "lg:180",
+          "text": "Juniper pays Death its price (a soul 1.2)"
+        },
+        {
+          "at": [
+            114.62,
+            -11.94
+          ],
+          "how": "it happened to you",
+          "refs": [
+            "gd:3",
+            "dg:1"
+          ],
+          "region": "South-Eastern Asia",
+          "row": "lg:179",
+          "text": "Juniper pays Death 2 bolts"
         }
       ],
       "orders": [
         {
           "hand": "right",
           "since": 4,
-          "text": "make the"
+          "text": "steal the bishop's lantern"
         },
         {
           "hand": "left",
-          "since": 5,
-          "text": "steal the"
+          "since": 7,
+          "text": "build a barricade across"
         }
       ],
       "seat": 1,
@@ -185,29 +1014,42 @@
           "kind": "demigod",
           "name": "Juniper",
           "pos": [
-            174.680671,
-            -36.999724
+            114.619193,
+            -11.940979
           ],
           "ref": "dg:1"
         },
         {
           "kind": "demigod",
+          "name": "Rook",
+          "pos": [
+            86.693853,
+            11.208666
+          ],
+          "ref": "dg:0"
+        },
+        {
+          "kind": "demigod",
+          "name": "Quill",
+          "pos": [
+            109.440821,
+            7.395193
+          ],
+          "ref": "dg:2"
+        },
+        {
+          "kind": "demigod",
           "name": "Moth",
           "pos": [
-            159.953494,
-            -9.596226
+            120.224646,
+            -7.709755
           ],
           "ref": "dg:3"
         },
         {
           "kind": "item",
-          "name": "make",
-          "ref": "it:0"
-        },
-        {
-          "kind": "item",
-          "name": "steal",
-          "ref": "it:1"
+          "name": "build",
+          "ref": "it:2"
         },
         {
           "kind": "place",
@@ -217,20 +1059,11 @@
             -36.179171
           ],
           "ref": "pl:1"
-        },
-        {
-          "kind": "place",
-          "name": "Caribbean",
-          "pos": [
-            -74.87795,
-            20.049207
-          ],
-          "ref": "pl:5"
         }
       ],
       "you": {
-        "bolts": 4,
-        "debt_open": 5.25,
+        "bolts": 39,
+        "debt_open": 3.46,
         "echo_charges": 3,
         "favor": [
           {
@@ -270,10 +1103,10 @@
           }
         ],
         "followers": 1,
-        "health": 4.2,
+        "health": 2.44,
         "pos": [
-          174.680671,
-          -36.999724
+          114.619193,
+          -11.940979
         ]
       },
       "zoom": "world"

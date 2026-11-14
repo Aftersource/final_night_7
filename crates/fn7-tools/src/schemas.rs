@@ -14,7 +14,7 @@ use schemars::generate::SchemaSettings;
 use serde_json::{json, Map, Value};
 
 /// The `Ref` pattern (also in fn7-model's `JsonSchema` impl for `Ref`).
-pub const REF_PATTERN: &str = r"^(dg|ch|cl|gr|gd|pl|it|ag|lg):\d+$";
+pub const REF_PATTERN: &str = r"^(dg|ch|cl|gr|gd|pl|it|ag|lg|ce|mb):\d+$";
 
 /// Where each schema applies: (schema stem, message type `t`, JSON pointer into the envelope). The example for a message
 /// is `docs/examples/<t>.json`.
@@ -30,6 +30,7 @@ pub const TARGETS: &[(&str, &str, &str)] = &[
     ("public_view", "round.committed", "/d/public_state"),
     ("seat_view", "round.private_state", "/d/state"),
     ("match_summary", "match.ended", "/d/summary"),
+    ("phase_event", "phase.event", "/d/public"),
 ];
 
 const DRAFT: &str = "https://json-schema.org/draft/2020-12/schema";
@@ -142,14 +143,15 @@ fn shared_defs() -> Map<String, Value> {
     d.insert(
         "SlowState".into(),
         object(
-            "The open slow-time window (public: who opened it, never who else is typing).",
+            "The open slow-time window as of the last resolve (public: who opened it, never who else is typing). The \
+             live window is the Theatre's: `window.opened` / `window.closed` and `match.snapshot.window`.",
             &[
                 ("by", string("The initiator's name.")),
                 ("by_ref", r("Ref")),
-                ("window", int("Its id: the beat it opened. Send it back as `fields.window` with orders typed during it.")),
-                ("closes_by_beat", int("The last beat it can stay open (it closes by timeout at this beat's resolve).")),
-                ("beats_left", int("Flow beats left.")),
-                ("ms_left", int("beats_left × flow_ms.")),
+                ("window_id", int("The Theatre's window id (`window.opened.window_id`); submit orders with it.")),
+                ("opened_ms", int("When it opened (epoch ms).")),
+                ("deadline_ms", int("When it closes at the latest (epoch ms).")),
+                ("opened_beat", int("The first beat that resolved while it was open.")),
             ],
             &[],
         ),
@@ -157,20 +159,84 @@ fn shared_defs() -> Map<String, Value> {
     d.insert(
         "SlowEvent".into(),
         object(
-            "One slow-window announcement this beat.",
+            "One slow-time announcement this beat: a window that closed since the last beat (with Time's bill), or \
+             orders sent without a window (an instant Enter, billed as a zero-second slow). A window still open is \
+             announced by the core (`window.opened`, `match.snapshot.window`) and the `slowed` phase.event.",
             &[
-                ("event", json!({ "type": "string", "enum": ["opened", "open", "closed"], "description": "opened this beat, still open, or closed this beat." })),
+                ("event", json!({ "type": "string", "enum": ["closed", "instant"], "description": "closed (settled now), or orders without a window." })),
                 ("by", string("The initiator's name.")),
                 ("by_ref", r("Ref")),
-                ("window", int("The window's id (its opening beat).")),
-                ("closes_by_beat", int("Last beat it can stay open.")),
-                ("beats_left", int("Flow beats left (0 once closed).")),
-                ("ms_left", int("beats_left × flow_ms.")),
-                ("text", string("\"<name> slowed time\", or the closing line.")),
+                ("text", string("\"<name> slowed time\", the closing line, or the instant-Enter line.")),
             ],
             &[
-                ("how", json!({ "type": "string", "enum": ["enter", "timeout", "fell"], "description": "closed only: the initiator's orders (Enter), the deadline, or the initiator fell." })),
-                ("after_ms", int("closed only: how long it stayed open (client timestamps, else beats × flow_ms).")),
+                ("window_id", int("closed: the Theatre's window id.")),
+                ("how", json!({ "type": "string", "enum": ["enter", "timeout"], "description": "closed only: the initiator's submit (Enter), or the deadline (the opener is billed the full slow even if nobody submitted)." })),
+                ("after_ms", int("closed / instant: how long time was slowed (real ms: from the window's opening to the Enter's arrival, or the deadline; 0 for instant).")),
+                ("debt", num("closed / instant: the debt Time wrote (0 if the initiator had fallen).")),
+                ("paid_bolt", boolean("closed / instant: Time got its bolt (if not, the debt doubled).")),
+            ],
+        ),
+    );
+    d.insert(
+        "Slowed".into(),
+        object(
+            "`phase.event.public` right after `window.opened`: who slowed time (from `action.begin`).",
+            &[
+                ("event", json!({ "const": "slowed" })),
+                ("by", string("The initiator's demigod name.")),
+                ("by_ref", r("Ref")),
+                ("by_seat", int("The initiator's seat (= window.opened.by_seat).")),
+                ("slow_ms", int("How long the window stays open at most.")),
+                ("text", string("\"<name> slowed time\".")),
+            ],
+            &[],
+        ),
+    );
+    let streak_cast = object(
+        "One cast of the streak, as aimed (nothing is paid until the next resolve; at Entropy ≥ 40 it may still land off target).",
+        &[
+            ("power", string("Palette slug or \"custom\".")),
+            ("power_name", string("Display name.")),
+            ("icon", string("Icon key.")),
+            ("cost", int("Bolts it will cost.")),
+            ("radius_km", num("Area it affects.")),
+        ],
+        &[
+            ("text", string("custom only: what it is.")),
+            ("at", r("LonLat")),
+            ("region", string("Region (planet) or district (city) aimed at.")),
+            ("region_ref", r("Ref")),
+            ("place", string("The most specific place aimed at.")),
+            ("target", json!({ "anyOf": [{ "$ref": "#/$defs/Ref" }, { "type": "null" }], "description": "What it is aimed at directly, or null (a point)." })),
+            ("target_name", json!({ "type": ["string", "null"] })),
+            ("fizzled", string("Its target doesn't exist (it will fizzle).")),
+        ],
+    );
+    d.insert(
+        "Streak".into(),
+        object(
+            "`phase.event.public` the moment an instant cast is accepted: its streak, for everyone. The first cast's fields \
+             are repeated at the top level.",
+            &[
+                ("event", json!({ "const": "streak" })),
+                ("by", string("Caster's name.")),
+                ("by_ref", r("Ref")),
+                ("by_seat", int("Caster's seat.")),
+                ("casts", array(streak_cast, "Every cast in the action, in order.")),
+                ("seq", int("The action's room-wide arrival order (casts are paid in this order).")),
+                ("received_at_ms", int("When the server received it (epoch ms).")),
+                ("power", string("First cast: slug.")),
+                ("power_name", string("First cast: display name.")),
+                ("icon", string("First cast: icon key.")),
+                ("cost", int("First cast: bolts.")),
+            ],
+            &[
+                ("at", r("LonLat")),
+                ("region", string("First cast: region aimed at.")),
+                ("region_ref", r("Ref")),
+                ("place", string("First cast: place aimed at.")),
+                ("target", json!({ "anyOf": [{ "$ref": "#/$defs/Ref" }, { "type": "null" }] })),
+                ("target_name", json!({ "type": ["string", "null"] })),
             ],
         ),
     );
@@ -185,6 +251,8 @@ fn shared_defs() -> Map<String, Value> {
                 ("icon", string("The power's icon key (= its slug for palette powers).")),
                 ("power_name", string("Display name.")),
                 ("cost", int("Bolts it cost.")),
+                ("seq", int("Its action's room-wide arrival order (0 for the built-in AI, which casts first).")),
+                ("instant", boolean("Sent as an instant action.")),
             ],
             &[
                 ("at", r("LonLat")),
@@ -389,8 +457,6 @@ fn model_defs() -> Map<String, Value> {
     describe("NewsLine", "region", "The region (planet) or district (city) it happened in.");
     describe("Omen", "at", "Where it was invoked, [lon, lat].");
     describe("Omen", "region", "The region (planet) or district (city).");
-    describe("SeatDelta", "held", "Your orders this beat are held in someone else's slow-time window; they go through when it closes.");
-    describe("SeatDelta", "cut_off", "Your orders were cut off: the window's initiator pressed Enter before you sent them. They did not go through.");
     describe("NewsLine", "row", "The ledger row's ref (`lg:<n>`). Never repeated within one payload.");
     describe("NewsLine", "text", "The act, in prose.");
     describe(
@@ -645,16 +711,16 @@ fn action_fields_schema() -> Value {
     };
     json!({
         "type": "object",
-        "description": "`action.submit.fields`. If neither `left` nor `right` is present (or both are null), `text` is read \
-                        instead: lines starting `l:`/`left:` go to the left hand, `r:`/`right:` to the right, other lines to \
-                        the left. Remember the core caps `text` at 500 chars, so put long speech in the fields.",
+        "description": "`action.submit.fields`. Text entry (orders) goes into a slow window (`action.begin`, then \
+                        `action.submit { window_id }`) or Compose; casts go as instant actions. If neither `left` nor \
+                        `right` is present (or both are null), `text` is read instead: lines starting `l:`/`left:` go to \
+                        the left hand, `r:`/`right:` to the right, other lines to the left. Remember the core caps `text` \
+                        at 500 chars, so put long speech in the fields. The v0 keys `slow`, `sent_at`, `window` (and a \
+                        `/slow` line) are refused.",
         "properties": {
             "left": hand("left"),
             "right": hand("right"),
-            "slow": { "type": ["boolean", "null"], "description": "Text entry: you started typing; slow time (open a window). One window at a time." },
-            "sent_at": { "type": ["number", "null"], "minimum": 0, "description": "Your clock (epoch ms) when this was sent: orders the window's initiator didn't beat are cut off by it, and it measures how long a window stayed open. Without it, your orders can't prove they came before an Enter." },
-            "window": { "type": ["integer", "null"], "minimum": 0, "description": "The window (its opening beat) these orders were typed in; orders for a window that already closed are cut off." },
-            "cast": { "anyOf": [cast.clone(), { "type": "null" }], "description": "A god power to cast this beat (never slows time, never carries orders)." },
+            "cast": { "anyOf": [cast.clone(), { "type": "null" }], "description": "A god power to cast. Send casts as an instant action (`instant: true`, any phase) with no orders in the same action (casts never carry orders); `validate_action` refuses casts you can't afford at the last commit." },
             "casts": { "type": ["array", "null"], "items": cast, "description": "Several casts (at most 5 per action, with `cast`/`bolt`/`bolts`)." },
             "bolt": { "anyOf": [bolt.clone(), { "type": "null" }], "description": "Alias: cast lightning at a target." },
             "bolts": { "type": ["array", "null"], "items": bolt, "description": "Alias: several lightning bolts." },
@@ -758,7 +824,6 @@ fn brief_public() -> Value {
                 &[
                     ("flow_ms", int("Flow beat length (the room's Compose window).")),
                     ("slow_ms", int("Longest a slow window stays open.")),
-                    ("window_beats", int("ceil(slow_ms / flow_ms).")),
                     ("slow", nullable(r("SlowState"))),
                 ],
                 &[],
@@ -802,10 +867,10 @@ fn seat_view_body(desc: &str) -> Value {
                 &[("hand", r("Hand")), ("text", string("Your words it came from.")), ("since", int("Beat given."))], &[]),
                 "Your hands' standing orders.")),
             ("slow", json!({ "anyOf": [{ "type": "null" }, object("The open slow window, as it concerns you.",
-                &[("yours", boolean("You opened it.")), ("window", int("Its id.")), ("held", boolean("Orders of yours are held in it."))], &[])],
+                &[("yours", boolean("You opened it.")), ("window_id", int("The Theatre's window id."))], &[])],
                 "description": "null when no window is open." })),
         ],
-        &[],
+        &[("hierarchy", json!({ "type": ["object", "null"], "additionalProperties": true, "description": "The society hierarchy at your zoom (schema 4: node, path, children, crowds, cells, people, armies with chains of command, mobs, battles). Its shape is not frozen yet (the society build is in progress); read defensively." }))],
     )
 }
 
@@ -827,7 +892,7 @@ fn outcome_public() -> Value {
             ("arena_radius_km", num("Current safe radius.")),
             ("omens", array(r("Omen"), "Public god rulings this beat (magnitude >= 6, or one that sent a paladin; Entropy's yes to every cast of magnitude >= 6).")),
             ("entropy", r("Entropy")),
-            ("slow", array(r("SlowEvent"), "Slow-window announcements this beat (opened / open / closed).")),
+            ("slow", array(r("SlowEvent"), "Slow-time announcements this beat (open / closed / instant).")),
             ("casts", array(r("CastLine"), "Every cast this beat, in the order settled.")),
             ("events", array(r("WorldEvent"), "Public geotagged world events this beat, in order (<= 40).")),
             ("timing", object(
@@ -838,10 +903,15 @@ fn outcome_public() -> Value {
                     ("llm_calls", int("LLM minds called this beat.")),
                     ("llm_fallbacks", int("Of those, how many used their rules fallback.")),
                 ],
-                &[],
+                &[
+                    ("society_ms", num("The society step's wall time.")),
+                    ("society_events", int("Society events this beat.")),
+                    ("society_emerged", int("People who emerged from the simulation this beat.")),
+                    ("society_dropped", int("Society events dropped from the payload.")),
+                ],
             )),
         ],
-        &[],
+        &[("society", json!({ "type": ["object", "null"], "additionalProperties": true, "description": "The society's public summary (schema 4). Its shape is not frozen yet (the society build is in progress); read defensively." }))],
     )
 }
 
@@ -888,7 +958,7 @@ fn public_view() -> Value {
             ("mods", array(r("WorldMod"), "Every live world mod.")),
             ("gods", array(object("", &[("ref", r("Ref")), ("name", string("")), ("health", num("0..10; high Entropy wounds gods; at 0 Entropy answers its invocations."))], &[]), "The gods' health.")),
         ],
-        &[],
+        &[("society", json!({ "type": ["object", "null"], "additionalProperties": true, "description": "The society's public summary (schema 4). Its shape is not frozen yet (the society build is in progress); read defensively." }))],
     )
 }
 
@@ -1032,6 +1102,9 @@ pub fn all() -> Vec<(&'static str, Value)> {
         ("public_view", finish("public_view", "Final Night 7 public view", "round.committed.public_state, match.snapshot.public_state", public_view(), &pool)),
         ("seat_view", finish("seat_view", "Final Night 7 seat view", "round.private_state.state, match.snapshot.you.private_state", seat_view_body("`round.private_state.state`: everything your seat may see, after each commit (players and spectators)."), &pool)),
         ("match_summary", finish("match_summary", "match.ended summary", "match.ended.summary", match_summary(), &pool)),
+        ("phase_event", finish("phase_event", "phase.event public", "phase.event.public (pushed at once: who slowed time, a cast's streak)",
+            json!({ "description": "`phase.event.public`: an immediate push from the game. `event` says which.",
+                    "oneOf": [r("Slowed"), r("Streak")] }), &pool)),
     ]
 }
 

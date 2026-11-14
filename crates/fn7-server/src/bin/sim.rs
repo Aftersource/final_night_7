@@ -1,13 +1,14 @@
 //! `fn7-sim`: a whole Final Night 7 match in the terminal, no server. Every step goes through the `GamePlugin` trait
-//! exactly as the Theatre core drives it, wrapped in the recorder, so the SQLite file holds everything (hooks, states,
-//! LLM calls, raw HTTP, events). Prints each beat's caption and stage timings.
+//! exactly as the Theatre core drives it, recorded in the core's own JSONL format (`fn7_server::record`: the engine's
+//! `JsonlSink` and `RunRec`), so the file holds what a server recording holds (hooks, snapshots, LLM calls, raw HTTP,
+//! events). Prints each beat's caption and stage timings.
 //!
 //!   fn7-sim --seed 7 --beats 100                       # rules fallbacks only (no LLM), instant
 //!   fn7-sim --scripted --beats 20                      # offline scripted replies for every mind
 //!   fn7-sim --claude --beats 10 --budget 0.50          # Claude via ANTHROPIC_API_KEY (spends money)
-//!   fn7-sim --replay runs/fn7.sqlite --run <id>        # re-execute a recording and check every snapshot
+//!   fn7-sim --replay runs/recordings/<id>.jsonl        # re-execute a recording (server or sim) and check every snapshot
 //!
-//! Recording goes to runs/fn7.sqlite by default (`--record PATH`, or `--no-record`).
+//! Recording goes to `runs/recordings/<run>.jsonl` by default (`--record DIR`, `--level events|full`, or `--no-record`).
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -20,7 +21,6 @@ use fn7_plugin::FinalNight7Plugin;
 use fn7_server::anthropic::{price_per_mtok, DEFAULT_MODEL};
 use serde_json::{json, Value};
 use theatre_plugin_api::*;
-use theatre_recorder::{unwrap_state, RecordingPlugin, SqliteSink};
 
 #[derive(Parser)]
 #[command(about = "Run (or replay) a Final Night 7 match in-process")]
@@ -55,15 +55,17 @@ struct Args {
     budget: f64,
     #[arg(long)]
     verbose: bool,
-    #[arg(long, default_value = "runs/fn7.sqlite")]
+    /// Recording directory (`<dir>/<run>.jsonl`, the core's format).
+    #[arg(long, default_value = "runs/recordings")]
     record: String,
+    /// Recording level: events | full (full adds per-phase snapshots, sync hooks and raw HTTP).
+    #[arg(long, default_value = "full")]
+    level: String,
     #[arg(long)]
     no_record: bool,
-    /// Replay-verify a recording instead of playing (with --run, default: its latest run).
+    /// Replay-verify a core recording (`<match_id>.jsonl`, from fn7-server or fn7-sim) instead of playing.
     #[arg(long)]
     replay: Option<String>,
-    #[arg(long)]
-    run: Option<String>,
     /// Extra room settings, merged last (JSON object), e.g. '{"entropy_scale": 4, "start_bolts": 6}'.
     #[arg(long)]
     settings: Option<String>,
@@ -80,7 +82,7 @@ const SEAT_NAMES: &[&str] = &[
 ];
 
 fn inner(state: &Value) -> World {
-    fn7_plugin::world::load(&unwrap_state(state).1).expect("fn7 state")
+    fn7_plugin::world::load(state).expect("fn7 state")
 }
 
 #[tokio::main]
@@ -88,20 +90,22 @@ async fn main() -> anyhow::Result<()> {
     let _ = dotenvy::dotenv();
     let a = Args::parse();
 
-    if let Some(db) = &a.replay {
-        let run = match &a.run {
-            Some(r) => r.clone(),
-            None => fn7_server::replay::latest_run(db)?,
-        };
-        println!("replaying run {run} from {db}");
+    if let Some(path) = &a.replay {
+        println!("replaying {path}");
         let t = Instant::now();
-        let rep = fn7_server::replay::verify(db, &run, |l| println!("{l}")).await?;
+        let rep = fn7_server::replay::verify(path, |l| println!("{l}")).await?;
         println!(
-            "verified {} snapshots over {} beats: {} identical, {} different; LLM replay {} hits, {} misses ({:?})",
+            "run {}: verified {} snapshots over {} beats: {} identical, {} different; summary {}; LLM replay {} hits, {} misses ({:?})",
+            rep.run,
             rep.snapshots,
             rep.beats,
             rep.identical,
             rep.differences.len(),
+            match rep.summary_identical {
+                Some(true) => "identical",
+                Some(false) => "DIFFERENT",
+                None => "not recorded",
+            },
             rep.llm_hits,
             rep.llm_misses,
             t.elapsed()
@@ -122,30 +126,33 @@ async fn main() -> anyhow::Result<()> {
     } else {
         None
     };
-    let scripted = Scripted::default();
-    let llm: &dyn LlmProvider = match &claude {
-        Some(c) => c.as_ref(),
-        None if a.scripted => &scripted,
-        None => &Failing,
+    let base: Arc<dyn LlmProvider> = match claude {
+        Some(c) => c,
+        None if a.scripted => Arc::new(Scripted::default()),
+        None => Arc::new(Failing),
     };
     let use_llm = a.claude || a.scripted;
 
-    // ---- Plugin (recorded)
-    let sink = if a.no_record {
+    // ---- Plugin (recorded in the core's format)
+    let recorder = if a.no_record {
         None
     } else {
-        if let Some(dir) = std::path::Path::new(&a.record)
-            .parent()
-            .filter(|d| !d.as_os_str().is_empty())
-        {
-            std::fs::create_dir_all(dir)?;
-        }
-        Some(Arc::new(SqliteSink::open(&a.record)?))
+        let level: theatre_trace::Level = a.level.parse().map_err(anyhow::Error::msg)?;
+        Some(fn7_server::record::recorder(&a.record, level)?)
     };
-    let p: Box<dyn GamePlugin> = match &sink {
-        Some(s) => Box::new(RecordingPlugin::new(FinalNight7Plugin::new(), s.clone())),
-        None => Box::new(FinalNight7Plugin::new()),
+    let run_id = uuid::Uuid::new_v4().to_string();
+    let (p, llm): (Box<dyn GamePlugin>, Arc<dyn LlmProvider>) = match &recorder {
+        Some(r) => (
+            Box::new(fn7_server::record::Recorded::new(FinalNight7Plugin::new(), r.run(run_id.clone()))),
+            fn7_server::record::traced(base),
+        ),
+        None => (Box::new(FinalNight7Plugin::new()), base),
     };
+    let llm: &dyn LlmProvider = llm.as_ref();
+    let recording_note = recorder
+        .as_ref()
+        .map(|r| format!("\nrecording run {run_id} to {}", r.dir.join(format!("{run_id}.jsonl")).display()))
+        .unwrap_or_default();
     let mut settings = json!({ "beats_total": a.beats, "clusters": a.clusters, "llm": use_llm });
     if let Some(s) = a.seed {
         settings["seed"] = s.into();
@@ -191,7 +198,7 @@ async fn main() -> anyhow::Result<()> {
                 w.meta.beats_total,
                 w.clusters.len(),
                 if a.claude { a.model.as_str() } else if a.scripted { "scripted (offline)" } else { "off (rules fallbacks)" },
-                unwrap_state(s).0.map(|run| format!("\nrecording run {run} to {}", a.record)).unwrap_or_default()
+                recording_note
             );
         }
         if std::env::var("FN7_SOC_DEBUG").is_ok() {
@@ -288,7 +295,7 @@ async fn main() -> anyhow::Result<()> {
             .join("\n")
     );
     let n = times.len().max(1) as f64;
-    let size = serde_json::to_vec(&unwrap_state(&state).1)?.len();
+    let size = serde_json::to_vec(&state)?.len();
     println!(
         "\n{} beats in {:?}: beat mean {:.1} ms, max {:.1} ms; LLM calls {:.1}/beat; state {:.2} MB; {} rows, {} memories, {} characters, {} agents",
         times.len(),
@@ -303,9 +310,9 @@ async fn main() -> anyhow::Result<()> {
         w.agents.len()
     );
     society_report(&w, &soc_ms, a.examples);
-    if let Some(s) = sink {
-        s.close();
-        println!("recorded to {}", a.record);
+    if let Some(r) = recorder {
+        r.flush();
+        println!("recorded to {}", r.dir.join(format!("{run_id}.jsonl")).display());
     }
     Ok(())
 }

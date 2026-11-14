@@ -1,0 +1,46 @@
+{
+  "d": {
+    "phase": "compose",
+    "public": {
+      "at": [
+        77.21,
+        28.61
+      ],
+      "by": "Moth",
+      "by_ref": "dg:3",
+      "by_seat": 3,
+      "casts": [
+        {
+          "at": [
+            77.21,
+            28.61
+          ],
+          "cost": 2,
+          "icon": "earthquake",
+          "place": "Southern Asia",
+          "power": "earthquake",
+          "power_name": "Earthquake",
+          "radius_km": 250.0,
+          "region": "Southern Asia",
+          "region_ref": "pl:61",
+          "target": null,
+          "target_name": null
+        }
+      ],
+      "cost": 2,
+      "event": "streak",
+      "icon": "earthquake",
+      "place": "Southern Asia",
+      "power": "earthquake",
+      "power_name": "Earthquake",
+      "received_at_ms": 1794644367013,
+      "region": "Southern Asia",
+      "region_ref": "pl:61",
+      "seq": 30,
+      "target": null,
+      "target_name": null
+    },
+    "round": 5
+  },
+  "t": "phase.event"
+}

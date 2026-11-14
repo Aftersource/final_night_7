@@ -1,7 +1,7 @@
 {
   "d": {
     "public_state": {
-      "alive": 1,
+      "alive": 4,
       "arena": {
         "center": [
           106.827492,
@@ -11,61 +11,73 @@
         "end_radius_km": 1500.0,
         "kind": "planet",
         "name": "Earth",
-        "radius_km": 1500.0,
-        "start_radius_km": 20037.5
+        "radius_km": 1781.69,
+        "start_radius_km": 13393.95
       },
       "armies": [],
-      "beat": 6,
-      "beats_total": 6,
-      "caption": "Beat 5: Time's clock catches Juniper outside the arena, and 11 more things went sideways.",
-      "caption_beat": 5,
+      "beat": 7,
+      "beats_total": 8,
+      "caption": "Beat 6: In Cairo the harvest fails; meanwhile 19259 of the Hospital nurses of Manila leave Manila for Bangkok: Time's circle has passed them by.",
+      "caption_beat": 6,
       "demigods": [
         {
-          "alive": false,
-          "bolts": 20,
-          "cause": "caught outside the arena by Time's clock",
-          "eliminated_beat": 4,
+          "alive": true,
+          "bolts": 45,
           "image_kind": "portrait",
           "name": "Rook",
+          "place": "Southern Asia",
           "portrait_prompt": "Rook, a demigod: a larger-than-life figure with two glowing orchestrator hands floating at their sides and lightning crackling between their fingers",
+          "pos": [
+            86.693853,
+            11.208666
+          ],
           "ref": "dg:0",
+          "region": "Southern Asia",
           "seat": 0
         },
         {
-          "alive": false,
-          "bolts": 4,
-          "cause": "caught outside the arena by Time's clock",
-          "eliminated_beat": 6,
+          "alive": true,
+          "bolts": 39,
           "image_kind": "portrait",
           "name": "Juniper",
+          "place": "South-Eastern Asia",
           "portrait_prompt": "Juniper, a demigod: a larger-than-life figure with two glowing orchestrator hands floating at their sides and lightning crackling between their fingers",
+          "pos": [
+            114.619193,
+            -11.940979
+          ],
           "ref": "dg:1",
+          "region": "South-Eastern Asia",
           "seat": 1
         },
         {
-          "alive": false,
-          "bolts": 23,
-          "cause": "caught outside the arena by Time's clock",
-          "eliminated_beat": 4,
+          "alive": true,
+          "bolts": 60,
           "image_kind": "portrait",
           "name": "Quill",
+          "place": "South-Eastern Asia",
           "portrait_prompt": "Quill, a demigod: a larger-than-life figure with two glowing orchestrator hands floating at their sides and lightning crackling between their fingers",
+          "pos": [
+            109.440821,
+            7.395193
+          ],
           "ref": "dg:2",
+          "region": "South-Eastern Asia",
           "seat": 2
         },
         {
           "alive": true,
-          "bolts": 21,
+          "bolts": 63,
           "image_kind": "portrait",
           "name": "Moth",
-          "place": "Honiara",
+          "place": "South-Eastern Asia",
           "portrait_prompt": "Moth, a demigod: a larger-than-life figure with two glowing orchestrator hands floating at their sides and lightning crackling between their fingers",
           "pos": [
-            159.953494,
-            -9.596226
+            120.224646,
+            -7.709755
           ],
           "ref": "dg:3",
-          "region": "Melanesia",
+          "region": "South-Eastern Asia",
           "seat": 3
         }
       ],
@@ -76,7 +88,7 @@
         "max": 100.0,
         "next_at": 20.0,
         "text": "The world is holding together, mostly.",
-        "value": 10.2
+        "value": 19.21
       },
       "gods": [
         {
@@ -117,53 +129,53 @@
       ],
       "influence": [
         {
-          "demigod": "Moth",
-          "demigod_ref": "dg:3",
+          "demigod": "Rook",
+          "demigod_ref": "dg:0",
           "region": "Australia and New Zealand",
           "region_ref": "pl:1",
+          "share": 0.02
+        },
+        {
+          "demigod": "Juniper",
+          "demigod_ref": "dg:1",
+          "region": "Australia and New Zealand",
+          "region_ref": "pl:1",
+          "share": 0.27
+        },
+        {
+          "demigod": "Rook",
+          "demigod_ref": "dg:0",
+          "region": "Caribbean",
+          "region_ref": "pl:5",
+          "share": 0.02
+        },
+        {
+          "demigod": "Juniper",
+          "demigod_ref": "dg:1",
+          "region": "Caribbean",
+          "region_ref": "pl:5",
           "share": 0.01
         },
         {
-          "demigod": "Moth",
-          "demigod_ref": "dg:3",
+          "demigod": "Rook",
+          "demigod_ref": "dg:0",
           "region": "Central America",
           "region_ref": "pl:9",
-          "share": 0.01
+          "share": 0.03
         },
         {
-          "demigod": "Moth",
-          "demigod_ref": "dg:3",
-          "region": "Central Asia",
-          "region_ref": "pl:13",
-          "share": 0.01
-        },
-        {
-          "demigod": "Moth",
-          "demigod_ref": "dg:3",
-          "region": "Melanesia",
-          "region_ref": "pl:29",
-          "share": 0.05
-        },
-        {
-          "demigod": "Moth",
-          "demigod_ref": "dg:3",
-          "region": "Northern America",
-          "region_ref": "pl:41",
-          "share": 0.01
-        },
-        {
-          "demigod": "Moth",
-          "demigod_ref": "dg:3",
-          "region": "Western Asia",
-          "region_ref": "pl:73",
+          "demigod": "Juniper",
+          "demigod_ref": "dg:1",
+          "region": "Central America",
+          "region_ref": "pl:9",
           "share": 0.01
         }
       ],
       "mods": [
         {
           "at": [
-            76.85,
-            29.64
+            78.19,
+            27.78
           ],
           "by": "dg:3",
           "description": "The earthquake leaves Southern Asia changed for good",
@@ -183,10 +195,10 @@
         },
         {
           "at": [
-            -76.08,
-            40.6
+            -75.24,
+            40.82
           ],
-          "by": "dg:1",
+          "by": "dg:2",
           "description": "The flood leaves New York changed for good",
           "expires_beat": 15,
           "id": 1,
@@ -195,42 +207,108 @@
           "radius_km": 300.0,
           "region": "Northern America",
           "region_ref": "pl:41",
-          "since_beat": 5,
-          "stacks": 1,
+          "since_beat": 4,
+          "stacks": 2,
           "tags": [
             "water"
+          ]
+        },
+        {
+          "at": [
+            -46.09,
+            -24.42
+          ],
+          "by": "dg:2",
+          "description": "The wildfire leaves São Paulo changed for good",
+          "expires_beat": 17,
+          "id": 2,
+          "name": "Wildfire scar",
+          "power": "wildfire",
+          "radius_km": 200.0,
+          "region": "South America",
+          "region_ref": "pl:49",
+          "since_beat": 7,
+          "stacks": 2,
+          "tags": [
+            "fire",
+            "plants"
           ]
         }
       ],
       "omens": [
         {
           "at": [
-            -74.0,
-            40.71
+            96.74,
+            2.64
           ],
-          "god": "Entropy",
-          "god_ref": "gd:6",
-          "region": "Northern America",
-          "speech": "\"MORE POWER. That's the whole note. More. Power. Ahahhaahhaaa!\""
+          "god": "Time",
+          "god_ref": "gd:0",
+          "region": "South-Eastern Asia",
+          "speech": "\"Granted, for the usual price. Read the fine print later.\""
         },
         {
           "at": [
-            77.21,
-            28.61
+            114.62,
+            -11.94
+          ],
+          "god": "Death",
+          "god_ref": "gd:3",
+          "region": "South-Eastern Asia",
+          "speech": "\"Granted, for the usual price. Read the fine print later.\""
+        },
+        {
+          "at": [
+            -46.63,
+            -23.55
           ],
           "god": "Entropy",
           "god_ref": "gd:6",
-          "region": "Southern Asia",
+          "region": "South America",
+          "speech": "\"YES! Yes yes yes, use it ALL, ahahhaahhaaa! Infinite power! Do it again!\""
+        },
+        {
+          "at": [
+            3.38,
+            6.52
+          ],
+          "god": "Entropy",
+          "god_ref": "gd:6",
+          "region": "Western Africa",
           "speech": "\"Yes! Of course yes! I have never once said no and I am not starting now, ahahhaa!\""
         }
       ],
-      "slow": null
+      "slow": null,
+      "society": {
+        "battles": [],
+        "mobs": [],
+        "people_by_role": {
+          "prophet": 3,
+          "witness": 3
+        },
+        "population": 141995054,
+        "totals": {
+          "battles": 0,
+          "clashes": 0,
+          "cults": 3,
+          "deaths": 0,
+          "defections": 0,
+          "deserters": 0,
+          "hosts": 0,
+          "migrants": 598615,
+          "migrations": 10,
+          "mobs_dissolved": 0,
+          "mobs_formed": 0,
+          "mutinies": 0,
+          "people_emerged": 6,
+          "promotions": 0
+        }
+      }
     },
-    "round": 6,
+    "round": 7,
     "scores": {
-      "0": 0.0,
-      "1": 0.0,
-      "2": 0.0,
+      "0": 1000001.0,
+      "1": 1000001.0,
+      "2": 1000001.0,
       "3": 1000001.0
     }
   },

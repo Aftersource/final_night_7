@@ -205,6 +205,8 @@ fn world() -> World {
         seats: vec![],
         pending: vec![],
         slow: None,
+        slow_settled: vec![],
+        out_reported: vec![],
         mods: vec![],
         mod_seq: 0,
         nodes: vec![],

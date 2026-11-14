@@ -465,17 +465,17 @@ async fn settings_and_actions() {
         2
     );
     assert_eq!(w.meta.beats_total, 5);
-    assert!(p.validate_action(&s, 0, "l: hi", &Value::Null).is_ok());
+    assert!(p.validate_action(&s, 0, "l: hi", &Value::Null, SubmitKind::Compose).is_ok());
     assert!(p
         .validate_action(
             &s,
             0,
             "",
-            &json!({"left": "go", "zoom": {"level": "district", "focus": "pl:1"}})
+            &json!({"left": "go", "zoom": {"level": "district", "focus": "pl:1"}}), SubmitKind::Compose
         )
         .is_ok());
     assert!(p
-        .validate_action(&s, 0, "", &json!({"zoom": "nowhere"}))
+        .validate_action(&s, 0, "", &json!({"zoom": "nowhere"}), SubmitKind::Compose)
         .is_err());
     let rs = p.on_round_start(&s, 1, &Failing).await.unwrap();
     assert_eq!(load(&rs.state).meta.beat, 1, "round = beat");
@@ -518,7 +518,7 @@ async fn drive(
             actions.push(p.bot_action(&state, s, llm).await.unwrap());
         }
         let o = p
-            .resolve_round(&state, round, &actions, llm, &NoProgress)
+            .resolve_round(&state, round, &actions, &RoundContext::default(), llm, &NoProgress)
             .await
             .unwrap();
         state = p
@@ -663,103 +663,226 @@ fn humans(n: u8) -> Vec<SeatInfo> {
 
 fn act(seat: Seat, fields: Value) -> Action {
     Action {
-        seat,
-        text: String::new(),
         fields,
-        defaulted: false,
+        ..Action::new(seat, "")
     }
 }
 
-/// Text entry is the God of Time interaction: Ash slows time (beat 1); Brix's orders during the window are held
-/// (beat 2); Ash presses Enter (beat 3), so Brix's orders go through with Ash's while Cyra's, sent after the Enter,
-/// are cut off. Time takes a bolt, writes a debt that grows with the seconds open, and Entropy rises.
+/// A windowed action as the core delivers it when its window closes.
+fn windowed(seat: Seat, window_id: u64, seq: u64, at_ms: i64, fields: Value) -> Action {
+    Action {
+        windowed: true,
+        window_id: Some(window_id),
+        seq,
+        received_at_ms: at_ms,
+        ..act(seat, fields)
+    }
+}
+
+/// An instant action as the core delivers it at the next resolve.
+fn instant(seat: Seat, seq: u64, fields: Value) -> Action {
+    Action {
+        instant: true,
+        seq,
+        received_at_ms: 1_000 + seq as i64,
+        ..act(seat, fields)
+    }
+}
+
+fn time_debt(w: &World, d: u32, beat: u32) -> f32 {
+    w.ledger
+        .rows
+        .iter()
+        .filter(|r| r.beat == beat)
+        .filter_map(|r| r.debt)
+        .filter(|x| x.owed_to == GodId(0) && x.owed_by == Ref::Demigod(DemigodId(d)))
+        .map(|x| x.amount)
+        .sum()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn closed(id: u64, by: Seat, opened: i64, deadline: i64, closed_ms: i64, reason: &str, submitted: Vec<Seat>,
+          engaged: Vec<Seat>, dropped: Vec<Seat>) -> ClosedWindow {
+    ClosedWindow {
+        info: WindowInfo { window_id: id, by_seat: by, opened_ms: opened, deadline_ms: deadline, engaged },
+        closed_ms,
+        reason: reason.into(),
+        by_seat: (reason == "submitted").then_some(by),
+        submitted,
+        dropped,
+    }
+}
+
+/// Text entry is the God of Time interaction on the core's action windows. Ash's `action.begin` opens a window with
+/// the core's exact next id (refused for a demigod with no bolt); Brix engages unseen; the world keeps resolving while
+/// it's open (beat 2, nothing settled); the core closes it on Ash's Enter and delivers Brix's and Ash's held orders
+/// with the `ClosedWindow` (beat 3): both go through, and Time bills Ash for the real 8 seconds open (a bolt, a debt of
+/// 0.5 × 1.8, Entropy). Cyra was cut (dropped) and never arrives; nobody is told who else typed. A window that timed
+/// out with nobody submitting still bills its opener the full slow_ms (beat 4); orders sent without a window are an
+/// instant Enter (beat 5, a zero-second slow).
 #[tokio::test(flavor = "multi_thread")]
-async fn slow_window_holds_releases_and_cuts_off() {
+async fn slow_windows_bill_time_from_real_seconds() {
     let p = FinalNight7Plugin::new();
     let settings = json!({"seed": 3, "beats_total": 30, "clusters": 40, "players": 3, "llm": false});
+    let t0: i64 = 1_000_000;
     let script = |seat: Seat, round: u32| -> Option<Action> {
         Some(match (round, seat) {
-            (1, 0) => act(0, json!({"slow": true, "sent_at": 1_000})),
-            (2, 1) => act(1, json!({"left": "recruit the locals", "sent_at": 5_000, "window": 1})),
-            (3, 0) => act(0, json!({"left": "attack Brix", "right": "go to the market", "sent_at": 9_000})),
-            (3, 2) => act(2, json!({"left": "recruit everyone", "sent_at": 9_500, "window": 1})),
+            (5, 2) => act(2, json!({"left": "go to the market"})),
             _ => act(seat, json!({})),
         })
     };
+    let extras = |round: u32| -> (Vec<Action>, RoundContext) {
+        match round {
+            3 => (
+                vec![
+                    windowed(1, 1, 10, t0 + 5_000, json!({"left": "recruit the locals"})),
+                    windowed(0, 1, 11, t0 + 8_000, json!({"left": "attack Brix", "right": "go to the market"})),
+                ],
+                RoundContext {
+                    windows_closed: vec![closed(1, 0, t0, t0 + 30_000, t0 + 8_000, "submitted", vec![1, 0],
+                                                vec![0, 1, 2], vec![2])],
+                },
+            ),
+            4 => (
+                vec![],
+                RoundContext {
+                    windows_closed: vec![closed(2, 1, 1_900_000, 1_930_000, 1_930_004, "deadline", vec![],
+                                                vec![1], vec![])],
+                },
+            ),
+            _ => (vec![], RoundContext::default()),
+        }
+    };
     let mut seen = vec![];
-    run_match(&p, &humans(3), &settings, &Failing, Some(4), &script, |r: &BeatReport, s: &Value| {
-        seen.push((r.round, r.outcome.public.clone(), r.outcome.per_seat.clone(), load(s)));
-        true
-    })
+    crate::driver::run_match_with(&p, &humans(3), &settings, &Failing, Some(5), &script, &extras,
+        |r: &BeatReport, s: &Value| {
+            if r.round == 1 {
+                // Ash starts typing: a window, closed by Ash, others dropped; everyone told who.
+                let c = p.on_action_begin(s, 2, 0, None, 1);
+                let wc = c.window.clone().expect("a window");
+                assert_eq!((wc.deadline_in_ms, wc.close_on_submit_of, wc.missing), (30_000, Some(0), MissingActions::Drop));
+                assert_eq!(c.public.as_ref().unwrap()["by"], "Ash");
+                assert_eq!(c.public.as_ref().unwrap()["text"], "Ash slowed time");
+                // Brix engages: nothing public, no window.
+                let info = WindowInfo { window_id: 1, by_seat: 0, opened_ms: t0, deadline_ms: t0 + 30_000,
+                                        engaged: vec![0, 1] };
+                assert_eq!(p.on_action_begin(s, 2, 1, Some(&info), 2), PhaseControl::default());
+                // A demigod with no bolt can't slow time.
+                let mut w = load(s);
+                w.demigods[2].bolts = 0;
+                assert_eq!(p.on_action_begin(&world::save(&w), 2, 2, None, 1), PhaseControl::default());
+            }
+            seen.push((r.round, r.outcome.public.clone(), r.outcome.per_seat.clone(), load(s)));
+            true
+        })
     .await
     .unwrap();
-    let (_, pub1, _, w1) = &seen[0];
-    assert_eq!(pub1["slow"][0]["event"], "opened");
-    assert_eq!(pub1["slow"][0]["by"], "Ash");
-    assert_eq!(pub1["slow"][0]["text"], "Ash slowed time");
-    assert_eq!(w1.demigods[0].bolts, 2, "Time took a bolt");
-    assert_eq!(w1.demigods[1].bolts, 5, "every other demigod gained two");
-    assert!(w1.slow.is_some());
-    let (_, pub2, seats2, w2) = &seen[1];
-    assert_eq!(pub2["slow"][0]["event"], "open");
-    assert_eq!(w2.slow.as_ref().unwrap().held.len(), 1, "Brix's orders are held");
-    let brix2 = &seats2.iter().find(|s| s.0 == 1).unwrap().1;
-    assert_eq!(brix2["held"], true);
-    assert!(
-        !pub2.to_string().contains("Brix") || !pub2["slow"].to_string().contains("Brix"),
-        "nobody learns who else typed"
-    );
-    let (_, pub3, seats3, w3) = &seen[2];
-    assert_eq!(pub3["slow"][0]["event"], "closed");
-    assert_eq!(pub3["slow"][0]["how"], "enter");
-    assert_eq!(pub3["slow"][0]["after_ms"], 8000);
+    let (_, pub2, _, w2) = &seen[1];
+    assert!(pub2["slow"].as_array().is_none_or(|a| a.is_empty()), "nothing settles while it's open: {}", pub2["slow"]);
+    assert!(w2.demigods[0].slows.is_empty());
+    let (_, pub3, per3, w3) = &seen[2];
+    let closed = &pub3["slow"][0];
+    assert_eq!((closed["event"].as_str(), closed["how"].as_str()), (Some("closed"), Some("enter")), "{closed}");
+    assert_eq!(closed["after_ms"], 8000);
+    assert!(closed.get("engaged").is_none() && closed.get("dropped").is_none() && closed.get("submitted").is_none());
+    assert!(!pub3["slow"].to_string().contains("Brix") && !pub3["slow"].to_string().contains("Cyra"),
+            "nobody learns who else typed");
+    assert!(!serde_json::to_string(per3).unwrap().contains("\"dropped\""), "no payload names the dropped");
     assert!(w3.slow.is_none());
-    let cyra3 = &seats3.iter().find(|s| s.0 == 2).unwrap().1;
-    assert_eq!(cyra3["cut_off"], true, "sent after the Enter");
-    // Brix's held words reached Brix's hand in beat 3; Cyra's never did.
+    assert_eq!(w3.demigods[0].bolts, 2, "Time took a bolt");
+    assert_eq!(w3.demigods[1].bolts, 5, "every other demigod gained two");
     let words = |d: usize| w3.demigods[d].words_spoken;
-    assert!(words(1) > 0 && words(2) == 0, "{} {}", words(1), words(2));
-    // Time's debt for 8 seconds: 0.5 × (1 + 0.8) = 0.9.
-    let time = GodId(0);
-    let debt = w3
-        .ledger
-        .rows
-        .iter()
-        .filter_map(|r| r.debt)
-        .find(|d| d.owed_to == time && d.owed_by == Ref::Demigod(DemigodId(0)))
-        .unwrap();
-    assert!((debt.amount - 0.9).abs() < 1e-4, "{}", debt.amount);
-    assert!(w3.meta.entropy > w1.meta.entropy);
-    // A beat with nobody speaking makes no LLM call and still resolves.
-    assert_eq!(seen[3].1["timing"]["llm_calls"], 0);
+    assert!(words(0) > 0 && words(1) > 0 && words(2) == 0, "{} {} {}", words(0), words(1), words(2));
+    // Time's debt for 8 seconds (opened_ms to the core's closed_ms), no repeats: 0.5 × (1 + 0.8) = 0.9.
+    assert!((time_debt(w3, 0, 3) - 0.9).abs() < 1e-4, "{}", time_debt(w3, 0, 3));
+    assert_eq!(w3.demigods[0].slows.len(), 1, "one window, one slow");
+    assert!(w3.meta.entropy > seen[0].3.meta.entropy);
+    assert_eq!(w3.slow_settled.last().map(|s| s.window_id), Some(1));
+    // Beat 4: Brix's window timed out at its deadline with nobody submitting: the full 30 s → 0.5 × 4 = 2.0.
+    let (_, pub4, _, w4) = &seen[3];
+    assert_eq!(pub4["slow"][0]["how"], "timeout");
+    assert_eq!(pub4["slow"][0]["after_ms"], 30_000);
+    assert!((time_debt(w4, 1, 4) - 2.0).abs() < 1e-4, "{}", time_debt(w4, 1, 4));
+    // Beat 5: Cyra's orders without a window: an instant Enter (0.5).
+    let (_, pub5, _, w5) = &seen[4];
+    assert_eq!(pub5["slow"][0]["event"], "instant", "{}", pub5["slow"]);
+    assert!((time_debt(w5, 2, 5) - 0.5).abs() < 1e-4);
 }
 
-/// Casts: paid in bolts (fizzle when you can't), gifts to everyone else, Entropy's yes and its ramifications, every
-/// row geotagged; typed text can never cast.
+/// Death's revive: a seat reported eliminated comes back (`Committed.revived`) once its demigod lives again.
+#[tokio::test(flavor = "multi_thread")]
+async fn revive_returns_the_seat_to_play() {
+    let p = FinalNight7Plugin::new();
+    let settings = json!({"seed": 4, "beats_total": 30, "clusters": 40, "players": 2, "llm": false});
+    let r = play(settings, &Failing, humans(2), Some(1)).await;
+    let mut w = load(&r.last);
+    w.demigods[1].alive = false;
+    w.demigods[1].health = 0.0;
+    w.demigods[1].eliminated_beat = Some(2);
+    w.demigods[1].cause = Some("struck down".into());
+    let c = p.commit_round(&world::save(&w), 2, &[], &Failing).await.unwrap();
+    assert_eq!(c.eliminated.len(), 1, "{:?}", c.eliminated);
+    assert_eq!(c.eliminated[0].0, 1);
+    assert!(c.revived.is_empty());
+    let mut w = load(&c.state);
+    assert_eq!(w.out_reported, vec![DemigodId(1)]);
+    let death = p.pantheon().id_of("death").unwrap();
+    let raise = Proposal {
+        source: Source::God { god: death, ruling: None },
+        intent: None,
+        effect: Effect::Revive { who: Ref::Demigod(DemigodId(1)) },
+        act: "Death relents and Brix breathes again".into(),
+        actor: Ref::God(death),
+        magnitude: 8,
+        valence: 4,
+        witnesses: vec![Ref::Demigod(DemigodId(1))],
+        cause: None,
+    };
+    fn7_society::apply(&mut w, &raise, 3).unwrap();
+    let c = p.commit_round(&world::save(&w), 3, &[], &Failing).await.unwrap();
+    assert_eq!(c.revived, vec![(1, "Death relents and Brix breathes again".to_string())]);
+    assert!(load(&c.state).out_reported.is_empty());
+}
+
+/// Casts: instant actions with a public streak at once, paid at the next resolve in `seq` order (overspend fizzles),
+/// gifts to everyone else, Entropy's yes and its ramifications, every row geotagged; typed text can never cast.
 #[tokio::test(flavor = "multi_thread")]
 async fn casts_pay_gift_ramify_and_geotag() {
     let p = FinalNight7Plugin::new();
     let settings = json!({"seed": 5, "beats_total": 30, "clusters": 40, "players": 2, "llm": true});
     let script = |seat: Seat, round: u32| -> Option<Action> {
         Some(match (round, seat) {
-            (1, 0) => act(0, json!({"cast": {"power": "volcano", "target": "dg:1"}, "bolts": [[2.35, 48.85]]})),
-            (1, 1) => act(1, json!({"bolt": {"target": "Ash"}, "sent_at": 10})),
             (2, 0) => act(0, json!({"left": "throw a lightning bolt at Brix"})),
-            (2, 1) => act(1, json!({"cast": {"power": "meteor", "target": [0.0, 0.0]}})),
             _ => act(seat, json!({})),
         })
     };
+    let extras = |round: u32| -> (Vec<Action>, RoundContext) {
+        let a = match round {
+            1 => vec![
+                instant(1, 5, json!({"bolt": {"target": "Ash"}})),
+                instant(0, 6, json!({"cast": {"power": "volcano", "target": "dg:1"}})),
+                instant(0, 7, json!({"bolts": [[2.35, 48.85]]})),
+            ],
+            // Ash pays Time for speaking first, so this bolt (validated against last commit's 1) fizzles.
+            2 => vec![instant(0, 19, json!({"bolt": "Brix"})),
+                      instant(1, 20, json!({"cast": {"power": "meteor", "target": [0.0, 0.0]}}))],
+            _ => vec![],
+        };
+        (a, RoundContext::default())
+    };
     let mut seen = vec![];
-    run_match(&p, &humans(2), &settings, &Scripted::default(), Some(2), &script, |r: &BeatReport, s: &Value| {
-        seen.push((r.outcome.public.clone(), load(s)));
-        true
-    })
+    crate::driver::run_match_with(&p, &humans(2), &settings, &Scripted::default(), Some(2), &script, &extras,
+        |r: &BeatReport, s: &Value| {
+            seen.push((r.outcome.public.clone(), load(s)));
+            true
+        })
     .await
     .unwrap();
     let (pub1, w1) = &seen[0];
     let casts = pub1["casts"].as_array().unwrap();
     assert_eq!(casts.len(), 3, "{casts:?}");
-    assert_eq!(casts[0]["by"], "Brix", "arrival order: Brix sent a timestamp, Ash didn't");
+    assert_eq!(casts[0]["by"], "Brix", "arrival order (seq)");
+    assert_eq!(casts[0]["instant"], true);
     // Ash: 3 + 2 (Brix's bolt) - 3 (volcano) - 1 (lightning) = 1; Brix: 3 - 1 + 2×4 = 10.
     assert!(casts.iter().all(|c| c.get("fizzled").is_none()), "{casts:?}");
     assert_eq!(w1.demigods[0].bolts, 1);
@@ -775,20 +898,38 @@ async fn casts_pay_gift_ramify_and_geotag() {
     assert!(events.iter().any(|e| e.get("image_prompt").is_some()));
     assert!(w1.ledger.rows.iter().all(|r| r.at.is_some() || r.place.is_none()));
     assert!(!w1.mods.is_empty(), "a big cast leaves a lasting mod");
-    // Beat 2: typed text never casts; Brix can afford a meteor (4).
+    // Beat 2: typed text never casts; Brix can afford a meteor (4); Ash's bolt fizzles (overspent).
     let (pub2, w2) = &seen[1];
-    assert!(pub2["casts"].as_array().unwrap().iter().all(|c| c["by"] != "Ash"));
+    let c2 = pub2["casts"].as_array().unwrap();
+    assert_eq!(c2.len(), 2, "{c2:?}");
+    assert_eq!(c2[0]["by"], "Ash");
+    assert!(c2[0]["fizzled"].as_str().unwrap().contains("needs 1"), "{}", c2[0]);
+    assert_eq!(c2[1]["by"], "Brix");
+    assert!(c2[1].get("fizzled").is_none());
     // Brix: 10 + 2 (Ash's bolt to Time for typing) - 4 (meteor) + 2 per bolt Ash's hands paid Nature.
     let ash_paid: u32 = w2.rulings.iter().filter(|r| r.beat == 2 && r.invoker == Ref::Demigod(DemigodId(0))).map(|r| r.bolts).sum();
     assert_eq!(w2.demigods[1].bolts, 10 + 2 - 4 + 2 * ash_paid);
-    assert!(pub2["casts"][0].get("fizzled").is_none());
-    // Unknown powers are rejected at validation.
+    // Validation (read-only, against the last commit): unknown powers, overspend, casts carrying orders.
     let st = world::save(w2);
-    assert!(p.validate_action(&st, 0, "", &json!({"cast": {"power": "nuke", "target": "dg:1"}})).is_err());
-    assert!(p.validate_action(&st, 0, "", &json!({"cast": {"power": "custom", "target": "dg:1"}})).is_err());
+    assert!(p.validate_action(&st, 0, "", &json!({"cast": {"power": "nuke", "target": "dg:1"}}), SubmitKind::Instant).is_err());
+    assert!(p.validate_action(&st, 0, "", &json!({"cast": {"power": "custom", "target": "dg:1"}}), SubmitKind::Instant).is_err());
+    let rich = { let mut w = w2.clone(); w.demigods[0].bolts = 9; world::save(&w) };
     assert!(p
-        .validate_action(&st, 0, "", &json!({"cast": {"power": "custom", "text": "rain of frogs", "target": "Lagos"}}))
+        .validate_action(&rich, 0, "", &json!({"cast": {"power": "custom", "text": "rain of frogs", "target": "Lagos"}}), SubmitKind::Instant)
         .is_ok());
+    assert!(p.validate_action(&rich, 0, "", &json!({"left": "go", "bolt": "Brix"}), SubmitKind::Instant).unwrap_err().contains("carry casts, not orders"));
+    assert!(p.validate_action(&rich, 0, "", &json!({"left": "go", "bolt": "Brix"}), SubmitKind::Compose).unwrap_err().contains("never carry orders"));
+    // Instant actions never carry orders (enforced on arrival, faa7220's SubmitKind); text entry may.
+    assert!(p.validate_action(&rich, 0, "", &json!({"left": "march on Lagos"}), SubmitKind::Instant).is_err());
+    assert!(p.validate_action(&rich, 0, "", &json!({"left": "march on Lagos"}), SubmitKind::Window { window_id: 3 }).is_ok());
+    let broke = { let mut w = w2.clone(); w.demigods[0].bolts = 0; world::save(&w) };
+    assert!(p.validate_action(&broke, 0, "", &json!({"bolt": "Brix"}), SubmitKind::Instant).unwrap_err().contains("not enough bolts"));
+    // The streak: shown at once, read-only (nothing paid yet).
+    let streak = p.on_instant(&rich, 0, &instant(0, 30, json!({"cast": {"power": "meteor", "target": "Brix"}}))).unwrap();
+    assert_eq!((streak["event"].as_str(), streak["by"].as_str(), streak["power"].as_str()), (Some("streak"), Some("Ash"), Some("meteor")));
+    assert!(streak["icon"].is_string() && streak["at"].is_array() && streak["region"].is_string(), "{streak}");
+    assert_eq!(streak["target"], "dg:1");
+    assert_eq!(load(&rich).demigods[0].bolts, 9);
 }
 
 /// The planet: regions with cities, demigods in different regions, influence shares per region summing to ≤ 1, and

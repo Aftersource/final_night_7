@@ -1,0 +1,240 @@
+{
+  "$defs": {
+    "LonLat": {
+      "description": "[longitude, latitude] in degrees (WGS84). Note the order: longitude first.",
+      "items": {
+        "type": "number"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+    },
+    "Ref": {
+      "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row, ce cell, mb mob. Stable for the whole match.",
+      "examples": [
+        "ch:12"
+      ],
+      "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg|ce|mb):\\d+$",
+      "type": "string"
+    },
+    "Slowed": {
+      "description": "`phase.event.public` right after `window.opened`: who slowed time (from `action.begin`).",
+      "properties": {
+        "by": {
+          "description": "The initiator's demigod name.",
+          "type": "string"
+        },
+        "by_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "by_seat": {
+          "description": "The initiator's seat (= window.opened.by_seat).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "event": {
+          "const": "slowed"
+        },
+        "slow_ms": {
+          "description": "How long the window stays open at most.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "text": {
+          "description": "\"<name> slowed time\".",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event",
+        "by",
+        "by_ref",
+        "by_seat",
+        "slow_ms",
+        "text"
+      ],
+      "type": "object"
+    },
+    "Streak": {
+      "description": "`phase.event.public` the moment an instant cast is accepted: its streak, for everyone. The first cast's fields are repeated at the top level.",
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/LonLat"
+        },
+        "by": {
+          "description": "Caster's name.",
+          "type": "string"
+        },
+        "by_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "by_seat": {
+          "description": "Caster's seat.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "casts": {
+          "description": "Every cast in the action, in order.",
+          "items": {
+            "description": "One cast of the streak, as aimed (nothing is paid until the next resolve; at Entropy ≥ 40 it may still land off target).",
+            "properties": {
+              "at": {
+                "$ref": "#/$defs/LonLat"
+              },
+              "cost": {
+                "description": "Bolts it will cost.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "fizzled": {
+                "description": "Its target doesn't exist (it will fizzle).",
+                "type": "string"
+              },
+              "icon": {
+                "description": "Icon key.",
+                "type": "string"
+              },
+              "place": {
+                "description": "The most specific place aimed at.",
+                "type": "string"
+              },
+              "power": {
+                "description": "Palette slug or \"custom\".",
+                "type": "string"
+              },
+              "power_name": {
+                "description": "Display name.",
+                "type": "string"
+              },
+              "radius_km": {
+                "description": "Area it affects.",
+                "type": "number"
+              },
+              "region": {
+                "description": "Region (planet) or district (city) aimed at.",
+                "type": "string"
+              },
+              "region_ref": {
+                "$ref": "#/$defs/Ref"
+              },
+              "target": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Ref"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "What it is aimed at directly, or null (a point)."
+              },
+              "target_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "text": {
+                "description": "custom only: what it is.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "power",
+              "power_name",
+              "icon",
+              "cost",
+              "radius_km"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "cost": {
+          "description": "First cast: bolts.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "event": {
+          "const": "streak"
+        },
+        "icon": {
+          "description": "First cast: icon key.",
+          "type": "string"
+        },
+        "place": {
+          "description": "First cast: place aimed at.",
+          "type": "string"
+        },
+        "power": {
+          "description": "First cast: slug.",
+          "type": "string"
+        },
+        "power_name": {
+          "description": "First cast: display name.",
+          "type": "string"
+        },
+        "received_at_ms": {
+          "description": "When the server received it (epoch ms).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "region": {
+          "description": "First cast: region aimed at.",
+          "type": "string"
+        },
+        "region_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "seq": {
+          "description": "The action's room-wide arrival order (casts are paid in this order).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "target_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "event",
+        "by",
+        "by_ref",
+        "by_seat",
+        "casts",
+        "seq",
+        "received_at_ms",
+        "power",
+        "power_name",
+        "icon",
+        "cost"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "phase_event.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "`phase.event.public`: an immediate push from the game. `event` says which.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/Slowed"
+    },
+    {
+      "$ref": "#/$defs/Streak"
+    }
+  ],
+  "title": "phase.event public",
+  "x-applies-to": "phase.event.public (pushed at once: who slowed time, a cast's streak)"
+}

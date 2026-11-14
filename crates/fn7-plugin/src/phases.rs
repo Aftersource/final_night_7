@@ -235,6 +235,7 @@ pub fn round_start(w: &mut World, round: u32, pantheon: &Arc<Pantheon>) -> Round
     );
     fn7_society::capture_rewind(w);
     let fallen = report_eliminations(w, round, &alive_before);
+    let revived = report_revivals(w, round);
     let per_seat = w
         .seats
         .iter()
@@ -267,6 +268,7 @@ pub fn round_start(w: &mut World, round: u32, pantheon: &Arc<Pantheon>) -> Round
             .into_iter()
             .filter_map(|(s, _, c)| s.map(|s| (s, c)))
             .collect(),
+        revived,
     }
 }
 
@@ -325,8 +327,47 @@ fn report_eliminations(
         );
         let seat = (x.seat < SYNTHETIC_SEAT).then_some(x.seat);
         out.push((seat, x.name.clone(), cause));
+        if seat.is_some() && !w.out_reported.contains(&d) {
+            w.out_reported.push(d);
+        }
         if let Some(b) = w.beats.last_mut().filter(|b| b.beat == beat) {
             b.eliminated.push(d);
+        }
+    }
+    out
+}
+
+/// Seated demigods the Theatre was told were eliminated and that are alive again (Death's revive, the survivor rule):
+/// `revived` events; returns (seat, reason) for `Committed.revived` / `RoundStart.revived` (`seat.revived`).
+fn report_revivals(w: &mut World, beat: u32) -> Vec<(Seat, String)> {
+    let back: Vec<DemigodId> = w
+        .out_reported
+        .iter()
+        .copied()
+        .filter(|d| w.demigods.get(d.ix()).is_some_and(|x| x.alive))
+        .collect();
+    w.out_reported.retain(|d| !back.contains(d));
+    let mut out = vec![];
+    for d in back {
+        let me = Ref::Demigod(d);
+        let row = w
+            .ledger
+            .rows
+            .iter()
+            .rev()
+            .find(|r| r.verb == "revive" && r.targets.contains(&me));
+        let reason = row
+            .map(|r| r.act.clone())
+            .unwrap_or_else(|| "back from the dead".into());
+        let x = &w.demigods[d.ix()];
+        event(
+            "revived",
+            Some(me.to_string()),
+            json!({ "demigod": d, "beat": beat, "seat": x.seat, "name": x.name, "reason": reason,
+                    "row": row.map(|r| r.id), "health": x.health }),
+        );
+        if x.seat < SYNTHETIC_SEAT {
+            out.push((x.seat, reason));
         }
     }
     out
@@ -386,10 +427,12 @@ pub fn commit(w: &mut World, round: u32, pantheon: &Arc<Pantheon>) -> Committed 
         .filter(|d| d.seat < SYNTHETIC_SEAT)
         .map(|d| (d.seat, crate::payload::round_to(score(w, d), 2)))
         .collect();
+    let revived = report_revivals(w, round);
     Committed {
         state: save(w),
         scores,
         eliminated,
+        revived,
     }
 }
 
@@ -655,8 +698,7 @@ pub fn seat_view(w: &World, seat: Seat) -> Value {
             .collect::<Vec<_>>(),
         "slow": w.slow.as_ref().map(|s| json!({
             "yours": s.initiator == d,
-            "window": s.opened_beat,
-            "held": s.held.iter().any(|h| h.demigod == d),
+            "window_id": s.window_id,
         })),
     }))
 }
@@ -669,13 +711,15 @@ pub fn brief_public(w: &World, round: u32, pantheon: &Pantheon) -> Value {
         "final_night": round >= w.meta.beats_total,
         "arena": arena_json(w),
         "alive": w.alive_demigods().count(),
-        "rules": "Two inputs. TEXT ENTRY (the God of Time interaction): send fields.slow=true when you start typing \
-                  (time slows for everyone: a window), then your orders to your hands in fields {left, right} (or text \
-                  lines `l: …` / `r: …`) close it; Time charges a bolt and a debt that grows with every second the \
-                  window stays open, and the initiator's Enter cuts off orders sent after it. CASTS (god powers, any \
-                  time, anywhere on the globe): fields.cast {power, target: ref | [lon, lat] | name} from `powers`, \
-                  paid in lightning bolts; every bolt you spend gives every rival 2 and raises Entropy. Optional zoom \
-                  {level: world|region|city|character, focus}. Last demigod standing wins.",
+        "rules": "Two inputs. TEXT ENTRY (the God of Time interaction): send action.begin when you start typing \
+                  (time slows for everyone: window.opened says who), then action.submit with the window_id and your \
+                  orders to your hands in fields {left, right} (or text lines `l: …` / `r: …`); the initiator's submit \
+                  (Enter) closes the window and cuts off everyone who hasn't submitted (a private `cut` reply). Time \
+                  charges a bolt and a debt that grows with every second the window stays open. CASTS (god powers, any \
+                  time, anywhere on the globe): action.submit with instant: true and fields.cast {power, target: ref | \
+                  [lon, lat] | name} from `powers`, paid in lightning bolts at the next beat; everyone sees the streak \
+                  at once; every bolt you spend gives every rival 2 and raises Entropy. Optional zoom {level: \
+                  world|region|city|character, focus}. Last demigod standing wins.",
         "gods": crate::payload::gods(pantheon),
         "arena_kind": w.meta.arena_kind,
         "powers": crate::payload::powers_json(),
@@ -683,7 +727,6 @@ pub fn brief_public(w: &World, round: u32, pantheon: &Pantheon) -> Value {
         "flow": {
             "flow_ms": settings(w).flow_ms,
             "slow_ms": settings(w).slow_ms,
-            "window_beats": crate::flow::window_beats(&settings(w)),
             "slow": crate::payload::slow_json(w),
         },
         "regions": crate::payload::regions_json(w),

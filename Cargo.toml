@@ -24,9 +24,8 @@ theatre-llm = { git = "https://github.com/Aftersource/theatre", branch = "main" 
 theatre-server = { git = "https://github.com/Aftersource/theatre", branch = "main", default-features = false }
 theatre-protocol = { git = "https://github.com/Aftersource/theatre", branch = "main" }
 theatre-toolkit = { git = "https://github.com/Aftersource/theatre", branch = "main", features = ["embedded-geo"] }
-# Generic recording (moves into the Theatre core with theatre_worker's P1).
-theatre-trace = { path = "../demo_final_night/trace" }
-theatre-recorder = { path = "../demo_final_night/recorder" }
+# Run tracing (the core records every match as JSONL through it; P1, theatre 2b2b9e3).
+theatre-trace = { git = "https://github.com/Aftersource/theatre", branch = "main" }
 
 fn7-model = { path = "crates/fn7-model" }
 fn7-society = { path = "crates/fn7-society" }

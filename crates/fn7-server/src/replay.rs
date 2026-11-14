@@ -1,26 +1,35 @@
-//! Replay verification: re-execute a recorded match from its `match_start` snapshot with every LLM request answered
-//! from the recording (`theatre_recorder::ReplayProvider`; a request the recording lacks is an error, so its mind takes
-//! the same rules fallback it took live), feeding each beat the recorded actions, and check every snapshot
-//! (`round_start`, `resolved` / `resolved_fallback`, `committed`, `final`) is byte-identical.
+//! Replay verification of a core recording (`<match_id>.jsonl`, from the Theatre server with `THEATRE_RECORD` set, or
+//! from `fn7-sim`): re-execute the match from its `on_match_start` snapshot (a fork's run: its `fork` snapshot) with every LLM request answered by the
+//! engine's [`ReplayLlm`] (keyed by round, actor, step and request content; a request the recording lacks fails, so its
+//! mind takes the same rules fallback it took live), feeding each round the actions and `RoundContext` (closed action
+//! windows) recorded in its `resolve_round` hook input, and check that every recorded snapshot
+//! (`on_round_start` and `resolve_round` at `full`, `commit_round` always) serializes byte for byte the same, plus the
+//! summary in `run_end`.
 
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
+use anyhow::{anyhow, Context};
+use async_trait::async_trait;
 use fn7_plugin::FinalNight7Plugin;
-use rusqlite::{params, Connection};
 use serde_json::Value;
 use theatre_plugin_api::*;
-use theatre_recorder::ReplayProvider;
+use theatre_server::replay::ReplayLlm;
+use theatre_trace::{Ctx, Record, Sink};
 
 #[derive(Debug, Default)]
 pub struct Report {
+    pub run: String,
     pub snapshots: usize,
     pub identical: usize,
     pub differences: Vec<String>,
     pub llm_hits: u64,
     pub llm_misses: u64,
     pub beats: u32,
+    /// Whether the replayed summary equals the recorded one (`None`: the recording has no `run_end`).
+    pub summary_identical: Option<bool>,
 }
 
 /// The first place two JSON values differ (path: a vs b), if any.
@@ -61,140 +70,184 @@ fn trunc(v: &Value) -> String {
     }
 }
 
-struct Snap {
-    round: Option<u32>,
-    label: String,
-    raw: String,
+/// Discards everything: the replay runs hooks inside a trace context (so the LLM replay sees round and step) but
+/// records nothing.
+struct NullSink(AtomicU64);
+
+impl Sink for NullSink {
+    fn next_id(&self) -> i64 {
+        self.0.fetch_add(1, Ordering::Relaxed) as i64
+    }
+    fn write(&self, _: Record) {}
 }
 
-/// The most recent run in a recording.
-pub fn latest_run(db: impl AsRef<Path>) -> anyhow::Result<String> {
-    let c = Connection::open(db)?;
-    Ok(c.query_row(
-        "SELECT id FROM runs ORDER BY started_at DESC, rowid DESC LIMIT 1",
-        [],
-        |r| r.get(0),
-    )?)
+/// Counts answered calls (the engine's `ReplayLlm` counts only misses).
+struct Counting {
+    inner: ReplayLlm,
+    calls: AtomicU64,
 }
 
-pub async fn verify(
-    db: impl AsRef<Path>,
-    run: &str,
-    mut log: impl FnMut(&str),
-) -> anyhow::Result<Report> {
-    let db = db.as_ref();
-    let c = Connection::open(db)?;
-    let snaps: Vec<Snap> = c
-        .prepare("SELECT round, label, state FROM snapshots WHERE run_id = ?1 ORDER BY id")?
-        .query_map(params![run], |r| {
-            Ok(Snap {
-                round: r.get(0)?,
-                label: r.get(1)?,
-                raw: r.get(2)?,
-            })
-        })?
-        .collect::<Result<_, _>>()?;
-    let inputs = |hook: &str| -> anyhow::Result<BTreeMap<u32, Value>> {
-        let mut m = BTreeMap::new();
-        let mut st = c.prepare(
-            "SELECT round, input FROM hooks WHERE run_id = ?1 AND hook = ?2 ORDER BY id",
-        )?;
-        for row in st.query_map(params![run, hook], |r| {
-            Ok((r.get::<_, Option<u32>>(0)?, r.get::<_, String>(1)?))
-        })? {
-            let (round, input) = row?;
-            if let Some(round) = round {
-                m.insert(round, serde_json::from_str(&input)?);
-            }
-        }
-        Ok(m)
-    };
-    let resolves = inputs("resolve_round")?;
-    let fallbacks = inputs("fallback_outcome")?;
-    let start = snaps
+#[async_trait]
+impl LlmProvider for Counting {
+    async fn complete(&self, req: LlmRequest) -> anyhow::Result<LlmResponse> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.complete(req).await
+    }
+}
+
+/// Read a JSONL recording (unparseable lines are skipped, like the engine's readers do).
+pub fn read_records(path: &Path) -> anyhow::Result<Vec<Value>> {
+    let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    Ok(text.lines().filter_map(|l| serde_json::from_str(l).ok()).collect())
+}
+
+fn round_of(r: &Value) -> Option<u32> {
+    r["round"]
+        .as_u64()
+        .or_else(|| r["ctx"]["round"].as_u64())
+        .map(|n| n as u32)
+}
+
+struct ResolveIn {
+    hook_id: Option<i64>,
+    actions: Vec<Action>,
+    ctx: RoundContext,
+    ok: bool,
+}
+
+pub async fn verify(path: impl AsRef<Path>, mut log: impl FnMut(&str)) -> anyhow::Result<Report> {
+    let records = read_records(path.as_ref())?;
+    let run = records
         .iter()
-        .find(|s| s.label == "match_start")
-        .ok_or_else(|| anyhow::anyhow!("no match_start snapshot for run {run}"))?;
+        .find(|r| r["type"] == "run_start")
+        .and_then(|r| r["run"].as_str())
+        .or_else(|| records.iter().find_map(|r| r["run"].as_str().or(r["ctx"]["run"].as_str())))
+        .ok_or_else(|| anyhow!("empty recording"))?
+        .to_string();
+    let snaps: Vec<(Option<u32>, &str, &Value)> = records
+        .iter()
+        .filter(|r| r["type"] == "snapshot")
+        .map(|r| (round_of(r), r["label"].as_str().unwrap_or(""), &r["state"]))
+        .collect();
     let snap = |round: u32, label: &str| {
         snaps
             .iter()
-            .find(|s| s.round == Some(round) && s.label == label)
+            .rev()
+            .find(|s| s.0 == Some(round) && s.1 == label)
+            .map(|s| s.2)
     };
-    let actions_of = |v: &Value| -> Vec<Action> {
-        serde_json::from_value(v["actions"].clone()).unwrap_or_default()
-    };
-    let replay = ReplayProvider::open(db, run, None)?;
-    let p = FinalNight7Plugin::new();
-    let mut rep = Report::default();
-    let mut state: Value = serde_json::from_str(&start.raw)?;
-    let last = resolves
-        .keys()
-        .chain(fallbacks.keys())
+    // Each round's resolve: the last attempt that succeeded, else (fallback) the last attempt.
+    let mut resolves: BTreeMap<u32, ResolveIn> = BTreeMap::new();
+    for h in records
+        .iter()
+        .filter(|r| r["type"] == "hook" && r["hook"] == "resolve_round")
+    {
+        let Some(round) = round_of(h) else { continue };
+        let ok = h["error"].is_null();
+        if resolves.get(&round).is_some_and(|p| p.ok && !ok) {
+            continue;
+        }
+        resolves.insert(
+            round,
+            ResolveIn {
+                hook_id: h["id"].as_i64(),
+                actions: serde_json::from_value(h["input"]["actions"].clone()).unwrap_or_default(),
+                ctx: serde_json::from_value(h["input"]["ctx"].clone()).unwrap_or_default(),
+                ok,
+            },
+        );
+    }
+    // A match starts from its on_match_start snapshot; a fork (admin API) from its `fork` snapshot after round N.
+    let (first, start) = snaps
+        .iter()
+        .find(|s| s.1 == "on_match_start" || s.1 == "fork")
+        .map(|s| (s.0.unwrap_or(0) + 1, s.2.clone()))
+        .ok_or_else(|| anyhow!("no on_match_start or fork snapshot in run {run}"))?;
+    let last_commit = snaps
+        .iter()
+        .filter(|s| s.1 == "commit_round")
+        .filter_map(|s| s.0)
         .max()
-        .copied()
         .unwrap_or(0);
-    let mut compare =
-        |round: u32, label: &str, got: &Value, rep: &mut Report| match snap(round, label) {
-            Some(s) => {
-                rep.snapshots += 1;
-                // Byte for byte: the recorded text against this run's serialization.
-                if s.raw == serde_json::to_string(got).unwrap_or_default() {
-                    rep.identical += 1;
-                } else {
-                    let theirs: Value = serde_json::from_str(&s.raw).unwrap_or(Value::Null);
-                    let d = first_diff(&theirs, got, "state")
-                        .unwrap_or_else(|| "byte-level difference".into());
-                    log(&format!("  beat {round:>3} {label:<17} DIFFERS at {d}"));
-                    rep.differences.push(format!("beat {round} {label}: {d}"));
-                }
+    let last = resolves.keys().max().copied().unwrap_or(0).max(last_commit);
+
+    let replay = Counting {
+        inner: ReplayLlm::from_records(&records),
+        calls: AtomicU64::new(0),
+    };
+    let sink: Arc<dyn Sink> = Arc::new(NullSink(AtomicU64::new(1)));
+    let ctx = |round: u32| {
+        let mut c = Ctx::new(sink.clone(), run.clone());
+        c.round = Some(round);
+        c
+    };
+    let p = FinalNight7Plugin::new();
+    let mut rep = Report {
+        run: run.clone(),
+        ..Default::default()
+    };
+    let mut compare = |round: u32, label: &str, got: &Value, rep: &mut Report| {
+        if let Some(theirs) = snap(round, label) {
+            rep.snapshots += 1;
+            if serde_json::to_string(theirs).ok() == serde_json::to_string(got).ok() {
+                rep.identical += 1;
+            } else {
+                let d = first_diff(theirs, got, "state").unwrap_or_else(|| "byte-level difference".into());
+                log(&format!("  beat {round:>3} {label:<15} DIFFERS at {d}"));
+                rep.differences.push(format!("beat {round} {label}: {d}"));
             }
-            None => log(&format!(
-                "  beat {round:>3} {label:<17} (no snapshot recorded)"
-            )),
-        };
-    for round in 1..=last {
-        let rs = p.on_round_start(&state, round, &replay).await?;
-        compare(round, "round_start", &rs.state, &mut rep);
+        }
+    };
+    let mut state = start;
+    for round in first..=last {
+        let rs = theatre_trace::within(ctx(round), p.on_round_start(&state, round, &replay)).await?;
+        compare(round, "on_round_start", &rs.state, &mut rep);
         state = rs.state;
-        let (out, label) = if let Some(i) = resolves.get(&round) {
-            (
-                p.resolve_round(&state, round, &actions_of(i), &replay, &NoProgress)
-                    .await?,
-                "resolved",
-            )
-        } else if let Some(i) = fallbacks.get(&round) {
-            (
-                p.fallback_outcome(&state, round, &actions_of(i)),
-                "resolved_fallback",
-            )
-        } else {
+        let Some(input) = resolves.get(&round) else {
             break;
         };
-        compare(round, label, &out.state, &mut rep);
+        let out = if input.ok {
+            let mut c = ctx(round);
+            c.hook_id = input.hook_id;
+            theatre_trace::within(c, p.resolve_round(&state, round, &input.actions, &input.ctx, &replay, &NoProgress))
+                .await?
+        } else {
+            // The core passes no context to fallback_outcome; the plugin uses the one its failed attempts got.
+            p.remember_round_ctx(&state, round, input.ctx.clone());
+            p.fallback_outcome(&state, round, &input.actions)
+        };
+        compare(round, "resolve_round", &out.state, &mut rep);
         state = out.state;
-        let committed = p.commit_round(&state, round, &[], &replay).await?;
-        compare(round, "committed", &committed.state, &mut rep);
+        let committed = theatre_trace::within(ctx(round), p.commit_round(&state, round, &[], &replay)).await?;
+        compare(round, "commit_round", &committed.state, &mut rep);
         state = committed.state;
         rep.beats = round;
     }
-    // The core runs the next beat's Start before it learns the match is over.
-    if snap(last + 1, "round_start").is_some() {
-        let rs = p.on_round_start(&state, last + 1, &replay).await?;
-        compare(last + 1, "round_start", &rs.state, &mut rep);
+    // A next beat's Start the driver ran before learning the match was over.
+    if snap(last + 1, "on_round_start").is_some() {
+        let rs = theatre_trace::within(ctx(last + 1), p.on_round_start(&state, last + 1, &replay)).await?;
+        compare(last + 1, "on_round_start", &rs.state, &mut rep);
         state = rs.state;
     }
-    if let Some(f) = snaps.iter().rev().find(|s| s.label == "final") {
-        rep.snapshots += 1;
-        if f.raw == serde_json::to_string(&state)? {
-            rep.identical += 1;
-        } else {
-            let theirs: Value = serde_json::from_str(&f.raw)?;
-            let d = first_diff(&theirs, &state, "state").unwrap_or_default();
-            log(&format!("  final DIFFERS at {d}"));
-            rep.differences.push(format!("final: {d}"));
+    if let Some(end) = records.iter().rev().find(|r| r["type"] == "run_end") {
+        let summarize = records
+            .iter()
+            .rev()
+            .find(|r| r["type"] == "hook" && r["hook"] == "summarize" && r["error"].is_null());
+        if let Some(h) = summarize {
+            let round = round_of(h).unwrap_or(rep.beats);
+            let s = theatre_trace::within(ctx(round), p.summarize(&state, &replay)).await?;
+            let same = s.summary == end["summary"]["summary"];
+            if !same {
+                let d = first_diff(&end["summary"]["summary"], &s.summary, "summary").unwrap_or_default();
+                log(&format!("  summary DIFFERS at {d}"));
+                rep.differences.push(format!("summary: {d}"));
+            }
+            rep.summary_identical = Some(same);
         }
     }
-    rep.llm_hits = replay.hits.load(Ordering::Relaxed);
-    rep.llm_misses = replay.misses.load(Ordering::Relaxed);
+    let misses = *replay.inner.misses.lock();
+    rep.llm_misses = misses;
+    rep.llm_hits = replay.calls.load(Ordering::Relaxed).saturating_sub(misses);
     Ok(rep)
 }

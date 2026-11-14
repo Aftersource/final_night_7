@@ -2,28 +2,25 @@
   "d": {
     "private": {
       "alive": true,
-      "beat": 4,
-      "debt_due": 0.0,
-      "health": 9.2,
+      "beat": 7,
+      "debt_due": 0.56,
+      "health": 3.0,
       "outside_arena": false
     },
     "public": {
-      "alive": 2,
-      "arena_radius_km": 7679.17,
-      "beat": 4,
-      "beats_total": 6,
+      "alive": 4,
+      "arena_radius_km": 1781.69,
+      "beat": 7,
+      "beats_total": 8,
       "caught_outside": [
-        "Rook",
-        "Quill"
+        "Juniper",
+        "Hester Ferrante"
       ],
-      "debts_due": 0,
-      "eliminated": [
-        "Rook",
-        "Quill"
-      ],
+      "debts_due": 3,
+      "eliminated": [],
       "final_night": false
     },
-    "round": 4
+    "round": 7
   },
   "t": "round.started"
 }

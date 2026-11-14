@@ -47,8 +47,16 @@ pub fn claude(
     }))
 }
 
-/// The server's provider from its config (see the module doc).
+/// The server's provider from its config (see the module doc). `THEATRE_REPLAY_FROM` wins: every call is answered from
+/// that recording (the engine's `ReplayLlm`).
 pub fn from_config(cfg: &Config) -> anyhow::Result<Built> {
+    if let Some(path) = &cfg.replay_from {
+        return Ok(Built {
+            llm: theatre_server::build_llm_provider(cfg)?,
+            label: format!("replay:{}", path.display()),
+            usage: None,
+        });
+    }
     if cfg.llm_base_url.as_deref().unwrap_or("").is_empty() {
         let model = cfg
             .llm_default_model

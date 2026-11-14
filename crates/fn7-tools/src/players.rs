@@ -54,21 +54,35 @@ pub fn room_start() -> String {
     msg(t::ROOM_START, json!({}))
 }
 
-/// Both hands in one submission: `{ round, text, fields: { left, right, zoom, cast?, sent_at? } }`. `text` is the
-/// `l:` / `r:` form a human would type, so a server that ignores `fields` still gets both hands. Text entry and casts
-/// are separate paths: `cast` (a god power) rides along but never carries orders.
-pub fn action_submit(round: u32, s: &Submission) -> String {
-    let mut fields = json!({ "left": s.left, "right": s.right, "zoom": s.zoom });
-    if let Some(c) = &s.cast {
-        fields["cast"] = c.clone();
+/// "I started typing" (`action.begin`, never broadcast): the God of Time interaction. The server may open a slow
+/// window (`window.opened`, which comes before the `ack` to this request `id`), or just acknowledge.
+pub fn action_begin(id: &str) -> String {
+    Envelope::request(t::ACTION_BEGIN, Some(id.to_string()), json!({})).encode()
+}
+
+/// Text entry, both hands in one submission: `{ round, text, fields: { left, right, zoom }, window_id? }`. `text` is
+/// the `l:` / `r:` form a human would type, so a server that ignores `fields` still gets both hands. With `window_id`
+/// (from `window.opened`) the orders go into that slow window; a window that already closed answers with a private
+/// `action.received { accepted: false, reason: "cut" }`. Casts never ride here (see [`cast_submit`]). `id` asks for
+/// the reply.
+pub fn action_submit(round: u32, s: &Submission, window_id: Option<u64>, id: Option<&str>) -> String {
+    let fields = json!({ "left": s.left, "right": s.right, "zoom": s.zoom });
+    let mut d = json!({ "round": round, "text": s.text(), "fields": fields });
+    if let Some(w) = window_id {
+        d["window_id"] = w.into();
     }
-    if let Some(t) = s.sent_at {
-        fields["sent_at"] = t.into();
-    }
-    msg(
+    Envelope::request(t::ACTION_SUBMIT, id.map(str::to_string), d).encode()
+}
+
+/// A god power as an instant action (any phase): `{ text: "", fields: { cast }, instant: true }`. Everyone sees its
+/// streak at once (`phase.event`); it is paid at the next beat.
+pub fn cast_submit(round: u32, cast: &Value, id: Option<&str>) -> String {
+    Envelope::request(
         t::ACTION_SUBMIT,
-        json!({ "round": round, "text": s.text(), "fields": fields }),
+        id.map(str::to_string),
+        json!({ "round": round, "text": "", "fields": { "cast": cast }, "instant": true }),
     )
+    .encode()
 }
 
 /// Room settings for a FN7 match: one round per beat, Compose lasts the beat.
@@ -90,10 +104,8 @@ pub struct Submission {
     pub right: String,
     /// "world" | "district" | "city" | "character".
     pub zoom: String,
-    /// A god power to cast (`{power, target}`), or none.
+    /// A god power to cast (`{power, target}`, sent separately as an instant action), or none.
     pub cast: Option<Value>,
-    /// The client's clock (epoch ms) at sending (the cut-off rule's order).
-    pub sent_at: Option<i64>,
 }
 
 impl Submission {
@@ -306,7 +318,6 @@ impl Script {
             right,
             zoom: self.zoom.to_string(),
             cast,
-            sent_at: None,
         }
     }
 }
@@ -611,9 +622,8 @@ mod tests {
             right: "send someone to scout the cathedral".into(),
             zoom: "district".into(),
             cast: None,
-            sent_at: None,
         };
-        let a = decode(&action_submit(3, &s));
+        let a = decode(&action_submit(3, &s, None, None));
         assert_eq!(a.t, "action.submit");
         assert_eq!(a.d["round"], 3);
         assert_eq!(
@@ -625,11 +635,18 @@ mod tests {
             json!({ "left": s.left, "right": s.right, "zoom": "district" })
         );
         // The raw frame is exactly the envelope: t + d, nothing else.
-        let raw: Value = serde_json::from_str(&action_submit(3, &s)).unwrap();
+        let raw: Value = serde_json::from_str(&action_submit(3, &s, None, None)).unwrap();
         assert_eq!(
             raw.as_object().unwrap().keys().collect::<Vec<_>>(),
             vec!["d", "t"]
         );
+        // Into a slow window, with a reply id.
+        let w = decode(&action_submit(3, &s, Some(7), Some("x-1")));
+        assert_eq!((w.d["window_id"].as_u64(), w.id.as_deref()), (Some(7), Some("x-1")));
+        let b = decode(&action_begin("b-3"));
+        assert_eq!((b.t.as_str(), b.id.as_deref(), b.d.clone()), ("action.begin", Some("b-3"), json!({})));
+        let c = decode(&cast_submit(3, &json!({ "power": "lightning", "target": [3.38, 6.52] }), None));
+        assert_eq!((c.d["instant"].as_bool(), c.d["fields"]["cast"]["power"].as_str()), (Some(true), Some("lightning")));
     }
 
     #[test]

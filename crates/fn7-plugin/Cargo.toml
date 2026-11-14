@@ -1,6 +1,6 @@
 [package]
 name = "fn7-plugin"
-description = "Final Night 7 as a Theatre GamePlugin: the beat loop, merge, views, fallbacks and recording."
+description = "Final Night 7 as a Theatre GamePlugin: the beat loop, merge, views, fallbacks and trace events."
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
@@ -23,6 +23,4 @@ anyhow.workspace = true
 
 [dev-dependencies]
 theatre-llm.workspace = true
-theatre-recorder.workspace = true
-rusqlite.workspace = true
 uuid.workspace = true

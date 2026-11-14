@@ -33,9 +33,11 @@ pub use settings::Settings;
 
 pub const PLUGIN_ID: &str = "final_night_7";
 /// Bump on any change to rules, prompts or how outcomes are computed.
-pub const RULES_VERSION: &str = "0.4.0";
-pub const RULES_LABEL: &str = "planet edition: flow beats that never wait; text entry = Time's slow windows; casts = bolts, \
-Entropy's yes and ramifications; armies, world mods, Entropy to heat death; Final Night leaves exactly one";
+pub const RULES_VERSION: &str = "0.5.0";
+pub const RULES_LABEL: &str = "planet edition on Theatre v2.2: flow beats that never wait; text entry = Time's slow \
+windows (core action windows, Enter cut-off, penalty from real seconds open); casts = instant bolts with a public streak, \
+Entropy's yes and ramifications; Death's revive returns a seat to play; armies, world mods, Entropy to heat death; \
+Final Night leaves exactly one";
 /// The compiled-in power palette (`data/powers.json`).
 pub fn powers() -> &'static fn7_pantheon::Powers {
     static P: std::sync::OnceLock<fn7_pantheon::Powers> = std::sync::OnceLock::new();
@@ -50,8 +52,8 @@ pub const MECHANICS: &[&str] = &[
     "One Theatre round = one beat (a flow beat, flow_ms; the room's compose_seconds). The world's action never waits for players: every beat resolves whether or not anyone typed. Health 10 per body on Final Night's 0-10 damage scale; a demigod at 0 is eliminated.",
     "Arena: the planet (default; regions = UN subregions from Natural Earth, each with its largest cities; demigods start in different regions; Time's clock shrinks a circle around the convergence city from the whole globe to 1500 km on the Final Night) or one city (districts and sites).",
     "Start: Time's clock shrinks the arena linearly; demigods and possessed bodies outside take 1-5 damage. Debts due (everything on the Final Night) are queued as Consequence's collections. Agents past their budget expire; a rewind frame is captured.",
-    "Text entry is the God of Time interaction: a seat's slow request, or orders sent while no window is open, opens a slow-time window (Time takes one bolt; the window lasts up to ceil(slow_ms/flow_ms) flow beats, which keep resolving). Other seats' orders during it are held, hidden, and go through when it closes. The initiator's orders (Enter) close it; held orders and orders sent before the Enter that beat (by fields.sent_at; the plugin's AI counts as first) go through, later ones and orders tagged for a closed window are cut off. On close Time writes a debt of 0.5 x (1 + seconds open/10) x (1 + 0.5 x slows in the last 20 beats) (doubled if the bolt couldn't be paid), and Entropy rises by 0.5 + seconds/30.",
-    "Casts (UX god powers from data/powers.json, or a custom power priced by magnitude): settled in arrival order at the start of Resolve; a cast its caster can't pay fizzles. It costs its price in bolts, every other live demigod gains 2 per bolt, Entropy rises 0.4 per bolt (0.2 per bolt Entropy hands out), and it strikes its point at once. Entropy's check always says yes: one ramifications call per region with casts (N = 1 + cost + magnitude/3 per cast, at most 10) in the act batch becomes geotagged rows and lasting world mods (at most 24 live; the same name in the same region stacks, up to 5).",
+    "Text entry is the God of Time interaction, on the Theatre's action windows: a seat's action.begin opens a slow-time window (deadline slow_ms; refused, with no window, if its demigod is dead or has no bolt) and everyone is told who; flow beats keep resolving. Other seats' orders are held by the core, hidden (a begin from another seat only registers it as engaged, unseen), and arrive at the next resolve when it closes. The initiator's submit (Enter) closes it at once; later submits get a private cut reply and never arrive. On close Time takes a bolt (every other demigod gains 2) and writes a debt of 0.5 x (1 + seconds open/10) x (1 + 0.5 x slows in the last 20 beats) (doubled if the bolt can't be paid), and Entropy rises by 0.5 + seconds/30; seconds open run from the window's real open time to the Enter's received_at_ms (or the deadline). Orders sent without a window (Compose: bots, the plugin's AI, clients that skip action.begin) are an instant Enter: a zero-second slow, billed the same way.",
+    "Casts (UX god powers from data/powers.json, or a custom power priced by magnitude) are Theatre instant actions (any phase): validated on arrival (known power, enough bolts for the action's total at the last commit; casts never carry orders) and shown to everyone at once as a public streak (on_instant). They are paid at the start of the next Resolve in arrival order (the plugin's AI first, then the core's seq); a cast its caster can no longer pay fizzles. It costs its price in bolts, every other live demigod gains 2 per bolt, Entropy rises 0.4 per bolt (0.2 per bolt Entropy hands out), and it strikes its point at once. Entropy's check always says yes: one ramifications call per region with casts (N = 1 + cost + magnitude/3 per cast, at most 10) in the act batch becomes geotagged rows and lasting world mods (at most 24 live; the same name in the same region stacks, up to 5).",
     "Intake: each hand with words is one hand-mind call (max_intents_per_hand acts, or max_intents_per_window for orders from a window open at least one beat). Hands that spoke keep their ordinary acts as standing orders (2 per hand); silent demigods' hands carry them out by rules every other beat, with no LLM call.",
     "Mentions: places and groups match by name words; people resolve to an existing character (fuzzy name/alias) or are memorized from the best cluster (max_memorize_per_beat), inheriting what their cluster knew; a materialize mind writes their flavor.",
     "Route: world acts group by district/region (one resolver per active one; it uses the LLM only when someone who spoke this beat acts there); army acts (raise an army from a crowd, send it at a place or a rival) are rules; divine acts go to the owning god (one god mind per invocation; it costs 1 + magnitude/5 bolts, paid unless refused; a god whose price can't be paid twists or refuses; Entropy charges nothing, always says yes and gives 2 bolts; an unmade god's invocations go to Entropy; Time can cool Entropy by 4 + 1.2 x magnitude for its price). Subagents and possessions use the LLM only when their demigod spoke, paladins when their god ruled. Resolvers, gods, steps, flavor and ramifications run in ONE concurrent batch.",
@@ -62,6 +64,7 @@ pub const MECHANICS: &[&str] = &[
     "Narrate (off the critical path): beat N's narrator runs during beat N+1 (with the LLM only if beat N was loud: someone spoke, a power was cast or someone fell), on beat N's applied rows, public rulings, eliminations, standings and the Entropy line; delivered as previous_caption. The last beat's caption is written in the summary.",
     "Hidden information: a seat sees the rows its demigod, hands, agents or possessed bodies did, saw, were told or were hit by, plus what its Following heard. Public: the arena, live demigods' positions and bolts, casts and their ramifications, armies, world mods, freak weather, eliminations, big rulings, Entropy, the slow window's initiator (never who else typed), the caption, each demigod's influence per region.",
     "Heat death: Entropy reaching 100 makes that beat the Final Night at once: every outstanding debt is collected at its commit, then the survivor rule.",
+    "Revive: a demigod brought back from the dead (Death's raise-the-dead, or the survivor rule) whose seat was reported eliminated is reported revived (seat.revived) and plays again.",
     "Final Night (beat = beats_total), and any beat that would end with nobody standing: exactly one demigod survives: lowest outstanding debt, then most health, then most health at the beat's start; a fallen survivor is revived at its start-of-beat health (immune that beat).",
     "Match ends at beats_total or when at most one demigod stands. Every demigod gets a pile, a portrait prompt and an amiibo statue prompt.",
 ];
@@ -185,15 +188,26 @@ fn sample_step_prompt(kind: fn7_agents::step::StepKind) -> String {
     })
 }
 
-/// The Final Night 7 plugin. Holds the pantheon (data, compiled in).
+/// The Final Night 7 plugin. Holds the pantheon (data, compiled in). Everything Time's bill needs comes from the core
+/// (`RoundContext`), so the plugin keeps no game memory between hooks; the two maps below only route records and
+/// cover `fallback_outcome`, which the core calls without a context.
 pub struct FinalNight7Plugin {
     pantheon: Arc<Pantheon>,
+    /// Each recorded match's trace context (its run), by match seed, learned in the async hooks. The core runs the
+    /// sync hooks (`on_action_begin`, `on_instant`) and `fallback_outcome` outside any trace context (theatre faa7220),
+    /// so without this their events would be lost.
+    runs: std::sync::Mutex<std::collections::HashMap<u64, theatre_trace::Ctx>>,
+    /// The `RoundContext` of each (seed, round) resolve in flight: `fallback_outcome` gets no context from the core
+    /// (theatre faa7220), so a resolve that fails twice still settles the windows it was handed.
+    round_ctx: std::sync::Mutex<std::collections::HashMap<(u64, u32), RoundContext>>,
 }
 
 impl Default for FinalNight7Plugin {
     fn default() -> Self {
         Self {
             pantheon: Arc::new(fn7_pantheon::load()),
+            runs: Default::default(),
+            round_ctx: Default::default(),
         }
     }
 }
@@ -212,22 +226,173 @@ impl FinalNight7Plugin {
         world::settings(w).llm.then_some(llm)
     }
 
-    /// The turns of a beat: seats' actions (parsed; a bad one counts as silence) and the built-in AI's lines.
-    fn turns(w: &World, round: u32, actions: &[Action]) -> Vec<beat::Turn> {
+    /// Remember the current trace context (the core's run for this match), if any, for the sync hooks.
+    fn remember_run(&self, w: &World) {
+        if let Some(mut c) = theatre_trace::current() {
+            c.hook_id = None;
+            c.llm_call_id = None;
+            c.round = None;
+            c.step = None;
+            c.actor = None;
+            self.runs.lock().expect("runs").insert(w.meta.seed, c);
+        }
+    }
+
+    /// Run a sync hook inside its match's run (when the caller gave none), so its events are recorded.
+    fn in_run<R>(&self, seed: u64, round: Option<u32>, seat: Option<Seat>, f: impl FnOnce() -> R) -> R {
+        if theatre_trace::active() {
+            return f();
+        }
+        let ctx = self.runs.lock().expect("runs").get(&seed).cloned();
+        match ctx {
+            Some(mut c) => {
+                c.round = round;
+                c.actor = seat.map(|s| format!("seat:{s}"));
+                theatre_trace::within_sync(c, f)
+            }
+            None => f(),
+        }
+    }
+
+    /// `on_action_begin` on a loaded world (inside the match's run).
+    fn action_begin(
+        &self,
+        w: &World,
+        round: u32,
+        seat: Seat,
+        window: Option<&WindowInfo>,
+        next_window_id: u64,
+    ) -> PhaseControl {
+        let Some(s) = world::seat_state(w, seat) else {
+            return PhaseControl::default();
+        };
+        let d = &w.demigods[s.demigod.ix()];
+        if let Some(info) = window {
+            // Someone else's window: this seat engages, unseen. Recorded for the data, never shown.
+            world::event(
+                "slow_engaged",
+                Some(Ref::Demigod(d.id).to_string()),
+                json!({ "round": round, "seat": seat, "window_id": info.window_id, "by_seat": info.by_seat,
+                        "opened_ms": info.opened_ms, "at_ms": theatre_trace::now_ms() }),
+            );
+            return PhaseControl::default();
+        }
+        let refuse = if !d.alive {
+            Some("fallen")
+        } else if d.bolts < 1 {
+            Some("no bolt to pay Time")
+        } else {
+            None
+        };
+        if let Some(reason) = refuse {
+            world::event(
+                "slow_refused",
+                Some(Ref::Demigod(d.id).to_string()),
+                json!({ "round": round, "seat": seat, "reason": reason, "bolts": d.bolts }),
+            );
+            return PhaseControl::default();
+        }
+        let st = world::settings(w);
+        let now = theatre_trace::now_ms();
+        let deadline = now + st.slow_ms as i64;
+        let id = next_window_id; // exact: the id the core gives the window this call opens
+        world::event(
+            "slow_begin",
+            Some(Ref::Demigod(d.id).to_string()),
+            json!({ "round": round, "seat": seat, "demigod": d.id, "window_id": id, "begun_ms": now,
+                    "deadline_ms": deadline, "slow_ms": st.slow_ms, "bolts": d.bolts }),
+        );
+        PhaseControl {
+            window: Some(WindowControl {
+                deadline_in_ms: st.slow_ms as u64,
+                close_on_submit_of: Some(seat),
+                missing: MissingActions::Drop,
+            }),
+            public: Some(json!({
+                "event": "slowed",
+                "by": d.name,
+                "by_ref": Ref::Demigod(d.id),
+                "by_seat": seat,
+                "slow_ms": st.slow_ms,
+                "text": format!("{} slowed time", d.name),
+            })),
+            ..Default::default()
+        }
+    }
+
+    /// Replay of a resolve that fell back: the context its failed attempts were handed (the core passes none to
+    /// `fallback_outcome`).
+    pub fn remember_round_ctx(&self, state: &Value, round: u32, ctx: RoundContext) {
+        if let Ok(w) = world::load(state) {
+            self.round_ctx.lock().expect("round ctx").insert((w.meta.seed, round), ctx);
+        }
+    }
+
+    /// The turns of a beat and every submission's arrival facts. A seat may have several actions (this round's
+    /// Compose action, then windowed and instant ones in arrival order): their orders join in that order, their casts
+    /// keep their `seq`. A bad action counts as silence; an instant action's orders are ignored (casts only).
+    fn turns(w: &World, round: u32, actions: &[Action]) -> (Vec<beat::Turn>, Vec<flow::Sub>) {
         let mut out = vec![];
+        let mut subs = vec![];
         for s in &w.seats {
             let d = &w.demigods[s.demigod.ix()];
             if !d.alive {
                 continue;
             }
             let input = if s.seat >= SYNTHETIC_SEAT {
-                actions::bot_lines(w, d.id, round)
+                let i = actions::bot_lines(w, d.id, round);
+                if i.has_orders() {
+                    subs.push(flow::Sub {
+                        demigod: d.id,
+                        seat: s.seat,
+                        window_id: None,
+                        seq: 0,
+                        at_ms: 0,
+                        orders: true,
+                        ai: true,
+                    });
+                }
+                i
             } else {
-                actions
-                    .iter()
-                    .find(|a| a.seat == s.seat)
-                    .and_then(|a| actions::parse(&a.text, &a.fields).ok())
-                    .unwrap_or_default()
+                let mut input = actions::Input::default();
+                for a in actions.iter().filter(|a| a.seat == s.seat) {
+                    let Ok(mut i) = actions::parse(&a.text, &a.fields) else {
+                        continue;
+                    };
+                    if a.instant && i.has_orders() {
+                        world::event(
+                            "orders_ignored",
+                            Some(Ref::Demigod(d.id).to_string()),
+                            json!({ "beat": round, "seat": a.seat, "seq": a.seq,
+                                    "reason": "instant actions carry casts, not orders" }),
+                        );
+                        i.left.clear();
+                        i.right.clear();
+                    }
+                    let orders = i.has_orders() && !a.defaulted;
+                    if orders || a.windowed {
+                        subs.push(flow::Sub {
+                            demigod: d.id,
+                            seat: a.seat,
+                            window_id: if a.windowed { a.window_id } else { None },
+                            seq: a.seq,
+                            at_ms: a.received_at_ms,
+                            orders,
+                            ai: false,
+                        });
+                    }
+                    input.left = join(&input.left, &i.left);
+                    input.right = join(&input.right, &i.right);
+                    if i.zoom.is_some() {
+                        input.zoom = i.zoom;
+                    }
+                    for mut c in i.casts {
+                        c.seq = a.seq;
+                        c.instant = a.instant;
+                        input.casts.push(c);
+                    }
+                }
+                input
             };
             out.push(beat::Turn {
                 demigod: d.id,
@@ -235,7 +400,7 @@ impl FinalNight7Plugin {
                 input,
             });
         }
-        out
+        (out, subs)
     }
 
     async fn resolve(
@@ -243,16 +408,25 @@ impl FinalNight7Plugin {
         w: &mut World,
         round: u32,
         actions: &[Action],
+        ctx: &RoundContext,
         llm: Option<&dyn LlmProvider>,
     ) -> RoundOutcome {
-        let turns = Self::turns(w, round, actions);
-        let out = beat::resolve(w, round, turns, llm, &self.pantheon).await;
+        let (turns, subs) = Self::turns(w, round, actions);
+        let out = beat::resolve(w, round, turns, &subs, &ctx.windows_closed, llm, &self.pantheon).await;
         RoundOutcome {
             public: out.public,
             per_seat: out.per_seat,
             choices: vec![],
             state: world::save(w),
         }
+    }
+}
+
+fn join(a: &str, b: &str) -> String {
+    match (a.trim().is_empty(), b.trim().is_empty()) {
+        (true, _) => b.to_string(),
+        (_, true) => a.to_string(),
+        _ => format!("{a}\n{b}"),
     }
 }
 
@@ -271,6 +445,8 @@ impl GamePlugin for FinalNight7Plugin {
         // is out while AI demigods still fight.
         PluginInfo {
             id: PLUGIN_ID,
+            version: env!("CARGO_PKG_VERSION"),
+            rules_version: RULES_VERSION,
             min_players: 1,
             max_players: 8,
             min_active: 0,
@@ -282,6 +458,15 @@ impl GamePlugin for FinalNight7Plugin {
         Settings::validate(settings)
     }
 
+    /// No game queries yet (P2 stub: the real `game.*` queries are a separate task).
+    fn queries(&self) -> Vec<QuerySpec> {
+        vec![]
+    }
+
+    fn query(&self, _state: &Value, _seat: Option<Seat>, _name: &str, _args: &Value) -> Result<Value, String> {
+        Err("no queries yet".into())
+    }
+
     async fn on_match_start(
         &self,
         seats: &[SeatInfo],
@@ -290,6 +475,7 @@ impl GamePlugin for FinalNight7Plugin {
     ) -> anyhow::Result<Value> {
         let settings = Settings::validate(settings).map_err(anyhow::Error::msg)?;
         let w = phases::new_match(seats, &settings, &self.pantheon, now_seed());
+        self.remember_run(&w);
         theatre_trace::ruleset(
             PLUGIN_ID,
             RULES_VERSION,
@@ -306,6 +492,7 @@ impl GamePlugin for FinalNight7Plugin {
         _llm: &dyn LlmProvider,
     ) -> anyhow::Result<RoundStart> {
         let mut w = world::load(state)?;
+        self.remember_run(&w);
         Ok(phases::round_start(&mut w, round, &self.pantheon))
     }
 
@@ -338,12 +525,65 @@ impl GamePlugin for FinalNight7Plugin {
         seat: Seat,
         text: &str,
         fields: &Value,
+        kind: SubmitKind,
     ) -> Result<(), String> {
         let w = world::load(state).map_err(|e| e.to_string())?;
-        if world::seat_state(&w, seat).is_some_and(|s| !w.demigods[s.demigod.ix()].alive) {
-            return Ok(()); // spectators may type; it is ignored
+        let i = actions::parse(text, fields)?;
+        if kind == SubmitKind::Instant && i.has_orders() {
+            // Enforced on arrival (the core replies accepted:false); resolve keeps a safety net (`orders_ignored`).
+            return Err("instant actions carry casts, not orders: send orders as text entry".into());
         }
-        actions::parse(text, fields).map(|_| ())
+        let Some(s) = world::seat_state(&w, seat) else {
+            return Ok(());
+        };
+        let d = &w.demigods[s.demigod.ix()];
+        if i.casts.is_empty() {
+            return Ok(()); // a fallen demigod's player may type; it is ignored
+        }
+        if i.has_orders() {
+            return Err("casts never carry orders: send casts as an instant action and orders as text entry".into());
+        }
+        if !d.alive {
+            return Err("your demigod has fallen: it casts nothing".into());
+        }
+        // Read-only: checked against the last committed state; spending is settled at the next resolve.
+        let cost: u32 = i.casts.iter().map(casts::cost_of).sum();
+        if cost > d.bolts {
+            return Err(format!("not enough bolts: these casts cost {cost}, you have {}", d.bolts));
+        }
+        Ok(())
+    }
+
+    fn on_action_begin(
+        &self,
+        state: &Value,
+        round: u32,
+        seat: Seat,
+        window: Option<&WindowInfo>,
+        next_window_id: u64,
+    ) -> PhaseControl {
+        let Ok(w) = world::load(state) else {
+            return PhaseControl::default();
+        };
+        self.in_run(w.meta.seed, Some(round), Some(seat), || {
+            self.action_begin(&w, round, seat, window, next_window_id)
+        })
+    }
+
+    fn on_instant(&self, state: &Value, seat: Seat, action: &Action) -> Option<Value> {
+        let w = world::load(state).ok()?;
+        self.in_run(w.meta.seed, None, Some(seat), || {
+            let s = world::seat_state(&w, seat)?;
+            let i = actions::parse(&action.text, &action.fields).ok()?;
+            if i.casts.is_empty() {
+                return None;
+            }
+            let mut v = casts::streak(&w, s.demigod, seat, &i.casts)?;
+            v["seq"] = action.seq.into();
+            v["received_at_ms"] = action.received_at_ms.into();
+            world::event("cast_streak", Some(Ref::Demigod(s.demigod).to_string()), v.clone());
+            Some(v)
+        })
     }
 
     fn default_action(&self, _state: &Value, seat: Seat) -> Action {
@@ -375,18 +615,30 @@ impl GamePlugin for FinalNight7Plugin {
         state: &Value,
         round: u32,
         actions: &[Action],
+        ctx: &RoundContext,
         llm: &dyn LlmProvider,
         _progress: &dyn Progress,
     ) -> anyhow::Result<RoundOutcome> {
         let mut w = world::load(state)?;
+        self.remember_run(&w);
+        let key = (w.meta.seed, round);
+        self.round_ctx.lock().expect("round ctx").insert(key, ctx.clone());
         let llm = Self::llm(&w, llm);
-        Ok(self.resolve(&mut w, round, actions, llm).await)
+        let out = self.resolve(&mut w, round, actions, ctx, llm).await;
+        self.round_ctx.lock().expect("round ctx").remove(&key);
+        Ok(out)
     }
 
     fn fallback_outcome(&self, state: &Value, round: u32, actions: &[Action]) -> RoundOutcome {
         match world::load(state) {
             // No LLM: every mind takes its rules fallback immediately, so this never waits.
-            Ok(mut w) => futures::executor::block_on(self.resolve(&mut w, round, actions, None)),
+            Ok(mut w) => {
+                let seed = w.meta.seed;
+                let ctx = self.round_ctx.lock().expect("round ctx").remove(&(seed, round)).unwrap_or_default();
+                self.in_run(seed, Some(round), None, || {
+                    futures::executor::block_on(self.resolve(&mut w, round, actions, &ctx, None))
+                })
+            }
             Err(_) => RoundOutcome {
                 state: state.clone(),
                 ..Default::default()
@@ -430,7 +682,10 @@ impl GamePlugin for FinalNight7Plugin {
     async fn summarize(&self, state: &Value, llm: &dyn LlmProvider) -> anyhow::Result<Summary> {
         let w = world::load(state)?;
         let llm = Self::llm(&w, llm);
-        Ok(phases::summarize(&w, llm).await)
+        let s = phases::summarize(&w, llm).await;
+        self.runs.lock().expect("runs").remove(&w.meta.seed);
+        self.round_ctx.lock().expect("round ctx").retain(|k, _| k.0 != w.meta.seed);
+        Ok(s)
     }
 }
 

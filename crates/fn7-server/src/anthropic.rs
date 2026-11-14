@@ -269,33 +269,8 @@ impl Backend for AnthropicBackend {
 /// Structured outputs accept a subset of JSON Schema: rewrite `"type": [t, "null"]` as `anyOf`,
 /// and make sure every object has `additionalProperties: false`.
 pub fn strictify(schema: &Value) -> Value {
-    let mut s = theatre_toolkit::structured::strict_schema(schema.clone());
-    one_of_to_any_of(&mut s);
-    s
-}
-
-/// Anthropic structured outputs reject `oneOf` (schemars emits it for Rust enums). Tagged-enum variants are disjoint
-/// by their tag, so `anyOf` accepts exactly the same documents.
-fn one_of_to_any_of(v: &mut Value) {
-    match v {
-        Value::Object(m) => {
-            if let Some(x) = m.remove("oneOf") {
-                match m.get_mut("anyOf") {
-                    Some(Value::Array(a)) => {
-                        if let Value::Array(b) = x {
-                            a.extend(b)
-                        }
-                    }
-                    _ => {
-                        m.insert("anyOf".into(), x);
-                    }
-                }
-            }
-            m.values_mut().for_each(one_of_to_any_of);
-        }
-        Value::Array(a) => a.iter_mut().for_each(one_of_to_any_of),
-        _ => {}
-    }
+    // The Theatre's strict_schema (since 964d523) also rewrites `oneOf` → `anyOf`, which Anthropic requires.
+    theatre_toolkit::structured::strict_schema(schema.clone())
 }
 
 /// $ per million tokens (input, output) for known models, for cost estimates.

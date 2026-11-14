@@ -1,6 +1,6 @@
 [package]
 name = "fn7-tools"
-description = "Final Night 7 tools: simulator, agent playtests, replay, fork, timeline and the SQL projection of a recording."
+description = "Final Night 7 tools: agent playtests, JSON Schemas, and the SQL projection of core JSONL recordings."
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
@@ -21,7 +21,6 @@ path = "src/bin/schemas.rs"
 fn7-pantheon.workspace = true
 fn7-model = { workspace = true, features = ["schema"] }
 schemars.workspace = true
-theatre-recorder.workspace = true
 theatre-trace.workspace = true
 theatre-protocol.workspace = true
 rusqlite.workspace = true

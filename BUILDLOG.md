@@ -153,3 +153,94 @@ being rebuilt as the designer specified:
 - **Armies have a command chain:** demigod → general → captains → units. Generals act on orders by their own
   judgment and can misread them, mutiny or defect. The LLM is used at focus points and decisions; rules handle the rest.
 - **Level of detail:** every level runs every beat. Fidelity (rules vs LLM) depends on focus, not existence.
+
+## 2026-11-14: engine sync approved
+
+> Get it fully organized across the team.
+
+Engineering: approved for theatre_worker to push the schema fix and build realtime v2.2 (cut-off players get a private
+"cut" reply) and P1–P3, plus a route extension point. The plan, the order and what FN7 removes at each step are in
+docs/ENGINE_SYNC.md.
+
+Engineering (rules 0.5.0, Theatre `bdf7e2e` v2.2 + `330896e` routes): slow time now runs on the core. `action.begin` =
+"I started typing" opens a core action window (the God of Time interaction; refused for a fallen or boltless demigod),
+everyone sees who slowed time (`phase.event`), nobody sees who else engages, the initiator's Enter closes it and late
+submits get a private `cut`. "The world never waits": flow beats keep resolving while a window is open. Time's penalty
+("grows with seconds open; early Enter cheap") is billed at resolve from the window's real open time to the Enter's
+arrival. Bolts are instant actions with an immediate public streak, paid at the next resolve in arrival order. Death's
+revive returns a seat to play. The v0 emulation (plugin-held orders, `fields.slow` / `sent_at` / `window`) is gone.
+
+## 2026-11-14: the globe table (spoken; transcript kept nearly verbatim)
+
+> The goal is effectively a floating globe in the center. Raise the globe to about
+> 1.5 feet above the bench. Underneath it, the view should expand like a game, so it works like the
+> globe, almost like a projector for the area of interest. What is on the actual board does not need to appear on
+> the bottom of the sphere. Any player can move the sphere to look at what is
+> happening here or there. Players can select a part of the board, which is a great circle on the
+> sphere. The great circle on the sphere already has an indicator, which is good. So
+> the goal is a particular circle on the actual board with the sphere, though
+> it sits about 3 feet above the board surface, so it resembles a Star Wars style, as these are called
+> those board games. This will be essentially real time, so every scene we build must
+> keep a memory of exactly what is being viewed. The other part can be worked on, but understand
+> everything that is done and what is happening there, and then zoom back out, including any sounds. If
+> the characters have a consecutive experience, the sphere above, and this pairs well with
+> a timeline, scrubbing, free time and similar features. What is happening? So the globe sits 3 feet above the board. The goal is
+> to be able to do it live right now, and to select the great circle. That works, but there also needs to be actual
+> manifestation of a particular area on the ground. It needs to be on the ground and viewable
+> on the table. The table should show a circle of action, with fog or possibly
+> drifting edges, to be handled later. The circle of action should include all the details of the scene. So
+> the plan is a visually rendered scene so that other subagents can build things based on profile
+> pictures. They can have static frames. That will be handled later. But
+> ultimately, it is a scene and generation engine, and it must be able to collect the detail needed. If the
+> scene being viewed is before or connected to the previously viewed scene graphically, it must be possible to create it
+> and keep it in place. The assumption was a finely detailed indexed hexagon grid of the entire globe, down to
+> square meters or centimeters. The question of distance and how that data structure is
+> hierarchical areas, binary trees, or whatever is needed for a space-based session.
+> Track every location that has ever been rendered. Around those, render the surrounding great circles.
+> circles. Anywhere that has actually been rendered should keep some form of hierarchical memory.
+> Save this data. The action engine will be handled later. To restate, what are they
+> looking at? The globe with a large population: over 12 billion people, or 14 trillion people. That is like some
+> super Earth, with trillions of entities on it. What is being described is at least textual.
+> The description is still technical, summarizing the events that are happening. But on the
+> ground, as seen in front of you, the things around the circle show as much detail as possible,
+> and then time and related features can be added in that direction.
+
+> there is a long-winded point. Paraphrase as little as possible and mentally run forward what is being said.
+
+## 2026-11-14: recording, queries and admin on the engine; realtime follow-ups (Theatre `faa7220`)
+
+> make sure everyone is ready so the agent can run it fast-forward, and so on.
+
+Engineering (rules 0.5.0, Theatre `2b2b9e3` P1 recording, `dd820bb` P2 queries, `744ed91` P3 admin fork + replay,
+`faa7220` realtime follow-ups):
+- **Recording moved into the core.** `RecordingPlugin`, the `{"__theatre_recorder": …}` state wrapping and the
+  `../demo_final_night/{trace,recorder}` path dependencies are gone; FN7 no longer depends on demo_final_night.
+  `theatre-trace` is the engine's crate. The core writes every match as `<THEATRE_RECORD_DIR>/<match_id>.jsonl`
+  (`THEATRE_RECORD=full` in the runbooks); the plugin's `trace::event/annotate/ruleset/http` calls land in it.
+  `PluginInfo` carries `version` (crate) and `rules_version`. JSONL is the store of record: `fn7-project` ingests it
+  into SQLite (generic tables + the unchanged `fn7_*` projection), `fn7-agents` writes its client run in the same
+  format, `fn7-sim` records in-process through the engine's own `JsonlSink` / `RunRec` (`fn7-server::record`), so one
+  toolchain reads all three.
+- **Sync hooks have no trace context in the core** (`on_action_begin`, `on_instant`, and the call to
+  `fallback_outcome`). The plugin remembers each match's run (by seed) from its async hooks and re-enters it there, so
+  `slow_begin` / `slow_engaged` / `slow_refused` / `cast_streak` and a fallback beat's rows are still recorded. Asked
+  the engine to run those calls inside the run's context instead.
+- **Replay** uses the engine's `ReplayLlm` on the core JSONL and the actions + `RoundContext` from each recorded
+  `resolve_round` input: 0 differences on server recordings (offline LLM, a window that timed out empty, and a fork's
+  run) and on `fn7-sim` recordings (scripted LLM, 77/77 answers from the recording). `THEATRE_REPLAY_FROM` works in
+  `fn7-server` too.
+- **P2:** `queries()` returns `[]` and `query()` says "no queries yet"; `MediaPlugin` forwards both; the forwarding
+  test covers every hook. The real `game.*` queries are a separate task.
+- **P3:** fork, timeline and state-at-a-round are the engine's admin API (README); FN7 writes no save files. The
+  reference client gained `--resume <token>` for forked rooms.
+- **Realtime follow-ups (`faa7220`):** `validate_action` gets the `SubmitKind` and refuses orders in an instant action
+  on arrival (resolve keeps the `orders_ignored` safety net); `on_action_begin` uses the exact `next_window_id`; Time's
+  bill reads `RoundContext.windows_closed` (opened_ms, closed_ms, reason), so a window that times out with nobody
+  submitting still bills its opener the full slow. The `WindowBook`, the `window_book` event and its replay feed are
+  deleted; the plugin keeps no game memory between hooks. Open windows are no longer announced in
+  `round.outcome.public.slow` (`event: "open"` is gone) and `flow.slow` / `public_view.slow` / `brief.slow` are null:
+  the core's `window.opened` / `match.snapshot.window` carry the live window. Engaged/dropped seats stay out of every
+  payload. `fallback_outcome` gets no context from the core, so the plugin keeps the context its failed resolve
+  attempts were handed.
+- **Fast-forward:** `llm: false, flow_ms: 500, compose_seconds: 0.001` runs about 54 beats/s on a release server
+  (docs/AGENT_GUIDE.md §11, with the admin API and local-run recipes).

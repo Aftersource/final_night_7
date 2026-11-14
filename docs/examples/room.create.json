@@ -1,10 +1,10 @@
 {
   "d": {
     "settings": {
-      "beat_ms": 1500,
-      "beats_total": 6,
-      "compose_seconds": 1.5,
-      "rounds": 6,
+      "beat_ms": 3000,
+      "beats_total": 8,
+      "compose_seconds": 3.0,
+      "rounds": 8,
       "seed": 7
     },
     "visibility": "private"

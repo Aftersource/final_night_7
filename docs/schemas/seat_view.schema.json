@@ -282,11 +282,11 @@
       "type": "object"
     },
     "Ref": {
-      "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row. Stable for the whole match.",
+      "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row, ce cell, mb mob. Stable for the whole match.",
       "examples": [
         "ch:12"
       ],
-      "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg):\\d+$",
+      "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg|ce|mb):\\d+$",
       "type": "string"
     },
     "SeatHand": {
@@ -526,6 +526,14 @@
       },
       "type": "array"
     },
+    "hierarchy": {
+      "additionalProperties": true,
+      "description": "The society hierarchy at your zoom (schema 4: node, path, children, crowds, cells, people, armies with chains of command, mobs, battles). Its shape is not frozen yet (the society build is in progress); read defensively.",
+      "type": [
+        "object",
+        "null"
+      ]
+    },
     "items": {
       "description": "Items your demigod holds.",
       "items": {
@@ -588,12 +596,8 @@
         {
           "description": "The open slow window, as it concerns you.",
           "properties": {
-            "held": {
-              "description": "Orders of yours are held in it.",
-              "type": "boolean"
-            },
-            "window": {
-              "description": "Its id.",
+            "window_id": {
+              "description": "The Theatre's window id.",
               "minimum": 0,
               "type": "integer"
             },
@@ -604,8 +608,7 @@
           },
           "required": [
             "yours",
-            "window",
-            "held"
+            "window_id"
           ],
           "type": "object"
         }

@@ -26,6 +26,10 @@
           "description": "The power's icon key (= its slug for palette powers).",
           "type": "string"
         },
+        "instant": {
+          "description": "Sent as an instant action.",
+          "type": "boolean"
+        },
         "off_target": {
           "description": "Entropy ≥ 40: physics threw it off its aim.",
           "type": "boolean"
@@ -60,6 +64,11 @@
           ],
           "description": "Its ledger row."
         },
+        "seq": {
+          "description": "Its action's room-wide arrival order (0 for the built-in AI, which casts first).",
+          "minimum": 0,
+          "type": "integer"
+        },
         "target": {
           "anyOf": [
             {
@@ -84,7 +93,9 @@
         "power",
         "icon",
         "power_name",
-        "cost"
+        "cost",
+        "seq",
+        "instant"
       ],
       "type": "object"
     },
@@ -202,23 +213,18 @@
       "type": "object"
     },
     "Ref": {
-      "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row. Stable for the whole match.",
+      "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row, ce cell, mb mob. Stable for the whole match.",
       "examples": [
         "ch:12"
       ],
-      "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg):\\d+$",
+      "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg|ce|mb):\\d+$",
       "type": "string"
     },
     "SlowEvent": {
-      "description": "One slow-window announcement this beat.",
+      "description": "One slow-time announcement this beat: a window that closed since the last beat (with Time's bill), or orders sent without a window (an instant Enter, billed as a zero-second slow). A window still open is announced by the core (`window.opened`, `match.snapshot.window`) and the `slowed` phase.event.",
       "properties": {
         "after_ms": {
-          "description": "closed only: how long it stayed open (client timestamps, else beats × flow_ms).",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "beats_left": {
-          "description": "Flow beats left (0 once closed).",
+          "description": "closed / instant: how long time was slowed (real ms: from the window's opening to the Enter's arrival, or the deadline; 0 for instant).",
           "minimum": 0,
           "type": "integer"
         },
@@ -229,40 +235,36 @@
         "by_ref": {
           "$ref": "#/$defs/Ref"
         },
-        "closes_by_beat": {
-          "description": "Last beat it can stay open.",
-          "minimum": 0,
-          "type": "integer"
+        "debt": {
+          "description": "closed / instant: the debt Time wrote (0 if the initiator had fallen).",
+          "type": "number"
         },
         "event": {
-          "description": "opened this beat, still open, or closed this beat.",
+          "description": "closed (settled now), or orders without a window.",
           "enum": [
-            "opened",
-            "open",
-            "closed"
+            "closed",
+            "instant"
           ],
           "type": "string"
         },
         "how": {
-          "description": "closed only: the initiator's orders (Enter), the deadline, or the initiator fell.",
+          "description": "closed only: the initiator's submit (Enter), or the deadline (the opener is billed the full slow even if nobody submitted).",
           "enum": [
             "enter",
-            "timeout",
-            "fell"
+            "timeout"
           ],
           "type": "string"
         },
-        "ms_left": {
-          "description": "beats_left × flow_ms.",
-          "minimum": 0,
-          "type": "integer"
+        "paid_bolt": {
+          "description": "closed / instant: Time got its bolt (if not, the debt doubled).",
+          "type": "boolean"
         },
         "text": {
-          "description": "\"<name> slowed time\", or the closing line.",
+          "description": "\"<name> slowed time\", the closing line, or the instant-Enter line.",
           "type": "string"
         },
-        "window": {
-          "description": "The window's id (its opening beat).",
+        "window_id": {
+          "description": "closed: the Theatre's window id.",
           "minimum": 0,
           "type": "integer"
         }
@@ -271,10 +273,6 @@
         "event",
         "by",
         "by_ref",
-        "window",
-        "closes_by_beat",
-        "beats_left",
-        "ms_left",
         "text"
       ],
       "type": "object"
@@ -444,11 +442,19 @@
       "type": "string"
     },
     "slow": {
-      "description": "Slow-window announcements this beat (opened / open / closed).",
+      "description": "Slow-time announcements this beat (open / closed / instant).",
       "items": {
         "$ref": "#/$defs/SlowEvent"
       },
       "type": "array"
+    },
+    "society": {
+      "additionalProperties": true,
+      "description": "The society's public summary (schema 4). Its shape is not frozen yet (the society build is in progress); read defensively.",
+      "type": [
+        "object",
+        "null"
+      ]
     },
     "timing": {
       "description": "Server-side wall-clock timings of the resolve (diagnostics).",
@@ -462,6 +468,25 @@
           "description": "Of those, how many used their rules fallback.",
           "minimum": 0,
           "type": "integer"
+        },
+        "society_dropped": {
+          "description": "Society events dropped from the payload.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "society_emerged": {
+          "description": "People who emerged from the simulation this beat.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "society_events": {
+          "description": "Society events this beat.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "society_ms": {
+          "description": "The society step's wall time.",
+          "type": "number"
         },
         "stages": {
           "description": "Per stage, in order.",

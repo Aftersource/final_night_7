@@ -1,12 +1,11 @@
-//! Synthetic recording → projection. The recording is written through the real recorder (`SqliteSink`), so the source
-//! schema is exactly the recorder's.
+//! Synthetic recording → projection. The recording is written through the engine's `JsonlSink` (the core's recording
+//! format) and loaded with `crate::ingest`, exactly the path a server recording takes.
 
 use std::sync::Arc;
 
 use rusqlite::Connection;
 use serde_json::{json, Value};
-use theatre_recorder::{wrap_state, SqliteSink};
-use theatre_trace::{HttpRecord, Ids, Record, Sink};
+use theatre_trace::{HttpRecord, Ids, JsonlSink, Record, Sink};
 
 use super::*;
 
@@ -102,7 +101,7 @@ fn ledger_row(
 }
 
 struct Rec {
-    sink: Arc<SqliteSink>,
+    sink: Arc<JsonlSink>,
 }
 
 impl Rec {
@@ -138,7 +137,8 @@ impl Rec {
 }
 
 fn synthetic(path: &std::path::Path) {
-    let sink = Arc::new(SqliteSink::open(path).unwrap());
+    let dir = path.parent().unwrap().join("jsonl");
+    let sink = JsonlSink::new(&dir).unwrap();
     sink.write(Record::RunStart {
         run: RUN.into(),
         plugin: "final_night_7".into(),
@@ -147,7 +147,7 @@ fn synthetic(path: &std::path::Path) {
         meta: json!({}),
     });
     let r = Rec { sink: sink.clone() };
-    r.snapshot(0, "match_start", wrap_state(RUN, world(false)));
+    r.snapshot(0, "on_match_start", world(false));
 
     r.event(1, "utterance", Some("dg:0"), json!({ "seat": 0, "hand": "left", "beat": 1, "text": "send someone to scout the cathedral", "mode": "type", "words": 6 }));
     r.event(1, "intent", Some("ag:0"), json!({ "intent": { "id": 0, "beat": 1, "agent": 0, "demigod": 0, "verb": "spawn", "targets": [{ "text": "the cathedral", "kind": "place", "near": null }],
@@ -234,8 +234,8 @@ fn synthetic(path: &std::path::Path) {
 
     // One provider exchange in beat 1, for the beat-cost view.
     let ids = r.ids(1);
-    sink.write(Record::Http(
-        HttpRecord {
+    sink.write(Record::Http {
+        http: HttpRecord {
             started_at: 1_001,
             duration_ms: 800.0,
             url: "x".into(),
@@ -244,12 +244,20 @@ fn synthetic(path: &std::path::Path) {
             output_tokens: Some(20),
             ..Default::default()
         },
-        ids,
-    ));
+        ctx: ids,
+    });
 
-    r.snapshot(5, "committed", wrap_state(RUN, world(false)));
-    r.snapshot(5, "final", wrap_state(RUN, world(true)));
-    sink.close();
+    r.snapshot(4, "commit_round", world(false));
+    r.snapshot(5, "commit_round", world(true));
+    sink.write(Record::RunEnd {
+        run: RUN.into(),
+        at: 2_000,
+        summary: json!({}),
+    });
+    sink.flush();
+    let mut c = Connection::open(path).unwrap();
+    let got = crate::ingest::ingest(&mut c, &dir.join(format!("{RUN}.jsonl"))).unwrap();
+    assert_eq!(got.run, RUN);
 }
 
 fn q<T: rusqlite::types::FromSql>(c: &Connection, sql: &str) -> T {
@@ -267,7 +275,7 @@ fn projects_a_synthetic_recording() {
     let s = project(&mut c, &runs).unwrap().remove(0);
     assert_eq!(
         s.snapshots,
-        vec!["match_start".to_string(), "final".to_string()]
+        vec!["on_match_start".to_string(), "commit_round".to_string()]
     );
     assert_eq!(s.events, 27, "unknown kinds are skipped");
 
@@ -584,12 +592,11 @@ fn projects_a_synthetic_recording() {
 #[test]
 fn empty_and_unknown_runs_project_to_nothing() {
     let path = tmp_db("empty");
-    let sink = SqliteSink::open(&path).unwrap();
-    sink.close();
     let mut c = Connection::open(&path).unwrap();
+    crate::ingest::ensure_schema(&c).unwrap();
     let s = project(&mut c, &["nope".to_string()]).unwrap().remove(0);
     assert!(s.counts.iter().all(|(_, n)| *n == 0));
-    // A database without the recorder's tables still gets the schema (and no beat-cost view).
+    // A database without the ingested tables still gets the schema (and no beat-cost view).
     let mut bare = Connection::open_in_memory().unwrap();
     project(&mut bare, &[]).unwrap();
     assert_eq!(

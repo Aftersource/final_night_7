@@ -70,6 +70,9 @@ pub struct Meta {
     pub heat_death: Option<u32>,
 }
 
+/// Settled slow windows remembered in [`World::slow_settled`].
+pub const SETTLED_KEPT: usize = 16;
+
 /// Most live world mods; a new one past this ends the oldest.
 pub const MAX_MODS: usize = 24;
 
@@ -162,36 +165,35 @@ pub enum ArenaKind {
     City,
 }
 
-/// A slow-time window (flow and slow, v0): opened by one seat's `slow`, it stays open over the following flow beats
-/// (the world never waits) until that seat presses Enter (sends orders) or `deadline_beat` passes. Orders the other
-/// seats send meanwhile are held here, hidden, and go through when it closes; orders sent after the Enter are cut off.
+/// A slow-time window as the plugin last saw it (engine v2.2 action windows). The Theatre core owns the window
+/// itself (it opens on the initiator's `action.begin`, holds everyone's orders hidden, and closes on the initiator's
+/// Enter or its deadline); the plugin records it here while it is open so views can show who slowed time, and
+/// settles Time's penalty from its real open/close times when it closes.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SlowWindow {
     pub initiator: DemigodId,
-    /// The beat it opened (also the window's id, `fields.window` on the client).
+    /// The first beat a resolve saw this window.
     pub opened_beat: u32,
-    /// Last beat it can stay open; at this beat's resolve it closes by timeout.
-    pub deadline_beat: u32,
-    /// The initiator's client timestamp (`fields.sent_at`, epoch ms) on the slow request, if sent.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub opened_at: Option<i64>,
-    /// Whether the initiator paid Time its bolt on opening (if not, Time's debt doubles).
+    /// The core's window id (`window.opened.window_id`).
     #[serde(default)]
-    pub paid: bool,
-    /// Other demigods' orders, held until the window closes (latest per demigod).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub held: Vec<HeldOrders>,
+    pub window_id: u64,
+    /// When it opened (epoch ms).
+    #[serde(default)]
+    pub opened_ms: i64,
+    /// When it closes at the latest (epoch ms).
+    #[serde(default)]
+    pub deadline_ms: i64,
+    /// The plugin's clock at the initiator's `action.begin` (with `window_id`, the window's identity).
+    #[serde(default)]
+    pub begun_ms: i64,
 }
 
-/// Orders a seat sent during someone else's slow window.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct HeldOrders {
-    pub demigod: DemigodId,
-    pub left: String,
-    pub right: String,
-    pub beat: u32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sent_at: Option<i64>,
+/// A slow window whose penalty is settled (kept briefly so a late delivery is never charged twice).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SettledWindow {
+    pub window_id: u64,
+    /// The plugin's clock at the initiator's `action.begin` (with the id, the window's identity).
+    pub begun_ms: i64,
 }
 
 /// Everything match setup needs besides seats and the pantheon. Plain data, so the server and tools can build one
@@ -274,6 +276,12 @@ pub struct World {
     /// The open slow-time window, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slow: Option<SlowWindow>,
+    /// The most recently settled slow windows (at most [`SETTLED_KEPT`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub slow_settled: Vec<SettledWindow>,
+    /// Seated demigods reported eliminated to the Theatre and not yet revived (a revive reports them back).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub out_reported: Vec<DemigodId>,
     /// The hierarchy's upper nodes (schema 4): one per place, same index as `places`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub nodes: Vec<Node>,

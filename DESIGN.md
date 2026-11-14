@@ -214,9 +214,9 @@ unchanged.
 The designer's last BUILDLOG entries, built: **the arena is the whole planet** (regions = UN subregions of the
 toolkit's Natural Earth countries, each with its largest cities; zoom planet → region → city → person; demigods start
 in different regions; Time's circle closes from everywhere to 1,500 km around one city). **Two separate inputs.** Text
-entry is the God of Time interaction: a seat slows time (everyone is told who), the world keeps running in fast flow
-beats, others' orders are held, the initiator's Enter sends theirs and cuts off anyone slower, and Time bills by the
-second. **Casts** are UX god powers from a data-driven palette (`data/powers.json`: lightning, storm clouds, volcano,
+entry is the God of Time interaction: a seat's `action.begin` slows time (a Theatre action window; everyone is told who), the world keeps
+running in fast flow beats, the core holds others' orders, the initiator's Enter sends theirs and cuts off anyone
+slower (privately), and Time bills by the real second at the next resolve. **Casts** are UX god powers from a data-driven palette (`data/powers.json`: lightning, storm clouds, volcano,
 earthquake, flood, wildfire, meteor, raise/sink land, grow forest, swarm, or custom), paid in **lightning bolts** (every
 bolt spent gives every rival 2); every cast gets **Entropy**'s check (the seventh god, who always says yes) and N
 ramifications that leave geotagged events and persistent **world mods**. Every bolt raises the **Entropy** meter:

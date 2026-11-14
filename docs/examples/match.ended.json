@@ -1,136 +1,140 @@
 {
   "d": {
-    "match_id": "81091be6-ca8f-4d6b-bdd2-7ae32cf9230a",
+    "match_id": "bf83fcf8-0410-4253-a59b-00bcac9f454e",
     "summary": {
       "champion_seat": 3,
       "champions": [
         {
           "demigod": "dg:3",
-          "health": 5.0,
+          "health": 5.49,
           "name": "Moth",
           "seat": 3
         }
       ],
       "entropy": {
         "heat_death": null,
-        "key": "calm",
-        "level": 0,
+        "key": "weather",
+        "level": 1,
         "max": 100.0,
-        "next_at": 20.0,
-        "text": "The world is holding together, mostly.",
-        "value": 10.2
+        "next_at": 40.0,
+        "text": "The weather has gone insane: freak storms, raining fish, snow in the desert.",
+        "value": 21.31
       },
       "final_cut": {
         "fallback": true,
-        "story": "Beat 1: Moth casts earthquake on Southern Asia, and 8 more things went sideways.\nBeat 2: Time bends the seconds around Juniper, and 3 more things went sideways.\nBeat 3: Time's clock catches Rook outside the arena, and 2 more things went sideways.\nBeat 4: Time's clock catches Rook outside the arena, and 3 more things went sideways.\nBeat 5: Time's clock catches Juniper outside the arena, and 11 more things went sideways.\nBeat 6: Time's clock catches Juniper outside the arena, and 11 more things went sideways.",
+        "story": "Beat 1: 20935 of the Pensioners of Abidjan leave Abidjan for Yaoundé: Time's circle has passed them by; meanwhile In Tokyo the Cathedral clergy of Tokyo found the Quiet Flame of Death.\nBeat 2: 22269 of the Vergers and acolytes of Johannesburg leave Johannesburg for Pretoria: Time's circle has passed them by; meanwhile 5246 of the Pickpockets of Kinshasa leave Kinshasa for Nairobi: Time's circle has passed them by.\nBeat 3: Juniper tries to shout someone, and 3 more things went sideways.\nBeat 4: 30872 of the Stevedores of Honiara leave Honiara for Port Moresby: Time's circle has passed them by; meanwhile 17729 of the Corner grocers of Ōsaka leave Ōsaka for Shanghai: Time's circle has passed them by.\nBeat 5: 19803 of the Night orderlies of Shanghai leave Shanghai for Manila: Time's circle has passed them by; meanwhile 13114 of the Hospital nurses of Kolkata leave Kolkata for Bangkok: Time's circle has passed them by.\nBeat 6: In Cairo the harvest fails; meanwhile 19259 of the Hospital nurses of Manila leave Manila for Bangkok: Time's circle has passed them by.\nBeat 7: Time's clock catches Juniper outside the arena, and 11 more things went sideways.\nBeat 8: Time's clock catches Rook outside the arena, and 11 more things went sideways.",
         "title": "Final Night 7"
       },
       "heat_death": null,
       "last_caption": {
-        "beat": 6,
-        "caption": "Beat 6: Time's clock catches Juniper outside the arena, and 11 more things went sideways."
+        "beat": 8,
+        "caption": "Beat 8: Time's clock catches Rook outside the arena, and 11 more things went sideways."
       },
       "piles": [
         {
           "alive": false,
-          "bolts": 20,
+          "bolts": 44,
           "demigod": "dg:0",
           "image_kind": "statue",
           "items": [],
           "name": "Rook",
           "seat": 0,
-          "slows": 0,
+          "slows": 3,
           "stats": {
-            "acts": 1,
-            "debt_paid": 0.0,
+            "acts": 16,
+            "debt_paid": 4.14,
             "memorized_people": 0,
-            "rulings": 1,
-            "subagents": 0,
-            "words": 0
+            "rulings": 10,
+            "subagents": 2,
+            "words": 56
           },
-          "statue_prompt": "An amiibo-style collectible figure of the demigod Rook, frozen mid-fall (caught outside the arena by Time's clock), on a round base shaped like Madrid, atop a ridiculous towering pile of everything they held and summoned: nothing but debts. Tiny figures of the people they touched cling to the pile: nobody. Two glowing hands hover at their sides.",
-          "summons": []
+          "statue_prompt": "An amiibo-style collectible figure of the demigod Rook, frozen mid-fall (fell on the Final Night), on a round base shaped like South-Eastern Asia, atop a ridiculous towering pile of everything they held and summoned: take. Tiny figures of the people they touched cling to the pile: nobody. Two glowing hands hover at their sides.",
+          "summons": [
+            {
+              "item": "it:1",
+              "name": "take"
+            }
+          ]
         },
         {
           "alive": false,
-          "bolts": 4,
+          "bolts": 42,
           "demigod": "dg:1",
           "image_kind": "statue",
           "items": [
             {
-              "item": "it:0",
-              "name": "make",
-              "origin": "summoned",
-              "origin_ref": null
-            },
-            {
-              "item": "it:1",
-              "name": "steal",
+              "item": "it:2",
+              "name": "build",
               "origin": "summoned",
               "origin_ref": null
             }
           ],
           "name": "Juniper",
           "seat": 1,
-          "slows": 5,
+          "slows": 4,
           "stats": {
-            "acts": 8,
-            "debt_paid": 5.25,
-            "memorized_people": 2,
-            "rulings": 5,
-            "subagents": 0,
-            "words": 20
+            "acts": 11,
+            "debt_paid": 4.02,
+            "memorized_people": 3,
+            "rulings": 8,
+            "subagents": 2,
+            "words": 48
           },
-          "statue_prompt": "An amiibo-style collectible figure of the demigod Juniper, frozen mid-fall (caught outside the arena by Time's clock), on a round base shaped like Auckland, atop a ridiculous towering pile of everything they held and summoned: make, steal. Tiny figures of the people they touched cling to the pile: Vera Tanaka, Wren Yilmaz. Two glowing hands hover at their sides.",
+          "statue_prompt": "An amiibo-style collectible figure of the demigod Juniper, frozen mid-fall (a debt collected by Consequence), on a round base shaped like South-Eastern Asia, atop a ridiculous towering pile of everything they held and summoned: build, steal. Tiny figures of the people they touched cling to the pile: Fenna Haddad, Hester Ferrante, Brigid Okafor. Two glowing hands hover at their sides.",
           "summons": [
             {
               "item": "it:0",
-              "name": "make"
+              "name": "steal"
             },
             {
-              "item": "it:1",
-              "name": "steal"
+              "item": "it:2",
+              "name": "build"
             }
           ]
         },
         {
           "alive": false,
-          "bolts": 23,
+          "bolts": 68,
           "demigod": "dg:2",
           "image_kind": "statue",
           "items": [],
           "name": "Quill",
           "seat": 2,
-          "slows": 0,
+          "slows": 1,
           "stats": {
-            "acts": 0,
-            "debt_paid": 0.0,
+            "acts": 10,
+            "debt_paid": 0.87,
             "memorized_people": 0,
-            "rulings": 0,
-            "subagents": 0,
-            "words": 0
+            "rulings": 3,
+            "subagents": 1,
+            "words": 16
           },
-          "statue_prompt": "An amiibo-style collectible figure of the demigod Quill, frozen mid-fall (caught outside the arena by Time's clock), on a round base shaped like Paris, atop a ridiculous towering pile of everything they held and summoned: nothing but debts. Tiny figures of the people they touched cling to the pile: nobody. Two glowing hands hover at their sides.",
-          "summons": []
+          "statue_prompt": "An amiibo-style collectible figure of the demigod Quill, frozen mid-fall (fell on the Final Night), on a round base shaped like South-Eastern Asia, atop a ridiculous towering pile of everything they held and summoned: take. Tiny figures of the people they touched cling to the pile: nobody. Two glowing hands hover at their sides.",
+          "summons": [
+            {
+              "item": "it:3",
+              "name": "take"
+            }
+          ]
         },
         {
           "alive": true,
-          "bolts": 21,
+          "bolts": 71,
           "demigod": "dg:3",
           "image_kind": "statue",
           "items": [],
           "name": "Moth",
           "seat": 3,
-          "slows": 1,
+          "slows": 0,
           "stats": {
-            "acts": 5,
-            "debt_paid": 0.0,
-            "memorized_people": 0,
-            "rulings": 3,
+            "acts": 6,
+            "debt_paid": 0.11,
+            "memorized_people": 1,
+            "rulings": 4,
             "subagents": 0,
-            "words": 4
+            "words": 8
           },
-          "statue_prompt": "An amiibo-style collectible figure of the demigod Moth, standing on the summit, smug, barely scratched, on a round base shaped like Honiara, atop a ridiculous towering pile of everything they held and summoned: nothing but debts. Tiny figures of the people they touched cling to the pile: nobody. Two glowing hands hover at their sides.",
+          "statue_prompt": "An amiibo-style collectible figure of the demigod Moth, standing on the summit, smug, barely scratched, on a round base shaped like South-Eastern Asia, atop a ridiculous towering pile of everything they held and summoned: nothing but debts. Tiny figures of the people they touched cling to the pile: Wim Mbeki. Two glowing hands hover at their sides.",
           "summons": []
         }
       ],
@@ -147,29 +151,29 @@
         },
         {
           "alive": false,
-          "cause": "caught outside the arena by Time's clock",
-          "demigod": "dg:1",
-          "eliminated_beat": 6,
-          "name": "Juniper",
-          "rank": 2,
-          "score": 0.0,
-          "seat": 1
-        },
-        {
-          "alive": false,
-          "cause": "caught outside the arena by Time's clock",
+          "cause": "fell on the Final Night",
           "demigod": "dg:0",
-          "eliminated_beat": 4,
+          "eliminated_beat": 8,
           "name": "Rook",
-          "rank": 3,
+          "rank": 2,
           "score": 0.0,
           "seat": 0
         },
         {
           "alive": false,
-          "cause": "caught outside the arena by Time's clock",
+          "cause": "a debt collected by Consequence",
+          "demigod": "dg:1",
+          "eliminated_beat": 8,
+          "name": "Juniper",
+          "rank": 3,
+          "score": 0.0,
+          "seat": 1
+        },
+        {
+          "alive": false,
+          "cause": "fell on the Final Night",
           "demigod": "dg:2",
-          "eliminated_beat": 4,
+          "eliminated_beat": 8,
           "name": "Quill",
           "rank": 4,
           "score": 0.0,
@@ -177,22 +181,22 @@
         }
       ],
       "stats": {
-        "agents": 15,
+        "agents": 20,
         "armies": 0,
-        "beats": 6,
-        "beats_total": 6,
-        "casts": 5,
-        "characters": 62,
+        "beats": 8,
+        "beats_total": 8,
+        "casts": 12,
+        "characters": 70,
         "eliminations": 3,
-        "intents": 17,
-        "ledger_rows": 87,
-        "llm_calls": 33,
-        "llm_fallbacks": 33,
-        "memories": 131,
-        "memorized": 2,
-        "mods": 2,
-        "rulings": 9,
-        "slows": 6
+        "intents": 47,
+        "ledger_rows": 255,
+        "llm_calls": 90,
+        "llm_fallbacks": 90,
+        "memories": 385,
+        "memorized": 10,
+        "mods": 3,
+        "rulings": 25,
+        "slows": 8
       }
     },
     "winners": [

@@ -140,6 +140,8 @@ pub fn setup(cfg: &SetupConfig, seats: &[(u8, String)], pantheon: &Pantheon) -> 
         seats: vec![],
         pending: vec![],
         slow: None,
+        slow_settled: vec![],
+        out_reported: vec![],
         mods: vec![],
         mod_seq: 0,
         nodes: vec![],

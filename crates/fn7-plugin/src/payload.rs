@@ -266,16 +266,14 @@ pub fn powers_json() -> Vec<Value> {
     v
 }
 
-/// The open slow-time window, publicly: `{by, by_ref, window, closes_by_beat, beats_left, ms_left}` or null.
+/// The open slow-time window as of the last resolve, publicly: `{by, by_ref, window_id, opened_ms, deadline_ms,
+/// opened_beat}` or null. Live window state comes from the Theatre (`window.opened` / `window.closed`,
+/// `match.snapshot.window`); this is the game's record of it.
 pub fn slow_json(w: &World) -> Value {
-    let st = crate::world::settings(w);
     match &w.slow {
-        Some(s) => {
-            let left = s.deadline_beat.saturating_sub(w.meta.beat);
-            json!({ "by": w.demigods[s.initiator.ix()].name, "by_ref": Ref::Demigod(s.initiator),
-                    "window": s.opened_beat, "closes_by_beat": s.deadline_beat, "beats_left": left,
-                    "ms_left": left as u64 * st.flow_ms as u64 })
-        }
+        Some(s) => json!({ "by": w.demigods[s.initiator.ix()].name, "by_ref": Ref::Demigod(s.initiator),
+                           "window_id": s.window_id, "opened_ms": s.opened_ms, "deadline_ms": s.deadline_ms,
+                           "opened_beat": s.opened_beat }),
         None => Value::Null,
     }
 }

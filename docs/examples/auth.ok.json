@@ -1,9 +1,9 @@
 {
   "d": {
     "display_name": "Juniper",
-    "player_id": "a39f6615-3446-4e70-8afa-0c9db269b057",
-    "resume_token": "b534b2647eae0e886a744767f633d7beeb518a66d02a20bd22f1ef82916085b7",
-    "session_token": "af4d8befdc5ee0db53a3c6a0343de791"
+    "player_id": "b7229306-20ac-4ef3-9f60-48e8c3df362e",
+    "resume_token": "f8fb2dabd69528015ef8051f24ce2083db7a4206dc0d6cf67b0f083e7425001a",
+    "session_token": "1de9bea8965747a55c45ba94a66bf4d3"
   },
   "t": "auth.ok"
 }

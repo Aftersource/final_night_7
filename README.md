@@ -17,8 +17,8 @@ spoken to. A game plugin for [The Theatre](https://github.com/Aftersource/theatr
 | `fn7-pantheon` | God definitions (`data/pantheon.json`), the power palette (`data/powers.json`), keyword routing, favor, prices, precedence | model |
 | `fn7-agents` | LLM minds: hands, subagents, possessions, gods, paladins, resolver, narrator, ramifications; fallbacks | model, memory, pantheon, plugin-api, toolkit, trace |
 | `fn7-plugin` | The `GamePlugin`: beat loop, merge, views | all of the above |
-| `fn7-server` | Theatre server binary with the plugin and recorder; `fn7-sim` (in-process matches, replay verification) | plugin, recorder |
-| `fn7-tools` | sim, agents, replay, fork, timeline, SQL projection | plugin, recorder |
+| `fn7-server` | Theatre server binary with the plugin (the core records every match); `fn7-sim` (in-process matches recorded in the core's JSONL format, replay verification) | plugin, theatre-server |
+| `fn7-tools` | agents (client recording), JSONL → SQLite ingest + SQL projection, client schemas | model, pantheon, theatre-trace |
 
 The dependency direction only ever points down this table. Game rules never touch I/O, and LLM minds never mutate state:
 they return proposals, and only the merge in `fn7-plugin` applies effects.
@@ -26,8 +26,12 @@ they return proposals, and only the merge in `fn7-plugin` applies effects.
 ```
 cargo build --workspace && cargo test --workspace
 ```
-Local development uses `.cargo/config.toml` (gitignored) to patch the Theatre to `../theatre` and build offline from its
-vendored crates; recording comes from `../demo_final_night/{trace,recorder}` until it moves into the Theatre core.
+Without any local config this builds against the Theatre's GitHub `main` (`Aftersource/theatre`, git dependencies;
+needs network for the first build: GitHub + crates.io). Local engine development uses `.cargo/config.toml`
+(gitignored) to `[patch]` the Theatre crates (`theatre-plugin-api`, `-llm`, `-server`, `-protocol`, `-toolkit`,
+`-trace`) to `../theatre` and build offline from its vendored crates (`../theatre/vendor` is local only, not in the
+Theatre repo). FN7 depends on nothing outside these two repos. A fresh Linux/WSL build is in `docs/AGENT_GUIDE.md`
+("Fast-forward, time travel and local runs").
 
 ## Running
 
@@ -41,24 +45,59 @@ cargo run --release -p fn7-server --bin fn7-server            # THEATRE_BIND=0.0
   `LLM_BASE_URL` is not: model `LLM_DEFAULT_MODEL` (default `claude-haiku-5-5`), `ANTHROPIC_EFFORT` (default `low`),
   `ANTHROPIC_MAX_INFLIGHT` (default 8). Otherwise the core's OpenAI-compatible gateway (`LLM_BASE_URL`, `LLM_API_KEY`,
   `LLM_DEFAULT_MODEL`), and with neither, no LLM: every mind uses its rules fallback.
-- **Recording:** every match goes to `THEATRE_RECORD` (default `runs/fn7.sqlite`; `off` disables) through
-  `theatre_recorder::RecordingPlugin`: hooks, snapshots, LLM calls, raw HTTP, events (see `docs/DATA_MODEL.md` §3).
+- **Recording** is the Theatre core's (P1): run with `THEATRE_RECORD=full` (levels `off | events | full`; default
+  `events`) and `THEATRE_RECORD_DIR=runs/recordings` (default `<THEATRE_DATA_DIR>/recordings`). Every match is
+  `<dir>/<match_id>.jsonl`: run start/end, rulesets (plugin `version`, `rules_version`), every core and plugin event,
+  hooks with inputs/outputs, LLM calls, state snapshots, and at `full` protocol frames and raw LLM HTTP (never
+  credentials). JSONL is the store of record; `fn7-project` loads it into SQLite for analysis (see
+  `docs/DATA_MODEL.md` §3–4). `THEATRE_REPLAY_FROM=<recording.jsonl>` answers every LLM call from a recording.
+- **Images:** `FN7_IMAGES` (off by default) and the `/media` routes, see `docs/MEDIA.md`.
+
+Runbook (LAN / tunnel):
+```
+THEATRE_RECORD=full THEATRE_RECORD_DIR=runs/recordings THEATRE_ADMIN_TOKEN=<secret, from your shell or .env> \
+  cargo run --release -p fn7-server --bin fn7-server
+```
+
+**Recording, replay and the admin API.** With `THEATRE_ADMIN_TOKEN` set (never print or commit it), the core serves
+`/admin/*` over HTTP with `Authorization: Bearer <token>` (404 without the variable, 401 without the header). FN7 writes
+no fork or timeline files of its own: these are the engine's.
+```
+curl -H "Authorization: Bearer $THEATRE_ADMIN_TOKEN" http://HOST:8080/admin/matches                     # recorded matches
+curl -H "Authorization: Bearer $THEATRE_ADMIN_TOKEN" http://HOST:8080/admin/matches/<id>/recording      # raw JSONL
+curl -H "Authorization: Bearer $THEATRE_ADMIN_TOKEN" http://HOST:8080/admin/matches/<id>/timeline       # compact items (+ ?frames=true)
+curl -H "Authorization: Bearer $THEATRE_ADMIN_TOKEN" "http://HOST:8080/admin/matches/<id>/state?after_round=5&view=seat:0"
+                                                                    # view = raw | public | seat:N (or at=<record id>)
+curl -H "Authorization: Bearer $THEATRE_ADMIN_TOKEN" -H 'content-type: application/json' \
+     -X POST http://HOST:8080/admin/fork -d '{"match_id":"<id>","after_round":5}'
+     # -> {room_id, code, match_id, resumes_at_round, players: [{seat, display_name, player_id, resume_token}]}
+node docs/clients/fn7_client.mjs --url ws://HOST:8080/ws --resume <resume_token> --auto   # take the seat back
+```
+A fork is a new private room that resumes after round N (bots take seats nobody resumes within the resume TTL); its
+recording starts from a `fork` snapshot and points at its parent (`run_start.meta.forked_from`). Replay-verify any
+recording (server or `fn7-sim`, a fork included):
+```
+cargo run --release -p fn7-server --bin fn7-sim -- --replay runs/recordings/<match_id>.jsonl
+cargo run --release -p fn7-tools --bin fn7-project -- --db runs/fn7.sqlite runs/recordings/   # JSONL -> SQLite + fn7_* tables
 
 **Simulator.** `fn7-sim` plays a whole match in-process through the `GamePlugin` trait exactly as the core drives it
-(Start → Brief → Compose → Resolve → Commit), with bot seats, recorded, printing each beat's caption and stage timings.
+(Start → Brief → Compose → Resolve → Commit), with bot seats, recorded in the core's JSONL format (the engine's
+`JsonlSink` and `RunRec`, same records and snapshot labels as a server recording), printing each beat's caption and
+stage timings.
 
 ```
 cargo run --release -p fn7-server --bin fn7-sim -- --seed 7 --beats 100          # rules fallbacks only, no LLM
 cargo run --release -p fn7-server --bin fn7-sim -- --scripted --beats 30         # offline scripted replies for every mind
 cargo run --release -p fn7-server --bin fn7-sim -- --claude --beats 10 --budget 0.5   # Claude (spends money)
-cargo run --release -p fn7-server --bin fn7-sim -- --replay runs/fn7.sqlite --run <run-id>
+cargo run --release -p fn7-server --bin fn7-sim -- --replay runs/recordings/<match_id>.jsonl
 ```
-Flags: `--seed --city --beats --players (seats, all bots) --clusters --mind-timeout-ms --stop-after --record <db>
---no-record --claude --model --scripted --budget <usd> --verbose --settings <json>` (`--settings '{"entropy_scale": 4,
-"arena": "city"}'` merges extra room settings). `--replay <db> [--run <id>]` re-executes a recorded
-run from its `match_start` snapshot with every LLM request answered from the recording
-(`theatre_recorder::ReplayProvider`) and the recorded actions, and checks every snapshot (`round_start`, `resolved`,
-`committed`, `final`) byte for byte; it exits non-zero on any difference.
+Flags: `--seed --city --beats --players (seats, all bots) --clusters --mind-timeout-ms --stop-after --record <dir>
+(default runs/recordings) --level events|full (default full) --no-record --claude --model --scripted --budget <usd>
+--verbose --settings <json> --society-only` (`--settings '{"entropy_scale": 4, "arena": "city"}'` merges extra room
+settings). `--replay <recording.jsonl>` re-executes a recorded match from its `on_match_start` (or `fork`) snapshot with
+every LLM request answered by the engine's `ReplayLlm` and each round fed the actions and `RoundContext` recorded in
+its `resolve_round` hook, and checks every snapshot (`on_round_start`, `resolve_round`, `commit_round`) and the summary
+byte for byte; it exits non-zero on any difference.
 
 ## Settings
 
@@ -83,23 +122,29 @@ Room settings (`validate_settings` fills defaults; one Theatre round = one beat;
 | `debt_due_beats` | 6 | 1–100 | Beats until a bill falls due |
 | `memory_per_owner` | 40 | 4–1000 | Live memories per owner before old ones fold into a summary |
 | `llm_folds_per_beat` | 2 | 0–32 | Folds written by the fold mind per beat (the rest by rules) |
-| `max_intents_per_hand` | 6 | 1–12 | Acts one hand turns its speech into per beat (orders sent in the beat they open their window) |
-| `max_intents_per_window` | 12 | 1–24 | Acts per hand from orders that closed (or were held in) a window open at least one beat |
+| `max_intents_per_hand` | 6 | 1–12 | Acts one hand turns its speech into per beat |
+| `max_intents_per_window` | 12 | 1–24 | Acts per hand from orders delivered from a slow window open at least `flow_ms` |
 | `max_memorize_per_beat` | 6 | 0–64 | People memorized from player mentions per beat |
 | `max_witnesses` | 4 | 1–64 | Witnesses recorded per act (targets and actor first) |
 | `compose_seconds`, `choose_seconds`, `resolve_timeout_s` | `flow_ms/1000`, core, 60 | core | The core's timers, copied through (`util::copy_timer_settings`) |
 
 **Actions** (two separate paths; `docs/CLIENT_API.md` has the full contract). *Text entry*, the God of Time
-interaction: `fields: {slow, left, right, zoom, window, sent_at}`: `slow: true` opens a slow-time window (the world keeps
-running in flow beats; others' orders are held), the initiator's orders (Enter) close it, orders sent after the Enter
-are cut off, and Time charges a bolt plus a debt that grows with the seconds the window stayed open. Without
-`left`/`right` fields, `text` is read as lines prefixed `l:` / `r:` (a `/slow` line = `slow`). Empty hands make no LLM
-call; silent hands carry out their standing orders by rules. *Casts*, UX god powers: `fields: {cast | casts | bolt |
-bolts}` (`{power, target: ref | [lon, lat] | name, text?, magnitude?}`), paid in bolts (every other demigod gains 2 per
+interaction, on the Theatre's action windows (engine v2.2): `action.begin` opens a slow-time window (`on_action_begin`;
+the world keeps running in flow beats; the core holds others' orders, hidden), `action.submit { window_id, fields:
+{left, right, zoom} }` sends orders into it, the initiator's submit (Enter) closes it and the core cuts off later
+submits privately, and Time charges a bolt plus a debt that grows with the real seconds the window stayed open (settled
+at resolve). Without `left`/`right` fields, `text` is read as lines prefixed `l:` / `r:`. Empty hands make no LLM
+call; silent hands carry out their standing orders by rules. *Casts*, UX god powers, are instant actions (`instant: true`,
+any phase; `on_instant` pushes the public streak at once): `fields: {cast | casts | bolt | bolts}` (`{power, target: ref |
+[lon, lat] | name, text?, magnitude?}`), paid in bolts at the next resolve in `seq` order (every other demigod gains 2 per
 bolt), Entropy's yes, and a ramifications call per region.
 
 **Engine boundary.** The plugin uses only the Theatre's public `GamePlugin` API (`theatre_plugin_api`): settings
 validation (including `compose_seconds` via `util::copy_timer_settings`), the round hooks, `validate_action`,
 `default_action`, `bot_action`, `resolve_round` with the actions the core delivers, `commit_round`, the views and
-`summarize`. Flow/slow v0 is game logic over those actions; the real mechanic (a Compose the initiator closes, an
-extendable deadline, mid-phase pushes, a typing signal, instant actions) waits for engine proposal v2.2.
+`summarize`, the real-time hooks (`on_action_begin` opens Time's slow windows with the core's exact `next_window_id`,
+`on_instant` pushes cast streaks, `validate_action` sees the `SubmitKind` and refuses orders in instant actions;
+`Committed.revived` / `RoundStart.revived` return a revived seat to play), and `queries()` / `query()` (none declared
+yet). Time's bill settles at resolve from the core's `RoundContext.windows_closed` (opener, open/close times, reason)
+and the actions' metadata (`windowed`, `window_id`, `instant`, `received_at_ms`, `seq`). `PluginInfo` carries
+`version` (the crate version) and `rules_version` (`RULES_VERSION`), recorded in every match's ruleset.

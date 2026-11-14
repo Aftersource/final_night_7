@@ -34,10 +34,15 @@ pub struct CastOrder {
     pub text: Option<String>,
     /// A custom power's magnitude (0..10; default 5).
     pub magnitude: Option<u8>,
+    /// The carrying action's room-wide arrival order (`Action::seq`, set by the core; 0 for the plugin's own AI).
+    pub seq: u64,
+    /// Sent as an instant action (`action.submit { instant: true }`), the path clients use for casts.
+    pub instant: bool,
 }
 
 /// One seat's input for one beat. Two separate paths: text entry (orders to the hands: the God of Time interaction,
-/// with `slow`, `sent_at` and `window`) and casts (UX god powers). Casts never carry orders and never slow time.
+/// typed in a core action window opened by `action.begin`) and casts (UX god powers, sent as instant actions). Casts
+/// never carry orders and never slow time.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Input {
     pub left: String,
@@ -46,12 +51,6 @@ pub struct Input {
     pub zoom: Option<(Zoom, Option<String>)>,
     /// God powers to cast this beat (in order).
     pub casts: Vec<CastOrder>,
-    /// The player started typing: slow time (open a window).
-    pub slow: bool,
-    /// Client timestamp of the submission (epoch ms), for the cut-off rule and time-to-Enter.
-    pub sent_at: Option<i64>,
-    /// The slow window (its opening beat) these orders were typed in.
-    pub window: Option<u32>,
 }
 
 impl Input {
@@ -137,6 +136,8 @@ fn cast_of(v: &Value, default_power: Option<&str>) -> Result<CastOrder, String> 
         target,
         text,
         magnitude,
+        seq: 0,
+        instant: false,
     })
 }
 
@@ -247,39 +248,19 @@ pub fn parse(text: &str, fields: &Value) -> Result<Input, String> {
         i.right = rs.join("\n");
     }
     i.zoom = zoom_of(fields.get("zoom").unwrap_or(&Value::Null))?;
-    // `/slow` on its own line in `text` asks to slow time (text-only clients); it is not an order.
-    if !fielded {
-        let mut slow = false;
-        for part in [&mut i.left, &mut i.right] {
-            let kept: Vec<&str> = part
-                .lines()
-                .filter(|x| {
-                    let s = x.trim().eq_ignore_ascii_case("/slow");
-                    slow |= s;
-                    !s
-                })
-                .collect();
-            *part = kept.join("\n");
+    // Slow time v0 is gone (rules 0.5): time slows through the Theatre's action windows (`action.begin`), and the core
+    // stamps arrival order (`seq`, `received_at_ms`). Old clients get a clear error instead of silently losing orders.
+    if !fielded && text.lines().any(|x| x.trim().eq_ignore_ascii_case("/slow")) {
+        return Err("`/slow` was removed: send `action.begin` when you start typing (it opens the slow window)".into());
+    }
+    for k in ["slow", "sent_at", "window"] {
+        if fields.get(k).is_some_and(|v| !v.is_null()) {
+            return Err(format!(
+                "`fields.{k}` was removed: send `action.begin` to slow time and submit with the `window_id` from \
+                 `window.opened`; the server stamps arrival order"
+            ));
         }
-        i.slow = slow;
     }
-    match fields.get("slow") {
-        None | Some(Value::Null) => {}
-        Some(Value::Bool(b)) => i.slow |= *b,
-        Some(_) => return Err("`slow` must be true/false".into()),
-    }
-    i.sent_at = match fields.get("sent_at") {
-        None | Some(Value::Null) => None,
-        Some(v) => Some(
-            v.as_f64()
-                .filter(|x| x.is_finite() && *x >= 0.0)
-                .ok_or("`sent_at` must be epoch milliseconds")? as i64,
-        ),
-    };
-    i.window = match fields.get("window") {
-        None | Some(Value::Null) => None,
-        Some(v) => Some(v.as_u64().ok_or("`window` must be the window's beat (an integer)")? as u32),
-    };
     i.casts = casts_of(fields)?;
     for (k, s) in [("left", &i.left), ("right", &i.right)] {
         if s.chars().count() > MAX_HAND_CHARS {
@@ -316,10 +297,8 @@ pub fn action(seat: u8, left: &str, right: &str, zoom: Option<&str>) -> Action {
         text.push_str(&format!("r: {right}"));
     }
     Action {
-        seat,
-        text,
         fields,
-        defaulted: false,
+        ..Action::new(seat, text)
     }
 }
 
@@ -469,18 +448,14 @@ pub fn bot_lines(w: &World, d: DemigodId, beat: u32) -> Input {
         3 => Some((Zoom::City, None)),
         _ => None,
     };
-    // Text entry is the God of Time interaction (every message slows time and costs a bolt), so the AI speaks about
-    // one beat in six (always when the arena's edge is near). Now and then it slows time first and presses Enter one
-    // to three beats later. It casts a power about one beat in nine when it has the bolts.
-    let mine = w.slow.as_ref().filter(|s| s.initiator == d);
-    let (speak, slow) = match mine {
-        Some(s) => (beat >= s.opened_beat + 1 + (s.opened_beat + d.0) % 3, false),
-        None if w.slow.is_none() && rng.below(30) == 0 => (false, true),
-        None => (edge || rng.below(6) == 0, false),
-    };
+    // Text entry is the God of Time interaction (every message is billed by Time: a bolt and a debt), so the AI speaks
+    // about one beat in six (always when the arena's edge is near). It can't open the core's action windows (only a
+    // connected client's `action.begin` can), so its orders are instant Enters: a zero-second slow. It casts a power
+    // about one beat in nine when it has the bolts, on beats it doesn't speak (casts never carry orders).
+    let speak = edge || rng.below(6) == 0;
     let (left, right) = if speak { (left, right) } else { (String::new(), String::new()) };
     let mut casts = vec![];
-    if me.bolts >= 1 && rng.below(9) == 0 {
+    if me.bolts >= 1 && rng.below(9) == 0 && !speak {
         let pw: Vec<&PowerDef> = crate::powers().powers.iter().filter(|p| p.cost <= me.bolts).collect();
         if let Some(p) = rng.pick(&pw) {
             let target = match rng.pick(&rivals) {
@@ -498,6 +473,8 @@ pub fn bot_lines(w: &World, d: DemigodId, beat: u32) -> Input {
                 target,
                 text: None,
                 magnitude: None,
+                seq: 0,
+                instant: false,
             });
         }
     }
@@ -506,9 +483,6 @@ pub fn bot_lines(w: &World, d: DemigodId, beat: u32) -> Input {
         right,
         zoom,
         casts,
-        slow,
-        sent_at: None,
-        window: None,
     }
 }
 
@@ -521,9 +495,6 @@ pub fn action_of(seat: u8, i: &Input) -> Action {
         Zoom::Character => "character",
     });
     let mut a = action(seat, &i.left, &i.right, zoom);
-    if i.slow {
-        a.fields["slow"] = true.into();
-    }
     if !i.casts.is_empty() {
         a.fields["casts"] = i
             .casts
@@ -541,12 +512,6 @@ pub fn action_of(seat: u8, i: &Input) -> Action {
                 v
             })
             .collect();
-    }
-    if let Some(t) = i.sent_at {
-        a.fields["sent_at"] = t.into();
-    }
-    if let Some(wi) = i.window {
-        a.fields["window"] = wi.into();
     }
     a
 }
@@ -580,5 +545,10 @@ mod tests {
         assert!(parse("", &json!({"left": 3})).is_err());
         assert!(parse("", &json!({"zoom": "galaxy"})).is_err());
         assert!(parse("", &json!({"left": "a".repeat(MAX_HAND_CHARS + 1)})).is_err());
+        // Slow time v0 inputs are refused with a pointer to action.begin.
+        for f in [json!({"slow": true}), json!({"left": "x", "sent_at": 5}), json!({"window": 1})] {
+            assert!(parse("", &f).unwrap_err().contains("action.begin"), "{f}");
+        }
+        assert!(parse("/slow", &Value::Null).is_err());
     }
 }

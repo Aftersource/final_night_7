@@ -17,6 +17,21 @@ pub struct BeatReport {
 /// Actions for seats a script controls (`None` = the core's behavior: `bot_action` for bots, `default_action` else).
 pub type Script<'a> = dyn Fn(Seat, u32) -> Option<Action> + Send + Sync + 'a;
 
+/// Windowed and instant actions the core would deliver after this round's Compose actions (they must carry the
+/// core's metadata: `windowed` / `window_id` / `instant`, `seq`, `received_at_ms`), and the `RoundContext` it would
+/// hand the resolve (the action windows closed since the last one). Invalid actions are dropped, as the core rejects
+/// them on arrival.
+pub type Extras<'a> = dyn Fn(u32) -> (Vec<Action>, RoundContext) + Send + Sync + 'a;
+
+/// How the core would have received an action (for `validate_action`).
+pub fn kind_of(a: &Action) -> SubmitKind {
+    match (a.instant, a.window_id) {
+        (true, _) => SubmitKind::Instant,
+        (false, Some(window_id)) if a.windowed => SubmitKind::Window { window_id },
+        _ => SubmitKind::Compose,
+    }
+}
+
 /// `on_beat` runs after each commit with the committed state; returning false stops the match there (it is still
 /// summarized).
 pub async fn run_match(
@@ -26,6 +41,22 @@ pub async fn run_match(
     llm: &dyn LlmProvider,
     stop_after: Option<u32>,
     script: &Script<'_>,
+    on_beat: impl FnMut(&BeatReport, &Value) -> bool,
+) -> anyhow::Result<(Value, Summary)> {
+    run_match_with(p, seats, settings, llm, stop_after, script, &|_| (vec![], RoundContext::default()), on_beat).await
+}
+
+/// [`run_match`] plus real-time input: `extras(round)`'s actions are appended to each round's actions, as the core
+/// appends the windowed and instant actions delivered since the last resolve, and its context goes to the resolve.
+#[allow(clippy::too_many_arguments)]
+pub async fn run_match_with(
+    p: &dyn GamePlugin,
+    seats: &[SeatInfo],
+    settings: &Value,
+    llm: &dyn LlmProvider,
+    stop_after: Option<u32>,
+    script: &Script<'_>,
+    extras: &Extras<'_>,
     mut on_beat: impl FnMut(&BeatReport, &Value) -> bool,
 ) -> anyhow::Result<(Value, Summary)> {
     let settings = p.validate_settings(settings).map_err(anyhow::Error::msg)?;
@@ -48,13 +79,19 @@ pub async fn run_match(
                 None if s.is_bot => p.bot_action(&state, s.seat, llm).await?,
                 None => p.default_action(&state, s.seat),
             };
-            match p.validate_action(&state, s.seat, &a.text, &a.fields) {
+            match p.validate_action(&state, s.seat, &a.text, &a.fields, SubmitKind::Compose) {
                 Ok(()) => actions.push(a),
                 Err(_) => actions.push(p.default_action(&state, s.seat)),
             }
         }
+        let (mut late, ctx) = extras(round);
+        late.retain(|a| {
+            !out.contains(&a.seat) && p.validate_action(&state, a.seat, &a.text, &a.fields, kind_of(a)).is_ok()
+        });
+        late.sort_by_key(|a| a.seq);
+        actions.extend(late);
         let outcome = match p
-            .resolve_round(&state, round, &actions, llm, &NoProgress)
+            .resolve_round(&state, round, &actions, &ctx, llm, &NoProgress)
             .await
         {
             Ok(o) => o,

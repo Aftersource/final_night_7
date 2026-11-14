@@ -1,15 +1,15 @@
 //! Casts: god powers thrown from the UX at any point of the globe (`fields.cast` / `casts`; `bolt` / `bolts` are
 //! lightning). Separate from text entry: a cast never carries orders and never slows time.
 //!
-//! Each cast is settled at Resolve in arrival order (the plugin's AI first, then by `fields.sent_at`, then demigod;
-//! a cast its caster can't pay for fizzles): it costs its price in bolts, every other live demigod gains 2 per bolt,
-//! Entropy rises, and it strikes its point at once (rules). Every cast gets Entropy's check, which always says yes:
-//! one ramifications call per region with casts this beat ("N ramifications in <region> with <context>", N up to 10)
-//! runs in the act batch and becomes geotagged rows, news and persistent world mods.
-//!
-//! Engine note: today casts ride on the beat's normal `action.submit`. When the engine's instant actions land
-//! (proposal v2.2: `instant: true`, any phase, with `received_at_ms` and `seq`), [`CastOrder`]s from those actions feed
-//! [`process`] unchanged, ordered by `seq` instead of `sent_at`.
+//! Clients send casts as Theatre instant actions (`action.submit { instant: true, fields: { cast | casts | bolt |
+//! bolts } }`, any phase). `validate_action` checks them on arrival against the last committed state (known powers,
+//! enough bolts for the action's total); [`streak`] is the public `phase.event` everyone sees at once (`on_instant`).
+//! Nothing is spent then (hooks are read-only): each cast is settled at the next Resolve in arrival order (the plugin's
+//! AI first, then by the core's `seq`, then demigod; a cast its caster can no longer pay for fizzles): it costs its
+//! price in bolts, every other live demigod gains 2 per bolt, Entropy rises, and it strikes its point at once (rules).
+//! Every cast gets Entropy's check, which always says yes: one ramifications call per region with casts this beat
+//! ("N ramifications in <region> with <context>", N up to 10) runs in the act batch and becomes geotagged rows, news
+//! and persistent world mods.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -37,6 +37,11 @@ pub struct CastOut {
     pub ramify_intents: Vec<(IntentId, DemigodId, LonLat)>,
     /// Public lines: every cast this beat, landed or fizzled.
     pub lines: Vec<Value>,
+}
+
+/// A cast's price in bolts.
+pub fn cost_of(o: &CastOrder) -> u32 {
+    power_of(o, crate::powers()).cost
 }
 
 /// A resolved power: the palette entry, or a custom one priced by magnitude.
@@ -114,14 +119,45 @@ fn aim(w: &World, t: &CastTarget, power: &PowerDef) -> Option<(LonLat, Option<Re
     Some((at, hits))
 }
 
-/// The arrival key of a turn (as in `flow`).
-fn key(t: &Turn) -> (i64, u32) {
-    let at = if t.seat >= SYNTHETIC_SEAT {
-        i64::MIN
-    } else {
-        t.input.sent_at.unwrap_or(i64::MAX)
-    };
-    (at, t.demigod.0)
+/// The public streak of one instant action's casts (`on_instant`, shown to everyone at once): who, and per cast the
+/// power, its icon key, the aim (`target`, `at` [lon, lat], region). Read-only: nothing is paid until Resolve, and at
+/// Entropy 40+ a cast may still land off target there.
+pub fn streak(w: &World, d: DemigodId, seat: u8, casts: &[CastOrder]) -> Option<Value> {
+    let powers = crate::powers();
+    let name = w.demigods[d.ix()].name.clone();
+    let lines: Vec<Value> = casts
+        .iter()
+        .map(|o| {
+            let p = power_of(o, powers);
+            let mut v = json!({ "power": p.slug, "power_name": p.name, "icon": p.icon, "cost": p.cost,
+                                "radius_km": p.radius_km });
+            if let Some(t) = o.text.as_ref().filter(|_| p.slug == "custom") {
+                v["text"] = t.clone().into();
+            }
+            match aim(w, &o.target, &p) {
+                Some((at, target)) => {
+                    let (region, rname) = region_name(w, at);
+                    v["at"] = json!(at);
+                    v["region"] = rname.into();
+                    v["region_ref"] = json!(Ref::Place(region));
+                    v["place"] = w.name_of(Ref::Place(place_at(w, at))).into();
+                    v["target"] = json!(target);
+                    v["target_name"] = json!(target.map(|r| w.name_of(r)));
+                }
+                None => v["fizzled"] = "no such target".into(),
+            }
+            v
+        })
+        .collect();
+    let first = lines.first()?.clone();
+    let mut out = json!({ "event": "streak", "by": name, "by_ref": Ref::Demigod(d), "by_seat": seat,
+                          "casts": lines });
+    for k in ["power", "power_name", "icon", "cost", "at", "region", "region_ref", "place", "target", "target_name"] {
+        if let Some(x) = first.get(k) {
+            out[k] = x.clone();
+        }
+    }
+    Some(out)
 }
 
 fn region_name(w: &World, p: LonLat) -> (PlaceId, String) {
@@ -140,24 +176,29 @@ pub fn process(
     let powers = crate::powers();
     let entropy = pantheon.id_of("entropy");
     let mut out = CastOut::default();
-    let mut order: Vec<&Turn> = turns.iter().filter(|t| !t.input.casts.is_empty()).collect();
-    order.sort_by_key(|t| key(t));
+    // Arrival order: the plugin's AI first, then the core's `seq`, then demigod, then position in the action.
+    let mut order: Vec<(&Turn, &CastOrder)> = turns
+        .iter()
+        .flat_map(|t| t.input.casts.iter().map(move |o| (t, o)))
+        .collect();
+    order.sort_by_key(|(t, o)| (t.seat < SYNTHETIC_SEAT, o.seq, t.demigod.0));
     let mut by_region: BTreeMap<PlaceId, Vec<(CastLine, IntentId)>> = BTreeMap::new();
     let mut k = 0u64;
-    for t in order {
-        for o in &t.input.casts {
+    {
+        for (t, o) in order {
             k += 1;
             let d = t.demigod;
             let p = power_of(o, powers);
             let name = w.demigods[d.ix()].name.clone();
             let have = w.demigods[d.ix()].bolts;
             let base = json!({ "by": name, "by_ref": Ref::Demigod(d), "power": p.slug, "icon": p.icon,
-                               "power_name": p.name, "cost": p.cost });
+                               "power_name": p.name, "cost": p.cost, "seq": o.seq, "instant": o.instant });
             let Some((mut at, mut target)) = aim(w, &o.target, &p) else {
                 let mut v = base;
                 v["fizzled"] = "no such target".into();
                 event("cast_fizzled", Some(Ref::Demigod(d).to_string()),
-                      json!({ "beat": beat, "by": d, "power": p.slug, "reason": "no such target" }));
+                      json!({ "beat": beat, "by": d, "power": p.slug, "reason": "no such target", "seq": o.seq,
+                              "instant": o.instant }));
                 out.lines.push(v);
                 continue;
             };
@@ -167,7 +208,7 @@ pub fn process(
                 v["at"] = json!(at);
                 event("cast_fizzled", Some(Ref::Demigod(d).to_string()),
                       json!({ "beat": beat, "by": d, "power": p.slug, "cost": p.cost, "have": have,
-                              "reason": "not enough bolts" }));
+                              "reason": "not enough bolts", "seq": o.seq, "instant": o.instant }));
                 out.lines.push(v);
                 continue;
             }
@@ -253,7 +294,8 @@ pub fn process(
             event("cast", Some(Ref::Demigod(d).to_string()),
                   json!({ "beat": beat, "by": d, "power": p.slug, "cost": p.cost, "at": at, "region": region,
                           "target": target, "damage": p.damage, "off_target": off, "row": row,
-                          "bolts_left": w.demigods[d.ix()].bolts, "custom": o.text, "entropy": w.meta.entropy }));
+                          "bolts_left": w.demigods[d.ix()].bolts, "custom": o.text, "entropy": w.meta.entropy,
+                          "seq": o.seq, "instant": o.instant }));
             if row.is_none() {
                 v["fizzled"] = "the strike failed".into();
                 out.lines.push(v);

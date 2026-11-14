@@ -1,20 +1,16 @@
-//! Images in the server (`fn7-media`): the `/media` routes merged into the Theatre's router, and [`MediaPlugin`], a
+//! Images in the server (`fn7-media`): [`MediaPlugin`], a
 //! `GamePlugin` wrapper that annotates outgoing payloads (an `image` object next to every `image_prompt`,
 //! `statue_image` next to `statue_prompt`; see `fn7_media::annotate`) and queues their generation.
 //!
-//! The wrapper sits inside the recorder (`RecordingPlugin(MediaPlugin(FinalNight7Plugin))`), so the recorded hook
-//! outputs are what clients got, and the `media_*` events land in the match's run. It never touches the plugin state:
+//! The core records the hooks of the plugin it is given (`MediaPlugin(FinalNight7Plugin)`), so the recorded hook
+//! outputs are what clients got, and the `media_*` events land in the match's run (the core's trace context). It never touches the plugin state:
 //! replays and snapshots are unchanged. With images off (the default) it passes everything through untouched.
-
-use std::future::Future;
-use std::sync::Arc;
+//! The `/media` routes are served through the engine's route extension (`theatre_server::serve_with`, see main.rs).
 
 use async_trait::async_trait;
 use fn7_media::Media;
 use serde_json::Value;
 use theatre_plugin_api::*;
-use theatre_server::AppState;
-use tokio::net::TcpListener;
 
 pub struct MediaPlugin<P> {
     inner: P,
@@ -51,6 +47,14 @@ impl<P: GamePlugin> GamePlugin for MediaPlugin<P> {
     fn validate_settings(&self, settings: &Value) -> Result<Value, String> {
         self.inner.validate_settings(settings)
     }
+    fn queries(&self) -> Vec<QuerySpec> {
+        self.inner.queries()
+    }
+    fn query(&self, state: &Value, seat: Option<Seat>, name: &str, args: &Value) -> Result<Value, String> {
+        let mut v = self.inner.query(state, seat, name, args)?;
+        self.mark(&mut v);
+        Ok(v)
+    }
     async fn on_match_start(
         &self,
         seats: &[SeatInfo],
@@ -85,11 +89,33 @@ impl<P: GamePlugin> GamePlugin for MediaPlugin<P> {
         seat: Seat,
         text: &str,
         fields: &Value,
+        kind: SubmitKind,
     ) -> Result<(), String> {
-        self.inner.validate_action(state, seat, text, fields)
+        self.inner.validate_action(state, seat, text, fields, kind)
     }
     fn default_action(&self, state: &Value, seat: Seat) -> Action {
         self.inner.default_action(state, seat)
+    }
+    fn on_action_begin(
+        &self,
+        state: &Value,
+        round: u32,
+        seat: Seat,
+        window: Option<&WindowInfo>,
+        next_window_id: u64,
+    ) -> PhaseControl {
+        let mut c = self.inner.on_action_begin(state, round, seat, window, next_window_id);
+        if let Some(p) = c.public.as_mut() {
+            self.mark(p);
+        }
+        c
+    }
+    fn on_instant(&self, state: &Value, seat: Seat, action: &Action) -> Option<Value> {
+        let mut v = self.inner.on_instant(state, seat, action);
+        if let Some(p) = v.as_mut() {
+            self.mark(p);
+        }
+        v
     }
     async fn bot_action(
         &self,
@@ -104,12 +130,13 @@ impl<P: GamePlugin> GamePlugin for MediaPlugin<P> {
         state: &Value,
         round: u32,
         actions: &[Action],
+        ctx: &RoundContext,
         llm: &dyn LlmProvider,
         progress: &dyn Progress,
     ) -> anyhow::Result<RoundOutcome> {
         let mut r = self
             .inner
-            .resolve_round(state, round, actions, llm, progress)
+            .resolve_round(state, round, actions, ctx, llm, progress)
             .await?;
         self.mark_seats(&mut r.public, &mut r.per_seat);
         Ok(r)
@@ -149,26 +176,4 @@ impl<P: GamePlugin> GamePlugin for MediaPlugin<P> {
         self.mark(&mut s.summary);
         Ok(s)
     }
-}
-
-/// The Theatre's router (`/ws`, `/healthz`, `/stats`) plus the media routes (`/media/index`, `/media/<hash>.<ext>`).
-pub fn router(app: Arc<AppState>, media: Media) -> axum::Router {
-    theatre_server::gateway::router(app).merge(fn7_media::http::router(media))
-}
-
-/// `theatre_server::serve` with the media routes: serve until `signal` resolves, then shut down cleanly.
-pub async fn serve(
-    listener: TcpListener,
-    app: Arc<AppState>,
-    media: Media,
-    signal: impl Future<Output = ()> + Send + 'static,
-) -> anyhow::Result<()> {
-    let sweeper = theatre_server::spawn_sweeper(app.clone());
-    axum::serve(listener, router(app.clone(), media))
-        .with_graceful_shutdown(signal)
-        .await?;
-    tracing::info!("shutting down");
-    sweeper.abort();
-    theatre_server::shutdown(&app).await;
-    Ok(())
 }

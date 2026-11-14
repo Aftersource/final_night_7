@@ -13,7 +13,7 @@
   "$id": "action_fields.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": true,
-  "description": "`action.submit.fields`. If neither `left` nor `right` is present (or both are null), `text` is read instead: lines starting `l:`/`left:` go to the left hand, `r:`/`right:` to the right, other lines to the left. Remember the core caps `text` at 500 chars, so put long speech in the fields.",
+  "description": "`action.submit.fields`. Text entry (orders) goes into a slow window (`action.begin`, then `action.submit { window_id }`) or Compose; casts go as instant actions. If neither `left` nor `right` is present (or both are null), `text` is read instead: lines starting `l:`/`left:` go to the left hand, `r:`/`right:` to the right, other lines to the left. Remember the core caps `text` at 500 chars, so put long speech in the fields. The v0 keys `slow`, `sent_at`, `window` (and a `/slow` line) are refused.",
   "properties": {
     "bolt": {
       "anyOf": [
@@ -199,7 +199,7 @@
           "type": "null"
         }
       ],
-      "description": "A god power to cast this beat (never slows time, never carries orders)."
+      "description": "A god power to cast. Send casts as an instant action (`instant: true`, any phase) with no orders in the same action (casts never carry orders); `validate_action` refuses casts you can't afford at the last commit."
     },
     "casts": {
       "description": "Several casts (at most 5 per action, with `cast`/`bolt`/`bolts`).",
@@ -264,29 +264,6 @@
       "maxLength": 2000,
       "type": [
         "string",
-        "null"
-      ]
-    },
-    "sent_at": {
-      "description": "Your clock (epoch ms) when this was sent: orders the window's initiator didn't beat are cut off by it, and it measures how long a window stayed open. Without it, your orders can't prove they came before an Enter.",
-      "minimum": 0,
-      "type": [
-        "number",
-        "null"
-      ]
-    },
-    "slow": {
-      "description": "Text entry: you started typing; slow time (open a window). One window at a time.",
-      "type": [
-        "boolean",
-        "null"
-      ]
-    },
-    "window": {
-      "description": "The window (its opening beat) these orders were typed in; orders for a window that already closed are cut off.",
-      "minimum": 0,
-      "type": [
-        "integer",
         "null"
       ]
     },

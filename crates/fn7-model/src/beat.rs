@@ -103,12 +103,6 @@ pub struct SeatDelta {
     pub you: YouLine,
     pub hands: Vec<HandLine>,
     pub omens: Vec<Omen>,
-    /// Your orders this beat are being held in someone else's slow-time window (they go through when it closes).
-    #[serde(default)]
-    pub held: bool,
-    /// Your orders were cut off: someone slowed time and pressed Enter before you sent them. They did not go through.
-    #[serde(default)]
-    pub cut_off: bool,
     /// The hierarchy at your zoom (schema 4): the node in view with its path, children, crowds and cells, people,
     /// armies with their chains of command, mobs and recent battles. Shape: `docs/CLIENT_API.md` ("Hierarchy").
     #[serde(default, skip_serializing_if = "Option::is_none")]
