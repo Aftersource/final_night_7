@@ -941,3 +941,17 @@ Engineering: double-clicking your own demigod (card, box or piece, without dragg
 > Also, when a magic effect is used, it should apply to the cell on the table instead of moving the table's view. The view is not moved by a double click on the board; it is moved by a drop.
 
 Engineering: a power or summon dropped on the board acts on that cell and the board view stays put (no automatic zoom after a drop). Only a summon that lands off the board brings the view there.
+
+## 2026-11-14: the duel stops the world: will against will
+
+> Everyone on the map should stop what they are doing and watch this, since it is the Archon-level fight. One
+> A repeated reference to will, with no further detail.
+
+> Also, the demigods seem to move on their own. When a different area is clicked, they are not at a lat/lon position.
+
+Engineering:
+- A challenge HALTS THE WORLD. No beats resolve and everyone stops to watch; it's a room-wide hold window from the engine (requested).
+- Only the two duellists act, will against will: they type, and each line is resolved instantly.
+- It ends at a knockout or a deadline (default 45 s), then the world resumes and the result is applied.
+- Every client shows the duel full-screen as spectators.
+- Pieces: they ARE at their lat/lon. The client slid them whenever the view changed; they now snap on view changes and glide only on real moves.
