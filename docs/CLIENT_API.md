@@ -124,7 +124,8 @@ only names what appears. Every attempt is a **Manifestation**; a made thing is a
 [`schemas`](schemas/) `$defs/Item` and `$defs/Manifestation`.
 
 - **Item:** `{ref, name, description, kind, icon, tier, count, unit, state, holder, holder_name, created_beat,
-  manifestation, at, banner, image_prompt, image_kind: "item"}`. `icon` is your piece: `sword`, `ranged`, `armor`,
+  manifestation, at, banner, image_prompt?, image_kind?: "item", art?}` (state schema 11: only an item with item art
+  has `image_prompt`, `image_kind` and `art`; see "Gear looks"). `icon` is your piece: `sword`, `ranged`, `armor`,
   `banner_army`, `vehicle`, `beast`, `structure`, `relic`, `artifact`, `phenomenon`, `thing`. `tier`: `trinket`,
   `artifact`, `relic`, `wonder`, `legend`, `myth`, `titan`, `apocalypse`. `count` can be 100,000,000 (a double).
   `state`: `held`, `deployed` (a host in the field: its army appears in `armies`), `destroyed`, `transferred`, `stolen`.
@@ -1281,6 +1282,127 @@ in `wills[]` with `verdict: "refused"` and what they can do.
 `raise_cap`, `raise_years`, `raise_health_fraction`, `curse_price_sparks`, `curse_god_price_sparks`, `curse_beats`,
 `curse_dc`, `curse_max_per_player`, `curse_entropy`, `quest_steps_max`, `quest_expire_beats`, `quest_spark_step`,
 `wills_ai_chance`: DM_RULEBOOK chapter 22, [settings](schemas/settings.schema.json), `GET /sim/settings`.
+
+## Gear looks: loadouts, gear portraits and item art (state schema 11)
+
+Room setting `looks_enabled` (default true; needs state schema 11). Everything here is additive: a 0.9.0 client that
+ignores unknown keys keeps working, and the identity `portrait_image` / `diorama_image` on every demigod are unchanged.
+There are **no new actions**. Rules and prompts: [MEDIA.md](MEDIA.md) "Looks"; the state: [TIME_TRAVEL.md](TIME_TRAVEL.md) §2.
+
+**What it is.** Every demigod has a **loadout**: its notable gear right now (its best item per slot, `weapon`,
+`armor`, `charm`, plus up to `look_extra_items` other major items: relic tier and up, god-blessed, or the first item
+of a kind it has). When a **human player's** demigod's loadout changes (a *major acquisition*, or a loss), it takes a
+new **look**: a new portrait and a new diorama of the same demigod WITH that gear. The built-in AI's demigods keep
+their base images whatever they carry (their loadout is still listed). Notable items also get a picture of their own.
+
+### `look` (on every public demigod and on your own in the seat view)
+
+`public_state.demigods[]`, `game.globe` / `game.region` demigods, `seat_view.demigods[]`,
+`match.ended.summary.players[].demigods[]`. Schema: `$defs/Look`.
+
+```json
+"look": {
+  "loadout": [
+    { "slot": "weapon", "item": "it:3", "name": "Butterfly Wing Blade", "icon": "sword", "tier": "relic", "kind": "weapon",
+      "material": "butterfly-wing", "blessed_by": "Nature",
+      "image_prompt": "a blade of iridescent butterfly-wing membrane veined like stained glass: a demigod's weapon, ornate, glowing steadily, wound with living vines and small green leaves",
+      "image_kind": "item", "art": "5d0c…64 hex…", "image": { "hash": "…", "kind": "item", "status": "ready", "url": "/media/….png", "prompt": "…" } },
+    { "slot": "armor", "item": "it:5", "name": "Moonsteel Plate", "icon": "armor", "tier": "artifact", "kind": "armor",
+      "material": "moonsteel", "blessed_by": null }
+  ],
+  "loadout_hash": "9a41…64 hex…",
+  "image_loadout_hash": "9a41…64 hex…",
+  "since_beat": 7,
+  "gear": true,
+  "looks_made": 2, "looks_cap": 4,
+  "portrait_image": { "hash": "…", "kind": "portrait", "status": "ready", "url": "/media/….png", "prompt": "…" },
+  "diorama_image":  { "hash": "…", "kind": "diorama",  "status": "ready", "url": "/media/….png", "prompt": "…" },
+  "pending": { "loadout_hash": "9a41…", "portrait_image": { "hash": "…", "status": "pending", "url": null, "…": "…" },
+               "diorama_image": { "hash": "…", "status": "pending", "url": null, "…": "…" } }
+}
+```
+
+- `loadout[]`: in a stable order (weapon, armor, charm, then `extra`s by tier). `slot` is the slot the item fills, or
+  `extra`. An entry has `image_prompt` / `image` only when the item has item art (below); otherwise draw its `icon`.
+- `loadout_hash`: sha256 over the loadout's normalized item descriptors (role, kind, material, tier, name stem,
+  blessing), never item ids: the same gear is the same hash in every match. `""` = nothing notable.
+- `image_loadout_hash`: the loadout the images show; `""` = the base identity images. It differs from `loadout_hash`
+  while a new picture is debounced (`look_debounce_beats`) or once the demigod has had `looks_cap` pictures this match.
+- **`portrait_image` and `diorama_image` are the images to draw for this demigod now** (images on only). They are
+  the gear images of `image_loadout_hash` once those exist. While they render, they are the previous look's images
+  (or the base identity images) and `pending` names the ones on the way: keep showing what you have and swap when the
+  pending hash turns `ready` (poll `GET /media/index`, or wait for the `ready` event below). `pending` is absent when
+  nothing is on the way. A gear image that will never come (budget, failure) has no `pending`: the previous images stay.
+- `gear`: the images show gear. `since_beat`: the beat they became these.
+- With images off (`FN7_IMAGES` unset) there are no image objects; the look instead carries the server's inputs
+  (`base_portrait`, `base_diorama`, `portrait_subject`, `diorama_subject`, `fallback`). Ignore them.
+- **Time travel:** the look is part of the state. A snapshot, a state at a round, a fork and a reconnect each show the
+  look that was current at that beat, and its images are cached files (same hashes), so nothing is drawn again.
+
+### `look.changed` (public event)
+
+In `round.outcome.public.looks[]` (always complete) and, the same object, in `dm_events[]`. Schema: `$defs/LookChanged`.
+
+```json
+{ "event": "look.changed", "demigod": "dg:0", "name": "Chris's Left Hand", "player": "Chris", "beat": 7,
+  "gained": { "item": "it:3", "name": "Butterfly Wing Blade", "icon": "sword", "tier": "relic", "kind": "weapon",
+              "image_prompt": "…", "image_kind": "item", "art": "…", "image": { "…": "…" } },
+  "loadout": [ "…as in look…" ], "loadout_hash": "…", "image_loadout_hash": "…", "since_beat": 7, "gear": true,
+  "image_change": true, "kept": null,
+  "text": "Chris's Left Hand now carries the Butterfly Wing Blade", "memory": 412, "at": [3.82, 25.04],
+  "portrait_image": { "…the image to show now…": "" }, "diorama_image": { "…": "" },
+  "pending": { "loadout_hash": "…", "portrait_image": { "status": "pending", "…": "…" }, "diorama_image": { "…": "…" } } }
+```
+
+- Sent the beat the loadout changes, **with `pending`** while the new images render (with cached images, e.g. the same
+  demigod and gear in an earlier match, it has no `pending` and the images are final at once).
+- **Sent once more when the images exist:** the same event with `"ready": true`, no `pending`, and the final
+  `portrait_image` / `diorama_image`, in the `looks[]` of the next public payload of the match (`round.started.public`,
+  `round.brief.public` or `round.outcome.public`). Match the two by `memory` (or `demigod` + `beat`).
+- `gained`: the best item newly in the loadout; `null` when something was lost ("stands bare-handed again") or when
+  only the picture caught up after a debounce.
+- `image_change: false` with `kept: "debounced"` (a new picture was made less than `look_debounce_beats` beats ago; one
+  follows when the wait ends, of the newest loadout) or `"capped"` (this demigod has had `look_images_per_demigod`
+  pictures this match; the loadout keeps updating, the picture stays). Flash the item either way.
+- Losing all gear goes back to the base images (`gear: false`, `image_loadout_hash: ""`); an earlier look worn again
+  costs nothing (same hashes).
+
+### Item art
+
+An item with a picture has `image_prompt`, `image_kind: "item"`, `art` (the picture's key) and, with images on,
+`image`. An item without one has none of these: draw its `icon`. Since schema 11 **only granted items have
+`image_prompt`** (0.9.0 sent it on every item): a notable item (relic tier and up, god-blessed, or the first of its kind
+its human player holds) that a human player's demigod holds, or a relic-tier or blessed item lying in a loot pile, up
+to `item_art_per_match` per match. The picture is keyed by the item's descriptor (kind, material, tier, name stem,
+blessing), so the same sword is the same picture for everyone, in every match.
+
+Where it appears: `Item` (`items[]`, `my_items[]`, `game.items`, `game.item`), `look.loadout[]`, `look.changed.gained`,
+story pegs (`story.items[]`: since schema 11 every peg also has `name` and `tier`), loot tokens (`loot[]`),
+`round.private.wills[].parts[].item`, `manifests[]`, and the final piles' items.
+
+### What the client should do
+
+1. Draw each demigod's card and table piece from `look.portrait_image` / `look.diorama_image` when `look` is present
+   (fall back to the demigod's own `portrait_image` / `diorama_image` when it is absent: an older match).
+2. On `look.changed`: flash "NEW: `gained.name`" on that demigod's card (with `gained.image` or its `icon`), update its
+   gear strip from `loadout[]`. If the event has `pending`, keep the current art and remember
+   `pending.portrait_image.hash` / `pending.diorama_image.hash`; swap when the manifest (`GET /media/index`) shows them
+   `ready` or when the `ready: true` event arrives, whichever is first. Cross-fade; it is the same character.
+3. On reconnect or when scrubbing a recorded match, do nothing special: every snapshot's `look` already says which
+   images to show.
+4. Show item pictures where an item has `image`; otherwise the `icon`.
+5. Cache every image by `hash` forever (they are immutable).
+
+### Profile library
+
+`game.library` / `GET /api/profiles/{name}/library`: a gear portrait or diorama has `looks: [{match_id, beat,
+loadout_hash, loadout: ["Butterfly Wing Blade", "Moonsteel Plate"]}]` (oldest first: every match and beat it was a
+demigod's look) and a caption like "Chris's Left Hand, portrait with Butterfly Wing Blade, Moonsteel Plate".
+
+### Settings
+
+`looks_enabled` (true), `look_extra_items` (2), `look_items_shown` (3), `look_images_per_demigod` (4),
+`look_debounce_beats` (3), `item_art_per_match` (12): [settings](schemas/settings.schema.json), `GET /sim/settings`.
 
 ## Message flow for one beat
 

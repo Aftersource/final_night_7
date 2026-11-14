@@ -22,6 +22,7 @@ Wherever a payload object has an image prompt, the server puts an image object b
 | `statue_prompt` (in `match.ended.summary.piles[]`) | `statue_image` | `statue` |
 | `portrait_prompt` | `portrait_image` | `portrait` |
 | `diorama_prompt` (every demigod in the PublicView, `game.globe`, `game.region`) | `diorama_image` | `diorama` |
+| a `look` or `look.changed` (state schema 11; the look inputs `base_portrait` …, see "Looks") | `portrait_image`, `diorama_image`, `pending` (the inputs are removed) | `portrait`, `diorama` |
 
 Moment cards: an event object (in `events[]`, with a numeric `magnitude` and a `kind`) gets its `image` only if the style
 config's `event_selection` picks it (below). Storyboard shots (`match.ended.summary.storyboard[]`) get theirs always.
@@ -42,7 +43,7 @@ config's `event_selection` picks it (below). Storyboard shots (`match.ended.summ
 - `status: "off"`: no picture will come (images off, over budget, over the per-match event cap, or the generator
   failed). Show your own placeholder. Don't retry.
 - `hash` is the image's key: sha256 of the prompt version (`fn7-media/3`), the generator (provider, model, quality),
-  the size, the prompt text and the sha256 of every reference image sent with it. The same prompt under the same generator is always the same hash and is generated once, ever (it is
+  the size, the prompt text and the sha256 of every reference image sent with it. A picture drawn on a base image (a gear portrait or diorama) also keys on the base image's key. The same prompt under the same generator is always the same hash and is generated once, ever (it is
   cached on disk across matches and restarts).
 - `prompt` is the full text sent to the image model: `<Framing for its kind>: <subject>. Style: <the kind's house
   style>. <reference note> <avoid>`, all from the style config. It never contains engine ids.
@@ -170,6 +171,180 @@ references' note stays in the prompt text but no images are sent.
   sha256}`, never the image bytes and never the key (only the `authorization` header carries it, recorded as
   `Bearer <redacted>`). The response is redacted as before (base64 replaced by its length). `media_request` lists the
   reference file names (`refs`).
+
+## Looks: gear portraits, gear dioramas and item art (state schema 11)
+
+The designer asked where the equipment the demigods pick up is, and for portraits of each piece, made every so often
+major acquisition for the user's characters but not for the ai's? ... so it feels like ur getting more and more stuff
+with proper promptcrafting, caching for items etc etc so the time travel looks perfect".
+
+Code: `crates/fn7-plugin/src/look.rs` (the rules, the state, the prompt templates; tests `look_tests.rs`),
+`crates/fn7-media/src/annotate.rs` (the look pass), `crates/fn7-server/src/media.rs` (the library and the ready
+events; test `fn7-server/tests/looks.rs`). Room setting `looks_enabled`; payload shapes in CLIENT_API.md "Gear looks".
+
+### The loadout and its hash
+
+A demigod's **loadout** is its notable gear right now, in a stable order:
+
+1. its best item per slot, `weapon`, `armor`, `charm` (the 0.9.0 arms rule: the higher tier wins the slot, the newer
+   of equals), then
+2. up to `look_extra_items` (2) other major items, role `extra`: relic tier and up or god-blessed first (highest tier
+   first), then the first item of each kind not listed yet. Extras are ordered by tier, then by descriptor.
+
+Items lying in a loot pile and destroyed things never count; a deployed host (an army in the field) does.
+
+Each item is reduced to a **descriptor**: `kind | material | tier | name stem | blessing` (the arms rule's material for
+gear, `""` otherwise; the stem is the name lowercased, possessives and punctuation dropped, leading articles dropped,
+at most 8 words; the blessing is the god's slug). The **loadout hash** is sha256 of `fn7-loadout/1` and one line
+`role|descriptor` per item, in order; `""` for an empty loadout. No item id, demigod id, seed or match enters it, so
+the same gear is the same hash in any match (`look_tests::the_same_gear_is_the_same_hash_in_any_match_whatever_the_item_ids`).
+
+### A major acquisition
+
+At the end of every beat (after the DM's step and the gear's upkeep) `look::step` notes each demigod's loadout hash.
+A **major acquisition** is a change of the loadout (a trinket that takes no slot and is not a first of its kind
+changes nothing). For a **human-controlled**, standing demigod whose loadout is not the one its images show:
+
+- it takes a new **look**: the portrait and diorama subjects with a gear clause for the loadout's first
+  `look_items_shown` (3) items; a public `look.changed` is remembered (the DM's memory) and sent;
+- **cap:** at most `look_images_per_demigod` (4) new gear pictures per demigod per match; beyond it the loadout keeps
+  updating and the picture stays (`kept: "capped"`);
+- **debounce:** at most one new picture per `look_debounce_beats` (3) beats per demigod; a change inside the wait is
+  announced (`kept: "debounced"`) and when the wait ends ONE picture is made, of the newest loadout;
+- a look worn before in this match (the same subjects) and the base look (all gear lost) are free: they count against
+  neither limit;
+- a fallen demigod keeps the look it fell with.
+
+The built-in AI's demigods and Theatre bot seats never get a gear picture (their loadout is still listed in `look`). A
+human who takes a seat over mid-match counts from then: at the end of the first beat after the takeover its demigods'
+loadouts are pictured (under their new names).
+
+### The prompts
+
+The subject is the base identity subject **unchanged** (name, visual sheet, pose: so the face and build stay the same),
+then a gear clause, then a closing instruction. Each piece is written place first, then a concrete noun, its material
+in the house style's vocabulary, its glow by tier, and its god's signature when blessed. Never a number, a stat or an
+id. Templates (`look.rs`: `worn`, `placed`, `phrase`, `material_look`, `tier_glow`, `signature`):
+
+| Role | Portrait | Diorama |
+|---|---|---|
+| weapon | "gripped in the right hand, …" | "raised in its right hand, …" |
+| armor | "strapped over the chest and shoulders, …" (a shield: "carried on the left forearm"; gauntlets: "worn on the forearms"; a helm: "worn on the head"; a cloak or shroud: "draped over the shoulders") | "as blocky plates over its torso and shoulders, …" |
+| charm | "hanging on a cord at the throat, …" (a ring: "worn on the left hand"; a crown: "worn on the brow"; a horn, compass, lantern: "hanging from the belt") | "as a small bright bead at its chest, …" |
+| extra | a weapon "slung across the back", armour "buckled at the hip", a relic "hanging from the belt", an army "planted behind the left shoulder, the tall war banner of …", a structure "on the horizon behind, the small silhouette of …", a creature "crouched at their side", a phenomenon "churning in the sky behind" | "at the tile's edge, the banner of …", "at the back of the tile, …: a small voxel building", "beside it, …" |
+
+| Material | Words | Tier | Words | Blessing | Signature |
+|---|---|---|---|---|---|
+| obsidian | black volcanic obsidian glass with razor facets | trinket | plain and battered | Time | ringed by a thin halo of slow-turning clock hands of pale gold light |
+| dragonscale | overlapping ember-red dragon scales | artifact | finely made, with a faint glow along its edges | Nature | wound with living vines and small green leaves |
+| butterfly-wing | iridescent butterfly-wing membrane veined like stained glass | relic | ornate, glowing steadily | Consequence | studded with barbed iron thorns that glow dull red |
+| platinum | pale mirror-bright platinum | wonder | radiant, wrapped in a halo of light | Death | inlaid with pale bone, a cold grey mist trailing from it |
+| struck-oak | lightning-charred oak with glowing orange cracks in the grain | legend and up | blazing with light that spills over everything near it | Chance | set with dice-pip studs that flicker gold |
+| moonsteel | cold blue-white moonsteel | | | Memory | etched with mirror-bright lines that glow soft blue |
+| whalebone | carved ivory whalebone lashed with tarred cord | | | Entropy | split by hairline cracks leaking violet static |
+| salt-glass | cloudy sea-green salt-glass | | | | |
+| gold | beaten gold | | | | |
+| heron-feather | long grey-white heron feathers bound in silver wire | | | | |
+
+A full gear portrait prompt (the subject is from `look_tests::example_subjects`; the framing, style, reference note and
+avoid text are the portrait kind's as today; the last sentence is the style's `base_note`):
+
+> Waist-up, three-quarter view, dramatic rim light: Chris's Left Hand, a demigod: wiry and long-limbed, silver braids
+> and a serene stare, wearing ornate plate armor over a hoodie in violet and jet black, carrying a golden abacus, with
+> the emblem of a thorned rose; a larger-than-life figure with two glowing orchestrator hands floating at their sides
+> and lightning crackling between their fingers; newly geared: gripped in the right hand, a blade of iridescent
+> butterfly-wing membrane veined like stained glass, ornate, glowing steadily, wound with living vines and small green
+> leaves; strapped over the chest and shoulders, plate armour of cold blue-white moonsteel, finely made, with a faint
+> glow along its edges; hanging on a cord at the throat, a talisman of beaten gold, ornate, glowing steadily, inlaid
+> with pale bone, a cold grey mist trailing from it; the same face, build, clothes and colours as before, with only
+> this gear added. Style: a dark-fantasy world at night under a vast starry sky … dreamy and eerie. Match the reference
+> images exactly in art style, rendering, colour palette, lighting and level of detail; this is a new shot in that same
+> world, not a copy of them. No words or letters in the picture, no gore, no real people. The first reference image is
+> this same character: keep its face, build, clothes, colours and pose family exactly as they are there and add only
+> the gear described; the other reference images set the art style.
+
+The diorama subject is the base diorama subject, then "the miniature now carries its gear as chunky faceted low-poly
+pieces: raised in its right hand, a blade of …; as blocky plates over its torso and shoulders, plate armour of …; as a
+small bright bead at its chest, a talisman of …; the same figure and tile as before, with only this gear added", in the
+diorama kind's framing and the max-zoom style.
+
+### The base image as the first reference
+
+A gear picture is **drawn on the demigod's own base image**: the request's first reference image is the demigod's base
+portrait (or base diorama), followed by the kind's style references as always, so the character stays recognisably the
+same person (the existing reference mode, `POST /images/edits`). `Media::prompt_on(kind, subject, &base_prompt)` builds
+it: the prompt's `base` is the base image's **key** and the style's `base_note` (a key of `media_style.json`; default
+in `style.rs`) is appended to the text. The base is always asked for first, so it is ahead in the queue; the gear job
+waits for the base file (up to 5 minutes) and fails, refunded, if the base was refused or failed (a later match tries
+again).
+
+### The cache key
+
+`sha256(fn7-media/3 \n generator label \n size \n prompt text [\n ref:<sha256 of each style reference>] [\n base:<the
+base image's key>])`. So a gear picture's key is (kind: in the text's framing; identity: the base subject in the text
+and the base key; loadout: the gear clause in the text; style version: the style text and the reference files;
+references: their hashes and the base key). The base's key, not its bytes, is used, so the key is known the moment the
+look changes (the payload can name the pending hash at once). **Generated once, reused forever, across matches**: the
+same demigod name with the same shown gear in a later match is a cache hit (`fn7-media` test
+`a_gear_look_is_drawn_on_its_base_and_swaps_in_when_ready`).
+
+### The pending swap
+
+The plugin sends, in every `look` and `look.changed`, the media layer's inputs: `base_portrait`, `base_diorama`,
+`portrait_subject`, `diorama_subject` (null for the base look) and `fallback` (its earlier gear looks, newest first, at
+most 3). The look pass (`Media::annotate_seen`, before the generic annotation) replaces them with:
+
+- `portrait_image`, `diorama_image`: **the image to show now**: the gear image if it is ready, else the newest earlier
+  look's that is ready, else the base image;
+- `pending: {loadout_hash, portrait_image?, diorama_image?}` while a gear image is queued or rendering (absent
+  otherwise, also when it was refused or failed: then the previous images simply stay).
+
+The server wrapper adds the event's second sending: a `look.changed` that went out with `pending` is sent again, with
+`ready: true`, in the `looks[]` of the next public payload of that match once both images exist (kept in memory per
+match, at most 64; dropped if an image fails). Clients may equally poll the manifest for the pending hashes.
+
+### Item art
+
+A notable item gets a picture of its own (`image_kind: "item"`: one object on one hex tile in the max-zoom style).
+The subject is written from the descriptor alone, e.g. "a blade of iridescent butterfly-wing membrane veined like
+stained glass: a demigod's weapon, ornate, glowing steadily, wound with living vines and small green leaves", so the
+same descriptor is the same prompt, the same key and the same picture everywhere and forever. `art` in payloads is
+sha256 of `fn7-item-art/1` and the descriptor.
+
+Granted at the end of each beat, in item order, up to `item_art_per_match` (12) per match (the list is in the state):
+an item a human player's demigod holds that is relic tier or up, god-blessed, or the first of its kind that player
+holds; and a relic-tier or blessed item lying in a loot pile (on the board for everyone). An item whose descriptor was
+granted shows the picture whoever holds it later. Every other item has no `image_prompt` since schema 11 and keeps its
+`icon` (0.9.0 asked for a picture of every item, under a prompt that held the place and beat it was made).
+
+### Budgets and costs
+
+The existing budgets apply to every one of these images (`FN7_IMAGE_BUDGET_USD`, `FN7_IMAGE_MATCH_BUDGET_USD`, the
+queue, the priorities: gear portraits and dioramas go in the first lane with the base ones, item pictures in the third).
+The new limits are room settings, enforced by rules in the plugin (so they are in the state and replay exactly):
+
+| Setting | Default | Limits |
+|---|---|---|
+| `look_images_per_demigod` | 4 | new gear pictures (a portrait and a diorama each) per human demigod per match |
+| `look_debounce_beats` | 3 | beats between two new gear pictures of one demigod |
+| `look_items_shown` | 3 | items one picture shows |
+| `look_extra_items` | 2 | major items in the loadout beyond the three slots |
+| `item_art_per_match` | 12 | item pictures per match |
+
+Reserved per call with the default model (`gpt-image-1-mini` medium, 1024x1024, the [estimate] input rates above; one
+more reference than the base images: the base itself): a gear portrait $0.011 + 7 x 1,200 x $2.50/1M + 600 x $2.00/1M
+= **$0.0332**, a gear diorama (5 references) **$0.0272**, so **$0.0604 per look**; an item picture (4 references)
+$0.0242. Worst case per match at the default caps: **$0.24 per human demigod, $0.48 per human player** (2 demigods x
+4 looks), plus at most $0.29 of item art for the whole match (12 pictures). On the measured basis (1,128 tokens per
+reference, about 450 text tokens) a look is about $0.058. Cached looks (the same name with the same gear again) and
+the base look cost nothing; the mock generator costs nothing.
+
+### The library
+
+Each gear portrait and diorama of a human player's demigod goes into that player's library once it is ready
+(registered when its `look` or `look.changed` goes out; again from the summary's look timeline,
+`players[].demigods[].looks[]`, at match end), with the match, the beat it became the look and the loadout
+(`library_matches.beat`, `.detail`; the library's `looks[]`).
 
 ## Visual sheets (character identity)
 
@@ -341,8 +516,8 @@ built by the plugin (and replays) stay deterministic; the server's `MediaPlugin`
 way out and never touches the state.
 
 Rust API (`crates/fn7-media`): `MediaStyle` (`style.rs`; `house_style_for`, `references_for`, `suffix_for`,
-`References::pick`), `ImagePrompt::{styled, from_subject, restyle, portrait, item,
-event, statue}`, `Media::{prompt, request, request_with, request_by_ref, annotate, manifest, style, wait_idle}`,
+`References::pick`, `base_note`), `ImagePrompt::{styled, from_subject, restyle, on_base, portrait, item,
+event, statue}`, `Media::{prompt, prompt_on, peek, request, request_with, request_by_ref, annotate, annotate_seen, manifest, style, wait_idle}`,
 `ImageGenerator` (`MockGenerator`, `OpenAiImages`), `fn7_media::http::router`. Plugin side (`crates/fn7-plugin`):
 `visual.rs` (sheets), `payload::{event_subject, portrait_prompt, diorama_prompt, person_portrait_prompt, place_prompt, army_prompt}`,
 `phases::storyboard`, the `media` query (`queries.rs`). Server side: `fn7-server/src/media.rs` (`MediaPlugin`: payload

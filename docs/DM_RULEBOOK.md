@@ -1,6 +1,6 @@
 # The Dungeon Master's Rulebook
 
-*Final Night 7, rules 0.9.0, state schema 10 (wills that matter switch on at schema 10 with the room setting
+*Final Night 7, rules 0.9.0, state schema 11 (gear looks switch on at schema 11 with the room setting `looks_enabled`: docs/MEDIA.md "Looks"; wills that matter switch on at schema 10 with the room setting
 `wills_enabled`; duel panels at 9, exact resume at 8, challenge mode and the 0.8.1 fixes at 7, the DM's rulebook
 features at 6).*
 
@@ -808,6 +808,12 @@ The 0.9.0 ones (chapters 23-27):
 | `quest_expire_beats` | 24 | 0–1000 | beats a heal's or an arming's quest stays open (0 = until done); a curse's counter-quest lives as long as its curse, a raising's until the Final Night. |
 | `quest_spark_step` | 2 | 0–50 | sparks a quest's offering step asks for (times the quest's difficulty). |
 | `wills_ai_chance` | 0.25 | 0.0–1.0 | how readily the built-in AI uses wills (heals when hurt, arms itself, pleads for its fallen sibling, curses a rival, pursues its quests); 0 = never. |
+| `looks_enabled` | true | bool | gear looks (needs state schema 11): loadouts, a human's demigod's gear portraits and dioramas, item art (docs/MEDIA.md "Looks"). |
+| `look_extra_items` | 2 | 0–6 | major items a loadout lists beyond the best item per slot. |
+| `look_items_shown` | 3 | 1–5 | items a gear portrait or diorama shows at most. |
+| `look_images_per_demigod` | 4 | 0–20 | new gear pictures one human player's demigod may get per match. |
+| `look_debounce_beats` | 3 | 0–100 | beats between two new gear pictures of one demigod (the newest loadout wins). |
+| `item_art_per_match` | 12 | 0–200 | item pictures granted per match. |
 
 Every other setting is in `docs/PROJECT_GUIDE.md` §3.13.
 
