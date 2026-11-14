@@ -5,7 +5,7 @@
 export const MATERIALS = {
   stone:    { density: 2500,  friction: 0.65, restitution: 0.10, strength: 5200,  brittle: false, shards: 3,  color: '#57534e', roughness: 0.95, metalness: 0.0,  word: 'KRAK',   sound: 'stone' },
   marble:   { density: 2700,  friction: 0.50, restitution: 0.12, strength: 4200,  brittle: false, shards: 4,  color: '#b9b2a4', roughness: 0.45, metalness: 0.0,  word: 'KRAK',   sound: 'stone' },
-  wood:     { density: 650,   friction: 0.50, restitution: 0.25, strength: 4200,  brittle: false, shards: 5,  color: '#4a3220', roughness: 0.85, metalness: 0.0,  word: 'THOK',   sound: 'wood' },
+  wood:     { density: 650,   friction: 0.50, restitution: 0.25, strength: 6000,  brittle: false, shards: 5,  color: '#4a3220', roughness: 0.85, metalness: 0.0,  word: 'THOK',   sound: 'wood' },
   iron:     { density: 7800,  friction: 0.45, restitution: 0.25, strength: 30000, brittle: false, shards: 2,  color: '#3a3c40', roughness: 0.55, metalness: 0.9,  word: 'KLANG',  sound: 'metal' },
   gold:     { density: 19300, friction: 0.40, restitution: 0.15, strength: 9000,  brittle: false, shards: 2,  color: '#c9a03a', roughness: 0.30, metalness: 1.0,  word: 'DONG',   sound: 'metal' },
   cloth:    { density: 240,   friction: 0.80, restitution: 0.02, strength: 60000, brittle: false, shards: 1,  color: '#5a1f26', roughness: 1.0,  metalness: 0.0,  word: 'WHUMP',  sound: 'soft' },

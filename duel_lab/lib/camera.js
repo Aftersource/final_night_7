@@ -9,7 +9,7 @@ const SAFE = { x: 0.84, top: 0.78, bottom: -0.36 }, R = 1.12; // safe frame in N
 function style(name, d, n) {
   switch (name) {
     case 'side': return { dir: n.clone().multiplyScalar(1).add(V(0, 0.26, 0)), min: 6.5, bias: 0 };
-    case 'low': return { dir: n.clone().add(V(0, 0.06, 0)), min: 6, bias: 0 };
+    case 'low': return { dir: n.clone().add(V(0, 0.1, 0)), min: 6, bias: 0 };
     case 'over_a': return { dir: d.clone().multiplyScalar(-1).addScaledVector(n, 0.55).add(V(0, 0.42, 0)), min: 6, bias: 0 };
     case 'over_b': return { dir: d.clone().addScaledVector(n, 0.55).add(V(0, 0.42, 0)), min: 6, bias: 0 };
     case 'close_a': return { dir: n.clone().addScaledVector(d, 0.45).add(V(0, 0.22, 0)), min: 5, bias: -0.35 };

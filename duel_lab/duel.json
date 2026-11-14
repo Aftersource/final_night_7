@@ -27,7 +27,9 @@
         "parts": [ { "shape": "box", "size": [0.75, 0.7, 0.75], "offset": [0, 0.35, 0], "material": "wood", "fill": 0.12 } ] },
       { "id": "crate_d", "kind": "crate", "at": [-2.12, 0.74], "yaw": 5, "on": "crate_b", "note": "stacked on crate_b",
         "parts": [ { "shape": "box", "size": [0.7, 0.65, 0.7], "offset": [0, 0.325, 0], "material": "wood", "fill": 0.12 } ] },
-      { "id": "crate_e", "kind": "crate", "at": [-1.85, -0.3], "yaw": 20, "note": "a loose crate left in the lane",
+      { "id": "crate_f", "kind": "crate", "at": [-2.62, 0.82], "yaw": -20, "on": "crate_c", "note": "the top of the stack, tea not cloves",
+      "parts": [ { "shape": "box", "size": [0.65, 0.6, 0.65], "offset": [0, 0.3, 0], "material": "wood", "fill": 0.12 } ] },
+    { "id": "crate_e", "kind": "crate", "at": [-1.85, -0.3], "yaw": 20, "note": "a loose crate left in the lane",
         "parts": [ { "shape": "box", "size": [0.7, 0.7, 0.7], "offset": [0, 0.35, 0], "material": "wood", "fill": 0.14 } ] },
       { "id": "desk", "kind": "desk", "at": [1.57, -0.13], "yaw": 90, "note": "a fishmonger's weighing desk, teak top on four legs",
         "parts": [
@@ -94,7 +96,11 @@
           { "shape": "box", "size": [1.45, 0.14, 0.34], "offset": [0, 0.07, 0], "material": "wood", "fill": 0.4 },
           { "shape": "box", "size": [0.07, 1.56, 0.07], "offset": [-0.69, 0.92, 0], "material": "wood" },
           { "shape": "box", "size": [0.07, 1.56, 0.07], "offset": [0.69, 0.92, 0], "material": "wood" } ] },
-      { "id": "barrel_a", "kind": "barrel", "at": [3.4, -3.6], "note": "an empty arrack barrel",
+      { "id": "sacks", "kind": "sacks", "at": [4.54, -1.0], "yaw": 8, "note": "rice sacks stacked head-high for the dawn boat",
+      "parts": [
+        { "shape": "box", "size": [1.3, 0.85, 1.1], "offset": [0, 0.425, 0], "material": "cloth", "fill": 0.9, "color": "#8a7a5a" },
+        { "shape": "box", "size": [1.2, 0.8, 1.0], "offset": [0.03, 1.25, 0.02], "material": "cloth", "fill": 0.9, "color": "#7d6e50" } ] },
+    { "id": "barrel_a", "kind": "barrel", "at": [3.4, -3.6], "note": "an empty arrack barrel",
         "parts": [ { "shape": "cylinder", "size": [0.3, 0.9], "offset": [0, 0.45, 0], "material": "wood", "fill": 0.14 } ] },
       { "id": "barrel_b", "kind": "barrel", "at": [3.0, -3.3], "note": "a second barrel, on its side",
         "parts": [ { "shape": "cylinder", "size": [0.3, 0.9], "offset": [0, 0.3, 0], "rot": [0, 30, 90], "material": "wood", "fill": 0.14 } ] }
@@ -102,22 +108,26 @@
   },
   "panels": [
     {
-      "caption": "Two Wills, one harbour corner. The box opens.",
+      "caption": "Two Wills, one harbour corner. One of them takes the high ground.",
       "shot": "wide", "move": "push", "play_ms": 2600, "input_ms": 2000,
       "a": { "line": "wait for him to commit", "segs": [ { "clip": "taunt", "ms": 2600 } ] },
-      "b": { "line": "bow, then go over the desk", "segs": [ { "clip": "bow", "ms": 2600 } ] },
+      "b": { "line": "up on the rice sacks, look down on him", "segs": [
+        { "clip": "idle_guard", "ms": 500, "loop": true },
+        { "clip": "run", "ms": 1300, "loop": true, "speed": 0.5, "path": "mantle", "on": "sacks" },
+        { "clip": "kneel", "ms": 800, "path": "perch" } ] },
       "hp": { "a": 10, "b": 10 }
     },
     {
-      "caption": "Obsidian goes over the weighing desk. Gold answers with a clove crate.",
+      "caption": "Obsidian drops from the sacks and goes over the weighing desk. Gold answers with a clove crate.",
       "shot": "side", "play_ms": 3000, "input_ms": 2300,
       "a": { "line": "kick the crate into him", "segs": [
         { "clip": "run", "ms": 700, "loop": true, "to": [-2.30, -0.30], "path": "dash" },
         { "clip": "kick", "ms": 2300, "speed": 1.25, "face": "foe" } ] },
       "b": { "line": "vault the desk and close", "segs": [
-        { "clip": "run", "ms": 600, "loop": true, "to": [2.17, 0.0], "path": "dash" },
-        { "clip": "run", "ms": 800, "loop": true, "speed": 0.6, "to": [0.84, 0.0], "path": "vault", "over": "desk" },
-        { "clip": "idle_guard", "ms": 700, "loop": true },
+        { "clip": "jump_attack", "ms": 450, "at": 1500, "to": [3.46, -0.33], "path": "drop" },
+        { "clip": "run", "ms": 450, "loop": true, "to": [2.17, 0.0], "path": "dash" },
+        { "clip": "run", "ms": 700, "loop": true, "speed": 0.6, "to": [0.84, 0.0], "path": "vault", "over": "desk" },
+        { "clip": "idle_guard", "ms": 500, "loop": true },
         { "clip": "stagger_back", "ms": 900, "to": [1.12, 0.07], "path": "knock", "h": 0.25 } ] },
       "contacts": [
         { "t_ms": 1420, "by": "a", "text": "THOK", "kind": "kick", "limb": "foot_r", "on": "crate_e", "power": 0.9, "y": 0.36 },
@@ -140,15 +150,15 @@
       "hp": { "a": 8, "b": 9 }
     },
     {
-      "caption": "Gold's hammer finds stone instead of glass. The pillar cracks.",
+      "caption": "Obsidian kicks off the pillar. Gold's hammer finds stone instead of glass, and it cracks.",
       "shot": "low", "play_ms": 2600, "input_ms": 2000, "flip": true,
       "a": { "line": "turn and hammer him into the pillar", "segs": [
-        { "clip": "run", "ms": 500, "loop": true, "to": [0.29, -1.17], "path": "dash", "face": "foe" },
+        { "clip": "run", "ms": 500, "loop": true, "to": [-0.06, -0.87], "path": "dash", "face": "foe" },
         { "clip": "heavy_hammer", "ms": 2100, "speed": 1.3, "aim": "pillar" } ] },
-      "b": { "line": "bait him at the pillar, slip out", "segs": [
+      "b": { "line": "bait him at the pillar, kick off it", "segs": [
         { "clip": "evade_spin", "ms": 800, "to": [0.66, -1.43], "path": "dash", "face": "foe" },
         { "clip": "idle_guard", "ms": 650, "loop": true },
-        { "clip": "evade_roll", "ms": 1150, "to": [1.19, -0.53], "path": "dash" } ] },
+        { "clip": "jump_attack", "ms": 1150, "at": 1500, "to": [1.19, -0.53], "path": "wallkick", "on": "pillar", "h": 0.7 } ] },
       "contacts": [ { "t_ms": 1950, "by": "a", "text": "KRAK", "kind": "heavy", "limb": "hand_r", "on": "pillar", "power": 1.0 } ],
       "hp": { "a": 8, "b": 9 }
     },

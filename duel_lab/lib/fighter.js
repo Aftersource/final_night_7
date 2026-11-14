@@ -66,6 +66,7 @@ export function makeFighter(scene, assets, spec, side) {
   f.setSkin = (n) => { const m = skinMat(n); model.traverse((o) => { if (o.isMesh) o.material = m; }); f.skin = n; f.body = fighterBody(n, f.volume); };
   f.setSkin(spec.skin);
   f.comOf = (out) => { out.set(0, 0, 0); for (const s of f.segs) { s.a.getWorldPosition(t1); s.b.getWorldPosition(t2); out.addScaledVector(t1.add(t2), 0.5 * s.frac); } return out; };
+  f.clean = Object.values(LIMBS).flatMap((l) => l.slice(0, 2)).map((n) => [bones[n], bones[n].quaternion.clone()]); // the clip's own pose of every bone IK may touch
   f.comRest = 0.95; return f;
 }
 const clipTime = (f, s, tau) => { const dur = f.clips[s.clip].duration, ct = (s.at || 0) / 1000 + (tau / 1000) * (s.speed || 1); return s.loop ? ct % dur : Math.min(ct, dur - 0.01); };
@@ -83,17 +84,20 @@ function rawYaw(side, T, ctx) {
 export function poseFighter(f, T, ctx) {
   const tr = ctx.R.tracks[f.side], st = rootAt(tr, T, ctx.moved), s = st.seg, tau = st.tau; f.st = st; f.seg = s; f.ik.length = 0;
   f.pos.set(st.p[0], st.p[1], st.p[2]); f.root.position.copy(f.pos);
-  let yaw = rawYaw(f.side, T, ctx); if (yaw === null) yaw = f.lastYaw || 0;
+  let yaw = rawYaw(f.side, T, ctx); if (yaw === null) yaw = 0;
   if (tau < 220 && st.i > 0) { const y0 = rawYaw(f.side, s.t0 - 1, ctx); if (y0 !== null) yaw = lerpAngle(y0, yaw, smooth(tau / 220)); }
-  f.root.rotation.y = yaw; f.lastYaw = yaw; f.spin.rotation.set(st.pitch, 0, st.roll);
+  f.root.rotation.y = yaw; f.spin.rotation.set(st.pitch, 0, st.roll);
   // the clip (cross-faded from the previous segment's)
   for (const a of Object.values(f.actions)) a.setEffectiveWeight(0);
   const name = clipOf(f, s), cur = f.actions[name], prev = st.i > 0 ? tr[st.i - 1] : null; let w = 1;
   if (prev && clipOf(f, prev) !== name) { w = smooth(tau / 220); const pa = f.actions[clipOf(f, prev)]; pa.time = clipTime(f, { ...prev, clip: clipOf(f, prev) }, prev.ms); pa.setEffectiveWeight(1 - w); }
-  cur.time = clipTime(f, { ...s, clip: name }, tau); cur.setEffectiveWeight(w); f.mixer.update(0); f.root.updateMatrixWorld(true);
+  cur.time = clipTime(f, { ...s, clip: name }, tau); cur.setEffectiveWeight(w);
+  // the mixer only rewrites a bone when its own result changes, so last frame's IK must be undone first or it would leak into this frame
+  for (const [b, q] of f.clean) b.quaternion.copy(q);
+  f.mixer.update(0); for (const [b, q] of f.clean) q.copy(b.quaternion); f.root.updateMatrixWorld(true);
   // centre of mass: in the air the body turns about it and it rides the ballistic arc exactly
   f.comOf(f.com);
-  if (st.aw > 0) { t3.set(st.p[0], st.p[1] + f.comRest, st.p[2]).sub(f.com).clampLength(0, 0.45).multiplyScalar(st.aw); f.root.position.add(t3); f.root.updateMatrixWorld(true); f.com.add(t3); }
+  if (st.aw > 0) { t3.set(st.p[0], st.p[1] + f.comRest, st.p[2]).sub(f.com).clampLength(0, 2.5).multiplyScalar(st.aw); f.root.position.add(t3); f.root.updateMatrixWorld(true); f.com.add(t3); }
   const planted = !st.air && !st.hung && Math.abs(st.pitch) < 0.3 && Math.abs(st.roll) < 0.3;
   if (planted) {
     // feet: find the real surface under each (a stair, a crate top, a tilted lid) and the animation's own lift above the floor

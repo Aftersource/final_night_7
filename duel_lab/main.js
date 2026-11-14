@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { makeStage } from './lib/stage.js';
 import { deriveScene } from './lib/props.js';
+import { validateScene } from './lib/scene_schema.js';
 import { resolveDuel } from './lib/paths.js';
 import { bake, movedAt, sceneAt } from './lib/bake.js';
 import { makeSceneView } from './lib/sceneview.js';
@@ -79,6 +80,7 @@ function frame(T) {
 async function main() {
   D = await (await fetch(Q.get('duel') || 'duel.json')).json();
   if (Q.get('a')) D.a.skin = Q.get('a'); if (Q.get('b')) D.b.skin = Q.get('b');
+  for (const m of validateScene(D.scene || {})) console.warn('scene:', m);
   W = deriveScene(D.scene || { objects: [] });
   const assets = await loadAssets();
   FA = makeFighter(scene, assets, D.a, 'a'); FB = makeFighter(scene, assets, D.b, 'b'); stage.paintLid(D); rebuild();
@@ -93,6 +95,10 @@ async function main() {
   $('scrub').oninput = (e) => { T = (e.target.value / 1000) * TOTAL; playing = false; };
   addEventListener('keydown', (e) => { if (e.code === 'Space') { e.preventDefault(); $('play').click(); } if (e.key === 'r') $('replay').click(); if (e.key === 'd' || e.key === 'D') debug.toggle();
     if (e.key === 'ArrowLeft') { T = Math.max(0, T - 100); playing = false; } if (e.key === 'ArrowRight') { T = Math.min(TOTAL, T + 100); playing = false; } });
+  // a digest of everything posed this frame (every bone of both fighters, every body, the camera): for the rewind check
+  window.__digest = (t) => { frame(t); let h = 2166136261; const eat = (x) => { h ^= Math.round(x * 1e5); h = Math.imul(h, 16777619); };
+    for (const f of [FA, FB]) for (const b of Object.values(f.bones)) b.matrixWorld.elements.forEach(eat); for (const v of view.views) { eat(v.g.visible ? 1 : 0); if (v.g.visible) { v.g.position.toArray().forEach(eat); v.g.quaternion.toArray().forEach(eat); } }
+    camera.matrixWorld.elements.forEach(eat); return (h >>> 0).toString(16); };
   $('load').remove(); window.READY = true; window.__setT = (t) => { T = t; playing = false; }; document.title = 'Duel Lab ready';
   let last = performance.now(), acc = 0, n = 0;
   renderer.setAnimationLoop((now) => { const dt = now - last; last = now; acc += dt; if (++n >= 30) { info.fps = Math.round((1000 * n) / acc); window.__fps = info.fps; acc = 0; n = 0; }

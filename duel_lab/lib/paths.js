@@ -84,7 +84,7 @@ function resolveSeg(s, ms, t0, cur, F, foe, W, out, side) {
       const dOut = norm(flat(sub(to, c)));
       fn = (tau) => { const t = tau / 1000, k = clamp01(t / tA), ta = t - tA, air = ta < a.T; let p;
         if (ta < 0) { p = mix(from, c, k); p[1] = lerp(from[1], c[1], 2 * k - k * k); } else p = air ? a.at(ta) : to;
-        return { p, air: air && (ta > 0 || k > 0.3), hung: ta < 0.08, pitch: -0.5 * pulse(t, tA - 0.15, tA + 0.05, 0.12), roll: 0, face: ta < 0 ? mul(n, -1) : dOut, rides: R(ride1, smooth((ta / a.T - 0.6) / 0.4)),
+        return { p, air: air && (ta > 0 || k > 0.3), aw: pulse(t, 0.04, tA + a.T, 0.08), hung: ta < 0.08, pitch: -0.5 * pulse(t, tA - 0.15, tA + 0.05, 0.12), roll: 0, face: ta < 0 ? mul(n, -1) : dOut, rides: R(ride1, smooth((ta / a.T - 0.6) / 0.4)),
           ik: [{ limb: 'foot_r', p: foot, ref: wall.ref, w: pulse(t, tA - 0.13, tA + 0.07, 0.07) }] }; };
     } else if (along) {
       // along a wide wall: three or four strides on the face, the body rolled toward it

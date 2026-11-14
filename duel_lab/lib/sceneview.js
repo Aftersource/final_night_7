@@ -47,7 +47,8 @@ export function makeSceneView(scene3, W, B) {
     for (const v of views) { const b = v.b; v.g.visible = alive(b, T); if (!v.g.visible) continue; bodyAt(b, T, X); v.g.position.set(X.p[0], X.p[1], X.p[2]); v.g.quaternion.set(X.q[0], X.q[1], X.q[2], X.q[3]);
       for (const mp of v.meshes) mp.m.visible = alive(mp.p, T);
       // see-through: is any live part of this body on the line from the camera to a fighter?
-      let block = 0; if (cam && !b.frag) { const qi = qconj(X.q); for (const w of watch) { const o = qrot(qi, sub(cam, X.p)), d = qrot(qi, sub(w, cam)); for (const mp of v.meshes) { if (!mp.m.visible) continue; const pi = qconj(mp.p.lq); if (ray(mp.p.prim, qrot(pi, sub(o, mp.p.lp)), qrot(pi, d), 0.94)) { block = 1; break; } } if (block) break; } }
+      let block = 0; if (cam && !b.frag && !b.fixed && Math.hypot(X.p[0] - cam[0], X.p[1] - cam[1], X.p[2] - cam[2]) < 5.0) block = 1; // right in front of the lens
+      if (cam && !b.frag && !block) { const qi = qconj(X.q); for (const w of watch) { const o = qrot(qi, sub(cam, X.p)), d = qrot(qi, sub(w, cam)); for (const mp of v.meshes) { if (!mp.m.visible) continue; const pi = qconj(mp.p.lq); if (ray(mp.p.prim, qrot(pi, sub(o, mp.p.lp)), qrot(pi, d), 0.94)) { block = 1; break; } } if (block) break; } }
       v.fade += ((block ? 0.22 : 1) - v.fade) * 1; for (const mp of v.meshes) { const M = mp.m.material, op = M.userData.base * v.fade; if (M.opacity !== op) { M.opacity = op; M.depthWrite = op > 0.9; } } }
     // anchored things cannot move in the simulation; what a blow does to them is a few millimetres of ringing
     for (const e of shudder) { const dt = ts - e.t; if (dt < 0 || dt > 0.9) continue; const id = e.fixed ? e.body : e.body2, v = views.find((x) => x.b.id === id); if (!v || !v.g.visible) continue;
