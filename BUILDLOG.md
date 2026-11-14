@@ -1079,3 +1079,28 @@ Engineering:
   - Every view change animates through the studio's own zoom path (~0.4 s grow, shrink or slide), never an instant pop.
   - The pouch moves further along the right rim, off the rival's diorama box.
 - The server's challenge range matches the client's: within 120 km (the regions hex), whatever the zoom.
+
+## 2026-11-14: start from the figure-drawing mannequin; the challenge box is a miniature set opened on the table
+
+> Will the wooden mannequin used for figure drawing be completed? Start from there. Design the challenge box so it looks like a miniature set was opened on the table, and describe the intended look.
+
+> When scrolling the mouse wheel to zoom in on the demigods, the expectations were stated clearly and were not met.
+
+> It also zooms too far. Make the scroll-wheel hitboxes correct. When they overlap, focus the enemy before the player's own demigod so the player can scroll in to combat them. Direct combat should be very straightforward to engage in a challenge.
+
+> The news scroll keeps flashing. Make it unroll and roll up properly, and only when its content needs to change.
+
+> A wish to bring the player's units back to life was cast, but its effect is not visible.
+
+Engineering:
+- Concept image: final_night_7_unreal docs/design/challenge_box_concept_v1.png.
+- The mannequin is a classic beech figure-drawing mannequin with ball joints and 15 bones, stained in the aura colour, its emblem burned in, its prop in hand. It has ~30 named poses, blended, with IK contacts.
+- The challenge box: flash flash flash, a double lock-in of the portraits, an animated camera glide, the globe spinning and dimming. Then a carved box rises and opens like a clamshell:
+  - the lid is a painted sky with a gilded CLASH arch and two portrait plaques with health bars
+  - the base is a 3-ring hex stage with the place's own props, where the mannequins act out each blow
+  - a front drawer holds the masked live typing and a 30 s brass dial
+  - at the end it folds shut and sinks
+- Challenge range: the client challenges when the cards touch at the current zoom or are within 120 km. The server accepts within max(120 km, contact_km(level)): regions 600, villages 15.
+- The wheel picks the nearest demigod within 160 px, the enemy first where cards overlap. The scrolls are built once and roll only when their text changes.
+- A revive wish from a fallen player must get a visible ruling with the reason (0.8.1).
+- Meshy: the key is in gitignored runs/lan/meshy.env and __production_steps/ (both ignored). The CLI 0.4.0 and Meshy's skills are installed. API balance 1,300.
