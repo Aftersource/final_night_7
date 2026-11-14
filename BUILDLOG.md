@@ -937,3 +937,7 @@ Engineering: board pieces draw in front of buildings, with large hit targets. Do
 > If the player double-clicks their demigod without dragging, the view should zoom to it.
 
 Engineering: double-clicking your own demigod (card, box or piece, without dragging) selects it and zooms the board one level closer at its position. Double-clicking a rival in the same grid area starts a challenge; elsewhere it just zooms to the rival.
+
+> Also, when a magic effect is used, it should apply to the cell on the table instead of moving the table's view. The view is not moved by a double click on the board; it is moved by a drop.
+
+Engineering: a power or summon dropped on the board acts on that cell and the board view stays put (no automatic zoom after a drop). Only a summon that lands off the board brings the view there.
