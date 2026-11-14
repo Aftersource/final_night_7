@@ -9,7 +9,9 @@
 //! `fallback_outcome` with exactly that input. A mid-match join (room setting `allow_midmatch_join`) carries the core's
 //! `on_seat_takeover` hook record (input `{takeover}`, output `{state_changed}`) at the round boundary, before that
 //! round's `on_round_start`, and an `on_seat_takeover` snapshot when the state changed: replay calls
-//! `on_seat_takeover` with exactly that takeover, in record order, and compares each snapshot.
+//! `on_seat_takeover` with exactly that takeover, in record order, and compares each snapshot. A schema-8 match run by
+//! the server carries the plugin's side inputs as events (`duel_clock` at each Start, `journal_recovered` at a resolve
+//! after a restart; `fn7_plugin::present`): replay feeds them back to the hooks that read them.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -235,7 +237,9 @@ pub async fn verify(path: impl AsRef<Path>, mut log: impl FnMut(&str)) -> anyhow
         c.round = Some(round);
         c
     };
-    let p = FinalNight7Plugin::new();
+    // The side inputs the live plugin read outside its hook inputs (state schema 8: the Start's clock and pause, the
+    // actions recovered from its journal after a restart) are recorded as events and fed back here.
+    let p = FinalNight7Plugin::new().with_feed(fn7_plugin::present::Feed::from_records(&records));
     let mut rep = Report {
         run: run.clone(),
         ..Default::default()
