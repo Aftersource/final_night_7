@@ -97,6 +97,11 @@ pub struct ImagePrompt {
     /// style has none for this kind. Their sha256s are part of the image key.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub refs: Vec<RefImage>,
+    /// The key of the image this one is drawn ON (a demigod's base portrait or diorama under its gear picture): that
+    /// image is sent as the FIRST reference, so the character stays the same person. Part of the image key (the
+    /// base's key, not its bytes, so the key is known before the base exists).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<String>,
 }
 
 impl ImagePrompt {
@@ -147,7 +152,24 @@ impl ImagePrompt {
             text,
             size: k.size,
             refs,
+            base: None,
         }
+    }
+
+    /// This picture drawn on a base image (its key): the base goes first among the references and `note` (the
+    /// style's `base_note`) is appended to the text.
+    pub fn on_base(mut self, base_key: &str, note: &str) -> Self {
+        self.base = Some(base_key.to_string());
+        let note = note.trim();
+        if !note.is_empty() {
+            self.text = format!("{} {note}", self.text);
+        }
+        self
+    }
+
+    /// How many reference images go out with it (the base, if any, and the style's).
+    pub fn ref_count(&self) -> usize {
+        self.refs.len() + usize::from(self.base.is_some())
     }
 
     /// The same subject and kind in another style.

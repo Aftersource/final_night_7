@@ -28,9 +28,145 @@
 use serde_json::{Map, Value};
 
 use crate::prompt::{ImageKind, ImagePrompt};
-use crate::Media;
+use crate::{ImageRef, Media};
+
+/// A look the annotation met ([`Media::annotate_seen`]): a demigod's `look` object or a `look.changed` event.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LookSeen {
+    /// The demigod (`dg:N`), its name and its player, when the payload says.
+    pub demigod: Option<String>,
+    pub name: Option<String>,
+    pub player: Option<String>,
+    /// The loadout its images show (`""`: the base look) and since which beat.
+    pub loadout_hash: String,
+    pub since_beat: Option<u64>,
+    /// The names of the loadout's items.
+    pub loadout: Vec<String>,
+    /// The gear portrait and diorama asked for (`None`: the base look).
+    pub portrait: Option<ImageRef>,
+    pub diorama: Option<ImageRef>,
+    /// A `look.changed` event as the plugin sent it (before annotation), when this is one.
+    pub event: Option<Value>,
+}
 
 impl Media {
+    /// [`Media::annotate`], also returning every look it met (for the profile library and the ready events).
+    pub fn annotate_seen(&self, payload: &mut Value, match_id: Option<&str>) -> (usize, Vec<LookSeen>) {
+        if !self.enabled() {
+            return (0, vec![]);
+        }
+        let mut seen = vec![];
+        self.looks(payload, match_id, &mut seen);
+        (self.annotate(payload, match_id), seen)
+    }
+
+    /// The look pass (before the generic one): every object carrying the look inputs (`base_portrait`,
+    /// `base_diorama`, `portrait_subject`, `diorama_subject`, `fallback`) gets `portrait_image` and `diorama_image`
+    /// (the image to show NOW: the gear image when it is ready, else the newest earlier look that is, else the base
+    /// image) and, while a gear image renders, `pending: {loadout_hash, portrait_image?, diorama_image?}`. The inputs
+    /// are removed.
+    fn looks(&self, v: &mut Value, match_id: Option<&str>, seen: &mut Vec<LookSeen>) {
+        match v {
+            Value::Array(a) => {
+                for x in a {
+                    self.looks(x, match_id, seen);
+                }
+            }
+            Value::Object(o) => {
+                if o.contains_key("base_portrait") && o.contains_key("base_diorama") {
+                    let mut s = self.look(o, match_id);
+                    let get = |k: &str| o.get(k).and_then(Value::as_str).map(str::to_string);
+                    s.demigod = get("demigod");
+                    s.name = get("name");
+                    s.player = get("player");
+                    seen.push(s);
+                }
+                let (r, name, player) = {
+                    let get = |k: &str| o.get(k).and_then(Value::as_str).map(str::to_string);
+                    (get("ref"), get("name"), get("player"))
+                };
+                for (k, x) in o.iter_mut() {
+                    let at = seen.len();
+                    self.looks(x, match_id, seen);
+                    // A demigod's own `look`: the demigod is the object around it.
+                    if k == "look" && seen.len() == at + 1 && seen[at].demigod.is_none() {
+                        seen[at].demigod = r.clone();
+                        seen[at].name = name.clone();
+                        seen[at].player = player.clone();
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn look(&self, o: &mut Map<String, Value>, match_id: Option<&str>) -> LookSeen {
+        let text = |o: &Map<String, Value>, k: &str| o.get(k).and_then(Value::as_str).map(str::to_string);
+        let event = o.contains_key("event").then(|| Value::Object(o.clone()));
+        let fallback: Vec<Value> = o.get("fallback").and_then(Value::as_array).cloned().unwrap_or_default();
+        let mut seen = LookSeen {
+            demigod: None,
+            name: None,
+            player: None,
+            loadout_hash: text(o, "image_loadout_hash").unwrap_or_default(),
+            since_beat: o.get("since_beat").and_then(Value::as_u64),
+            loadout: o
+                .get("loadout")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(|x| x["name"].as_str().map(str::to_string)).collect())
+                .unwrap_or_default(),
+            portrait: None,
+            diorama: None,
+            event,
+        };
+        let mut pending = Map::new();
+        for (kind, base_key, subject_key, out) in [
+            (ImageKind::Portrait, "base_portrait", "portrait_subject", "portrait_image"),
+            (ImageKind::Diorama, "base_diorama", "diorama_subject", "diorama_image"),
+        ] {
+            let Some(base) = text(o, base_key).and_then(|b| self.prompt(kind, &b)) else { continue };
+            // The base first: it is the gear picture's first reference, so it must be ahead of it in the queue.
+            let base_img = self.request_with(&base, match_id, true);
+            let shown = match text(o, subject_key).and_then(|s| self.prompt_on(kind, &s, &base)) {
+                None => base_img,
+                Some(want) => {
+                    let img = self.request_with(&want, match_id, true);
+                    let shown = if img.status == "ready" {
+                        img.clone()
+                    } else {
+                        if img.status == "pending" {
+                            pending.insert(out.to_string(), img.to_json());
+                        }
+                        // The newest earlier look whose picture exists, else the base.
+                        fallback
+                            .iter()
+                            .filter_map(|f| f[subject_key].as_str())
+                            .filter_map(|s| self.prompt_on(kind, s, &base))
+                            .filter_map(|p| self.peek(&p))
+                            .find(|r| r.status == "ready")
+                            .unwrap_or(base_img)
+                    };
+                    match kind {
+                        ImageKind::Portrait => seen.portrait = Some(img),
+                        _ => seen.diorama = Some(img),
+                    }
+                    shown
+                }
+            };
+            o.insert(out.to_string(), shown.to_json());
+        }
+        for k in ["base_portrait", "base_diorama", "portrait_subject", "diorama_subject", "fallback"] {
+            o.remove(k);
+        }
+        if pending.is_empty() {
+            o.remove("pending");
+        } else {
+            pending.insert("loadout_hash".into(), seen.loadout_hash.clone().into());
+            o.insert("pending".into(), Value::Object(pending));
+        }
+        seen
+    }
+
     /// Annotate `payload` in place (see the module doc). Returns how many image objects were added. Never blocks; with
     /// images off it changes nothing and returns 0.
     pub fn annotate(&self, payload: &mut Value, match_id: Option<&str>) -> usize {
