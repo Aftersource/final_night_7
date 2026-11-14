@@ -7,7 +7,8 @@
 //!
 //! The plugin state is the `fn7_model::World` itself (settings in `meta.settings`, per-seat views in `seats`).
 //! Demigods no seat plays (when `players` > seats) are driven by the built-in AI with synthetic seat numbers
-//! ≥ [`SYNTHETIC_SEAT`], which never reach the Theatre.
+//! ≥ [`SYNTHETIC_SEAT`], which never reach the Theatre, until a mid-match joiner's new seat takes one over
+//! ([`table`], `on_seat_takeover`).
 
 use std::sync::Arc;
 
@@ -27,6 +28,7 @@ pub mod phases;
 pub mod queries;
 pub mod settings;
 pub mod society;
+pub mod table;
 pub mod testkit;
 pub mod visual;
 pub mod world;
@@ -68,7 +70,8 @@ pub const MECHANICS: &[&str] = &[
     "Heat death: Entropy reaching 100 makes that beat the Final Night at once: every outstanding debt is collected at its commit, then the survivor rule.",
     "Revive: a demigod brought back from the dead (Death's raise-the-dead, or the survivor rule) whose seat was reported eliminated is reported revived (seat.revived) and plays again.",
     "Final Night (beat = beats_total), and any beat that would end with nobody standing: exactly one demigod survives: lowest outstanding debt, then most health, then most health at the beat's start; a fallen survivor is revived at its start-of-beat health (immune that beat).",
-    "Match ends at beats_total or when at most one demigod stands. Every demigod gets a pile, a portrait prompt and an amiibo statue prompt.",
+    "Mid-match join (room setting allow_midmatch_join): at the round boundary a human taking over a bot's seat keeps its demigod, now human-controlled; a new seat takes over the built-in AI demigod still alive with the most health (then the lowest id), whose hands follow that seat's orders from that beat; with none alive the joiner spectates (no demigod). Every demigod's public controller is human or ai.",
+    "Match ends at beats_total or when at most one demigod stands. Every demigod gets a pile, a portrait prompt, a diorama prompt and an amiibo statue prompt.",
 ];
 
 /// The rules body recorded with every run (`theatre_trace::ruleset`).
@@ -546,6 +549,13 @@ impl GamePlugin for FinalNight7Plugin {
         Some(v)
     }
 
+    /// A human starts playing `takeover.seat` mid-match ([`table::seat_takeover`]): a bot's seat keeps its demigod; a
+    /// new seat takes over the healthiest live built-in AI demigod; with none alive, `None` (the joiner spectates).
+    fn on_seat_takeover(&self, state: &Value, takeover: &SeatTakeover) -> Option<Value> {
+        let mut w = world::load(state).ok()?;
+        table::seat_takeover(&mut w, takeover).then(|| world::save(&w))
+    }
+
     fn default_action(&self, _state: &Value, seat: Seat) -> Action {
         let mut a = actions::action(seat, "", "", None);
         a.defaulted = true;
@@ -642,3 +652,5 @@ mod tests;
 mod query_tests;
 #[cfg(test)]
 mod media_tests;
+#[cfg(test)]
+mod table_tests;

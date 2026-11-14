@@ -321,6 +321,10 @@ pub struct Demigod {
     /// The hands' standing orders (continued by rules in beats when the player is silent).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub orders: Vec<StandingOrder>,
+    /// The region (planet) or district (city) it started in: its home turf, fixed for the match (the diorama's
+    /// theme). Absent in states from before it existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub home: Option<PlaceId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

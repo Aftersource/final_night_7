@@ -485,6 +485,7 @@ pub fn setup(cfg: &SetupConfig, seats: &[(u8, String)], pantheon: &Pantheon) -> 
             });
         }
         let place = place_at(&w, pos);
+        let home = Some(crate::geo::region_at(&w, pos));
         w.demigods.push(Demigod {
             id,
             seat: *seat,
@@ -505,6 +506,7 @@ pub fn setup(cfg: &SetupConfig, seats: &[(u8, String)], pantheon: &Pantheon) -> 
             bolts: cfg.start_bolts,
             slows: vec![],
             orders: vec![],
+            home,
         });
     }
     for (gi, god) in pantheon.gods.iter().enumerate() {

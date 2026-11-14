@@ -72,9 +72,9 @@ pub fn specs() -> Vec<QuerySpec> {
         spec("gods", true, "The pantheon: each god's ref, name, slug, domain and health now.", obj(json!({}), &[])),
         spec("standings", true, "Every demigod ranked now: alive first, then who fell last, then score.", obj(json!({}), &[])),
         spec("media", true,
-             "An image of something in the game, by reference (never a free-text prompt): a portrait of a demigod or person, a place, a public event, or an army. Answers at once with `image` (pending, then ready via GET /media/index); the server writes the prompt from the state. Visibility: a seat may ask for what it can see (public things, its own people, events it knows); over HTTP only public refs. Rate-limited per seat and budgeted.",
-             obj(json!({ "kind": { "type": "string", "enum": ["portrait", "place", "event", "army"], "description": "What to draw." },
-                         "ref": r#ref(r"^(dg|ch|pl|lg|cl):\d+$", "portrait: `dg:`/`ch:`; place: `pl:`; event: `lg:`; army: `cl:` (an army).") }),
+             "An image of something in the game, by reference (never a free-text prompt): a portrait of a demigod or person, a demigod's diorama (its minifig on a base themed on its home region), a place, a public event, or an army. Answers at once with `image` (pending, then ready via GET /media/index); the server writes the prompt from the state. Visibility: a seat may ask for what it can see (public things, its own people, events it knows); over HTTP only public refs. Rate-limited per seat and budgeted.",
+             obj(json!({ "kind": { "type": "string", "enum": ["portrait", "diorama", "place", "event", "army"], "description": "What to draw." },
+                         "ref": r#ref(r"^(dg|ch|pl|lg|cl):\d+$", "portrait: `dg:`/`ch:`; diorama: `dg:`; place: `pl:`; event: `lg:`; army: `cl:` (an army).") }),
                  &["kind", "ref"])),
         spec("piles_final", true,
              "Every demigod's end-of-match pile (items, summons, stats, statue prompt). An error until the match is over.",
@@ -342,7 +342,7 @@ fn army_marker(w: &World, c: &Cluster, a: &Army) -> Value {
 }
 
 fn globe(state: &Value, a: &Args) -> Result<Value, String> {
-    let w = world(state, &[T::Places, T::Clusters, T::Characters, T::Demigods, T::Gods, T::Mods])?;
+    let w = world(state, &[T::Places, T::Clusters, T::Characters, T::Demigods, T::Gods, T::Mods, T::Seats])?;
     let events = event_page(&w, state, a.uint("since")?, a.limit(30, 200)?, None);
     Ok(json!({
         "beat": w.meta.beat,
@@ -382,7 +382,7 @@ fn crowds_under(w: &World, p: PlaceId) -> Vec<&Cluster> {
 fn region(state: &Value, a: &Args) -> Result<Value, String> {
     let w = world(
         state,
-        &[T::Places, T::Nodes, T::Clusters, T::Characters, T::Cells, T::Mobs, T::Demigods, T::Gods, T::Mods],
+        &[T::Places, T::Nodes, T::Clusters, T::Characters, T::Cells, T::Mobs, T::Demigods, T::Gods, T::Mods, T::Seats],
     )?;
     let p = region_ref(&w, a.need_ref("ref")?)?;
     let pl = &w.places[p.ix()];
@@ -610,7 +610,7 @@ fn gods(state: &Value, pantheon: &Pantheon) -> Result<Value, String> {
 }
 
 fn standings(state: &Value) -> Result<Value, String> {
-    let w = world(state, &[T::Places, T::Groups, T::Clusters, T::Characters, T::Demigods, T::Gods])?;
+    let w = world(state, &[T::Places, T::Groups, T::Clusters, T::Characters, T::Demigods, T::Gods, T::Seats])?;
     let mut ds: Vec<(&Demigod, f64)> = w.demigods.iter().map(|d| (d, crate::phases::score(&w, d))).collect();
     // Never by health (hidden): alive first, then who fell last, then score, then id.
     ds.sort_by(|(a, sa), (b, sb)| {
@@ -624,9 +624,11 @@ fn standings(state: &Value) -> Result<Value, String> {
         .iter()
         .enumerate()
         .map(|(i, (d, s))| {
-            json!({ "rank": i + 1, "demigod": Ref::Demigod(d.id), "name": d.name,
+            let mut v = json!({ "rank": i + 1, "demigod": Ref::Demigod(d.id), "name": d.name,
                     "seat": (d.seat < crate::SYNTHETIC_SEAT).then_some(d.seat), "alive": d.alive,
-                    "eliminated_beat": d.eliminated_beat, "cause": d.cause, "score": s, "bolts": d.bolts })
+                    "eliminated_beat": d.eliminated_beat, "cause": d.cause, "score": s, "bolts": d.bolts });
+            crate::table::add_table_fields(&w, d, &mut v);
+            v
         })
         .collect();
     Ok(json!({ "beat": w.meta.beat, "beats_total": w.meta.beats_total, "alive": w.alive_demigods().count(),
@@ -726,9 +728,9 @@ pub(crate) fn person_known(w: &World, state: &Value, d: DemigodId, c: CharId) ->
 /// `{kind, ref, name, image, visual?}` (and enforces the rate limit and budgets). Cheap: partial tables, bounded scans.
 fn media(state: &Value, seat: Option<Seat>, a: &Args) -> Result<Value, String> {
     let kind = match a.get("kind").and_then(Value::as_str).map(str::trim) {
-        Some(k @ ("portrait" | "place" | "event" | "army")) => k.to_string(),
-        Some(k) => return Err(format!("`kind` {k:?} is not portrait, place, event or army")),
-        None => return Err("`kind` is required (portrait, place, event or army)".into()),
+        Some(k @ ("portrait" | "diorama" | "place" | "event" | "army")) => k.to_string(),
+        Some(k) => return Err(format!("`kind` {k:?} is not portrait, diorama, place, event or army")),
+        None => return Err("`kind` is required (portrait, diorama, place, event or army)".into()),
     };
     let r = a.need_ref("ref")?;
     let hidden = || format!("{r} is not something you can see");
@@ -744,6 +746,11 @@ fn media(state: &Value, seat: Option<Seat>, a: &Args) -> Result<Value, String> {
             let w = world(state, &[T::Demigods])?;
             let x = w.demigods.get(d.ix()).ok_or_else(|| format!("no such demigod {r}"))?;
             Ok(out(x.name.clone(), payload::portrait_prompt(&w, x), Some(crate::visual::demigod(&w, x).to_json())))
+        }
+        ("diorama", Ref::Demigod(d)) => {
+            let w = world(state, &[T::Demigods, T::Places])?;
+            let x = w.demigods.get(d.ix()).ok_or_else(|| format!("no such demigod {r}"))?;
+            Ok(out(x.name.clone(), payload::diorama_prompt(&w, x), Some(crate::visual::demigod(&w, x).to_json())))
         }
         ("portrait", Ref::Char(c)) => {
             let w = world(
@@ -787,6 +794,7 @@ fn media(state: &Value, seat: Option<Seat>, a: &Args) -> Result<Value, String> {
             Ok(out(c.label.clone(), payload::army_prompt(&w, c, x), None))
         }
         ("portrait", _) => Err(format!("a portrait is of a demigod or person (`dg:`/`ch:`), not {r}")),
+        ("diorama", _) => Err(format!("a diorama is of a demigod (`dg:`), not {r}")),
         ("place", _) => Err(format!("a place image needs a `pl:` ref, not {r}")),
         ("event", _) => Err(format!("an event image needs a ledger row (`lg:`), not {r}")),
         _ => Err(format!("an army image needs an army (`cl:`), not {r}")),

@@ -280,7 +280,7 @@ fn shared_defs() -> Map<String, Value> {
              once `status` is `ready` (watch GET /media/index for `hash`); `off` = none will come, show a placeholder.",
             &[
                 ("hash", string("Content key (sha256 hex): cache by it forever.")),
-                ("kind", json!({ "type": "string", "enum": ["portrait", "item", "event", "statue", "place", "army"] })),
+                ("kind", json!({ "type": "string", "enum": ["portrait", "item", "event", "statue", "place", "army", "diorama"] })),
                 ("status", json!({ "type": "string", "enum": ["pending", "ready", "off"] })),
                 ("url", json!({ "type": ["string", "null"], "description": "`/media/<hash>.<ext>` once ready, relative to the server's HTTP origin." })),
                 ("prompt", string("The full prompt sent to the image model (house style; no engine ids).")),
@@ -753,11 +753,16 @@ fn settings_schema() -> Value {
         "resolve_timeout_s",
         timer(1800.0, "The core's resolve timeout. Default 60."),
     );
+    p(
+        "allow_midmatch_join",
+        json!({ "type": "boolean", "default": false,
+                "description": "The core's room flag: humans may join a running match, taking over a bot's seat (its demigod) or a new seat (a live built-in AI demigod, the healthiest; none left: they spectate) from the next round. Copied through only if set." }),
+    );
     json!({
         "type": "object",
         "description": "Room settings (`room.create.settings`, `room.settings.settings`; all optional) and, once validated, \
                         `match.started.rules` / `Room.settings`. Integers may be sent as whole floats (3.0). Unknown keys are \
-                        dropped silently. Validated `rules` always contain every key except seed/city (when unset), rounds and \
+                        dropped silently. Validated `rules` always contain every key except seed/city/allow_midmatch_join (when unset), rounds and \
                         choose_seconds (when unset).",
         "properties": props,
         "additionalProperties": true,
@@ -1000,7 +1005,9 @@ fn public_view() -> Value {
             "ref": { "$ref": "#/$defs/Ref" },
             "name": { "type": "string" },
             "alive": { "type": "boolean" },
-            "seat": { "type": ["integer", "null"], "minimum": 0, "description": "The Theatre seat; null for the built-in AI's demigods." },
+            "seat": { "type": ["integer", "null"], "minimum": 0, "description": "The Theatre seat; null for the built-in AI's demigods. A mid-match joiner's new seat takes over a built-in AI demigod, whose seat becomes that seat." },
+            "controller": { "type": "string", "enum": ["human", "ai"], "description": "human: a Theatre seat whose player is human plays it (as the game knows: from match start and mid-match takeovers); ai: a Theatre bot seat or the built-in AI. Flips to human when a joiner takes it over. A human who leaves mid-match stays human here until someone takes the seat over: room.updated seats[].is_bot is the live truth." },
+            "connected": { "type": ["boolean", "null"], "description": "true for an AI-controlled demigod (always there); null for a human one: the game never sees presence, so read room.updated seats[seat].connected." },
             "pos": { "$ref": "#/$defs/LonLat", "description": "Alive only." },
             "place": { "type": "string", "description": "Alive only: the place name it is in." },
             "eliminated_beat": { "type": ["integer", "null"], "minimum": 0, "description": "Eliminated only." },
@@ -1008,9 +1015,12 @@ fn public_view() -> Value {
             "bolts": { "type": "integer", "minimum": 0, "description": "Lightning bolts it holds (public)." },
             "region": { "type": "string", "description": "Alive only: the region (planet) or district (city) it is in." },
             "portrait_prompt": { "type": "string", "description": "An image prompt for its portrait (subject only, with its visual sheet; stable all match)." },
-            "image_kind": { "type": "string", "enum": ["portrait"] },
+            "image_kind": { "type": "string", "enum": ["portrait"], "description": "The kind of portrait_prompt." },
+            "diorama_prompt": { "type": "string", "description": "An image prompt for its diorama: the demigod as a collectible minifig on a small base themed on its home region (where it started) with its signature prop (subject only, from its visual sheet; stable all match)." },
+            "diorama_image_kind": { "type": "string", "enum": ["diorama"], "description": "The kind of diorama_prompt." },
             "visual": { "$ref": "#/$defs/Visual", "description": "Its visual sheet (stable all match). Always present since the media release; absent in older recordings." },
-            "portrait_image": { "$ref": "#/$defs/ImageObject", "description": "Its portrait (images on only)." }
+            "portrait_image": { "$ref": "#/$defs/ImageObject", "description": "Its portrait (images on only)." },
+            "diorama_image": { "$ref": "#/$defs/ImageObject", "description": "Its diorama, the table minifig (images on only; kind diorama)." }
         },
         "required": ["ref", "name", "alive", "seat"],
         "oneOf": [

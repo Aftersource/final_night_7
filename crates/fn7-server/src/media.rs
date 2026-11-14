@@ -124,6 +124,10 @@ impl<P: GamePlugin> GamePlugin for MediaPlugin<P> {
     ) -> Result<(), String> {
         self.inner.validate_action(state, seat, text, fields, kind)
     }
+    /// State only (no payload to annotate): forwarded untouched.
+    fn on_seat_takeover(&self, state: &Value, takeover: &SeatTakeover) -> Option<Value> {
+        self.inner.on_seat_takeover(state, takeover)
+    }
     fn default_action(&self, state: &Value, seat: Seat) -> Action {
         self.inner.default_action(state, seat)
     }

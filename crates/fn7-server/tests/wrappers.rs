@@ -24,6 +24,7 @@ const ALL_HOOKS: &[&str] = &[
     "default_action",
     "on_action_begin",
     "on_instant",
+    "on_seat_takeover",
     "bot_action",
     "resolve_round",
     "fallback_outcome",
@@ -104,6 +105,10 @@ impl GamePlugin for Stub {
         self.hit("on_instant");
         Some(json!({ "streak": seat }))
     }
+    fn on_seat_takeover(&self, _: &Value, t: &SeatTakeover) -> Option<Value> {
+        self.hit("on_seat_takeover");
+        Some(json!({ "taken_by": t.display_name, "seat": t.seat, "new_seat": t.new_seat }))
+    }
     async fn bot_action(&self, _: &Value, seat: Seat, _: &dyn LlmProvider) -> anyhow::Result<Action> {
         self.hit("bot_action");
         Ok(Action::new(seat, "go"))
@@ -173,6 +178,8 @@ async fn call_all(p: &dyn GamePlugin) {
     assert_eq!(c.public, Some(json!({ "slowed_by": 0 })));
     let a = Action { instant: true, seq: 3, ..Action::new(0, "bolt") };
     assert_eq!(p.on_instant(&st, 0, &a), Some(json!({ "streak": 0 })));
+    let t = SeatTakeover { seat: 1, display_name: "Zed".into(), round: 2, new_seat: true, previous_name: None };
+    assert_eq!(p.on_seat_takeover(&st, &t), Some(json!({ "taken_by": "Zed", "seat": 1, "new_seat": true })));
     p.bot_action(&st, 0, &llm).await.unwrap();
     let ctx = RoundContext {
         windows_closed: vec![ClosedWindow {
@@ -234,6 +241,12 @@ async fn every_wrapper_forwards_every_hook() {
         assert!(lines.iter().any(|l| l["hook"] == "resolve_round" && l["input"]["ctx"]["windows_closed"][0]["reason"] == "deadline"));
         assert!(lines.iter().any(|l| l["hook"] == "on_instant" && l["output"]["streak"] == 0 && l["input"]["action"]["seq"] == 3));
         assert_eq!(hook("query"), 1);
+        // A mid-match join, as the core records it: a hook record (input {takeover}, output {state_changed}) and an
+        // `on_seat_takeover` snapshot of the new state, at the round the joiner plays from.
+        assert!(lines.iter().any(|l| l["hook"] == "on_seat_takeover" && l["input"]["takeover"]["display_name"] == "Zed"
+            && l["output"]["state_changed"] == true && l["round"] == 2 && l["seat"] == 1));
+        assert!(lines.iter().any(|l| l["type"] == "snapshot" && l["label"] == "on_seat_takeover"
+            && l["state"]["taken_by"] == "Zed"));
         // The fallback is a hook record with its input (round, actions, ctx, resolve_error) and a snapshot.
         assert!(lines.iter().any(|l| l["hook"] == "fallback_outcome" && l["input"]["round"] == 1
             && l["input"]["ctx"]["windows_closed"][0]["reason"] == "deadline" && l["input"]["actions"][0]["seq"] == 3

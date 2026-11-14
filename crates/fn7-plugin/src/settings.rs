@@ -255,4 +255,18 @@ mod tests {
         assert!(Settings::validate(&json!([1])).is_err());
         assert!(Settings::validate(&json!({"compose_seconds": 0})).is_err());
     }
+
+    #[test]
+    fn allow_midmatch_join_passes_through() {
+        // The core's room flag (mid-match join) survives validation (copy_timer_settings), as a boolean only.
+        let v = Settings::validate(&json!({"allow_midmatch_join": true})).unwrap();
+        assert_eq!(v["allow_midmatch_join"], true);
+        assert_eq!(Settings::validate(&json!({"allow_midmatch_join": false})).unwrap()["allow_midmatch_join"], false);
+        assert!(Settings::validate(&Value::Null).unwrap().get("allow_midmatch_join").is_none(), "absent = off");
+        assert!(Settings::validate(&json!({"allow_midmatch_join": "yes"})).is_err());
+        // Through the plugin, too (what the room stores and returns as match.started.rules).
+        use theatre_plugin_api::GamePlugin;
+        let p = crate::FinalNight7Plugin::new();
+        assert_eq!(p.validate_settings(&json!({"allow_midmatch_join": true, "players": 4})).unwrap()["allow_midmatch_join"], true);
+    }
 }

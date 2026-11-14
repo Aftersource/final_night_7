@@ -6,7 +6,10 @@
 //! (`on_round_start` and `resolve_round` at `full`, `commit_round` and `fallback_outcome` always) serializes byte for
 //! byte the same, plus the summary in `run_end`. A round whose resolve failed twice (or timed out) carries the core's
 //! `fallback_outcome` hook record (theatre 1741d8f: input round, actions, ctx, resolve_error): replay calls
-//! `fallback_outcome` with exactly that input.
+//! `fallback_outcome` with exactly that input. A mid-match join (room setting `allow_midmatch_join`) carries the core's
+//! `on_seat_takeover` hook record (input `{takeover}`, output `{state_changed}`) at the round boundary, before that
+//! round's `on_round_start`, and an `on_seat_takeover` snapshot when the state changed: replay calls
+//! `on_seat_takeover` with exactly that takeover, in record order, and compares each snapshot.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -32,17 +35,19 @@ pub struct Report {
     pub beats: u32,
     /// Beats replayed through `fallback_outcome` (from its hook record).
     pub fallbacks: u32,
+    /// Mid-match joins replayed through `on_seat_takeover` (from its hook records).
+    pub takeovers: u32,
     /// Whether the replayed summary equals the recorded one (`None`: the recording has no `run_end`).
     pub summary_identical: Option<bool>,
 }
 
-/// `v` without the image objects the media wrapper adds (`image`, `statue_image`, `portrait_image`): a summary recorded
+/// `v` without the image objects the media wrapper adds (`image`, `statue_image`, `portrait_image`, `diorama_image`): a summary recorded
 /// by a server with images on compares equal to its replay through the bare plugin.
 pub fn strip_media(v: &Value) -> Value {
     match v {
         Value::Object(o) => Value::Object(
             o.iter()
-                .filter(|(k, _)| !matches!(k.as_str(), "image" | "statue_image" | "portrait_image"))
+                .filter(|(k, _)| !matches!(k.as_str(), "image" | "statue_image" | "portrait_image" | "diorama_image"))
                 .map(|(k, x)| (k.clone(), strip_media(x)))
                 .collect(),
         ),
@@ -167,13 +172,29 @@ pub async fn verify(path: impl AsRef<Path>, mut log: impl FnMut(&str)) -> anyhow
             .find(|s| s.0 == Some(round) && s.1 == label)
             .map(|s| s.2)
     };
+    // `on_seat_takeover` snapshots per round, in order (several joins can complete at one boundary).
+    let takeover_snaps = |round: u32| -> Vec<&Value> {
+        snaps
+            .iter()
+            .filter(|s| s.0 == Some(round) && s.1 == "on_seat_takeover")
+            .map(|s| s.2)
+            .collect()
+    };
     // Each round's resolve: the `resolve_round` attempt that succeeded, or the core's `fallback_outcome` record (the
     // resolve failed twice or timed out). A round with only failed attempts and no fallback record is an error.
     let mut resolves: BTreeMap<u32, ResolveIn> = BTreeMap::new();
     let mut failed: Vec<u32> = vec![];
+    // Each round's mid-match joins, in record order: (hook id, takeover, recorded state_changed).
+    let mut takeovers: BTreeMap<u32, Vec<(Option<i64>, SeatTakeover, bool)>> = BTreeMap::new();
     for h in records.iter().filter(|r| r["type"] == "hook") {
         let Some(round) = round_of(h) else { continue };
         match h["hook"].as_str() {
+            Some("on_seat_takeover") => {
+                let t: SeatTakeover = serde_json::from_value(h["input"]["takeover"].clone())
+                    .with_context(|| format!("run {run}: an on_seat_takeover record without its takeover"))?;
+                let changed = h["output"]["state_changed"].as_bool().unwrap_or(false);
+                takeovers.entry(round).or_default().push((h["id"].as_i64(), t, changed));
+            }
             Some("resolve_round") if h["error"].is_null() => {
                 resolves.insert(round, ResolveIn::of(h, false));
             }
@@ -219,22 +240,47 @@ pub async fn verify(path: impl AsRef<Path>, mut log: impl FnMut(&str)) -> anyhow
         run: run.clone(),
         ..Default::default()
     };
-    let mut compare = |round: u32, label: &str, got: &Value, rep: &mut Report| {
-        if let Some(theirs) = snap(round, label) {
+    let mut compare = |round: u32, label: &str, theirs: Option<&Value>, got: &Value, rep: &mut Report| {
+        if let Some(theirs) = theirs {
             rep.snapshots += 1;
             if serde_json::to_string(theirs).ok() == serde_json::to_string(got).ok() {
                 rep.identical += 1;
             } else {
                 let d = first_diff(theirs, got, "state").unwrap_or_else(|| "byte-level difference".into());
-                log(&format!("  beat {round:>3} {label:<15} DIFFERS at {d}"));
+                log(&format!("  beat {round:>3} {label:<16} DIFFERS at {d}"));
                 rep.differences.push(format!("beat {round} {label}: {d}"));
+            }
+        }
+    };
+    type Compare<'a> = dyn FnMut(u32, &str, Option<&Value>, &Value, &mut Report) + 'a;
+    // The joins the core completed at `round`'s boundary, before its on_round_start: exactly the recorded takeovers,
+    // in record order, each changed state compared with the next `on_seat_takeover` snapshot of the round.
+    let joins = |round: u32, state: &mut Value, rep: &mut Report, compare: &mut Compare| {
+        let Some(ts) = takeovers.get(&round) else { return };
+        let mut theirs = takeover_snaps(round).into_iter();
+        for (hook_id, t, changed) in ts {
+            let mut c = ctx(round);
+            c.hook_id = *hook_id;
+            let out = theatre_trace::within_sync(c, || p.on_seat_takeover(state, t));
+            rep.takeovers += 1;
+            if out.is_some() != *changed {
+                rep.differences.push(format!(
+                    "beat {round} on_seat_takeover (seat {}): state_changed {changed} recorded, {} replayed",
+                    t.seat,
+                    out.is_some()
+                ));
+            }
+            if let Some(st) = out {
+                compare(round, "on_seat_takeover", theirs.next(), &st, rep);
+                *state = st;
             }
         }
     };
     let mut state = start;
     for round in first..=last {
+        joins(round, &mut state, &mut rep, &mut compare);
         let rs = theatre_trace::within(ctx(round), p.on_round_start(&state, round, &replay)).await?;
-        compare(round, "on_round_start", &rs.state, &mut rep);
+        compare(round, "on_round_start", snap(round, "on_round_start"), &rs.state, &mut rep);
         state = rs.state;
         let Some(input) = resolves.get(&round) else {
             break;
@@ -244,24 +290,25 @@ pub async fn verify(path: impl AsRef<Path>, mut log: impl FnMut(&str)) -> anyhow
         let out = if input.fallback {
             // Exactly the recorded call: the context the failed resolve attempts got, as the core passed it.
             let o = theatre_trace::within_sync(c, || p.fallback_outcome(&state, round, &input.actions, &input.ctx));
-            compare(round, "fallback_outcome", &o.state, &mut rep);
+            compare(round, "fallback_outcome", snap(round, "fallback_outcome"), &o.state, &mut rep);
             rep.fallbacks += 1;
             o
         } else {
             theatre_trace::within(c, p.resolve_round(&state, round, &input.actions, &input.ctx, &replay, &NoProgress))
                 .await?
         };
-        compare(round, "resolve_round", &out.state, &mut rep);
+        compare(round, "resolve_round", snap(round, "resolve_round"), &out.state, &mut rep);
         state = out.state;
         let committed = theatre_trace::within(ctx(round), p.commit_round(&state, round, &[], &replay)).await?;
-        compare(round, "commit_round", &committed.state, &mut rep);
+        compare(round, "commit_round", snap(round, "commit_round"), &committed.state, &mut rep);
         state = committed.state;
         rep.beats = round;
     }
     // A next beat's Start the driver ran before learning the match was over.
     if snap(last + 1, "on_round_start").is_some() {
+        joins(last + 1, &mut state, &mut rep, &mut compare);
         let rs = theatre_trace::within(ctx(last + 1), p.on_round_start(&state, last + 1, &replay)).await?;
-        compare(last + 1, "on_round_start", &rs.state, &mut rep);
+        compare(last + 1, "on_round_start", snap(last + 1, "on_round_start"), &rs.state, &mut rep);
         state = rs.state;
     }
     if let Some(end) = records.iter().rev().find(|r| r["type"] == "run_end") {

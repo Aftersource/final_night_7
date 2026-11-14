@@ -625,12 +625,15 @@ pub fn public_view(w: &World) -> Value {
     }))
 }
 
-/// One demigod as everyone sees it: never health; a live one's position, place and region, a dead one's beat and cause.
+/// One demigod as everyone sees it: never health; a live one's position, place and region, a dead one's beat and cause;
+/// its table fields (`controller`, `connected`, `seat`; [`crate::table`]) and its portrait and diorama prompts.
 pub(crate) fn demigod_public(w: &World, d: &Demigod) -> Value {
     let mut v = json!({ "ref": Ref::Demigod(d.id), "name": d.name, "alive": d.alive,
                         "seat": (d.seat < SYNTHETIC_SEAT).then_some(d.seat), "bolts": d.bolts,
                         "portrait_prompt": crate::payload::portrait_prompt(w, d), "image_kind": "portrait",
+                        "diorama_prompt": crate::payload::diorama_prompt(w, d), "diorama_image_kind": "diorama",
                         "visual": crate::visual::demigod(w, d).to_json() });
+    crate::table::add_table_fields(w, d, &mut v);
     if d.alive {
         v["pos"] = json!(d.pos);
         v["place"] = w.name_of(Ref::Place(d.place)).into();

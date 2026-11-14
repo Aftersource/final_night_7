@@ -164,6 +164,7 @@ fn world() -> World {
             bolts: 3,
             slows: vec![],
             orders: vec![],
+            home: None,
         }],
         items: vec![],
         relations: vec![],

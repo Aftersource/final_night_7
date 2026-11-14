@@ -23,6 +23,10 @@ pub type Script<'a> = dyn Fn(Seat, u32) -> Option<Action> + Send + Sync + 'a;
 /// them on arrival.
 pub type Extras<'a> = dyn Fn(u32) -> (Vec<Action>, RoundContext) + Send + Sync + 'a;
 
+/// Mid-match joins the core completes at a round's boundary (before its `on_round_start`), as `on_seat_takeover`
+/// calls. A taken-over seat (`new_seat: false`) must be one of the seats; a new seat joins the actors from that round.
+pub type Joins<'a> = dyn Fn(u32) -> Vec<SeatTakeover> + Send + Sync + 'a;
+
 /// How the core would have received an action (for `validate_action`).
 pub fn kind_of(a: &Action) -> SubmitKind {
     match (a.instant, a.window_id) {
@@ -57,14 +61,46 @@ pub async fn run_match_with(
     stop_after: Option<u32>,
     script: &Script<'_>,
     extras: &Extras<'_>,
+    on_beat: impl FnMut(&BeatReport, &Value) -> bool,
+) -> anyhow::Result<(Value, Summary)> {
+    run_match_joins(p, seats, settings, llm, stop_after, script, extras, &|_| vec![], on_beat).await
+}
+
+/// [`run_match_with`] plus mid-match joins: `joins(round)`'s takeovers go to `on_seat_takeover` at the round's
+/// boundary, before `on_round_start`, as the core's `complete_joins` does; the joiner then acts as a human seat
+/// (`script`, else `default_action`).
+#[allow(clippy::too_many_arguments)]
+pub async fn run_match_joins(
+    p: &dyn GamePlugin,
+    seats: &[SeatInfo],
+    settings: &Value,
+    llm: &dyn LlmProvider,
+    stop_after: Option<u32>,
+    script: &Script<'_>,
+    extras: &Extras<'_>,
+    joins: &Joins<'_>,
     mut on_beat: impl FnMut(&BeatReport, &Value) -> bool,
 ) -> anyhow::Result<(Value, Summary)> {
     let settings = p.validate_settings(settings).map_err(anyhow::Error::msg)?;
     let mut state = p.on_match_start(seats, &settings, llm).await?;
+    let mut seats: Vec<SeatInfo> = seats.to_vec();
     let mut out: Vec<Seat> = vec![];
     let mut round = 0;
     loop {
         round += 1;
+        for t in joins(round) {
+            match seats.iter_mut().find(|s| s.seat == t.seat) {
+                Some(s) => {
+                    s.is_bot = false;
+                    s.display_name = t.display_name.clone();
+                }
+                None => seats.push(SeatInfo { seat: t.seat, display_name: t.display_name.clone(), is_bot: false }),
+            }
+            out.retain(|s| *s != t.seat);
+            if let Some(st) = p.on_seat_takeover(&state, &t) {
+                state = st;
+            }
+        }
         let start = p.on_round_start(&state, round, llm).await?;
         state = start.state.clone();
         out.extend(start.eliminated.iter().map(|e| e.0));

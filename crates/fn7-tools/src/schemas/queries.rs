@@ -396,7 +396,11 @@ pub(super) fn replies() -> Vec<(&'static str, &'static str, Value)> {
                 ("beats_total", int("")),
                 ("alive", int("")),
                 ("over", boolean("The match is over.")),
-                ("standings", array(json!({ "type": "object", "allOf": [standing, object("", &[("bolts", int("Bolts held (public)."))], &[])] }), "Best first.")),
+                ("standings", array(json!({ "type": "object", "allOf": [standing, object("", &[
+                    ("bolts", int("Bolts held (public).")),
+                    ("controller", e(&["human", "ai"], "As in the PublicView's demigods.")),
+                    ("connected", json!({ "type": ["boolean", "null"], "description": "As in the PublicView's demigods: true for AI, null for a human (see room.updated seats)." })),
+                ], &[])] }), "Best first.")),
             ],
             &[],
         )),
@@ -405,7 +409,7 @@ pub(super) fn replies() -> Vec<(&'static str, &'static str, Value)> {
              (pending, then ready via GET /media/index). The bare plugin (no media server) answers `image_prompt` and \
              `image_kind` instead of `image`.",
             &[
-                ("kind", e(&["portrait", "place", "event", "army"], "As asked.")),
+                ("kind", e(&["portrait", "diorama", "place", "event", "army"], "As asked.")),
                 ("ref", r("Ref")),
                 ("name", string("The demigod's, person's, place's or army's name; an event's text.")),
             ],
@@ -414,7 +418,7 @@ pub(super) fn replies() -> Vec<(&'static str, &'static str, Value)> {
                 ("reason", string("Why `image.status` is `off` (images off, a budget reached).")),
                 ("visual", r("Visual")),
                 ("image_prompt", string("Bare plugin only: the subject.")),
-                ("image_kind", e(&["portrait", "place", "event", "army"], "Bare plugin only.")),
+                ("image_kind", e(&["portrait", "diorama", "place", "event", "army"], "Bare plugin only.")),
             ],
         )),
         ("query_piles_final", "piles_final", object(

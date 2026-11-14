@@ -209,6 +209,31 @@ pub fn portrait_prompt(w: &World, d: &Demigod) -> String {
     )
 }
 
+/// A demigod's diorama prompt: the demigod as a collectible minifig on a small diorama base themed on its home region
+/// (where it started; fixed for the match) with its signature prop worked into the scene. Built from the name, the
+/// visual sheet and the home only, so it is stable for the whole match (one image per demigod).
+pub fn diorama_prompt(w: &World, d: &Demigod) -> String {
+    let v = crate::visual::demigod(w, d);
+    let home = d
+        .home
+        .and_then(|p| w.places.get(p.ix()))
+        .map(|p| p.name.clone())
+        .filter(|n| !n.trim().is_empty());
+    let base = match home {
+        Some(h) => format!("a small square diorama base themed on {h}, its home region, with that place's landmarks, ground and colors in miniature"),
+        None => "a small square diorama base themed on its home turf".to_string(),
+    };
+    format!(
+        "{}, a demigod: {}; as a collectible minifig standing on {base}, its signature prop, {}, built into the scene \
+         at its feet, trimmed in {} and {}",
+        d.name,
+        v.brief(),
+        v.traits.prop,
+        v.traits.colors[0],
+        v.traits.colors[1],
+    )
+}
+
 /// A named person's portrait prompt: name and visual sheet (stable all match).
 pub fn person_portrait_prompt(w: &World, c: &Character) -> String {
     format!(

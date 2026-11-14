@@ -150,6 +150,28 @@ impl<P: GamePlugin> GamePlugin for Recorded<P> {
             .within_sync(Some(self.round()), Some(seat), || self.inner.validate_action(state, seat, text, fields, kind))
             .0
     }
+    fn on_seat_takeover(&self, state: &Value, takeover: &SeatTakeover) -> Option<Value> {
+        // As the core's room (`complete_joins`): in the trace context (round, the seat), a hook record at every level
+        // (input {takeover}, output {state_changed}), and an `on_seat_takeover` snapshot when the state changed.
+        let round = Some(takeover.round);
+        let (res, id) = self.rec.within_sync(round, Some(takeover.seat), || {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.inner.on_seat_takeover(state, takeover)))
+        });
+        let new_state = res.unwrap_or(None);
+        self.rec.hook_record(
+            id,
+            round,
+            "on_seat_takeover",
+            Some(takeover.seat),
+            json!({ "takeover": takeover }),
+            json!({ "state_changed": new_state.is_some() }),
+            None,
+        );
+        if let Some(st) = &new_state {
+            self.rec.snapshot(round, "on_seat_takeover", st);
+        }
+        new_state
+    }
     fn default_action(&self, state: &Value, seat: Seat) -> Action {
         self.inner.default_action(state, seat)
     }

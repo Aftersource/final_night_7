@@ -164,6 +164,72 @@ async fn replay_reproduces_every_snapshot() {
     }
 }
 
+/// A recorded match with mid-match joins (a bot's seat taken over, two new seats binding the built-in AI demigods, and
+/// a fourth with none left, who spectates) replays with zero differences, through `on_seat_takeover` from its hook
+/// records; without those records the replay diverges.
+#[tokio::test(flavor = "multi_thread")]
+async fn replay_is_identical_through_a_midmatch_join() {
+    let dir = temp_dir("join");
+    let rec = recorder(&dir, theatre_trace::Level::Full).unwrap();
+    let run = uuid::Uuid::new_v4().to_string();
+    let p = Recorded::new(FinalNight7Plugin::new(), rec.run(run.clone()));
+    let llm = traced(Arc::new(Scripted::default()));
+    let seats: Vec<SeatInfo> = seats().into_iter().take(2).collect();
+    let t = |seat: Seat, round: u32, new_seat: bool| SeatTakeover {
+        seat,
+        display_name: format!("Joiner {seat}"),
+        round,
+        new_seat,
+        previous_name: (!new_seat).then(|| "Brix".to_string()),
+    };
+    let joins = move |round: u32| match round {
+        3 => vec![t(1, 3, false)],
+        4 => vec![t(2, 4, true), t(3, 4, true)],
+        5 => vec![t(4, 5, true)],
+        _ => vec![],
+    };
+    let script = |seat: Seat, round: u32| {
+        (seat >= 1 && round >= 4 && round.is_multiple_of(2))
+            .then(|| fn7_plugin::actions::action(seat, "raise an army from the nearest crowd", "pray to Chance for luck", None))
+    };
+    let settings = json!({ "seed": 21, "players": 4, "beats_total": 10, "clusters": 60 });
+    fn7_plugin::driver::run_match_joins(&p, &seats, &settings, llm.as_ref(), None, &script,
+        &|_| (vec![], RoundContext::default()), &joins, |_, _| true)
+        .await
+        .unwrap();
+    rec.flush();
+    let path = dir.join(format!("{run}.jsonl"));
+    let ls = lines(&path);
+    let hooks: Vec<&Value> = of(&ls, "hook").filter(|h| h["hook"] == "on_seat_takeover").collect();
+    assert_eq!(hooks.len(), 4);
+    assert_eq!(hooks.iter().filter(|h| h["output"]["state_changed"] == true).count(), 3, "the spectator changes nothing");
+    assert_eq!(of(&ls, "snapshot").filter(|s| s["label"] == "on_seat_takeover").count(), 3);
+    let ev = |k: &str| of(&ls, "event").filter(|e| e["kind"] == k).count();
+    assert_eq!((ev("seat_takeover"), ev("seat_takeover_spectator")), (3, 1));
+
+    let rep = fn7_server::replay::verify(&path, |l| eprintln!("{l}")).await.unwrap();
+    assert!(rep.differences.is_empty(), "{:?}", rep.differences);
+    assert_eq!(rep.takeovers, 4);
+    assert!(rep.snapshots > 20);
+    assert_eq!(rep.identical, rep.snapshots);
+    assert_eq!(rep.summary_identical, Some(true));
+    assert_eq!(rep.llm_misses, 0);
+
+    // The takeovers matter: a copy without their hook records no longer replays.
+    let cut = dir.join("cut.jsonl");
+    let text: String = std::fs::read_to_string(&path)
+        .unwrap()
+        .lines()
+        .filter(|l| !l.contains("\"on_seat_takeover\""))
+        .map(|l| format!("{l}\n"))
+        .collect();
+    std::fs::write(&cut, text).unwrap();
+    let rep = fn7_server::replay::verify(&cut, |_| {}).await.unwrap();
+    assert_eq!(rep.takeovers, 0);
+    assert!(!rep.differences.is_empty(), "a replay that skips the joins must diverge");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 /// The game with `resolve_round` failing on some beats (to drive the fallback path in-process).
 struct FailResolve<P> {
     inner: P,
@@ -195,6 +261,9 @@ impl<P: GamePlugin> GamePlugin for FailResolve<P> {
     }
     fn validate_action(&self, state: &Value, seat: Seat, text: &str, f: &Value, k: SubmitKind) -> Result<(), String> {
         self.inner.validate_action(state, seat, text, f, k)
+    }
+    fn on_seat_takeover(&self, state: &Value, t: &SeatTakeover) -> Option<Value> {
+        self.inner.on_seat_takeover(state, t)
     }
     fn default_action(&self, state: &Value, seat: Seat) -> Action {
         self.inner.default_action(state, seat)
