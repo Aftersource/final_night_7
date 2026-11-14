@@ -67,6 +67,8 @@ async fn main() -> anyhow::Result<()> {
         ).with_profiles(profiles.clone()));
     let app = AppState::new(cfg.clone(), plugin, built.llm);
     restore(&app);
+    // The always-on house room (THEATRE_HOUSE_ROOM=true): the one game every client joins. No-op when unset.
+    theatre_server::start_house(&app)?;
     // The match-end rows read the core's recording of the match (flushed first) for the room code, seats and falls.
     let record_dir = app.recorder.as_ref().map(|r| r.dir.clone()).or_else(|| cfg.record_dir.clone());
     if let Some(r) = &app.recorder {
