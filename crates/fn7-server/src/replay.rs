@@ -12,6 +12,11 @@
 //! `on_seat_takeover` with exactly that takeover, in record order, and compares each snapshot. A schema-8 match run by
 //! the server carries the plugin's side inputs as events (`duel_clock` at each Start, `journal_recovered` at a resolve
 //! after a restart; `fn7_plugin::present`): replay feeds them back to the hooks that read them.
+//! Accounts (docs/ACCOUNTS.md): the server's wrapper records what it did beside the plugin as events, and replay
+//! feeds them back: a `seat_persona` event (the exact `SeatPersona` applied after a takeover) is applied again through
+//! `fn7_plugin::persona::apply_to_state`, and a `seat_refused` event (a takeover the server refused: the plugin's
+//! takeover never ran) skips the call. Personas applied at match start are already inside the `on_match_start`
+//! snapshot. A recording without these events (every recording from before accounts) replays exactly as before.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -207,6 +212,28 @@ pub async fn verify(path: impl AsRef<Path>, mut log: impl FnMut(&str)) -> anyhow
             _ => {}
         }
     }
+    // Accounts: per (round, seat), the personas applied after a takeover and the takeovers refused, in record order.
+    let mut personas: BTreeMap<(u32, u8), Vec<fn7_plugin::persona::SeatPersona>> = BTreeMap::new();
+    let mut refused: Vec<(u32, u8)> = vec![];
+    for e in records.iter().filter(|r| r["type"] == "event") {
+        let d = &e["data"];
+        match e["kind"].as_str() {
+            Some(fn7_plugin::persona::EVENT) => {
+                if let (Some(round), Ok(p)) = (d["round"].as_u64(), serde_json::from_value::<fn7_plugin::persona::SeatPersona>(d["persona"].clone())) {
+                    // Round 0 is match start: inside the on_match_start snapshot already.
+                    if round > 0 {
+                        personas.entry((round as u32, p.seat)).or_default().push(p);
+                    }
+                }
+            }
+            Some(fn7_plugin::persona::REFUSED_EVENT) => {
+                if let (Some(round), Some(seat)) = (d["round"].as_u64(), d["seat"].as_u64()) {
+                    refused.push((round as u32, seat as u8));
+                }
+            }
+            _ => {}
+        }
+    }
     if let Some(r) = failed.iter().find(|r| !resolves.contains_key(r)) {
         return Err(anyhow!(
             "run {run}: beat {r}'s resolve_round failed and the recording has no fallback_outcome record \
@@ -265,7 +292,19 @@ pub async fn verify(path: impl AsRef<Path>, mut log: impl FnMut(&str)) -> anyhow
         for (hook_id, t, changed) in ts {
             let mut c = ctx(round);
             c.hook_id = *hook_id;
-            let out = theatre_trace::within_sync(c, || p.on_seat_takeover(state, t));
+            let out = theatre_trace::within_sync(c, || {
+                // What the server's accounts wrapper did around the plugin's takeover, from its recorded events.
+                if refused.contains(&(round, t.seat)) {
+                    return None;
+                }
+                let base = p.on_seat_takeover(state, t);
+                match personas.get(&(round, t.seat)).and_then(|v| v.first()) {
+                    Some(persona) => {
+                        fn7_plugin::persona::apply_to_state(base.as_ref().unwrap_or(state), persona, t.round).or(base)
+                    }
+                    None => base,
+                }
+            });
             rep.takeovers += 1;
             if out.is_some() != *changed {
                 rep.differences.push(format!(

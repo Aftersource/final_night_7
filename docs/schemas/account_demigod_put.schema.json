@@ -1,0 +1,34 @@
+{
+  "$defs": {},
+  "$id": "account_demigod_put.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Every key optional; a key left out is empty (name: null).",
+  "properties": {
+    "creed": {
+      "description": "A short creed.",
+      "maxLength": 200,
+      "type": "string"
+    },
+    "name": {
+      "description": "Custom name. Surrounding and doubled spaces are dropped; null or \"\" = no custom name.",
+      "maxLength": 32,
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "personality": {
+      "description": "Kept character for character when the verdict is ok. Newlines and tabs allowed; other control characters refused.",
+      "maxLength": 600,
+      "type": "string"
+    },
+    "style": {
+      "description": "Speaking style.",
+      "maxLength": 200,
+      "type": "string"
+    }
+  },
+  "title": "PUT /api/me/demigods/{left|right}: the request",
+  "type": "object"
+}

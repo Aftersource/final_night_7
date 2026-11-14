@@ -339,6 +339,31 @@ pub struct Demigod {
     /// 0 (absent) in schema-4 states.
     #[serde(default, skip_serializing_if = "crate::society::is_zero_u32")]
     pub sparks: u32,
+    /// Accounts: what the seat's signed-in player wrote for this demigod (moderated on save, see docs/ACCOUNTS.md).
+    /// Player text: fenced as untrusted in every prompt. Absent for guests without an account, bots, the built-in AI
+    /// and every state from before accounts (so those serialize exactly as before; no schema number of its own).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persona: Option<PlayerPersona>,
+}
+
+/// A signed-in player's words for one of their two demigods. Every field is optional text the player wrote (or the
+/// moderation pass's minimal rewrite of it); `pronouns` is one of the settings document's fixed values.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct PlayerPersona {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub personality: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub style: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub creed: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub pronouns: String,
+}
+
+impl PlayerPersona {
+    pub fn is_empty(&self) -> bool {
+        self.personality.is_empty() && self.style.is_empty() && self.creed.is_empty() && self.pronouns.is_empty()
+    }
 }
 
 pub(crate) fn is_zero_u32(x: &u32) -> bool {

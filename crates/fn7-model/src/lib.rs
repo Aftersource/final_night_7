@@ -373,6 +373,10 @@ pub struct SeatState {
     /// Empty in schema-4 states (where the demigod's name is the player's).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub display_name: String,
+    /// Accounts: the public id of the account whose bound session holds this seat (docs/ACCOUNTS.md "The game
+    /// connection"). Absent for every other seat and in every older state.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
 }
 
 impl World {

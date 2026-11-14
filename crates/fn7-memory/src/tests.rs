@@ -168,6 +168,7 @@ fn world() -> World {
             side: None,
             player: String::new(),
             sparks: 0,
+            persona: None,
         }],
         items: vec![],
         relations: vec![],

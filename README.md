@@ -46,6 +46,10 @@ cargo run --release -p fn7-server --bin fn7-server            # THEATRE_BIND=0.0
   `LLM_BASE_URL` is not: model `LLM_DEFAULT_MODEL` (default `claude-haiku-5-5`), `ANTHROPIC_EFFORT` (default `low`),
   `ANTHROPIC_MAX_INFLIGHT` (default 8). Otherwise the core's OpenAI-compatible gateway (`LLM_BASE_URL`, `LLM_API_KEY`,
   `LLM_DEFAULT_MODEL`), and with neither, no LLM: every mind uses its rules fallback.
+- **Accounts** (docs/ACCOUNTS.md): guest accounts work with no setup (`POST /api/auth/guest`); Google sign-in needs
+  `FN7_GOOGLE_CLIENT_ID`, `FN7_GOOGLE_CLIENT_SECRET` and `FN7_PUBLIC_URL` (redirect URI:
+  `<FN7_PUBLIC_URL>/api/auth/google/callback`); `FN7_NAME_GUARD=off` stops the name guard; `FN7_MODERATION=rules`
+  judges demigod sheets by rules only. The scripted client: `node docs/clients/fn7_accounts_e2e.mjs --url http://HOST:PORT`.
 - **Recording** is the Theatre core's (P1): run with `THEATRE_RECORD=full` (levels `off | events | full`; default
   `events`) and `THEATRE_RECORD_DIR=runs/recordings` (default `<THEATRE_DATA_DIR>/recordings`). Every match is
   `<dir>/<match_id>.jsonl`: run start/end, rulesets (plugin `version`, `rules_version`), every core and plugin event,

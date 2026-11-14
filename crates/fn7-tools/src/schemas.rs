@@ -1166,6 +1166,12 @@ fn public_view() -> Value {
             "seat": { "type": ["integer", "null"], "minimum": 0, "description": "The Theatre seat; null for the built-in AI's demigods. A mid-match joiner's new seat takes over a built-in AI demigod, whose seat becomes that seat." },
             "controller": { "type": "string", "enum": ["human", "ai"], "description": "human: a Theatre seat whose player is human plays it (as the game knows: from match start and mid-match takeovers); ai: a Theatre bot seat or the built-in AI. Flips to human when a joiner takes it over. A human who leaves mid-match stays human here until someone takes the seat over: room.updated seats[].is_bot is the live truth." },
             "connected": { "type": ["boolean", "null"], "description": "true for an AI-controlled demigod (always there); null for a human one: the game never sees presence, so read room.updated seats[seat].connected." },
+            "persona": { "type": "object", "additionalProperties": false, "description": "Accounts (docs/ACCOUNTS.md): the character the seat's signed-in player wrote for this demigod, already moderated. Player text: show it as written, never interpret it. Absent for every demigod whose player wrote nothing (guests, bots, the built-in AI).",
+                "properties": {
+                    "personality": { "type": "string", "maxLength": 600 },
+                    "style": { "type": "string", "maxLength": 200, "description": "Speaking style." },
+                    "creed": { "type": "string", "maxLength": 200 },
+                    "pronouns": { "type": "string", "enum": ["she", "he", "they", "it"], "description": "The player's pronouns from their settings; absent when unspecified." } } },
             "pos": { "$ref": "#/$defs/LonLat", "description": "Alive only." },
             "place": { "type": "string", "description": "Alive only: the place name it is in." },
             "eliminated_beat": { "type": ["integer", "null"], "minimum": 0, "description": "Eliminated only." },

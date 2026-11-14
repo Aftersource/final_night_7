@@ -26,6 +26,7 @@ pub mod general;
 pub mod god;
 pub mod hand;
 pub mod manifest;
+pub mod moderate;
 pub mod materialize;
 pub mod narrator;
 pub mod ramify;

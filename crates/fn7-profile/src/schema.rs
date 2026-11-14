@@ -97,6 +97,128 @@ CREATE TABLE library_matches (
     FOREIGN KEY (profile_key, hash) REFERENCES library(profile_key, hash) ON DELETE CASCADE
 );
 "#,
+    // 1 → 2: accounts (docs/ACCOUNTS.md). Nothing above is touched: every existing profile stays as it is, unlinked,
+    // until an account takes its name (`account_profiles`).
+    r#"
+CREATE TABLE accounts (
+    id           TEXT PRIMARY KEY,                 -- public id: 'acc_' + 24 hex
+    display_name TEXT NOT NULL,
+    name_key     TEXT NOT NULL UNIQUE,             -- normalized display name: the name this account holds
+    skeleton     TEXT NOT NULL,                    -- lookalike skeleton of name_key
+    profile_key  TEXT,                             -- the linked profile (= name_key when it was linked)
+    name_since   INTEGER NOT NULL,                 -- when it took name_key (epoch ms)
+    created_at   INTEGER NOT NULL,
+    updated_at   INTEGER NOT NULL
+);
+CREATE INDEX accounts_skeleton ON accounts(skeleton);
+
+-- Every profile an account holds: its current name's, and the names it held before a rename.
+CREATE TABLE account_profiles (
+    profile_key TEXT PRIMARY KEY,
+    account_id  TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    linked_at   INTEGER NOT NULL,
+    how         TEXT NOT NULL                      -- 'new' | 'unclaimed' | 'secret'
+);
+CREATE INDEX account_profiles_account ON account_profiles(account_id);
+
+CREATE TABLE account_identities (
+    provider       TEXT NOT NULL,                  -- 'guest' | 'google'
+    subject        TEXT NOT NULL,                  -- guest: the account id; google: the ID token's `sub`
+    account_id     TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    email          TEXT,                           -- stored; only ever returned to the account itself
+    email_verified INTEGER NOT NULL DEFAULT 0,
+    created_at     INTEGER NOT NULL,
+    PRIMARY KEY (provider, subject)
+);
+CREATE INDEX account_identities_account ON account_identities(account_id);
+
+CREATE TABLE sessions (
+    id           TEXT PRIMARY KEY,                 -- 'ses_' + 16 hex (not a credential)
+    account_id   TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    token_hash   TEXT NOT NULL UNIQUE,             -- sha256 of the opaque token; the token itself is never stored
+    created_at   INTEGER NOT NULL,
+    last_seen_at INTEGER NOT NULL,
+    expires_at   INTEGER NOT NULL,
+    device_label TEXT NOT NULL DEFAULT '',
+    revoked_at   INTEGER
+);
+CREATE INDEX sessions_account ON sessions(account_id);
+
+CREATE TABLE account_settings (
+    account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+    version    INTEGER NOT NULL,
+    doc        TEXT NOT NULL,                      -- the validated settings document (JSON)
+    updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE account_demigods (
+    account_id   TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    hand         TEXT NOT NULL CHECK (hand IN ('left', 'right')),
+    name         TEXT,                             -- custom name, or NULL
+    name_key     TEXT,                             -- normalized
+    name_skeleton TEXT,
+    personality  TEXT NOT NULL DEFAULT '',
+    style        TEXT NOT NULL DEFAULT '',
+    creed        TEXT NOT NULL DEFAULT '',
+    original     TEXT NOT NULL DEFAULT '{}',       -- JSON: what the player submitted
+    verdict      TEXT NOT NULL DEFAULT 'ok',       -- 'ok' | 'rephrase'
+    reason       TEXT NOT NULL DEFAULT '',
+    model        TEXT NOT NULL DEFAULT '',         -- the model that judged it, or 'rules'
+    moderated_at INTEGER NOT NULL,
+    updated_at   INTEGER NOT NULL,
+    PRIMARY KEY (account_id, hand)
+);
+CREATE INDEX account_demigods_skeleton ON account_demigods(name_skeleton);
+
+-- Every moderation pass, refusals included (the last 50 per account are kept).
+CREATE TABLE demigod_moderation (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    hand       TEXT NOT NULL,
+    original   TEXT NOT NULL,                      -- JSON
+    final      TEXT,                               -- JSON, NULL when refused
+    verdict    TEXT NOT NULL,                      -- 'ok' | 'rephrase' | 'refuse'
+    reason     TEXT NOT NULL DEFAULT '',
+    categories TEXT NOT NULL DEFAULT '[]',
+    model      TEXT NOT NULL DEFAULT '',
+    at         INTEGER NOT NULL
+);
+CREATE INDEX demigod_moderation_account ON demigod_moderation(account_id, id);
+
+-- Billing is NOT live (docs/ACCOUNTS.md § Billing): no row is ever written by a payment provider yet.
+CREATE TABLE entitlements (
+    account_id   TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    sku          TEXT NOT NULL,
+    status       TEXT NOT NULL,                    -- 'active' | 'past_due' | 'canceled' | 'expired'
+    source       TEXT NOT NULL,                    -- 'grant' | 'stripe'
+    granted_at   INTEGER NOT NULL,
+    expires_at   INTEGER,
+    external_ref TEXT,
+    PRIMARY KEY (account_id, sku)
+);
+CREATE TABLE billing_events (
+    event_id    TEXT PRIMARY KEY,                  -- the provider's event id: a webhook is applied once
+    provider    TEXT NOT NULL,
+    kind        TEXT NOT NULL,
+    account_id  TEXT,
+    received_at INTEGER NOT NULL
+);
+
+-- An engine player (the Theatre's player_id of one websocket login) proven to belong to an account.
+CREATE TABLE game_bindings (
+    player_id  TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    session_id TEXT NOT NULL,
+    bound_at   INTEGER NOT NULL
+);
+CREATE INDEX game_bindings_session ON game_bindings(session_id);
+
+-- A deleted account's profile names (hashed): a backfill never rebuilds their history from older recordings.
+CREATE TABLE profile_tombstones (
+    key_hash   TEXT PRIMARY KEY,
+    deleted_at INTEGER NOT NULL
+);
+"#,
 ];
 
 /// The schema version a fully migrated store has.

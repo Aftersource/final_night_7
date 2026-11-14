@@ -1,0 +1,40 @@
+{
+  "$defs": {},
+  "$id": "account_error.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "detail": {
+      "description": "Human-readable; switch on error.",
+      "type": "string"
+    },
+    "error": {
+      "enum": [
+        "invalid",
+        "bad_name",
+        "unauthorized",
+        "not_found",
+        "name_taken",
+        "name_lookalike",
+        "name_conflict",
+        "name_mismatch",
+        "identity_in_use",
+        "already_linked",
+        "profile_claimed",
+        "confirm_required",
+        "too_large",
+        "refused",
+        "rate_limited",
+        "google_not_configured",
+        "store",
+        "internal"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "error",
+    "detail"
+  ],
+  "title": "Every error of the account routes",
+  "type": "object"
+}
