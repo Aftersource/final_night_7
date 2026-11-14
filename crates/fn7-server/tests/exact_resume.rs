@@ -273,6 +273,17 @@ async fn the_exact_present_survives_reconnects_a_kill_and_a_fork() {
     assert_eq!((p1["n"].as_u64(), p1["blows"].clone()), (Some(1), json!([b1["n"]])), "panel 1 stages the line typed in window 0");
     let lead = p1["starts_at_ms"].as_i64().unwrap() - now_ms();
     assert!(lead > 300, "the next panel arrives before it starts (the render lead): {lead} ms ahead");
+    // Live typing: relayed at once as `duel.typing`, to everyone, and kept nowhere but the current length.
+    let k1 = a.instant(2, json!({ "duel_keys": { "duel_id": id, "len": 4, "tail": "then" } }), "duel.typing").await;
+    assert_eq!((k1["duel_id"].as_str(), k1["by"].as_str(), k1["demigod"].as_str(), k1["len"].as_u64(), k1["tail"].as_str()),
+               (Some(id.as_str()), Some("a"), Some(mine.as_str()), Some(4), Some("then")));
+    assert!(k1["seq"].as_u64() > p1["seq"].as_u64() && (k1["at_ms"].as_i64().unwrap() - now_ms()).abs() < 5_000, "{k1}");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let k2 = a.instant(2, json!({ "duel_keys": { "duel_id": id, "len": 9, "tail": " I s" } }), "duel.typing").await;
+    assert_eq!((k2["len"].as_u64(), k2["tail"].as_str()), (Some(9), Some(" I s")));
+    let (t, refused) = a.ask("action.submit", json!({ "round": 2, "text": "", "instant": true,
+                                                      "fields": { "duel_keys": { "duel_id": id, "len": 9, "tail": "a\tb" } } })).await;
+    assert_eq!((t.as_str(), refused["accepted"].as_bool(), refused["reason"].as_str()), ("action.received", Some(false), Some("bad_tail")));
     a.ask("action.begin", json!({})).await;
     let window = a.wait("window.opened", |_| true).await;
 
@@ -296,6 +307,10 @@ async fn the_exact_present_survives_reconnects_a_kill_and_a_fork() {
     assert_eq!(p["live"], true);
     let events: Vec<&str> = p["events"].as_array().unwrap().iter().map(|e| e["event"].as_str().unwrap_or("")).collect();
     assert_eq!(&events[..4], ["summoning", "challenge.lock", "duel.blow", "duel.panel"], "the mid-beat events since the last resolve, in order");
+    assert!(!events.contains(&"duel.typing"), "keystrokes are never replayed to a reconnecting client: {events:?}");
+    assert_eq!((duel(p, &id)["typing"]["a"]["len"].as_u64(), duel(p, &id)["typing"]["a"]["at_ms"].clone(), duel(p, &id)["typing"]["b"]["len"].as_u64()),
+               (Some(9), k2["at_ms"].clone(), Some(0)), "only the current length of each side's unsent line");
+    assert!(lock["a"]["skin"].is_string() && duel(p, &id)["a"]["skin"] == lock["a"]["skin"] && duel(p, &id)["lock"]["b"]["skin"] == lock["b"]["skin"]);
     assert_eq!((d_scene(p, &id), d_panels(p, &id)), (scene.clone(), vec![p0.clone(), strip(&p1)]), "the scene and every panel so far");
     for (k, e) in [&summoning, &lock, &b1].into_iter().enumerate() {
         assert_eq!((p["events"][k]["seq"].clone(), p["events"][k]["received_at_ms"].clone()), (e["seq"].clone(), e["received_at_ms"].clone()));
@@ -477,6 +492,8 @@ async fn the_exact_present_survives_reconnects_a_kill_and_a_fork() {
         assert!(stamped(&e["seq"], &e["received_at_ms"]), "{name} is in the recording with its arrival stamp");
     }
     assert!(records.iter().any(|r| r["type"] == "event" && r["kind"] == "journal_recovered"), "the recovery is recorded");
+    // The typing relays are in the recording too (and in the resolve's recorded batch): the replay below has them.
+    assert!(stamped(&k1["seq"], &k1["at_ms"]) && stamped(&k2["seq"], &k2["at_ms"]), "the typing relays are recorded");
     // What the kill cost the recording itself (the core writes it through a buffer): the records of the killed beat.
     let text = std::fs::read_to_string(&parent).unwrap();
     let torn = text.lines().filter(|l| serde_json::from_str::<Value>(l).is_err()).count();
