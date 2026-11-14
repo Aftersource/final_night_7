@@ -920,3 +920,7 @@ Engineering: the contract for selecting, moving and displaying demigods:
 > Slow it down to 8x.
 
 Engineering: the head-tracking follow starts the instant the pointer moves but pans GENTLY, about 8× slower than before. It's a framerate-independent critically damped follow (smooth time ~1.6 s), on mac/perf with the one-shadow-light performance fix.
+
+> Make sure the demigods are included as well.
+
+Engineering: the summon drag ships in the same mac/perf merge (press your demigod, drag it, drop it on the board or globe to send fields.summon), with a local preview until the 0.8.0 server answers.
