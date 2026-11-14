@@ -821,3 +821,13 @@ Engineering:
   - gives the power hexes a random shiny flash, one at a time, each with a small effect for its element
   - draws the PB2002 fault lines (reassigned from the silent Windows builder), visible only while a mega is armed
 - The coastline fade and the level-1 hopping crowds stay with the Windows builder: not done yet.
+
+## 2026-11-14: a flamboyant pouch that bursts, a quieter open will (relayed by the Mac session, typos fixed)
+
+> The pouch should be larger and more flamboyant, and should burst out into the tiles when clicked. The shine for the
+> will scroll: the extra shine on the opened scroll does not need attention, since it looks shiny enough closed to be clicked.
+
+Engineering (Mac kit):
+- The pouch is big and ornate and holds the power hexes. Clicking it bursts them out onto the right side of the board; clicking again draws them back in.
+- The WILL scroll keeps its foil only while rolled up.
+- Unreal main 87ac743 builds green both normally and with unity off.
