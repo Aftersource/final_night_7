@@ -1,0 +1,30 @@
+[package]
+name = "fn7-assets"
+description = "Final Night 7 asset registry: every generated asset (images, 3D models, textures, animation clips) as content-addressed files under <data>/fn7/assets plus one SQLite database (assets, generations with the exact prompts, lineage, uses); live ingestion from fn7-media, backfill, Meshy provenance import, and the /api/assets routes."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "fn7-assets"
+path = "src/bin/fn7-assets.rs"
+
+[dependencies]
+fn7-media.workspace = true
+fn7-profile = { path = "../fn7-profile", default-features = false }
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+clap.workspace = true
+sha2 = "0.10"
+hex = "0.4"
+axum = "0.8"
+futures-core = "0.3"
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+uuid.workspace = true
