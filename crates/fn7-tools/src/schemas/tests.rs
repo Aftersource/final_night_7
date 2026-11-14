@@ -213,6 +213,9 @@ fn query_replies_validate() {
         ("gods", None, json!({}), &state),
         ("standings", None, json!({}), &state),
         ("piles_final", None, json!({}), &over),
+        ("media", None, json!({ "kind": "portrait", "ref": "dg:0" }), &state),
+        ("media", Some(1), json!({ "kind": "place", "ref": s(Ref::Place(region)) }), &state),
+        ("media", None, json!({ "kind": "army", "ref": s(Ref::Cluster(army)) }), &state),
     ];
     if let Some(c) = w.cells.first() {
         cases.push(("node", None, json!({ "ref": s(Ref::Cell(c.id)) }), &state));

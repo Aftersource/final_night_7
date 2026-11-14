@@ -42,6 +42,53 @@
       ],
       "type": "object"
     },
+    "ImageObject": {
+      "description": "An image the media server attached (only when the server has images on; see docs/MEDIA.md). Fetch `url` once `status` is `ready` (watch GET /media/index for `hash`); `off` = none will come, show a placeholder.",
+      "properties": {
+        "hash": {
+          "description": "Content key (sha256 hex): cache by it forever.",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "portrait",
+            "item",
+            "event",
+            "statue",
+            "place",
+            "army"
+          ],
+          "type": "string"
+        },
+        "prompt": {
+          "description": "The full prompt sent to the image model (house style; no engine ids).",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "ready",
+            "off"
+          ],
+          "type": "string"
+        },
+        "url": {
+          "description": "`/media/<hash>.<ext>` once ready, relative to the server's HTTP origin.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "hash",
+        "kind",
+        "status",
+        "url",
+        "prompt"
+      ],
+      "type": "object"
+    },
     "LonLat": {
       "description": "[longitude, latitude] in degrees (WGS84). Note the order: longitude first.",
       "items": {
@@ -107,6 +154,10 @@
           ],
           "description": "Where, [lon, lat]."
         },
+        "image": {
+          "$ref": "#/$defs/ImageObject",
+          "description": "A moment card: only on events the media style's event_selection picks (and only with images on)."
+        },
         "image_kind": {
           "description": "With image_prompt.",
           "enum": [
@@ -115,7 +166,7 @@
           "type": "string"
         },
         "image_prompt": {
-          "description": "Only on the truly big ones (a cast, an elimination, magnitude ≥ 8): an image prompt (subject only).",
+          "description": "Every public event: its image subject (a candidate moment card; it names who is in it with their visual sheets). Older recordings: only the big ones.",
           "type": "string"
         },
         "kind": {

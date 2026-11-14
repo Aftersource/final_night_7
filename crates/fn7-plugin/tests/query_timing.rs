@@ -42,7 +42,16 @@ async fn every_query_is_cheap_at_beat_50() {
     let mut over = state.clone();
     over["meta"]["beats_total"] = json!(w.meta.beat);
 
+    // The worst case for `game.media` portraits: a person seat 0 may see but who is not public (every check runs).
     let p = FinalNight7Plugin::new();
+    let private = w
+        .characters
+        .iter()
+        .map(|c| c.id)
+        .find(|c| p.query(&state, None, "media", &json!({ "kind": "portrait", "ref": Ref::Char(*c).to_string() })).is_err()
+            && p.query(&state, Some(0), "media", &json!({ "kind": "portrait", "ref": Ref::Char(*c).to_string() })).is_ok())
+        .unwrap_or(person);
+    let public_row = w.ledger.rows.iter().rev().find(|r| fn7_plugin::payload::is_public_event(&w, r)).expect("a public row").id;
     let cases: Vec<(&str, Option<Seat>, Value, &Value)> = vec![
         ("globe", None, json!({}), &state),
         ("globe", None, json!({ "since": 0, "limit": 200 }), &state),
@@ -63,6 +72,12 @@ async fn every_query_is_cheap_at_beat_50() {
         ("gods", None, json!({}), &state),
         ("standings", None, json!({}), &state),
         ("piles_final", None, json!({}), &over),
+        ("media", None, json!({ "kind": "portrait", "ref": "dg:0" }), &state),
+        ("media", Some(0), json!({ "kind": "portrait", "ref": Ref::Char(person).to_string() }), &state),
+        ("media", Some(0), json!({ "kind": "portrait", "ref": Ref::Char(private).to_string() }), &state),
+        ("media", None, json!({ "kind": "place", "ref": Ref::Place(region).to_string() }), &state),
+        ("media", None, json!({ "kind": "army", "ref": Ref::Cluster(army).to_string() }), &state),
+        ("media", Some(0), json!({ "kind": "event", "ref": Ref::Ledger(public_row).to_string() }), &state),
     ];
     let mut worst = Duration::ZERO;
     for (name, seat, args, st) in &cases {

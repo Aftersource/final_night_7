@@ -629,7 +629,8 @@ pub fn public_view(w: &World) -> Value {
 pub(crate) fn demigod_public(w: &World, d: &Demigod) -> Value {
     let mut v = json!({ "ref": Ref::Demigod(d.id), "name": d.name, "alive": d.alive,
                         "seat": (d.seat < SYNTHETIC_SEAT).then_some(d.seat), "bolts": d.bolts,
-                        "portrait_prompt": crate::payload::portrait_prompt(w, d), "image_kind": "portrait" });
+                        "portrait_prompt": crate::payload::portrait_prompt(w, d), "image_kind": "portrait",
+                        "visual": crate::visual::demigod(w, d).to_json() });
     if d.alive {
         v["pos"] = json!(d.pos);
         v["place"] = w.name_of(Ref::Place(d.place)).into();
@@ -822,10 +823,11 @@ pub(crate) fn pile_with(w: &World, d: &Demigod, me: &[Ref], acts: usize, paid: f
         "bolts": d.bolts,
         "slows": d.slows.len(),
         "statue_prompt": format!(
-            "An amiibo-style collectible figure of the demigod {}, {pose}, on a round base shaped like {base}, atop a \
-             ridiculous towering pile of everything they held and summoned: {}. Tiny figures of the people they \
+            "An amiibo-style collectible figure of the demigod {} ({}), {pose}, on a round base shaped like {base}, atop \
+             a ridiculous towering pile of everything they held and summoned: {}. Tiny figures of the people they \
              touched cling to the pile: {}. Two glowing hands hover at their sides.",
             d.name,
+            crate::visual::demigod(w, d).brief(),
             if top.is_empty() { "nothing but debts".into() } else { top.join(", ") },
             if crowd.is_empty() { "nobody".into() } else { crowd.join(", ") },
         ),
@@ -950,8 +952,166 @@ pub async fn summarize(w: &World, llm: Option<&dyn LlmProvider>) -> Summary {
     if let Some(v) = cut {
         sum.summary["final_cut"] = json!({ "title": v["title"], "story": v["story"], "fallback": false });
     }
+    sum.summary["storyboard"] = json!(storyboard(&w, &sum.summary["final_cut"]));
     crate::payload::tidy(&mut sum.summary);
     sum
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Storyboard (the "final cut" animatic, docs/SHARED_MEDIA_SPEC.md §3.3)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/// Moments in a storyboard, at most (plus the title shot and the champion's close-up).
+pub const STORYBOARD_MOMENTS: usize = 10;
+
+/// How much a public row deserves a shot: eliminations first, then casts and the society's turning points, then
+/// magnitude. `None` = not a moment.
+fn moment_score(r: &LedgerRow) -> Option<u32> {
+    let m = r.magnitude as u32;
+    let s = match r.verb.as_str() {
+        "eliminate" => 1000 + m,
+        "revive" => 500 + m,
+        "cast" => 200 + m * 10,
+        "general_appointed" | "mutiny" | "host_raised" | "defection" => 100 + m * 10,
+        _ if m >= 6 => m * 10,
+        _ => return None,
+    };
+    Some(s)
+}
+
+fn shot_caption(text: &str) -> String {
+    let t = fn7_agents::common::scrub_ids(text);
+    let t = t.split_whitespace().collect::<Vec<_>>().join(" ");
+    clip_words(&t, 220)
+}
+
+fn clip_words(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let cut: String = s.chars().take(max).collect();
+    match cut.rfind(' ') {
+        Some(i) if i > max / 2 => format!("{}…", cut[..i].trim_end_matches([',', ';', ' '])),
+        _ => format!("{cut}…"),
+    }
+}
+
+/// A caption line without a leading "Beat N:" (the fallback final cut is the captions, each so prefixed).
+fn strip_beat_tag(line: &str) -> &str {
+    let t = line.trim();
+    if let Some(rest) = t.strip_prefix("Beat ") {
+        let digits = rest.chars().take_while(|c| c.is_ascii_digit()).count();
+        if digits > 0 {
+            if let Some(after) = rest[digits..].strip_prefix(':') {
+                return after.trim_start();
+            }
+        }
+    }
+    t
+}
+
+/// The last sentence or two of a story (the champion shot's caption).
+fn closing_lines(story: &str) -> String {
+    let flat = story.lines().map(strip_beat_tag).collect::<Vec<_>>().join(" ");
+    let flat = flat.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut ends: Vec<usize> = flat
+        .char_indices()
+        .filter(|(i, c)| matches!(c, '.' | '!' | '?') && flat[i + 1..].starts_with(' '))
+        .map(|(i, _)| i + 1)
+        .collect();
+    ends.retain(|&i| i < flat.len());
+    // The last two sentences.
+    let start = match ends.len() {
+        0 | 1 => 0,
+        n => ends[n - 2],
+    };
+    let tail = flat[start..].trim();
+    let tail = if tail.chars().count() > 260 {
+        flat[ends.last().copied().unwrap_or(0)..].trim()
+    } else {
+        tail
+    };
+    clip_words(if tail.is_empty() { &flat } else { tail }, 260)
+}
+
+/// The match's storyboard: an ordered list of shots `{shot, kind, beat, at, region, image_prompt, image_kind, image,
+/// caption, duration_ms, camera, row?, refs}`:
+/// 1. **title**: the final cut's title over the arena, the demigods descending (globe camera);
+/// 2. **moments**: the match's biggest public moments (every elimination first, then casts, the society's turning
+///    points and the highest magnitudes; at most [`STORYBOARD_MOMENTS`]) in the order they happened, each over where
+///    it happened, captioned with what happened; eliminations get the close camera. Their image prompts are exactly
+///    the moment cards' (`events[].image_prompt`), so a moment card's picture is reused;
+/// 3. **champion**: the champion's portrait (the same prompt as `demigods[].portrait_prompt`, so the same image)
+///    with the closing lines of the narrator's final cut (close camera).
+///
+/// `image` is null here; the media server fills it with an image object (event or portrait) next to `image_prompt`.
+/// Deterministic: built from the state and the final cut only.
+pub fn storyboard(w: &World, final_cut: &Value) -> Vec<Value> {
+    let arena = &w.places[w.meta.arena.ix()];
+    let arena_json = arena_json(w);
+    let arena_name = arena_json["city"].as_str().unwrap_or(&arena.name).to_string();
+    let mut shots: Vec<Value> = vec![];
+    // 1. Title.
+    let title = final_cut["title"].as_str().filter(|t| !t.trim().is_empty()).unwrap_or("Final Night 7");
+    let cast: Vec<String> = w
+        .demigods
+        .iter()
+        .take(8)
+        .map(|d| format!("{} ({})", d.name, crate::visual::demigod(w, d).brief()))
+        .collect();
+    let opening = format!(
+        "{} on the eve of the battle royale: {} demigods descend from a split sky in pillars of lightning: {}",
+        if w.is_planet() { "the whole planet Earth".to_string() } else { format!("the city of {}", arena.name) },
+        w.demigods.len(),
+        cast.join("; ")
+    );
+    shots.push(json!({ "kind": "title", "beat": 0, "at": arena.center, "region": arena_name,
+                       "image_prompt": opening, "image_kind": "event", "image": Value::Null,
+                       "caption": shot_caption(title), "duration_ms": 4000, "camera": "globe", "row": Value::Null,
+                       "refs": w.demigods.iter().map(|d| Ref::Demigod(d.id)).collect::<Vec<_>>() }));
+    // 2. Moments.
+    let mut picks: Vec<(u32, &LedgerRow)> = w
+        .ledger
+        .rows
+        .iter()
+        .filter(|r| crate::payload::is_public_event(w, r))
+        .filter_map(|r| moment_score(r).map(|s| (s, r)))
+        .collect();
+    picks.sort_by(|(sa, a), (sb, b)| sb.cmp(sa).then(a.id.cmp(&b.id)));
+    picks.truncate(STORYBOARD_MOMENTS);
+    picks.sort_by_key(|(_, r)| r.id);
+    for (_, r) in picks {
+        let ev = crate::payload::event_json(w, r);
+        let close = r.verb == "eliminate";
+        let at = if ev["at"].is_null() { json!(arena.center) } else { ev["at"].clone() };
+        let region = if ev["region"].is_null() { json!(arena_name) } else { ev["region"].clone() };
+        shots.push(json!({ "kind": "moment", "beat": r.beat, "at": at, "region": region, "image_prompt": ev["image_prompt"].clone(),
+                           "image_kind": "event", "image": Value::Null, "caption": shot_caption(&r.act),
+                           "duration_ms": if close { 5000 } else { 4000 }, "camera": if close { "close" } else { "globe" },
+                           "row": Ref::Ledger(r.id), "refs": ev["refs"].clone() }));
+    }
+    // 3. Champion.
+    let champ = summary_base(w).summary["champions"][0]["demigod"]
+        .as_str()
+        .and_then(|s| s.parse::<Ref>().ok());
+    if let Some(Ref::Demigod(id)) = champ {
+        let d = &w.demigods[id.ix()];
+        let story = final_cut["story"].as_str().unwrap_or_default();
+        let caption = if story.trim().is_empty() {
+            format!("{} stands alone when the Final Night ends.", d.name)
+        } else {
+            closing_lines(story)
+        };
+        shots.push(json!({ "kind": "champion", "beat": w.meta.beat, "at": d.pos,
+                           "region": crate::payload::region_name(w, d.pos),
+                           "image_prompt": crate::payload::portrait_prompt(w, d), "image_kind": "portrait",
+                           "image": Value::Null, "caption": caption, "duration_ms": 6000, "camera": "close",
+                           "row": Value::Null, "refs": [Ref::Demigod(id)] }));
+    }
+    for (i, s) in shots.iter_mut().enumerate() {
+        s["shot"] = i.into();
+    }
+    shots
 }
 
 /// The champion's name (the survivor, or the last to fall when nobody stands), as the summary reports it.

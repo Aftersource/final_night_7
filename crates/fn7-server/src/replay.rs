@@ -36,6 +36,21 @@ pub struct Report {
     pub summary_identical: Option<bool>,
 }
 
+/// `v` without the image objects the media wrapper adds (`image`, `statue_image`, `portrait_image`): a summary recorded
+/// by a server with images on compares equal to its replay through the bare plugin.
+pub fn strip_media(v: &Value) -> Value {
+    match v {
+        Value::Object(o) => Value::Object(
+            o.iter()
+                .filter(|(k, _)| !matches!(k.as_str(), "image" | "statue_image" | "portrait_image"))
+                .map(|(k, x)| (k.clone(), strip_media(x)))
+                .collect(),
+        ),
+        Value::Array(a) => Value::Array(a.iter().map(strip_media).collect()),
+        x => x.clone(),
+    }
+}
+
 /// The first place two JSON values differ (path: a vs b), if any.
 pub fn first_diff(a: &Value, b: &Value, path: &str) -> Option<String> {
     match (a, b) {
@@ -257,9 +272,11 @@ pub async fn verify(path: impl AsRef<Path>, mut log: impl FnMut(&str)) -> anyhow
         if let Some(h) = summarize {
             let round = round_of(h).unwrap_or(rep.beats);
             let s = theatre_trace::within(ctx(round), p.summarize(&state, &replay)).await?;
-            let same = s.summary == end["summary"]["summary"];
+            // The server's media wrapper adds image objects on the way out (never to the state); compare without them.
+            let (want, got) = (strip_media(&end["summary"]["summary"]), strip_media(&s.summary));
+            let same = want == got;
             if !same {
-                let d = first_diff(&end["summary"]["summary"], &s.summary, "summary").unwrap_or_default();
+                let d = first_diff(&want, &got, "summary").unwrap_or_default();
                 log(&format!("  summary DIFFERS at {d}"));
                 rep.differences.push(format!("summary: {d}"));
             }

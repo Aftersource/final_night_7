@@ -6,9 +6,15 @@
 //! outputs are what clients got, and the `media_*` events land in the match's run (the core's trace context). It never touches the plugin state:
 //! replays and snapshots are unchanged. With images off (the default) it passes everything through untouched.
 //! The `/media` routes are served through the engine's route extension (`theatre_server::serve_with`, see main.rs).
+//!
+//! **Images by reference** (`game.media {kind, ref}`, WebSocket and HTTP): the plugin checks visibility and writes the
+//! subject from the state; this wrapper turns it into a styled prompt, applies the per-seat rate limit and the
+//! budgets, and answers `{kind, ref, name, image, reason?, visual?}` at once (enqueue only; the picture arrives via the
+//! manifest). A rate-limited request is a query error; a refused one (budget, images off) is an image with status
+//! `off` and its `reason`.
 
 use async_trait::async_trait;
-use fn7_media::Media;
+use fn7_media::{ImageKind, Media};
 use serde_json::Value;
 use theatre_plugin_api::*;
 
@@ -29,6 +35,28 @@ impl<P: GamePlugin> MediaPlugin<P> {
     fn mark(&self, v: &mut Value) {
         let run = Self::run();
         self.media.annotate(v, run.as_deref());
+    }
+
+    /// `game.media`: the plugin's `{kind, ref, name, image_prompt, image_kind}` → `{kind, ref, name, image, reason?}`.
+    fn media_reply(&self, mut v: Value, seat: Option<Seat>) -> Result<Value, String> {
+        let subject = v["image_prompt"].as_str().unwrap_or_default().to_string();
+        let kind = v["image_kind"]
+            .as_str()
+            .and_then(ImageKind::parse)
+            .ok_or("media: the plugin named no image kind")?;
+        let prompt = self.media.prompt(kind, &subject).ok_or("nothing to draw for that ref")?;
+        let who = seat.map(|s| format!("seat:{s}")).unwrap_or_else(|| "public".into());
+        let run = Self::run();
+        let (img, reason) = self.media.request_by_ref(&prompt, run.as_deref(), &who)?;
+        if let Some(o) = v.as_object_mut() {
+            o.remove("image_prompt");
+            o.remove("image_kind");
+            o.insert("image".into(), img.to_json());
+            if let Some(r) = reason {
+                o.insert("reason".into(), r.into());
+            }
+        }
+        Ok(v)
     }
 
     fn mark_seats(&self, public: &mut Value, per_seat: &mut [(Seat, Value)]) {
@@ -52,6 +80,9 @@ impl<P: GamePlugin> GamePlugin for MediaPlugin<P> {
     }
     fn query(&self, state: &Value, seat: Option<Seat>, name: &str, args: &Value) -> Result<Value, String> {
         let mut v = self.inner.query(state, seat, name, args)?;
+        if name == "media" {
+            return self.media_reply(v, seat);
+        }
         self.mark(&mut v);
         Ok(v)
     }

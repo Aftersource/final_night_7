@@ -48,7 +48,7 @@ async fn disabled_by_default() {
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
-        MediaConfig::from_lookup(move |k| m.get(k).cloned())
+        MediaConfig::from_lookup(move |k| m.get(k).cloned()).unwrap()
     };
     let c = env(&[("OPENAI_API_KEY", "sk-test")]);
     assert_eq!(c.mode, Mode::Off);
@@ -311,4 +311,125 @@ async fn routes_serve_the_manifest_and_cached_files() {
     ] {
         assert_eq!(get(bad).await.0, 404);
     }
+}
+
+fn styled_cfg(dir: &std::path::Path, style: MediaStyle) -> MediaConfig {
+    MediaConfig {
+        max_events_per_match: style.event_selection.max_per_match,
+        style,
+        ..cfg(dir, 1.0, 1.0)
+    }
+}
+
+fn alt_style() -> MediaStyle {
+    let mut v: Value = serde_json::from_str(style::BUILTIN_STYLE_JSON).unwrap();
+    v["version"] = json!("2-noir");
+    v["house_style"] = json!("hand-inked noir comic panels, heavy shadows");
+    v["kinds"]["portrait"] = json!({ "framing": "tight head shot, low key light", "size": "1024x1536" });
+    v["avoid"] = json!(["text", "blood"]);
+    v["event_selection"] = json!({ "min_magnitude": 5, "always": ["riot"], "max_per_match": 3 });
+    MediaStyle::from_value(v, "alt").unwrap()
+}
+
+#[tokio::test]
+async fn a_different_style_gives_different_prompts_and_hashes() {
+    let a = Media::start(cfg(&temp_dir(), 0.0, 0.0), mock(0.0));
+    let b = Media::start(styled_cfg(&temp_dir(), alt_style()), mock(0.0));
+    let pa = a.prompt(ImageKind::Portrait, "the demigod Rook, wiry, crimson and gold").unwrap();
+    let pb = b.prompt(ImageKind::Portrait, "the demigod Rook, wiry, crimson and gold").unwrap();
+    assert_eq!(pa.subject, pb.subject);
+    assert_ne!(pa.text, pb.text);
+    assert!(pa.text.starts_with("Waist-up, three-quarter view, dramatic rim light: the demigod Rook"), "{}", pa.text);
+    assert!(pb.text.starts_with("Tight head shot, low key light: the demigod Rook"), "{}", pb.text);
+    assert!(pb.text.contains("hand-inked noir") && pb.text.ends_with("Avoid: text, blood."));
+    assert_eq!((pa.size.as_str(), pb.size.as_str()), ("1024x1024", "1024x1536"));
+    assert_ne!(a.key_for(&pa), b.key_for(&pb));
+    assert_ne!(a.style().hash, b.style().hash);
+    assert_eq!(b.style().version, "2-noir");
+    assert_eq!(b.config().max_events_per_match, 3, "the cap comes from the style");
+    // The same subject under the same style is the same image.
+    assert_eq!(a.key_for(&pa), a.key_for(&a.prompt(ImageKind::Portrait, "the demigod Rook, wiry, crimson and gold").unwrap()));
+    // The env can point at a style file; a bad one is refused at startup with the field named.
+    let dir = temp_dir();
+    let good = dir.join("style.json");
+    std::fs::write(&good, serde_json::to_string(&alt_style().body).unwrap()).unwrap();
+    let c = MediaConfig::from_lookup(|k| (k == "FN7_MEDIA_STYLE").then(|| good.display().to_string())).unwrap();
+    assert_eq!((c.style.version.as_str(), c.max_events_per_match), ("2-noir", 3));
+    let bad = dir.join("bad.json");
+    std::fs::write(&bad, r#"{"version":"1","house_style":"x","kinds":{"portrait":{"framing":"x","size":"huge"}},"event_selection":{"min_magnitude":8,"max_per_match":1}}"#).unwrap();
+    let e = MediaConfig::from_lookup(|k| (k == "FN7_MEDIA_STYLE").then(|| bad.display().to_string())).unwrap_err();
+    assert!(e.to_string().contains("kinds.portrait.size"), "{e}");
+}
+
+#[tokio::test]
+async fn moment_cards_follow_the_selection_rules_and_never_block() {
+    let ev = |row: u32, kind: &str, mag: u8| {
+        json!({ "row": format!("lg:{row}"), "kind": kind, "magnitude": mag, "text": format!("{kind} number {row}"),
+                "image_prompt": format!("{kind} number {row} over Lagos"), "image_kind": "event" })
+    };
+    let payload = || json!({ "events": [ ev(1, "cast", 2), ev(2, "eliminate", 3), ev(3, "riot", 6), ev(4, "march", 9),
+                                         ev(5, "general_appointed", 4), ev(6, "battle", 7) ] });
+    let has = |p: &Value| -> Vec<bool> { p["events"].as_array().unwrap().iter().map(|e| e.get("image").is_some()).collect() };
+    // The repo style: magnitude ≥ 8, or cast / elimination / general_appointed / mutiny.
+    let a = Media::start(cfg(&temp_dir(), 0.0, 0.0), mock(0.0));
+    let mut p = payload();
+    a.annotate(&mut p, Some("m"));
+    assert_eq!(has(&p), [true, true, false, true, true, false]);
+    // Another style: magnitude ≥ 5 or riot, at most 3 per match.
+    let b = Media::start(styled_cfg(&temp_dir(), alt_style()), mock(0.0));
+    let mut p = payload();
+    b.annotate(&mut p, Some("m"));
+    assert_eq!(has(&p), [false, false, true, true, false, true]);
+    let mut more = json!({ "events": [ ev(7, "riot", 1) ] });
+    b.annotate(&mut more, Some("m"));
+    assert_eq!(more["events"][0]["image"]["status"], "off", "past max_per_match");
+    // Re-annotating the same events (a later globe poll) reuses the images and costs no cap.
+    let mut again = payload();
+    b.annotate(&mut again, Some("m"));
+    assert_eq!(again["events"][2]["image"]["hash"], p["events"][2]["image"]["hash"]);
+    assert_eq!(again["events"][2]["image"]["status"], p["events"][2]["image"]["status"]);
+
+    // A slow generator never holds up the payload: annotation only enqueues.
+    let slow = Media::start(
+        cfg(&temp_dir(), 0.0, 0.0),
+        Some(Arc::new(MockGenerator { delay: Duration::from_secs(3), ..Default::default() })),
+    );
+    let t0 = Instant::now();
+    let mut p = payload();
+    assert_eq!(slow.annotate(&mut p, Some("m")), 4);
+    assert!(t0.elapsed() < Duration::from_millis(500), "{:?}", t0.elapsed());
+    assert!(p["events"].as_array().unwrap().iter().filter_map(|e| e.get("image")).all(|i| i["status"] == "pending"));
+}
+
+#[tokio::test]
+async fn requests_by_reference_are_rate_limited_budgeted_and_idempotent() {
+    let dir = temp_dir();
+    let mut c = cfg(&dir, 1.0, 0.10);
+    c.rate_per_min = 3;
+    let media = Media::start(c, mock(0.04));
+    let p = |i: u32| media.prompt(ImageKind::Place, &format!("the city number {i}")).unwrap();
+    // Idempotent: the same prompt is the same hash, and repeats take no token.
+    let (a, why) = media.request_by_ref(&p(1), Some("m"), "seat:0").unwrap();
+    assert_eq!((a.status, why), ("pending", None));
+    for _ in 0..5 {
+        let (again, _) = media.request_by_ref(&p(1), Some("m"), "seat:0").unwrap();
+        assert_eq!(again.hash, a.hash);
+    }
+    // Budget: $0.04 each, $0.10 per match: the third new image is refused (off, with the reason), not an error.
+    assert_eq!(media.request_by_ref(&p(2), Some("m"), "seat:0").unwrap().0.status, "pending");
+    let (r, why) = media.request_by_ref(&p(3), Some("m"), "seat:0").unwrap();
+    assert_eq!(r.status, "off");
+    assert!(why.unwrap().contains("match image budget"));
+    // Rate: 3 new images per minute per seat; the fourth is an error, and nothing is queued for it.
+    let e = media.request_by_ref(&p(4), Some("m"), "seat:0").unwrap_err();
+    assert!(e.starts_with("rate limited"), "{e}");
+    assert!(media.entry(&media.key_for(&p(4))).is_none());
+    // Another seat, or another match, has its own bucket; a known image is still free for the limited seat.
+    assert!(media.request_by_ref(&p(4), Some("m"), "seat:1").is_ok());
+    assert!(media.request_by_ref(&p(5), Some("other"), "seat:0").is_ok());
+    assert!(media.request_by_ref(&p(1), Some("m"), "seat:0").is_ok());
+    // Images off: an off image with the reason, never an error.
+    let off = Media::off();
+    let (r, why) = off.request_by_ref(&p(9), Some("m"), "public").unwrap();
+    assert_eq!((r.status, why.as_deref()), ("off", Some("images are off")));
 }

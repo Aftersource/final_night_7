@@ -91,6 +91,63 @@
         "avenger"
       ],
       "type": "string"
+    },
+    "Visual": {
+      "description": "A character's visual sheet (docs/SHARED_MEDIA_SPEC.md §3.1): picked from the match seed, the character's id and name; the same at every beat and in every replay. Every image of the character carries these traits.",
+      "properties": {
+        "sheet_hash": {
+          "description": "sha256 (hex) of the sheet version, the character's ref and its traits: key art or caches on it.",
+          "type": "string"
+        },
+        "traits": {
+          "description": "",
+          "properties": {
+            "build": {
+              "description": "Body type.",
+              "type": "string"
+            },
+            "colors": {
+              "description": "Two signature colors (color words).",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "emblem": {
+              "description": "Their emblem (also on their armies' banners).",
+              "type": "string"
+            },
+            "face": {
+              "description": "Face and hair.",
+              "type": "string"
+            },
+            "outfit": {
+              "description": "What they wear.",
+              "type": "string"
+            },
+            "prop": {
+              "description": "The one thing they carry.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "build",
+            "face",
+            "outfit",
+            "colors",
+            "prop",
+            "emblem"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "sheet_hash",
+        "traits"
+      ],
+      "type": "object"
     }
   },
   "$id": "query_person.schema.json",
@@ -248,6 +305,9 @@
         }
       ]
     },
+    "visual": {
+      "$ref": "#/$defs/Visual"
+    },
     "yours": {
       "description": "Seat only: a body your agents steer, or someone your side brought into the story.",
       "type": "boolean"
@@ -263,7 +323,8 @@
     "place_name",
     "region",
     "at",
-    "died_beat"
+    "died_beat",
+    "visual"
   ],
   "title": "game.person",
   "type": "object",

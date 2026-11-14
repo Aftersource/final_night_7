@@ -128,9 +128,15 @@ On reconnect (`auth.resume`), `match.snapshot` carries the same objects: `public
   name), `focus` is always an Entity object or null, a subagent is always a `SubagentLine` object, and `news` is always
   newest first with at most one line per ledger row.
 - **Image prompts.** `portrait_prompt` (each demigod in the PublicView, stable all match, with `image_kind:
-  "portrait"`), `image_prompt` (only the biggest world events, with `image_kind: "event"`) and `statue_prompt` (the
-  end-of-match piles, with `image_kind: "statue"`) describe the subject only; the media server renders them (see
-  [`MEDIA.md`](MEDIA.md)).
+  "portrait"`), `image_prompt` (every public world event, with `image_kind: "event"`; and every storyboard shot) and
+  `statue_prompt` (the end-of-match piles, with `image_kind: "statue"`) describe the subject only; the media server
+  renders them (see [`MEDIA.md`](MEDIA.md)). With images on, an **image object** `{hash, kind, status, url, prompt}`
+  sits beside them (`portrait_image`, `image`, `statue_image`); only events the media style selects get one (moment
+  cards).
+- **Visual sheets.** Every demigod (PublicView, `game.globe`, `game.region`) and every person (`game.person`,
+  `game.media`) carries `visual: {sheet_hash, traits: {build, face, outfit, colors: [a, b], prop, emblem}}`: picked
+  from the match seed and the character's id and name, the same at every beat and in every replay. Every image of the
+  character is drawn from these traits. `sheet_hash` changes only if the sheet does.
 - **Unknown keys:** ignore them. New optional fields get added over time.
 
 ## Payloads
@@ -298,7 +304,11 @@ happened to you"`, `"you saw it"`, `"you were told"`, `"your followers heard"` o
   ≥ 6), and the casts' ramifications are rows in `events` (and in the news of those who know them).
 - `events` are the public, geotagged world events of the beat, in order (≤ 40): casts and their ramifications, armies
   raised, marching and fighting, freak weather, world mods appearing, stacking and fading, wounded gods, eliminations.
-  Only the biggest (casts, eliminations, magnitude ≥ 8) carry `image_prompt`.
+  Every public event carries `image_prompt` (with `image_kind: "event"`): a candidate moment card. With images on, the
+  ones the media style's `event_selection` picks (by default: magnitude ≥ 8, or a cast, elimination, general
+  appointed or mutiny; at most 12 per match) also carry `image`, an image object. It is usually `pending` when the
+  outcome arrives: it never holds up the beat. It becomes `ready` via `GET /media/index`; a card still pending when its
+  moment has passed can be skipped.
 
 - **The narration is one beat late.** The Narrator (Deadpool's voice) runs off the critical path: beat N's narrator
   runs during beat N+1, so the outcome of beat N carries **beat N−1's** caption as `previous_caption` /
@@ -356,7 +366,7 @@ numbers themselves mean little. `public_state` is the **PublicView**:
   "caption": "…", "caption_beat": 1 }   // the latest caption written, and which beat it describes (null before any)
 ```
 `demigods` lists every demigod in id order, including the built-in AI's (`seat: null`), each with `bolts` (public),
-`portrait_prompt` and `image_kind: "portrait"`. A live demigod has `pos`, `place` and `region`; a dead one has
+`portrait_prompt`, `image_kind: "portrait"`, `visual` (its visual sheet) and, with images on, `portrait_image`. A live demigod has `pos`, `place` and `region`; a dead one has
 `eliminated_beat` and `cause` instead. Health never appears here. The planet edition adds:
 
 | Field | Meaning |
@@ -381,6 +391,18 @@ numbers themselves mean little. `public_state` is the **PublicView**:
                "statue_prompt": "An amiibo-style collectible figure of the demigod Rook, frozen mid-fall (…) …" } ],
   "last_caption": { "beat": 5, "caption": "Beat 5: Time's clock catches Rook outside the arena, …" },
   "final_cut": { "title": "Final Night 7", "story": "Beat 1: …\nBeat 2: …", "fallback": true },
+  "storyboard": [
+    { "shot": 0, "kind": "title", "beat": 0, "at": [-58.38, -34.6], "region": "Buenos Aires",
+      "image_prompt": "the whole planet Earth on the eve of the battle royale: …", "image_kind": "event",
+      "image": { "hash": "9f…", "kind": "event", "status": "pending", "url": null, "prompt": "…" },
+      "caption": "Final Night 7", "duration_ms": 4000, "camera": "globe", "row": null, "refs": ["dg:0", "dg:1"] },
+    { "shot": 1, "kind": "moment", "beat": 3, "at": [90.41, 23.81], "region": "Southern Asia",
+      "image_prompt": "Vex casts flood on Dhaka, in Southern Asia; starring Vex (…)", "image_kind": "event",
+      "image": { … }, "caption": "Vex casts flood on Dhaka", "duration_ms": 4000, "camera": "globe",
+      "row": "lg:88", "refs": ["dg:1", "pl:12"] },
+    { "shot": 5, "kind": "champion", "beat": 14, "at": [2.35, 48.86], "region": "Western Europe",
+      "image_prompt": "Moth, a demigod: …", "image_kind": "portrait", "image": { …the champion's portrait… },
+      "caption": "One walked away.", "duration_ms": 6000, "camera": "close", "row": null, "refs": ["dg:3"] } ],
   "stats": { "beats": 5, "beats_total": 6, "ledger_rows": 100, "characters": 22, "memorized": 6, "agents": 22,
              "rulings": 13, "intents": 36, "memories": 173, "llm_calls": 87, "llm_fallbacks": 87, "eliminations": 3 } }
 ```
@@ -400,6 +422,15 @@ numbers themselves mean little. `public_state` is the **PublicView**:
   `stats` adds `casts`, `slows`, `armies` and `mods` (world mods ever made).
 - `final_cut` is the Narrator's story of the match (≤ 250 words). With `fallback: true`, the beat captions are joined
   with newlines instead.
+- `storyboard` is the final cut as an ordered list of shots (an animatic: for each shot, fly the globe to `at`, show
+  `image`, show `caption`, hold `duration_ms`). Shot kinds, in order: one `title` (the final cut's title over the
+  arena, the demigods descending), up to 10 `moment`s (the match's biggest public moments in the order they happened:
+  every elimination first, then casts, the society's turning points and the highest magnitudes), and one `champion`
+  (the champion's portrait with the final cut's closing lines). `camera` is `"globe"` (a globe shot over `at`) or
+  `"close"` (eliminations and the champion). `image` is an image object (`kind` `event` or `portrait`) with images on,
+  `null` with them off. A moment's image is the same picture as its moment card's, and the champion's is the same as
+  its `portrait_image`. `row` is a moment's ledger row; `refs` are who is in the shot. It's deterministic: a replay of
+  the match gives the same storyboard.
 
 ## The action: `action.begin`, `action.submit { round, text, fields, window_id?, instant? }`
 
@@ -655,6 +686,7 @@ Unknown args are ignored, including the ngrok gate's `?key=`.
 | `gods` | yes | none | The pantheon with each god's health |
 | `standings` | yes | none | Every demigod ranked now |
 | `piles_final` | yes | none | The end-of-match piles; an error until the match is over |
+| `media` | yes (public refs) | `kind` (`portrait` / `place` / `event` / `army`), `ref` | An image of that thing, by reference: an image object at once (pending, then ready via the manifest) |
 
 ### `game.globe`
 
@@ -763,6 +795,7 @@ Over the WebSocket your seat also gets (values illustrative):
   "memories": { "items": [ { "memory": 2211, "beat": 6, "kind": "witnessed", "text": "…", "about": ["dg:0"],
                              "row": "lg:88", "confidence": 0.9 } ], "next_cursor": 2190 } }
 ```
+- `visual` is the person's visual sheet (as on demigods; every answer has it).
 - `role` and `rank` are null for people the society hasn't given a sheet. `role` is one of `commoner`, `notable`,
   `ringleader`, `general`, `captain`, `soldier`, `hero`, `coward`, `witness`, `prophet`, `paladin`, `deserter`,
   `avenger`. `rank.level` is a hierarchy level (`planet` … `person`), and `rank.of` is the node or unit they rank in
@@ -863,6 +896,42 @@ GET /api/rooms/66X6KM/query/piles_final
                "image_kind": "statue", "bolts": 24, "slows": 9 }, … ] }
 ```
 The same piles as `match.ended.summary.piles`, readable after the match for as long as the room exists.
+
+### `game.media`
+
+An image of something in the game, **by reference**. A client never sends a prompt: the server writes it from the game
+state, in the house style, with the character's visual sheet.
+```
+C→S { "t": "game.media", "id": "m1", "d": { "kind": "portrait", "ref": "ch:19" } }
+GET /api/rooms/66X6KM/query/media?kind=event&ref=lg:88
+```
+```json
+{ "kind": "portrait", "ref": "ch:19", "name": "Dario Nakamura",
+  "image": { "hash": "3f9c…", "kind": "portrait", "status": "pending", "url": null, "prompt": "Waist-up, …" },
+  "visual": { "sheet_hash": "a1…", "traits": { "build": "…", "face": "…", "outfit": "…", "colors": ["teal", "gold"],
+                                               "prop": "…", "emblem": "…" } } }
+```
+| `kind` | `ref` | Draws |
+|---|---|---|
+| `portrait` | `dg:` or `ch:` | The character from its visual sheet (a demigod's is the same image as its `portrait_image`) |
+| `place` | `pl:` | The region, city or arena |
+| `event` | `lg:` | That ledger row (the same image as its moment card, if it has one) |
+| `army` | `cl:` of an army | The host under its demigod's colors and emblem |
+
+- **It answers at once.** The image is `pending` (queued), `ready` (cached, `url` set) or `off`. Watch
+  `GET /media/index` for `hash`. The same `{kind, ref}` always gives the same `hash`, and asking again is free.
+- **Visibility.** A seat may ask for what it can see: demigods, places, armies and public events for everyone; a
+  person who is public (a seeded notable, a paladin, an army's general or captain, or someone in a recent public
+  event), one of its own (a body its agents steer, someone its side brought into the story, a follower), someone in its
+  current view, or someone in an event it knows; a private event only if it knows it. Over HTTP only public refs are
+  answered. Anything else is `bad_request` ("… is not something you can see").
+- **Limits.** Each new image counts against the server's image budgets (per match and overall). Over budget, or with
+  images off, the reply is an image with `status: "off"` and a `reason`, not an error. Each seat (and the public HTTP
+  asker) may ask for a limited number of **new** images per minute per match (`FN7_MEDIA_RATE_PER_MIN`, default 30).
+  Past it the reply is `bad_request` with `rate limited: … try again in N s`, and nothing was queued. Repeats and
+  cached images don't count.
+- Without the media server (a bare plugin, e.g. `fn7-sim`), the reply carries `image_prompt` and `image_kind` instead
+  of `image`.
 
 ## Hidden information
 

@@ -145,8 +145,9 @@ pub fn is_public_head(w: &World, verb: &str, magnitude: u8, source: &Source, act
     }
 }
 
-/// The public, geotagged events of `rows` (in order): `{row, kind, text, at, region, refs, magnitude, image_prompt?,
-/// image_kind?}`. Only the truly big ones (a cast, an elimination, magnitude ≥ 8) carry an `image_prompt`. At most 40.
+/// The public, geotagged events of `rows` (in order): `{row, kind, text, at, region, refs, magnitude, image_prompt,
+/// image_kind}`. Every public event carries its image prompt (a candidate moment card); the media server attaches an
+/// `image` only to those the style config's `event_selection` picks. At most 40.
 pub fn events(w: &World, rows: &[LedgerRow]) -> Vec<Value> {
     rows.iter()
         .filter(|r| is_public_event(w, r))
@@ -155,29 +156,22 @@ pub fn events(w: &World, rows: &[LedgerRow]) -> Vec<Value> {
         .collect()
 }
 
-/// One public event: `{row, kind, text, at, region, refs, magnitude, image_prompt?, image_kind?}`.
+/// One public event: `{row, kind, text, at, region, refs, magnitude, image_prompt, image_kind}`.
 pub fn event_json(w: &World, r: &LedgerRow) -> Value {
     let (at, region) = geotag(w, r);
     let mut refs = vec![r.actor];
     refs.extend(r.targets.iter().copied().filter(|t| !matches!(t, Ref::Ledger(_))));
     let mut seen = std::collections::BTreeSet::new();
     refs.retain(|x| seen.insert(*x));
-    let mut v = json!({ "row": Ref::Ledger(r.id), "kind": r.verb, "text": r.act, "at": at,
-                        "region": region, "refs": refs, "magnitude": r.magnitude });
-    if let Some(p) = image_prompt(w, r, region.as_deref()) {
-        v["image_prompt"] = p.into();
-        v["image_kind"] = "event".into();
-    }
-    v
+    json!({ "row": Ref::Ledger(r.id), "kind": r.verb, "text": r.act, "at": at,
+            "region": region, "refs": refs, "magnitude": r.magnitude,
+            "image_prompt": event_subject(w, r, region.as_deref()), "image_kind": "event" })
 }
 
-/// An image prompt for a truly big event (a cast, an elimination, anything of magnitude ≥ 8): the subject only (the
-/// media server adds the house style), never an engine id.
-pub fn image_prompt(w: &World, r: &LedgerRow, region: Option<&str>) -> Option<String> {
-    let big = r.magnitude >= 8 || matches!(r.verb.as_str(), "cast" | "eliminate");
-    if !big {
-        return None;
-    }
+/// An event image's subject: what happened, where, and who is in it with their visual sheets (so a character looks the
+/// same in every image). The subject only (the media server adds framing and house style), never an engine id. Fixed
+/// for the row (rows never change), so every payload and query that shows the row asks for the same image.
+pub fn event_subject(w: &World, r: &LedgerRow, region: Option<&str>) -> String {
     let place = r
         .place
         .map(|p| w.name_of(Ref::Place(p)))
@@ -188,17 +182,77 @@ pub fn image_prompt(w: &World, r: &LedgerRow, region: Option<&str>) -> Option<St
         (None, Some(g)) => g.to_string(),
         _ => "somewhere on Earth".into(),
     };
-    Some(format!("{}, in {wh}", r.act.trim_end_matches('.')))
+    let mut s = format!("{}, in {wh}", r.act.trim().trim_end_matches('.'));
+    let mut cast: Vec<Ref> = vec![r.actor];
+    cast.extend(r.targets.iter().copied());
+    let mut seen = std::collections::BTreeSet::new();
+    let starring: Vec<String> = cast
+        .into_iter()
+        .filter(|x| matches!(x, Ref::Demigod(_) | Ref::Char(_)) && seen.insert(*x))
+        .filter_map(|x| crate::visual::of(w, x).map(|v| format!("{} ({})", w.name_of(x), v.brief())))
+        .take(2)
+        .collect();
+    if !starring.is_empty() {
+        s.push_str(&format!("; starring {}", starring.join("; and ")));
+    }
+    s
 }
 
-/// A demigod's portrait prompt: the subject only, stable for the whole match (no health, place or state words), so it
-/// is one image per demigod.
-pub fn portrait_prompt(_w: &World, d: &Demigod) -> String {
+/// A demigod's portrait prompt: its name and visual sheet plus the demigod pose, stable for the whole match (no
+/// health, place or state words), so it is one image per demigod.
+pub fn portrait_prompt(w: &World, d: &Demigod) -> String {
     format!(
-        "{}, a demigod: a larger-than-life figure with two glowing orchestrator hands floating at their sides and \
+        "{}, a demigod: {}; a larger-than-life figure with two glowing orchestrator hands floating at their sides and \
          lightning crackling between their fingers",
-        d.name
+        d.name,
+        crate::visual::demigod(w, d).brief()
     )
+}
+
+/// A named person's portrait prompt: name and visual sheet (stable all match).
+pub fn person_portrait_prompt(w: &World, c: &Character) -> String {
+    format!(
+        "{}, a mortal caught up in a war of demigods: {}",
+        c.name,
+        crate::visual::person(w, c).brief()
+    )
+}
+
+/// A place's image prompt (`game.media` kind `place`): its name, what it is and its terrain (all fixed at setup).
+pub fn place_prompt(w: &World, p: &Place) -> String {
+    let what = match p.kind {
+        PlaceKind::Arena if w.is_planet() => "the whole planet Earth as a battle royale arena".to_string(),
+        PlaceKind::Arena => format!("the city of {} as a battle royale arena", p.name),
+        PlaceKind::District if w.is_planet() => format!("the region {}", p.name),
+        PlaceKind::District => format!("the district {}", p.name),
+        _ => p.name.clone(),
+    };
+    let parent = p
+        .parent
+        .and_then(|x| w.places.get(x.ix()))
+        .filter(|x| x.kind != PlaceKind::Arena)
+        .map(|x| format!(" in {}", x.name))
+        .unwrap_or_default();
+    let terrain = p.terrain.trim();
+    if terrain.is_empty() {
+        format!("{what}{parent}, under a sky crackling with divine lightning")
+    } else {
+        format!("{what}{parent} ({terrain}), under a sky crackling with divine lightning")
+    }
+}
+
+/// An army's image prompt (`game.media` kind `army`): its name and the banners of the demigod it was raised for (the
+/// demigod's sheet colors and emblem; fixed for the army).
+pub fn army_prompt(w: &World, c: &Cluster, a: &Army) -> String {
+    match w.demigods.get(a.demigod.ix()) {
+        Some(d) => format!(
+            "the army \"{}\" raised for the demigod {}, a marching host with {}",
+            c.label,
+            d.name,
+            crate::visual::demigod(w, d).banners()
+        ),
+        None => format!("the army \"{}\", a marching host under ragged banners", c.label),
+    }
 }
 
 /// Each demigod's share of each region: `[{region, region_ref, demigod, demigod_ref, share}]`.

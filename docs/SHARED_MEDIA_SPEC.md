@@ -1,10 +1,14 @@
-# Shared ground: image, video and character generation (spec v1, PROPOSAL)
+# Shared ground: image, video and character generation (spec v1, AGREED; backend implemented)
 
 The backend and the bridge meet here (see PLAYBOOK.md §1). This spec is written against what exists today:
 - **Server:** `crates/fn7-media` (see docs/MEDIA.md).
 - **Client:** Benito's `FinalNight.uproject` (UE 5.8.4, Slate UI in `SFNRootWidget`, HTTP + WebSockets modules).
 
-Status: **proposal**. It's final when Chris (budget, direction) and Benito (art direction, UX) both agree.
+Status: **agreed, backend implemented** (2026-11-14). Benito approved it as proposed: no video for the jam (the
+storyboard animatic instead), Benito owns the house style and the selection list, Chris decides real vs placeholder
+images. The backend side of §3 and §4 is built and tested (§8 lists what changed in the details); the data contract is
+in CLIENT_API.md (`visual`, `game.media`, `storyboard`) and MEDIA.md. Images stay on mock placeholders until Chris sets
+a budget.
 
 ## 1. Who owns what
 | Area | Owner | Notes |
@@ -87,7 +91,33 @@ Benito tunes the style and selection here; the backend only enforces budgets and
 
 **Release:** the media additions ship as one announced release (`playtest-N`).
 
-## 7. Decisions needed
-1. **Chris:** a real image provider and budget (or stay on placeholders for the jam).
-2. **Benito:** the house style and the selection list in §4.
-3. **Both:** whether video phase 2 is in scope for the jam (recommendation: no; ship the animatic storyboard).
+## 7. Decisions
+1. **Chris:** a real image provider and budget (or stay on placeholders for the jam). *Open: placeholders (mock) until
+   Chris sets `FN7_IMAGES=openai` and a budget.*
+2. **Benito:** the house style and the selection list in §4. *Decided: as proposed (`data/media_style.json`).*
+3. **Both:** whether video phase 2 is in scope for the jam. *Decided: no; the animatic storyboard ships.*
+
+## 8. As built (backend), and what changed from the proposal
+- **Style config** `data/media_style.json`: exactly §4, plus two kinds the proposal didn't list, `army` and `item`
+  (backend defaults; Benito may retune them like the rest). Loaded from `FN7_MEDIA_STYLE` / `data/media_style.json` /
+  the compiled-in copy, validated at startup (a bad file stops the server, naming the field; keys starting with `_` are
+  comments). Prompts are `<framing>: <subject>. Style: <house_style>. Avoid: <avoid>.` at the kind's size. Each match's
+  ruleset records `media_style: {version, hash, source, body}`.
+- **Selection:** `always` matches `events[].kind` (the ledger verb); `elimination` is accepted for `eliminate`.
+  Every public event now carries `image_prompt` (a candidate); only selected ones get `image`. `max_per_match` caps
+  moment cards only: storyboard shots and `game.media` requests are bounded by the budgets, not by this cap.
+  `FN7_IMAGE_MAX_EVENTS`, if set, still overrides it.
+- **Visual sheets:** `visual: {sheet_hash, traits: {build, face, outfit, colors: [a, b], prop, emblem}}` on demigods
+  (PublicView, `game.globe`, `game.region`), on `game.person` and on `game.media` portraits. No separate "species"
+  trait (everyone is human-shaped in the house style; `build` covers it). The sheet comes from the seed, kind, id and
+  name only, so it never changes mid-match. Army banners use their demigod's colors and emblem.
+- **`game.media`** is a regular game query (declared in `server.hello.api.queries`, public over HTTP for public refs):
+  `{kind, ref}` → `{kind, ref, name, image, reason?, visual?}`. Rate limit: `FN7_MEDIA_RATE_PER_MIN` (default 30) new
+  images per seat per match (the HTTP asker counts as one more "seat"); repeats are free. Over the rate = a
+  `bad_request` error; over budget or images off = an `off` image with `reason`.
+- **Storyboard** shots carry, beyond §3.3's fields, `shot` (index), `kind` (`title` | `moment` | `champion`),
+  `image_kind`, `image_prompt`, `row` (a moment's ledger row) and `refs`. `image` is `null` when images are off.
+- **Moment cards** never block a beat: annotation only enqueues (tested with a 3 s generator: the payload is built
+  in well under 0.5 s).
+- Image keys now include the size, and the prompt version is `fn7-media/2`: placeholders made before this release
+  are not reused (they're free to remake).

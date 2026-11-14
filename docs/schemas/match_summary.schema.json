@@ -59,6 +59,62 @@
       ],
       "type": "object"
     },
+    "ImageObject": {
+      "description": "An image the media server attached (only when the server has images on; see docs/MEDIA.md). Fetch `url` once `status` is `ready` (watch GET /media/index for `hash`); `off` = none will come, show a placeholder.",
+      "properties": {
+        "hash": {
+          "description": "Content key (sha256 hex): cache by it forever.",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "portrait",
+            "item",
+            "event",
+            "statue",
+            "place",
+            "army"
+          ],
+          "type": "string"
+        },
+        "prompt": {
+          "description": "The full prompt sent to the image model (house style; no engine ids).",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "ready",
+            "off"
+          ],
+          "type": "string"
+        },
+        "url": {
+          "description": "`/media/<hash>.<ext>` once ready, relative to the server's HTTP origin.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "hash",
+        "kind",
+        "status",
+        "url",
+        "prompt"
+      ],
+      "type": "object"
+    },
+    "LonLat": {
+      "description": "[longitude, latitude] in degrees (WGS84). Note the order: longitude first.",
+      "items": {
+        "type": "number"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+    },
     "Ref": {
       "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row, ce cell, mb mob. Stable for the whole match.",
       "examples": [
@@ -66,6 +122,118 @@
       ],
       "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg|ce|mb):\\d+$",
       "type": "string"
+    },
+    "StoryboardShot": {
+      "description": "One shot of the final-cut animatic (docs/SHARED_MEDIA_SPEC.md §3.3): fly the globe to `at`, show `image`, caption it, hold `duration_ms`.",
+      "properties": {
+        "at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LonLat"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where, [lon, lat]."
+        },
+        "beat": {
+          "description": "The beat it shows (0 for the title).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "camera": {
+          "description": "globe: fly the globe to `at`; close: a close-up (eliminations, the champion).",
+          "enum": [
+            "globe",
+            "close"
+          ],
+          "type": "string"
+        },
+        "caption": {
+          "description": "What to show under it.",
+          "type": "string"
+        },
+        "duration_ms": {
+          "description": "How long to hold it.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "image": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ImageObject"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The event or portrait image object (null when the server has images off)."
+        },
+        "image_kind": {
+          "enum": [
+            "event",
+            "portrait"
+          ],
+          "type": "string"
+        },
+        "image_prompt": {
+          "description": "The subject the image is drawn from (a moment's is exactly its moment card's, so the same picture).",
+          "type": "string"
+        },
+        "kind": {
+          "description": "title: the final cut's title over the arena; moment: one of the match's biggest public moments; champion: the champion's close-up with the final cut's closing lines.",
+          "enum": [
+            "title",
+            "moment",
+            "champion"
+          ],
+          "type": "string"
+        },
+        "refs": {
+          "description": "Who is in it.",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "type": "array"
+        },
+        "region": {
+          "description": "Region (planet) or district (city), or the arena for the title.",
+          "type": "string"
+        },
+        "row": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "moment: its ledger row."
+        },
+        "shot": {
+          "description": "Index, from 0.",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "shot",
+        "kind",
+        "beat",
+        "at",
+        "region",
+        "image_prompt",
+        "image_kind",
+        "image",
+        "caption",
+        "duration_ms",
+        "camera",
+        "row",
+        "refs"
+      ],
+      "type": "object"
     }
   },
   "$id": "match_summary.schema.json",
@@ -296,8 +464,12 @@
             ],
             "type": "object"
           },
+          "statue_image": {
+            "$ref": "#/$defs/ImageObject",
+            "description": "Its statue (images on only)."
+          },
           "statue_prompt": {
-            "description": "An image-generation prompt for its amiibo-style statue.",
+            "description": "An image-generation prompt for its amiibo-style statue (with its visual sheet).",
             "type": "string"
           },
           "summons": {
@@ -505,6 +677,13 @@
         "mods"
       ],
       "type": "object"
+    },
+    "storyboard": {
+      "description": "The final-cut animatic, in play order: the title, the biggest moments as they happened, the champion. Always present since the media release; absent in older recordings.",
+      "items": {
+        "$ref": "#/$defs/StoryboardShot"
+      },
+      "type": "array"
     }
   },
   "required": [

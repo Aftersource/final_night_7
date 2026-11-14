@@ -71,6 +71,11 @@ pub fn specs() -> Vec<QuerySpec> {
         spec("powers", true, "The power palette (casts), then the custom entry.", obj(json!({}), &[])),
         spec("gods", true, "The pantheon: each god's ref, name, slug, domain and health now.", obj(json!({}), &[])),
         spec("standings", true, "Every demigod ranked now: alive first, then who fell last, then score.", obj(json!({}), &[])),
+        spec("media", true,
+             "An image of something in the game, by reference (never a free-text prompt): a portrait of a demigod or person, a place, a public event, or an army. Answers at once with `image` (pending, then ready via GET /media/index); the server writes the prompt from the state. Visibility: a seat may ask for what it can see (public things, its own people, events it knows); over HTTP only public refs. Rate-limited per seat and budgeted.",
+             obj(json!({ "kind": { "type": "string", "enum": ["portrait", "place", "event", "army"], "description": "What to draw." },
+                         "ref": r#ref(r"^(dg|ch|pl|lg|cl):\d+$", "portrait: `dg:`/`ch:`; place: `pl:`; event: `lg:`; army: `cl:` (an army).") }),
+                 &["kind", "ref"])),
         spec("piles_final", true,
              "Every demigod's end-of-match pile (items, summons, stats, statue prompt). An error until the match is over.",
              obj(json!({}), &[])),
@@ -92,6 +97,7 @@ pub fn query(pantheon: &Pantheon, state: &Value, seat: Option<Seat>, name: &str,
         "gods" => gods(state, pantheon),
         "standings" => standings(state),
         "piles_final" => piles_final(state),
+        "media" => media(state, seat, &args),
         other => Err(format!("unknown query {other}")),
     }?;
     payload::tidy(&mut v);
@@ -312,7 +318,8 @@ fn event_page(w: &World, state: &Value, since: Option<usize>, limit: usize, regi
 }
 
 fn events(state: &Value, a: &Args) -> Result<Value, String> {
-    let w = world(state, &[T::Places, T::Clusters, T::Gods])?;
+    // Demigods and characters: event image prompts carry the visual sheets of who is in them.
+    let w = world(state, &[T::Places, T::Clusters, T::Gods, T::Demigods, T::Characters])?;
     let region = match a.r#ref("region")? {
         None => None,
         Some(r) => Some(region_ref(&w, r)?),
@@ -463,6 +470,7 @@ fn person(state: &Value, seat: Option<Seat>, a: &Args) -> Result<Value, String> 
         "role": life.map(|l| l.role), "rank": life.map(|l| &l.rank),
         "place": Ref::Place(x.place), "place_name": w.name_of(Ref::Place(x.place)),
         "region": region_name(&w, x.pos), "at": x.pos, "died_beat": life.and_then(|l| l.died),
+        "visual": crate::visual::person(&w, x).to_json(),
     });
     let Some(d) = asker(&w, seat) else {
         return Ok(v);
@@ -651,4 +659,136 @@ fn piles_final(state: &Value) -> Result<Value, String> {
         })
         .collect();
     Ok(json!({ "beat": w.meta.beat, "piles": piles }))
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Media (images by reference)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/// What [`media`] reads from a ledger row: who is in it.
+#[derive(Deserialize)]
+struct Cast<'a> {
+    verb: &'a str,
+    magnitude: u8,
+    source: Source,
+    actor: Ref,
+    #[serde(default)]
+    targets: Vec<Ref>,
+}
+
+/// Is person `c` public? Seeded notables and paladins, the generals and captains of armies (the globe shows them), and
+/// anyone in a public event among the last [`SCAN_CAP`] ledger rows.
+pub(crate) fn person_public(w: &World, state: &Value, c: CharId) -> bool {
+    let x = &w.characters[c.ix()];
+    if matches!(x.origin, Origin::Seeded | Origin::Paladin { .. }) {
+        return true;
+    }
+    if w.clusters.iter().filter_map(|k| k.army.as_ref()).any(|a| a.general == Some(c) || a.captains.contains(&c)) {
+        return true;
+    }
+    let me = Ref::Char(c);
+    rows(state).iter().rev().take(SCAN_CAP).any(|v| {
+        Cast::deserialize(v).is_ok_and(|h| {
+            (h.actor == me || h.targets.contains(&me)) && payload::is_public_head(w, h.verb, h.magnitude, &h.source, h.actor)
+        })
+    })
+}
+
+/// Does demigod `d` know person `c`? Public, or one of its own (a body its agents steer, someone its side brought into
+/// the story, a follower), or in its current view, or in a ledger row it knows (the last [`SCAN_CAP`] rows).
+pub(crate) fn person_known(w: &World, state: &Value, d: DemigodId, c: CharId) -> bool {
+    if person_public(w, state, c) {
+        return true;
+    }
+    let me = selves(w, d);
+    let x = &w.characters[c.ix()];
+    let following = w.demigods[d.ix()].following;
+    if me.contains(&Ref::Char(c))
+        || x.memorized_by.is_some_and(|m| me.contains(&m) || fn7_society::demigod_of(w, m) == Some(d))
+        || x.groups.contains(following)
+    {
+        return true;
+    }
+    if let Some(s) = w.seats.iter().find(|s| s.demigod == d) {
+        if crate::world::visible(w, d, s.zoom, s.focus, 60).contains(&Ref::Char(c)) {
+            return true;
+        }
+    }
+    let r = Ref::Char(c);
+    rows(state).iter().rev().take(SCAN_CAP).any(|v| {
+        Cast::deserialize(v).is_ok_and(|h| h.actor == r || h.targets.contains(&r))
+            && row(v).is_some_and(|row| knows(&me, following, &row))
+    })
+}
+
+/// `game.media {kind, ref}`: the subject of an image of something in the game, written from the state, after the
+/// visibility check. `{kind, ref, name, image_prompt, image_kind, visual?}`; the server's media wrapper turns it into
+/// `{kind, ref, name, image, visual?}` (and enforces the rate limit and budgets). Cheap: partial tables, bounded scans.
+fn media(state: &Value, seat: Option<Seat>, a: &Args) -> Result<Value, String> {
+    let kind = match a.get("kind").and_then(Value::as_str).map(str::trim) {
+        Some(k @ ("portrait" | "place" | "event" | "army")) => k.to_string(),
+        Some(k) => return Err(format!("`kind` {k:?} is not portrait, place, event or army")),
+        None => return Err("`kind` is required (portrait, place, event or army)".into()),
+    };
+    let r = a.need_ref("ref")?;
+    let hidden = || format!("{r} is not something you can see");
+    let out = |name: String, subject: String, visual: Option<Value>| {
+        let mut v = json!({ "kind": kind, "ref": r, "name": name, "image_prompt": subject, "image_kind": kind });
+        if let Some(x) = visual {
+            v["visual"] = x;
+        }
+        v
+    };
+    match (kind.as_str(), r) {
+        ("portrait", Ref::Demigod(d)) => {
+            let w = world(state, &[T::Demigods])?;
+            let x = w.demigods.get(d.ix()).ok_or_else(|| format!("no such demigod {r}"))?;
+            Ok(out(x.name.clone(), payload::portrait_prompt(&w, x), Some(crate::visual::demigod(&w, x).to_json())))
+        }
+        ("portrait", Ref::Char(c)) => {
+            let w = world(
+                state,
+                &[T::Places, T::Groups, T::Clusters, T::Characters, T::Demigods, T::Agents, T::Seats, T::Nodes, T::Cells, T::Mobs],
+            )?;
+            if c.ix() >= w.characters.len() {
+                return Err(format!("no such person {r}"));
+            }
+            let ok = match asker(&w, seat) {
+                Some(d) => person_known(&w, state, d, c),
+                None => person_public(&w, state, c),
+            };
+            if !ok {
+                return Err(hidden());
+            }
+            let x = &w.characters[c.ix()];
+            Ok(out(x.name.clone(), payload::person_portrait_prompt(&w, x), Some(crate::visual::person(&w, x).to_json())))
+        }
+        ("place", Ref::Place(p)) => {
+            let w = world(state, &[T::Places])?;
+            let x = w.places.get(p.ix()).ok_or_else(|| format!("no such place {r}"))?;
+            Ok(out(x.name.clone(), payload::place_prompt(&w, x), None))
+        }
+        ("event", Ref::Ledger(l)) => {
+            let w = world(state, &[T::Places, T::Clusters, T::Gods, T::Demigods, T::Characters, T::Agents, T::Seats])?;
+            let v = rows(state).get(l.ix()).ok_or_else(|| format!("no such event {r}"))?;
+            let row = row(v).ok_or_else(|| format!("{r} could not be read"))?;
+            let ok = payload::is_public_event(&w, &row)
+                || asker(&w, seat).is_some_and(|d| knows(&selves(&w, d), w.demigods[d.ix()].following, &row));
+            if !ok {
+                return Err(hidden());
+            }
+            let (_, region) = payload::geotag(&w, &row);
+            Ok(out(row.act.clone(), payload::event_subject(&w, &row, region.as_deref()), None))
+        }
+        ("army", Ref::Cluster(k)) => {
+            let w = world(state, &[T::Clusters, T::Demigods])?;
+            let c = w.clusters.get(k.ix()).ok_or_else(|| format!("no such army {r}"))?;
+            let x = c.army.as_ref().ok_or_else(|| format!("{r} is a crowd, not an army"))?;
+            Ok(out(c.label.clone(), payload::army_prompt(&w, c, x), None))
+        }
+        ("portrait", _) => Err(format!("a portrait is of a demigod or person (`dg:`/`ch:`), not {r}")),
+        ("place", _) => Err(format!("a place image needs a `pl:` ref, not {r}")),
+        ("event", _) => Err(format!("an event image needs a ledger row (`lg:`), not {r}")),
+        _ => Err(format!("an army image needs an army (`cl:`), not {r}")),
+    }
 }

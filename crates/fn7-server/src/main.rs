@@ -33,12 +33,18 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(llm = %built.label, "LLM");
 
     // Images (fn7-media): off unless FN7_IMAGES=mock|openai; see docs/MEDIA.md. The /media routes are always served.
+    // The style config (FN7_MEDIA_STYLE / data/media_style.json) is validated here: a bad one stops the server.
     let media = fn7_media::Media::from_env()?;
-    tracing::info!(images = %media.config().note, dir = %media.config().dir.display(), "media");
+    let style = media.style();
+    tracing::info!(images = %media.config().note, dir = %media.config().dir.display(), style = %style.source,
+                   style_version = %style.version, style_hash = %&style.hash[..12], "media");
     // The core records every match (THEATRE_RECORD / THEATRE_RECORD_DIR) and runs every hook in the match's trace
     // context, so the plugin's events, LLM calls and the images' media_* events land in its run.
     let plugin: Arc<dyn GamePlugin> =
-        Arc::new(fn7_server::media::MediaPlugin::new(FinalNight7Plugin::new(), media.clone()));
+        Arc::new(fn7_server::media::MediaPlugin::new(
+            FinalNight7Plugin::new().with_media_style(media.style().ruleset_json()),
+            media.clone(),
+        ));
     let app = AppState::new(cfg.clone(), plugin, built.llm);
     restore(&app);
     // The simulator API (/sim/*, admin token; see simapi.rs): its matches run on their own threads, never on rooms'.

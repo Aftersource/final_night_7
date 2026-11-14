@@ -186,3 +186,131 @@ async fn the_server_router_serves_media_beside_the_theatre_routes() {
     assert_eq!(v["items"][0]["hash"], r.hash.as_str());
     assert_eq!(v["items"][0]["status"], "ready");
 }
+
+fn limited_media(dir: &std::path::Path, rate: u32, price: f64, match_budget: f64) -> Media {
+    let cfg = MediaConfig {
+        mode: Mode::Mock,
+        dir: dir.join("media"),
+        rate_per_min: rate,
+        budget_usd: 10.0,
+        match_budget_usd: match_budget,
+        ..Default::default()
+    };
+    let gen: Arc<dyn ImageGenerator> = Arc::new(MockGenerator { price_usd: price, ..Default::default() });
+    Media::start(cfg, Some(gen))
+}
+
+/// A mock-mode match through the server wrapper: the style in the ruleset, moment cards, a full storyboard with image
+/// objects that reuse the moment cards' and portraits' images, and `game.media` (images by reference) answering with
+/// image objects, idempotently, within visibility.
+#[tokio::test(flavor = "multi_thread")]
+async fn storyboard_and_media_queries_through_the_server_wrapper() {
+    let dir = temp_dir("story");
+    let media = mock_media(&dir);
+    let rec = recorder(dir.join("rec"), theatre_trace::Level::Events).unwrap();
+    let p = Recorded::new(
+        MediaPlugin::new(FinalNight7Plugin::new().with_media_style(media.style().ruleset_json()), media.clone()),
+        rec.run("s1"),
+    );
+    let none = |_: Seat, _: u32| None;
+    let settings = json!({ "seed": 5, "beats_total": 6, "clusters": 40 });
+    let mut cards: std::collections::BTreeMap<String, String> = Default::default();
+    let mut unselected = 0;
+    let (state, summary) = run_match(&p, &seats(), &settings, &fn7_plugin::testkit::Scripted::default(), None, &none, |rep, _| {
+        for e in rep.outcome.public["events"].as_array().into_iter().flatten() {
+            let sel = media.style().event_selection.selects(e["kind"].as_str().unwrap(), e["magnitude"].as_u64().unwrap() as u8);
+            assert_eq!(e.get("image").is_some(), sel, "moment cards follow the selection rules: {e}");
+            match e.get("image") {
+                Some(img) => {
+                    cards.insert(e["row"].as_str().unwrap().into(), img["hash"].as_str().unwrap().into());
+                }
+                None => unselected += 1,
+            }
+        }
+        true
+    })
+    .await
+    .unwrap();
+    assert!(media.wait_idle(Duration::from_secs(10)).await);
+    rec.flush();
+
+    // The style is recorded in the match's ruleset.
+    let records = fn7_server::replay::read_records(&dir.join("rec").join("s1.jsonl")).unwrap();
+    let rs = records.iter().find(|l| l["type"] == "ruleset" && l["body"]["media_style"].is_object()).expect("ruleset with media_style");
+    assert_eq!(rs["body"]["media_style"]["version"], "1");
+    assert_eq!(rs["body"]["media_style"]["hash"], media.style().hash.as_str());
+
+    // The storyboard: every shot has an image object; moments reuse their moment card's image; the champion's is its
+    // portrait.
+    let sb = summary.summary["storyboard"].as_array().unwrap();
+    assert!(sb.len() >= 3);
+    let pv = p.public_view(&state);
+    for s in sb {
+        let img = &s["image"];
+        assert!(matches!(img["status"].as_str(), Some("pending" | "ready")), "{s}");
+        assert_eq!(img["kind"], s["image_kind"]);
+        if let Some(h) = s["row"].as_str().and_then(|r| cards.get(r)) {
+            assert_eq!(img["hash"].as_str().unwrap(), h, "a moment card's picture is reused");
+        }
+    }
+    let champ = summary.summary["champions"][0]["demigod"].as_str().unwrap();
+    let d = pv["demigods"].as_array().unwrap().iter().find(|d| d["ref"] == champ).unwrap();
+    assert_eq!(sb.last().unwrap()["image"]["hash"], d["portrait_image"]["hash"]);
+    assert!(d["visual"]["sheet_hash"].is_string());
+
+    // game.media: an image object at once, the same image as the payloads', idempotent.
+    let m = p.query(&state, Some(0), "media", &json!({ "kind": "portrait", "ref": champ })).unwrap();
+    assert_eq!(m["image"]["hash"], d["portrait_image"]["hash"]);
+    assert!(m.get("image_prompt").is_none() && m["visual"] == d["visual"]);
+    assert_eq!(p.query(&state, None, "media", &json!({ "kind": "portrait", "ref": champ })).unwrap()["image"]["hash"], m["image"]["hash"]);
+    let w = fn7_plugin::world::load(&state).unwrap();
+    let region = w.places.iter().find(|x| x.kind == fn7_model::PlaceKind::District).unwrap();
+    let place = p.query(&state, Some(1), "media", &json!({ "kind": "place", "ref": format!("pl:{}", region.id.0) })).unwrap();
+    assert_eq!(place["image"]["kind"], "place");
+    assert!(matches!(place["image"]["status"].as_str(), Some("pending" | "ready")));
+    let private = w.ledger.rows.iter().rev().find(|r| !fn7_plugin::payload::is_public_event(&w, r)).unwrap();
+    assert!(p.query(&state, None, "media", &json!({ "kind": "event", "ref": format!("lg:{}", private.id.0) })).is_err(),
+            "HTTP gets public refs only");
+    assert!(media.wait_idle(Duration::from_secs(10)).await);
+    let again = p.query(&state, Some(1), "media", &json!({ "kind": "place", "ref": format!("pl:{}", region.id.0) })).unwrap();
+    assert_eq!((again["image"]["hash"].clone(), again["image"]["status"].as_str()), (place["image"]["hash"].clone(), Some("ready")));
+
+    // Replay compares summaries without the server's image objects: the bare plugin's summary matches.
+    let (_, plain) = run_match(&FinalNight7Plugin::new(), &seats(), &settings, &fn7_plugin::testkit::Scripted::default(), None, &none, |_, _| true)
+        .await
+        .unwrap();
+    assert_eq!(fn7_server::replay::strip_media(&summary.summary), fn7_server::replay::strip_media(&plain.summary));
+    assert!(plain.summary["storyboard"][0]["image"].is_null());
+}
+
+/// `game.media` through the wrapper: the per-seat rate limit (an error), budget refusal (an `off` image with the
+/// reason), and repeats free.
+#[tokio::test(flavor = "multi_thread")]
+async fn media_queries_are_rate_limited_and_budgeted() {
+    let none = |_: Seat, _: u32| None;
+    let settings = json!({ "seed": 5, "beats_total": 2, "clusters": 24, "llm": false });
+    let (state, _) = run_match(&FinalNight7Plugin::new(), &seats(), &settings, &Failing, None, &none, |_, _| true).await.unwrap();
+    let w = fn7_plugin::world::load(&state).unwrap();
+    let places: Vec<String> = w.places.iter().take(6).map(|x| format!("pl:{}", x.id.0)).collect();
+    let ask = |p: &MediaPlugin<FinalNight7Plugin>, seat: Option<Seat>, r: &str| {
+        p.query(&state, seat, "media", &json!({ "kind": "place", "ref": r }))
+    };
+    // Rate: 2 new images per minute per seat.
+    let p = MediaPlugin::new(FinalNight7Plugin::new(), limited_media(&temp_dir("rate"), 2, 0.0, 10.0));
+    assert!(ask(&p, Some(0), &places[0]).is_ok());
+    assert!(ask(&p, Some(0), &places[1]).is_ok());
+    assert!(ask(&p, Some(0), &places[0]).is_ok(), "a repeat is free");
+    assert!(ask(&p, Some(0), &places[2]).unwrap_err().contains("rate limited"));
+    assert!(ask(&p, Some(1), &places[2]).is_ok(), "per seat");
+    assert!(ask(&p, None, &places[3]).is_ok(), "the public asker has its own bucket");
+    // Budget: $0.05 an image, $0.05 per match.
+    let p = MediaPlugin::new(FinalNight7Plugin::new(), limited_media(&temp_dir("budget"), 0, 0.05, 0.05));
+    assert_eq!(ask(&p, Some(0), &places[0]).unwrap()["image"]["status"], "pending");
+    let refused = ask(&p, Some(0), &places[1]).unwrap();
+    assert_eq!(refused["image"]["status"], "off");
+    assert!(refused["reason"].as_str().unwrap().contains("budget"), "{refused}");
+    // Images off: an off image, never an error.
+    let off = MediaPlugin::new(FinalNight7Plugin::new(), Media::off());
+    let v = ask(&off, None, &places[0]).unwrap();
+    assert_eq!((v["image"]["status"].as_str(), v["reason"].as_str()), (Some("off"), Some("images are off")));
+}

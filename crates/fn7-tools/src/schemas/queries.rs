@@ -249,6 +249,7 @@ fn person() -> Value {
             ("region", string("")),
             ("at", r("LonLat")),
             ("died_beat", opt_int("")),
+            ("visual", r("Visual")),
         ],
         &[
             ("yours", boolean("Seat only: a body your agents steer, or someone your side brought into the story.")),
@@ -398,6 +399,23 @@ pub(super) fn replies() -> Vec<(&'static str, &'static str, Value)> {
                 ("standings", array(json!({ "type": "object", "allOf": [standing, object("", &[("bolts", int("Bolts held (public)."))], &[])] }), "Best first.")),
             ],
             &[],
+        )),
+        ("query_media", "media", object(
+            "`game.media`: an image of something in the game, by reference. Through the server: `image` at once \
+             (pending, then ready via GET /media/index). The bare plugin (no media server) answers `image_prompt` and \
+             `image_kind` instead of `image`.",
+            &[
+                ("kind", e(&["portrait", "place", "event", "army"], "As asked.")),
+                ("ref", r("Ref")),
+                ("name", string("The demigod's, person's, place's or army's name; an event's text.")),
+            ],
+            &[
+                ("image", r("ImageObject")),
+                ("reason", string("Why `image.status` is `off` (images off, a budget reached).")),
+                ("visual", r("Visual")),
+                ("image_prompt", string("Bare plugin only: the subject.")),
+                ("image_kind", e(&["portrait", "place", "event", "army"], "Bare plugin only.")),
+            ],
         )),
         ("query_piles_final", "piles_final", object(
             "`game.piles_final`: the end-of-match piles (an error until the match is over).",

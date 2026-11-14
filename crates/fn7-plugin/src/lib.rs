@@ -28,6 +28,7 @@ pub mod queries;
 pub mod settings;
 pub mod society;
 pub mod testkit;
+pub mod visual;
 pub mod world;
 
 pub use settings::Settings;
@@ -194,12 +195,16 @@ fn sample_step_prompt(kind: fn7_agents::step::StepKind) -> String {
 /// included, inside the match's trace context (theatre 1741d8f), so the plugin keeps no memory between hooks.
 pub struct FinalNight7Plugin {
     pantheon: Arc<Pantheon>,
+    /// The server's media style config (`{version, hash, source, body}`), recorded in every match's ruleset as
+    /// `media_style` (the plugin never reads it otherwise; images are the server's).
+    media_style: Option<Value>,
 }
 
 impl Default for FinalNight7Plugin {
     fn default() -> Self {
         Self {
             pantheon: Arc::new(fn7_pantheon::load()),
+            media_style: None,
         }
     }
 }
@@ -211,6 +216,12 @@ impl FinalNight7Plugin {
 
     pub fn pantheon(&self) -> &Arc<Pantheon> {
         &self.pantheon
+    }
+
+    /// Record the server's media style (`fn7_media::MediaStyle::ruleset_json`) in every match's ruleset.
+    pub fn with_media_style(mut self, style: Value) -> Self {
+        self.media_style = Some(style);
+        self
     }
 
     /// The provider minds use: `None` when the room turned the LLM off (every mind falls back, no requests).
@@ -431,12 +442,11 @@ impl GamePlugin for FinalNight7Plugin {
     ) -> anyhow::Result<Value> {
         let settings = Settings::validate(settings).map_err(anyhow::Error::msg)?;
         let w = phases::new_match(seats, &settings, &self.pantheon, now_seed());
-        theatre_trace::ruleset(
-            PLUGIN_ID,
-            RULES_VERSION,
-            RULES_LABEL,
-            ruleset_body(&w, &self.pantheon),
-        );
+        let mut body = ruleset_body(&w, &self.pantheon);
+        if let Some(m) = &self.media_style {
+            body["media_style"] = m.clone();
+        }
+        theatre_trace::ruleset(PLUGIN_ID, RULES_VERSION, RULES_LABEL, body);
         Ok(world::save(&w))
     }
 
@@ -630,3 +640,5 @@ impl GamePlugin for FinalNight7Plugin {
 mod tests;
 #[cfg(test)]
 mod query_tests;
+#[cfg(test)]
+mod media_tests;

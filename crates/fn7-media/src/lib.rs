@@ -22,6 +22,7 @@ pub mod cache;
 pub mod generator;
 pub mod http;
 pub mod prompt;
+pub mod style;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -38,7 +39,8 @@ pub use cache::{MediaCache, Sidecar};
 pub use generator::{
     GenRequest, Generated, ImageGenerator, MockGenerator, OpenAiConfig, OpenAiImages,
 };
-pub use prompt::{ImageKind, ImagePrompt, HOUSE_STYLE, PROMPT_VERSION};
+pub use prompt::{ImageKind, ImagePrompt, PROMPT_VERSION};
+pub use style::{EventSelection, KindStyle, MediaStyle};
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Configuration
@@ -70,8 +72,14 @@ pub struct MediaConfig {
     pub budget_usd: f64,
     /// `FN7_IMAGE_MATCH_BUDGET_USD`, default = the global budget: the most one match may spend.
     pub match_budget_usd: f64,
-    /// `FN7_IMAGE_MAX_EVENTS`, default 12: event images per match.
+    /// Event images per match: `FN7_IMAGE_MAX_EVENTS`, else the style's `event_selection.max_per_match` (12).
     pub max_events_per_match: u32,
+    /// `FN7_MEDIA_RATE_PER_MIN`, default 30: new images one requester (a seat, or the public HTTP asker) may ask for
+    /// by reference (`game.media`) per minute in one match (a token bucket of this size). 0 = no limit. Cache hits and
+    /// repeats are free.
+    pub rate_per_min: u32,
+    /// The style config (`FN7_MEDIA_STYLE` / `data/media_style.json` / compiled in).
+    pub style: MediaStyle,
     /// `FN7_IMAGE_CONCURRENCY`, default 2: generations in flight.
     pub concurrency: usize,
     /// `FN7_IMAGE_QUEUE`, default 256: queued generations; beyond it requests are dropped (status `off`).
@@ -89,7 +97,9 @@ impl Default for MediaConfig {
             url_prefix: "/media".into(),
             budget_usd: 0.0,
             match_budget_usd: 0.0,
-            max_events_per_match: 12,
+            max_events_per_match: MediaStyle::builtin().event_selection.max_per_match,
+            rate_per_min: 30,
+            style: MediaStyle::builtin(),
             concurrency: 2,
             queue: 256,
             openai: None,
@@ -98,12 +108,14 @@ impl Default for MediaConfig {
 }
 
 impl MediaConfig {
-    pub fn from_env() -> Self {
+    pub fn from_env() -> anyhow::Result<Self> {
         Self::from_lookup(|k| std::env::var(k).ok())
     }
 
-    /// Settings from any key lookup (tests pass a map instead of touching the process environment).
-    pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> Self {
+    /// Settings from any key lookup (tests pass a map instead of touching the process environment). Fails only on an
+    /// invalid style config (the message names the file and the field).
+    pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> anyhow::Result<Self> {
+        let style = MediaStyle::from_lookup(&get).map_err(|e| anyhow::anyhow!("media style: {e}"))?;
         let get = |k: &str| {
             get(k)
                 .map(|v| v.trim().to_string())
@@ -115,7 +127,11 @@ impl MediaConfig {
                 .filter(|x| x.is_finite() && *x >= 0.0)
                 .unwrap_or(d)
         };
-        let mut c = MediaConfig::default();
+        let mut c = MediaConfig {
+            max_events_per_match: style.event_selection.max_per_match,
+            style,
+            ..Default::default()
+        };
         if let Some(d) = get("FN7_MEDIA_DIR") {
             c.dir = d.into();
         }
@@ -124,7 +140,9 @@ impl MediaConfig {
         }
         c.budget_usd = num("FN7_IMAGE_BUDGET_USD", 0.0);
         c.match_budget_usd = num("FN7_IMAGE_MATCH_BUDGET_USD", c.budget_usd);
-        c.max_events_per_match = num("FN7_IMAGE_MAX_EVENTS", 12.0) as u32;
+        c.max_events_per_match =
+            num("FN7_IMAGE_MAX_EVENTS", c.max_events_per_match as f64) as u32;
+        c.rate_per_min = num("FN7_MEDIA_RATE_PER_MIN", 30.0).min(100_000.0) as u32;
         c.concurrency = (num("FN7_IMAGE_CONCURRENCY", 2.0) as usize).clamp(1, 16);
         c.queue = (num("FN7_IMAGE_QUEUE", 256.0) as usize).clamp(1, 10_000);
         match get("FN7_IMAGES").map(|m| m.to_ascii_lowercase()).as_deref() {
@@ -165,7 +183,7 @@ impl MediaConfig {
                 c.note = format!("FN7_IMAGES={other} is not off|mock|openai: images off")
             }
         }
-        c
+        Ok(c)
     }
 
     /// The generator these settings call for (`None` when off).
@@ -245,6 +263,12 @@ impl ImageRef {
     }
 }
 
+/// One requester's token bucket (requests by reference).
+struct Bucket {
+    tokens: f64,
+    at: Instant,
+}
+
 struct Job {
     key: String,
     prompt: ImagePrompt,
@@ -266,6 +290,8 @@ struct State {
     spent_total: f64,
     matches: HashMap<String, MatchSpend>,
     clock: i64,
+    /// (match, requester) → bucket.
+    rates: HashMap<(String, String), Bucket>,
 }
 
 impl State {
@@ -302,7 +328,7 @@ impl Media {
 
     /// The service from the environment ([`MediaConfig::from_env`]). Needs a tokio runtime when images are on.
     pub fn from_env() -> anyhow::Result<Self> {
-        let cfg = MediaConfig::from_env();
+        let cfg = MediaConfig::from_env()?;
         let gen = cfg.generator()?;
         Ok(Self::start(cfg, gen))
     }
@@ -365,8 +391,18 @@ impl Media {
         &self.inner.cache
     }
 
-    /// The image key of a prompt under the current generator: sha256 of `PROMPT_VERSION`, the generator label and the
-    /// prompt text, as 64 hex chars.
+    /// The style config in use.
+    pub fn style(&self) -> &MediaStyle {
+        &self.inner.cfg.style
+    }
+
+    /// A prompt in this service's style (`None` when nothing is left of the subject after scrubbing ids).
+    pub fn prompt(&self, kind: ImageKind, subject: &str) -> Option<ImagePrompt> {
+        ImagePrompt::styled(self.style(), kind, subject)
+    }
+
+    /// The image key of a prompt under the current generator: sha256 of `PROMPT_VERSION`, the generator label, the size
+    /// and the prompt text, as 64 hex chars.
     pub fn key_for(&self, prompt: &ImagePrompt) -> String {
         image_key(&self.inner.label, prompt)
     }
@@ -389,6 +425,12 @@ impl Media {
     /// `off` (images off, refused or failed). Asking again for the same prompt is cheap and never generates twice.
     /// `match_id` scopes the per-match budget and event cap (the recorder's run id; `None` = shared bucket).
     pub fn request(&self, prompt: &ImagePrompt, match_id: Option<&str>) -> ImageRef {
+        self.request_with(prompt, match_id, true)
+    }
+
+    /// [`Media::request`]; `capped = false` exempts an event image from the per-match event cap (storyboard shots and
+    /// requests by reference: the cap is the moment-card selection's `max_per_match`). Budgets always apply.
+    pub fn request_with(&self, prompt: &ImagePrompt, match_id: Option<&str>, capped: bool) -> ImageRef {
         let key = self.key_for(prompt);
         let Some(gen) = self.inner.gen.clone() else {
             return ImageRef {
@@ -436,12 +478,14 @@ impl Media {
         }
         // Budget, caps, queue.
         let cfg = &self.inner.cfg;
-        let price = gen.price_usd(prompt.kind);
+        let price = gen.price_usd(prompt.kind, &prompt.size);
         let spend = st.matches.entry(m.clone()).or_default();
         let refusal = match price {
             None => Some("unknown price for this model: set FN7_IMAGE_PRICE_USD".to_string()),
             Some(_)
-                if prompt.kind == ImageKind::Event && spend.events >= cfg.max_events_per_match =>
+                if capped
+                    && prompt.kind == ImageKind::Event
+                    && spend.events >= cfg.max_events_per_match =>
             {
                 Some(format!(
                     "event image cap reached ({} per match)",
@@ -478,7 +522,7 @@ impl Media {
                 true => {
                     let spend = st.matches.entry(m.clone()).or_default();
                     spend.spent += price;
-                    if prompt.kind == ImageKind::Event {
+                    if capped && prompt.kind == ImageKind::Event {
                         spend.events += 1;
                     }
                     st.spent_total += price;
@@ -516,6 +560,65 @@ impl Media {
         };
         theatre_trace::event(kind, None, data);
         r
+    }
+
+    /// Ask for an image **by reference** (`game.media`): like [`Media::request`], plus the per-requester rate limit
+    /// (`who`: `"seat:N"` or `"public"`, scoped to the match). Only a new image takes a token: an image this process
+    /// already knows, or one on disk, answers at once for free. Returns the image and, when it is `off`, why.
+    /// `Err` = rate limited (nothing was queued; ask again later).
+    pub fn request_by_ref(
+        &self,
+        prompt: &ImagePrompt,
+        match_id: Option<&str>,
+        who: &str,
+    ) -> Result<(ImageRef, Option<String>), String> {
+        if !self.enabled() {
+            return Ok((self.request(prompt, match_id), Some("images are off".into())));
+        }
+        let key = self.key_for(prompt);
+        let known = {
+            let st = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+            st.entries.contains_key(&key)
+        } || self.inner.cache.lookup(&key).is_some();
+        if !known {
+            self.take_token(match_id, who)?;
+        }
+        let r = self.request_with(prompt, match_id, false);
+        let reason = match r.status {
+            "off" => self.entry(&r.hash).and_then(|e| e.reason),
+            _ => None,
+        };
+        Ok((r, reason))
+    }
+
+    fn take_token(&self, match_id: Option<&str>, who: &str) -> Result<(), String> {
+        let rate = self.inner.cfg.rate_per_min;
+        if rate == 0 {
+            return Ok(());
+        }
+        let cap = rate as f64;
+        let now = Instant::now();
+        let mut st = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+        let b = st
+            .rates
+            .entry((match_id.unwrap_or(MATCH_UNKNOWN).to_string(), who.to_string()))
+            .or_insert(Bucket { tokens: cap, at: now });
+        b.tokens = (b.tokens + now.duration_since(b.at).as_secs_f64() * cap / 60.0).min(cap);
+        b.at = now;
+        if b.tokens < 1.0 {
+            let wait = ((1.0 - b.tokens) * 60.0 / cap).ceil().max(1.0);
+            drop(st);
+            theatre_trace::event(
+                "media_rate_limited",
+                None,
+                json!({ "who": who, "rate_per_min": rate, "retry_after_s": wait }),
+            );
+            return Err(format!(
+                "rate limited: at most {rate} new images per minute per seat; try again in {wait} s"
+            ));
+        }
+        b.tokens -= 1.0;
+        Ok(())
     }
 
     /// The manifest: every image this process has been asked for whose entry changed after `since` (a cursor from an
@@ -585,12 +688,14 @@ impl Media {
     }
 }
 
-/// sha256(`PROMPT_VERSION` \n label \n prompt text), hex.
+/// sha256(`PROMPT_VERSION` \n label \n size \n prompt text), hex.
 pub fn image_key(label: &str, prompt: &ImagePrompt) -> String {
     let mut h = Sha256::new();
     h.update(PROMPT_VERSION.as_bytes());
     h.update(b"\n");
     h.update(label.as_bytes());
+    h.update(b"\n");
+    h.update(prompt.size.as_bytes());
     h.update(b"\n");
     h.update(prompt.text.as_bytes());
     hex::encode(h.finalize())
@@ -626,6 +731,7 @@ async fn run_job(inner: Arc<Inner>, job: Job) {
         key: job.key.clone(),
         kind: job.prompt.kind,
         prompt: job.prompt.text.clone(),
+        size: job.prompt.size.clone(),
     };
     let t0 = Instant::now();
     let res = gen.generate(&req).await;

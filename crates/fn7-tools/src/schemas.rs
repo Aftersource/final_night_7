@@ -274,6 +274,70 @@ fn shared_defs() -> Map<String, Value> {
         ),
     );
     d.insert(
+        "ImageObject".into(),
+        object(
+            "An image the media server attached (only when the server has images on; see docs/MEDIA.md). Fetch `url` \
+             once `status` is `ready` (watch GET /media/index for `hash`); `off` = none will come, show a placeholder.",
+            &[
+                ("hash", string("Content key (sha256 hex): cache by it forever.")),
+                ("kind", json!({ "type": "string", "enum": ["portrait", "item", "event", "statue", "place", "army"] })),
+                ("status", json!({ "type": "string", "enum": ["pending", "ready", "off"] })),
+                ("url", json!({ "type": ["string", "null"], "description": "`/media/<hash>.<ext>` once ready, relative to the server's HTTP origin." })),
+                ("prompt", string("The full prompt sent to the image model (house style; no engine ids).")),
+            ],
+            &[],
+        ),
+    );
+    d.insert(
+        "Visual".into(),
+        object(
+            "A character's visual sheet (docs/SHARED_MEDIA_SPEC.md §3.1): picked from the match seed, the character's id \
+             and name; the same at every beat and in every replay. Every image of the character carries these traits.",
+            &[
+                ("sheet_hash", string("sha256 (hex) of the sheet version, the character's ref and its traits: key art or caches on it.")),
+                ("traits", object(
+                    "",
+                    &[
+                        ("build", string("Body type.")),
+                        ("face", string("Face and hair.")),
+                        ("outfit", string("What they wear.")),
+                        ("colors", json!({ "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 2,
+                                           "description": "Two signature colors (color words)." })),
+                        ("prop", string("The one thing they carry.")),
+                        ("emblem", string("Their emblem (also on their armies' banners).")),
+                    ],
+                    &[],
+                )),
+            ],
+            &[],
+        ),
+    );
+    d.insert(
+        "StoryboardShot".into(),
+        object(
+            "One shot of the final-cut animatic (docs/SHARED_MEDIA_SPEC.md §3.3): fly the globe to `at`, show `image`, \
+             caption it, hold `duration_ms`.",
+            &[
+                ("shot", int("Index, from 0.")),
+                ("kind", json!({ "type": "string", "enum": ["title", "moment", "champion"],
+                                 "description": "title: the final cut's title over the arena; moment: one of the match's biggest public moments; champion: the champion's close-up with the final cut's closing lines." })),
+                ("beat", int("The beat it shows (0 for the title).")),
+                ("at", geo("Where, [lon, lat].")),
+                ("region", string("Region (planet) or district (city), or the arena for the title.")),
+                ("image_prompt", string("The subject the image is drawn from (a moment's is exactly its moment card's, so the same picture).")),
+                ("image_kind", json!({ "type": "string", "enum": ["event", "portrait"] })),
+                ("image", json!({ "anyOf": [{ "$ref": "#/$defs/ImageObject" }, { "type": "null" }],
+                                  "description": "The event or portrait image object (null when the server has images off)." })),
+                ("caption", string("What to show under it.")),
+                ("duration_ms", int("How long to hold it.")),
+                ("camera", json!({ "type": "string", "enum": ["globe", "close"], "description": "globe: fly the globe to `at`; close: a close-up (eliminations, the champion)." })),
+                ("row", json!({ "anyOf": [{ "$ref": "#/$defs/Ref" }, { "type": "null" }], "description": "moment: its ledger row." })),
+                ("refs", array(r("Ref"), "Who is in it.")),
+            ],
+            &[],
+        ),
+    );
+    d.insert(
         "WorldEvent".into(),
         object(
             "A public, geotagged world event (one ledger row): casts and their ramifications, armies raised, marching and \
@@ -288,8 +352,9 @@ fn shared_defs() -> Map<String, Value> {
                 ("magnitude", int("0..10.")),
             ],
             &[
-                ("image_prompt", string("Only on the truly big ones (a cast, an elimination, magnitude ≥ 8): an image prompt (subject only).")),
+                ("image_prompt", string("Every public event: its image subject (a candidate moment card; it names who is in it with their visual sheets). Older recordings: only the big ones.")),
                 ("image_kind", json!({ "type": "string", "enum": ["event"], "description": "With image_prompt." })),
+                ("image", json!({ "$ref": "#/$defs/ImageObject", "description": "A moment card: only on events the media style's event_selection picks (and only with images on)." })),
             ],
         ),
     );
@@ -942,8 +1007,10 @@ fn public_view() -> Value {
             "cause": { "type": ["string", "null"], "description": "Eliminated only: how it fell." },
             "bolts": { "type": "integer", "minimum": 0, "description": "Lightning bolts it holds (public)." },
             "region": { "type": "string", "description": "Alive only: the region (planet) or district (city) it is in." },
-            "portrait_prompt": { "type": "string", "description": "An image prompt for its portrait (subject only; stable all match)." },
-            "image_kind": { "type": "string", "enum": ["portrait"] }
+            "portrait_prompt": { "type": "string", "description": "An image prompt for its portrait (subject only, with its visual sheet; stable all match)." },
+            "image_kind": { "type": "string", "enum": ["portrait"] },
+            "visual": { "$ref": "#/$defs/Visual", "description": "Its visual sheet (stable all match). Always present since the media release; absent in older recordings." },
+            "portrait_image": { "$ref": "#/$defs/ImageObject", "description": "Its portrait (images on only)." }
         },
         "required": ["ref", "name", "alive", "seat"],
         "oneOf": [
@@ -1034,12 +1101,12 @@ fn match_summary() -> Value {
                 ],
                 &[],
             )),
-            ("statue_prompt", string("An image-generation prompt for its amiibo-style statue.")),
+            ("statue_prompt", string("An image-generation prompt for its amiibo-style statue (with its visual sheet).")),
             ("image_kind", json!({ "type": "string", "enum": ["statue"] })),
             ("bolts", int("Bolts it held at the end.")),
             ("slows", int("Times it slowed time.")),
         ],
-        &[],
+        &[("statue_image", json!({ "$ref": "#/$defs/ImageObject", "description": "Its statue (images on only)." }))],
     );
     let stats_keys = [
         "beats",
@@ -1081,7 +1148,9 @@ fn match_summary() -> Value {
             ("entropy", r("Entropy")),
             ("heat_death", json!({ "type": ["integer", "null"], "minimum": 0, "description": "The beat heat death struck (the Final Night came early), or null." })),
         ],
-        &[(
+        &[
+            ("storyboard", array(r("StoryboardShot"), "The final-cut animatic, in play order: the title, the biggest moments as they happened, the champion. Always present since the media release; absent in older recordings.")),
+            (
             "last_caption",
             object(
                 "The last beat's caption (narrated one beat late, so it is written at the end of the match, with the \
@@ -1089,7 +1158,8 @@ fn match_summary() -> Value {
                 &[("beat", int("")), ("caption", string(""))],
                 &[],
             ),
-        )],
+            ),
+        ],
     )
 }
 

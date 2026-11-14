@@ -1,22 +1,21 @@
-//! Image prompts in one house style. Every prompt is `<framing for its kind><subject>. <HOUSE_STYLE>`, built
-//! deterministically (same inputs, same bytes) from plain names and text, with engine ids (`dg:3`, `ch:12`, `lg:49`, …)
-//! scrubbed out: an image model must never see them, and they would make identical pictures hash differently.
+//! Image prompts in one house style. Every prompt is `<Framing for its kind>: <subject>. Style: <house style>. Avoid:
+//! <avoid list>.`, with the framing, size, house style and avoid list from the style config ([`crate::style`],
+//! `data/media_style.json`), built deterministically (same inputs, same bytes) from plain names and text, with engine ids
+//! (`dg:3`, `ch:12`, `lg:49`, …) scrubbed out: an image model must never see them, and they would make identical
+//! pictures hash differently.
 
 use serde::{Deserialize, Serialize};
 
-/// Bumped when the house style or framing changes (it is part of every image key, so old images are not reused for a
-/// new style).
-pub const PROMPT_VERSION: &str = "fn7-media/1";
+use crate::style::MediaStyle;
 
-/// The one look every Final Night 7 image shares.
-pub const HOUSE_STYLE: &str = "Style: collectible-figure game illustration, Fortnite meets Final Destination: chunky \
-stylized 3D, bold saturated colors, crisp rim lighting, playful but ominous. Original designs only: no logos, no \
-readable text, no real brands, no existing characters from other intellectual properties.";
+/// Bumped when the prompt format changes (it is part of every image key, so old images are not reused for a new
+/// format). The style config's hash is part of the key too.
+pub const PROMPT_VERSION: &str = "fn7-media/2";
 
 /// Longest subject kept (characters); the rest is cut at a word boundary.
 pub const MAX_SUBJECT_CHARS: usize = 1200;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ImageKind {
     /// A demigod or a memorized character.
@@ -27,10 +26,21 @@ pub enum ImageKind {
     Event,
     /// A demigod's end-of-match statue.
     Statue,
+    /// A region, city or the arena (requested by reference).
+    Place,
+    /// An army (requested by reference).
+    Army,
 }
 
 impl ImageKind {
-    pub const ALL: [ImageKind; 4] = [Self::Portrait, Self::Item, Self::Event, Self::Statue];
+    pub const ALL: [ImageKind; 6] = [
+        Self::Portrait,
+        Self::Item,
+        Self::Event,
+        Self::Statue,
+        Self::Place,
+        Self::Army,
+    ];
 
     pub fn as_str(self) -> &'static str {
         match self {
@@ -38,6 +48,8 @@ impl ImageKind {
             Self::Item => "item",
             Self::Event => "event",
             Self::Statue => "statue",
+            Self::Place => "place",
+            Self::Army => "army",
         }
     }
 
@@ -45,19 +57,6 @@ impl ImageKind {
         Self::ALL
             .into_iter()
             .find(|k| k.as_str() == s.trim().to_ascii_lowercase())
-    }
-
-    fn framing(self) -> &'static str {
-        match self {
-            Self::Portrait => "Character portrait, head and shoulders, three-quarter view, against a dark gradient \
-                               backdrop: ",
-            Self::Item => "A single item shown alone like a loot icon, centered, three-quarter view, on a plain \
-                           background: ",
-            Self::Event => "A wide cinematic action shot of a world-shaking moment, seen from high above the planet's \
-                            surface: ",
-            Self::Statue => "An amiibo-style collectible statue on a round display base, three-quarter view, on a \
-                             plain background: ",
-        }
     }
 
     /// Images that want a transparent background where the model supports it.
@@ -72,23 +71,43 @@ pub struct ImagePrompt {
     pub kind: ImageKind,
     pub subject: String,
     pub text: String,
+    /// `WIDTHxHEIGHT`, from the style's kind.
+    pub size: String,
 }
 
 impl ImagePrompt {
     /// A prompt from free text (a plugin's `image_prompt`, a statue prompt, a news line). `None` when nothing is left
     /// after scrubbing.
+    /// In the compiled-in style ([`MediaStyle::builtin`]); the server uses [`ImagePrompt::styled`] with its loaded one.
     pub fn from_subject(kind: ImageKind, subject: &str) -> Option<Self> {
+        Self::styled(&MediaStyle::builtin(), kind, subject)
+    }
+
+    /// A prompt from free text in `style`. `None` when nothing is left after scrubbing.
+    pub fn styled(style: &MediaStyle, kind: ImageKind, subject: &str) -> Option<Self> {
         let subject = clip(&scrub(subject), MAX_SUBJECT_CHARS);
         let subject = subject.trim_end_matches(['.', ' ']).to_string();
         if subject.is_empty() {
             return None;
         }
-        let text = format!("{}{subject}. {HOUSE_STYLE}", kind.framing());
-        Some(Self {
+        Some(Self::build(style, kind, subject))
+    }
+
+    fn build(style: &MediaStyle, kind: ImageKind, subject: String) -> Self {
+        let k = style.kind(kind);
+        let framing = capitalize(k.framing.trim().trim_end_matches([':', '.', ' ']));
+        let text = format!("{framing}: {subject}. {}", style.suffix());
+        Self {
             kind,
             subject,
             text,
-        })
+            size: k.size,
+        }
+    }
+
+    /// The same subject and kind in another style.
+    pub fn restyle(&self, style: &MediaStyle) -> Self {
+        Self::build(style, self.kind, self.subject.clone())
     }
 
     pub fn portrait(p: &Portrait) -> Option<Self> {
@@ -212,6 +231,14 @@ pub struct Statue {
     pub people: Vec<String>,
 }
 
+fn capitalize(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        Some(f) => f.to_uppercase().chain(c).collect(),
+        None => String::new(),
+    }
+}
+
 fn nonempty(s: &Option<String>) -> Option<&str> {
     s.as_deref().map(str::trim).filter(|s| !s.is_empty())
 }
@@ -301,7 +328,10 @@ mod tests {
         let a = ImagePrompt::statue(&st).unwrap();
         let b = ImagePrompt::statue(&st).unwrap();
         assert_eq!(a, b);
-        assert!(a.text.ends_with(HOUSE_STYLE));
+        let style = MediaStyle::builtin();
+        assert!(a.text.ends_with(&style.suffix()));
+        assert!(a.text.starts_with("Amiibo-style figure on a round base"), "{}", a.text);
+        assert_eq!(a.size, "1024x1024");
         assert!(
             a.text.contains("Rook")
                 && a.text.contains("laser sword")
@@ -331,7 +361,8 @@ mod tests {
             ),
         ] {
             let p = p.unwrap();
-            assert!(p.text.ends_with(HOUSE_STYLE), "{}", p.text);
+            assert!(p.text.ends_with(&style.suffix()), "{}", p.text);
+            assert!(p.text.contains(&style.house_style) && p.text.contains("Avoid: text, logos"));
             assert!(!p.text.contains("gd:0"));
         }
         assert!(ImagePrompt::from_subject(ImageKind::Event, " dg:1 (ch:2) ").is_none());

@@ -18,6 +18,8 @@ pub struct GenRequest {
     pub kind: ImageKind,
     /// The full prompt text.
     pub prompt: String,
+    /// `WIDTHxHEIGHT` (from the style's kind).
+    pub size: String,
 }
 
 /// What a generator made.
@@ -35,12 +37,12 @@ pub struct Generated {
 pub trait ImageGenerator: Send + Sync {
     /// `"mock"`, `"openai"`.
     fn provider(&self) -> &'static str;
-    /// Everything that changes the picture for the same prompt (provider, model, size, quality). Part of the image
-    /// key, so switching models never serves an image from another one.
+    /// Everything besides the prompt and size that changes the picture (provider, model, quality). Part of the image
+    /// key (with the size), so switching models never serves an image from another one.
     fn label(&self) -> String;
-    /// The price of one image of this kind in USD, or `None` when unknown (then nothing is generated: a budget can't
-    /// be enforced on an unknown price).
-    fn price_usd(&self, kind: ImageKind) -> Option<f64>;
+    /// The price of one image of this kind and size in USD, or `None` when unknown (then nothing is generated: a
+    /// budget can't be enforced on an unknown price).
+    fn price_usd(&self, kind: ImageKind, size: &str) -> Option<f64>;
     async fn generate(&self, req: &GenRequest) -> anyhow::Result<Generated>;
 }
 
@@ -73,7 +75,7 @@ impl ImageGenerator for MockGenerator {
     fn label(&self) -> String {
         "mock".into()
     }
-    fn price_usd(&self, _: ImageKind) -> Option<f64> {
+    fn price_usd(&self, _: ImageKind, _: &str) -> Option<f64> {
         Some(self.price_usd)
     }
     async fn generate(&self, req: &GenRequest) -> anyhow::Result<Generated> {
@@ -157,6 +159,7 @@ pub struct OpenAiConfig {
     /// `https://api.openai.com/v1` unless overridden.
     pub base_url: String,
     pub model: String,
+    /// The size for a request that names none (the style config gives every kind its own size).
     pub size: String,
     /// `low|medium|high|auto` for gpt-image models, `standard|hd` for dall-e-3, ignored for dall-e-2.
     pub quality: String,
@@ -186,6 +189,14 @@ impl OpenAiImages {
         Ok(Self { cfg, http })
     }
 
+    fn size_of<'a>(&'a self, size: &'a str) -> &'a str {
+        if size.trim().is_empty() {
+            &self.cfg.size
+        } else {
+            size
+        }
+    }
+
     fn is_gpt_image(&self) -> bool {
         self.cfg.model.starts_with("gpt-image")
     }
@@ -193,7 +204,7 @@ impl OpenAiImages {
     /// The exact request body (no credentials).
     pub fn body(&self, req: &GenRequest) -> Value {
         let mut b =
-            json!({ "model": self.cfg.model, "prompt": req.prompt, "n": 1, "size": self.cfg.size });
+            json!({ "model": self.cfg.model, "prompt": req.prompt, "n": 1, "size": self.size_of(&req.size) });
         if self.is_gpt_image() {
             b["quality"] = json!(self.cfg.quality);
             b["output_format"] = json!("png");
@@ -285,15 +296,12 @@ impl ImageGenerator for OpenAiImages {
         "openai"
     }
     fn label(&self) -> String {
-        format!(
-            "openai:{}:{}:{}",
-            self.cfg.model, self.cfg.size, self.cfg.quality
-        )
+        format!("openai:{}:{}", self.cfg.model, self.cfg.quality)
     }
-    fn price_usd(&self, _: ImageKind) -> Option<f64> {
+    fn price_usd(&self, _: ImageKind, size: &str) -> Option<f64> {
         self.cfg
             .price_override
-            .or_else(|| price_per_image(&self.cfg.model, &self.cfg.size, &self.cfg.quality))
+            .or_else(|| price_per_image(&self.cfg.model, self.size_of(size), &self.cfg.quality))
     }
 
     async fn generate(&self, req: &GenRequest) -> anyhow::Result<Generated> {
@@ -302,7 +310,7 @@ impl ImageGenerator for OpenAiImages {
             self.cfg.base_url.trim_end_matches('/')
         );
         let body = self.body(req);
-        let cost = self.price_usd(req.kind).unwrap_or(0.0);
+        let cost = self.price_usd(req.kind, &req.size).unwrap_or(0.0);
         let mut attempt = 0u32;
         loop {
             let started_at = theatre_trace::now_ms();
@@ -439,11 +447,15 @@ mod tests {
             key: "k".into(),
             kind,
             prompt: "p".into(),
+            size: "1536x1024".into(),
         };
         let b = g.body(&r(ImageKind::Statue));
         assert_eq!(b["background"], "transparent");
         assert!(!b.to_string().contains("sk-test"));
         assert!(g.body(&r(ImageKind::Event)).get("background").is_none());
+        assert_eq!(b["size"], "1536x1024", "the style's size wins");
+        assert_eq!(g.price_usd(ImageKind::Event, "1536x1024"), Some(0.015));
+        assert_eq!(g.price_usd(ImageKind::Event, ""), Some(0.011));
     }
 
     #[test]

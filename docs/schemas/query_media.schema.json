@@ -1,0 +1,198 @@
+{
+  "$defs": {
+    "ImageObject": {
+      "description": "An image the media server attached (only when the server has images on; see docs/MEDIA.md). Fetch `url` once `status` is `ready` (watch GET /media/index for `hash`); `off` = none will come, show a placeholder.",
+      "properties": {
+        "hash": {
+          "description": "Content key (sha256 hex): cache by it forever.",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "portrait",
+            "item",
+            "event",
+            "statue",
+            "place",
+            "army"
+          ],
+          "type": "string"
+        },
+        "prompt": {
+          "description": "The full prompt sent to the image model (house style; no engine ids).",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "ready",
+            "off"
+          ],
+          "type": "string"
+        },
+        "url": {
+          "description": "`/media/<hash>.<ext>` once ready, relative to the server's HTTP origin.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "hash",
+        "kind",
+        "status",
+        "url",
+        "prompt"
+      ],
+      "type": "object"
+    },
+    "Ref": {
+      "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row, ce cell, mb mob. Stable for the whole match.",
+      "examples": [
+        "ch:12"
+      ],
+      "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg|ce|mb):\\d+$",
+      "type": "string"
+    },
+    "Visual": {
+      "description": "A character's visual sheet (docs/SHARED_MEDIA_SPEC.md §3.1): picked from the match seed, the character's id and name; the same at every beat and in every replay. Every image of the character carries these traits.",
+      "properties": {
+        "sheet_hash": {
+          "description": "sha256 (hex) of the sheet version, the character's ref and its traits: key art or caches on it.",
+          "type": "string"
+        },
+        "traits": {
+          "description": "",
+          "properties": {
+            "build": {
+              "description": "Body type.",
+              "type": "string"
+            },
+            "colors": {
+              "description": "Two signature colors (color words).",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "emblem": {
+              "description": "Their emblem (also on their armies' banners).",
+              "type": "string"
+            },
+            "face": {
+              "description": "Face and hair.",
+              "type": "string"
+            },
+            "outfit": {
+              "description": "What they wear.",
+              "type": "string"
+            },
+            "prop": {
+              "description": "The one thing they carry.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "build",
+            "face",
+            "outfit",
+            "colors",
+            "prop",
+            "emblem"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "sheet_hash",
+        "traits"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "query_media.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "`game.media`: an image of something in the game, by reference. Through the server: `image` at once (pending, then ready via GET /media/index). The bare plugin (no media server) answers `image_prompt` and `image_kind` instead of `image`.",
+  "properties": {
+    "image": {
+      "$ref": "#/$defs/ImageObject"
+    },
+    "image_kind": {
+      "description": "Bare plugin only.",
+      "enum": [
+        "portrait",
+        "place",
+        "event",
+        "army"
+      ],
+      "type": "string"
+    },
+    "image_prompt": {
+      "description": "Bare plugin only: the subject.",
+      "type": "string"
+    },
+    "kind": {
+      "description": "As asked.",
+      "enum": [
+        "portrait",
+        "place",
+        "event",
+        "army"
+      ],
+      "type": "string"
+    },
+    "name": {
+      "description": "The demigod's, person's, place's or army's name; an event's text.",
+      "type": "string"
+    },
+    "reason": {
+      "description": "Why `image.status` is `off` (images off, a budget reached).",
+      "type": "string"
+    },
+    "ref": {
+      "$ref": "#/$defs/Ref"
+    },
+    "visual": {
+      "$ref": "#/$defs/Visual"
+    }
+  },
+  "required": [
+    "kind",
+    "ref",
+    "name"
+  ],
+  "title": "game.media",
+  "type": "object",
+  "x-applies-to": "game.media reply (WebSocket), GET /api/rooms/{code}/query/media",
+  "x-args": {
+    "additionalProperties": true,
+    "description": "Over HTTP every arg is a query-string parameter (numbers as numeric strings). Unknown args are ignored.",
+    "properties": {
+      "kind": {
+        "description": "What to draw.",
+        "enum": [
+          "portrait",
+          "place",
+          "event",
+          "army"
+        ],
+        "type": "string"
+      },
+      "ref": {
+        "description": "portrait: `dg:`/`ch:`; place: `pl:`; event: `lg:`; army: `cl:` (an army).",
+        "pattern": "^(dg|ch|pl|lg|cl):\\d+$",
+        "type": "string"
+      }
+    },
+    "required": [
+      "kind",
+      "ref"
+    ],
+    "type": "object"
+  },
+  "x-description": "An image of something in the game, by reference (never a free-text prompt): a portrait of a demigod or person, a place, a public event, or an army. Answers at once with `image` (pending, then ready via GET /media/index); the server writes the prompt from the state. Visibility: a seat may ask for what it can see (public things, its own people, events it knows); over HTTP only public refs. Rate-limited per seat and budgeted.",
+  "x-public": true
+}

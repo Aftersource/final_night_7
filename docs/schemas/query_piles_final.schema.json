@@ -1,5 +1,52 @@
 {
   "$defs": {
+    "ImageObject": {
+      "description": "An image the media server attached (only when the server has images on; see docs/MEDIA.md). Fetch `url` once `status` is `ready` (watch GET /media/index for `hash`); `off` = none will come, show a placeholder.",
+      "properties": {
+        "hash": {
+          "description": "Content key (sha256 hex): cache by it forever.",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "portrait",
+            "item",
+            "event",
+            "statue",
+            "place",
+            "army"
+          ],
+          "type": "string"
+        },
+        "prompt": {
+          "description": "The full prompt sent to the image model (house style; no engine ids).",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "ready",
+            "off"
+          ],
+          "type": "string"
+        },
+        "url": {
+          "description": "`/media/<hash>.<ext>` once ready, relative to the server's HTTP origin.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "hash",
+        "kind",
+        "status",
+        "url",
+        "prompt"
+      ],
+      "type": "object"
+    },
     "Ref": {
       "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row, ce cell, mb mob. Stable for the whole match.",
       "examples": [
@@ -146,8 +193,12 @@
             ],
             "type": "object"
           },
+          "statue_image": {
+            "$ref": "#/$defs/ImageObject",
+            "description": "Its statue (images on only)."
+          },
           "statue_prompt": {
-            "description": "An image-generation prompt for its amiibo-style statue.",
+            "description": "An image-generation prompt for its amiibo-style statue (with its visual sheet).",
             "type": "string"
           },
           "summons": {

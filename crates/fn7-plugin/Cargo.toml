@@ -20,6 +20,8 @@ tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
+sha2 = "0.10"
+hex = "0.4"
 
 [dev-dependencies]
 theatre-llm.workspace = true

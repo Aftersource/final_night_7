@@ -1,7 +1,9 @@
 # Images (`fn7-media`)
 
 The server turns image prompts in payloads into pictures: **portraits** (demigods, memorized characters), **items**,
-**events** (big ledger rows / god rulings) and end-of-match **statues**. Generation runs in the background and never
+**events** (moment cards: the public events the style selects; god rulings), end-of-match **statues**, and, on request
+by reference (`game.media`), **places** and **armies**. Every character has a stable **visual sheet**, so the same
+person looks the same in every picture, and every match ends with a **storyboard** (the final-cut animatic). Generation runs in the background and never
 holds up a beat. A payload carries a small image object at once; the picture arrives later, and clients learn it is
 ready by polling a manifest.
 
@@ -19,13 +21,16 @@ Wherever a payload object has an image prompt, the server puts an image object b
 | `statue_prompt` (in `match.ended.summary.piles[]`) | `statue_image` | `statue` |
 | `portrait_prompt` | `portrait_image` | `portrait` |
 
+Moment cards: an event object (in `events[]`, with a numeric `magnitude` and a `kind`) gets its `image` only if the style
+config's `event_selection` picks it (below). Storyboard shots (`match.ended.summary.storyboard[]`) get theirs always.
+
 ```json
 "statue_image": {
   "hash": "3f9c…64 hex…",
-  "kind": "statue",                 // "portrait" | "item" | "event" | "statue"
+  "kind": "statue",                 // "portrait" | "item" | "event" | "statue" | "place" | "army"
   "status": "pending",              // "pending" | "ready" | "off"
   "url": null,                      // "/media/<hash>.<ext>" once ready
-  "prompt": "An amiibo-style collectible statue on a round display base, … Style: collectible-figure game illustration, …"
+  "prompt": "Amiibo-style figure on a round base atop a pile of its items: the demigod Rook (…), … Style: collectible-figure game illustration, …. Avoid: text, logos, …."
 }
 ```
 
@@ -34,13 +39,14 @@ Wherever a payload object has an image prompt, the server puts an image object b
 - `status: "pending"`: queued or generating. Watch the manifest for `hash`.
 - `status: "off"`: no picture will come (images off, over budget, over the per-match event cap, or the generator
   failed). Show your own placeholder. Don't retry.
-- `hash` is the image's key: sha256 of the prompt version, the generator (provider, model, size, quality) and the
+- `hash` is the image's key: sha256 of the prompt version, the generator (provider, model, quality), the size and the
   prompt text. The same prompt under the same generator is always the same hash and is generated once, ever (it is
   cached on disk across matches and restarts).
-- `prompt` is the full text sent to the image model, in the house style: "collectible-figure game illustration,
-  Fortnite meets Final Destination: chunky stylized 3D, bold saturated colors". It never contains engine ids.
+- `prompt` is the full text sent to the image model: `<Framing for its kind>: <subject>. Style: <house style>. Avoid:
+  <avoid list>.`, all from the style config. It never contains engine ids.
 
-Until the plugin sends `image_prompt` fields of its own, the server adds images from what payloads already carry:
+The plugin sends `image_prompt` on every public event (and storyboard shot), so the interim rules below are off in
+practice; they remain for older plugins. Until the plugin sends `image_prompt` fields of its own, the server adds images from what payloads already carry:
 `statue_prompt` (statues), public `omens[]` (event images of the god rulings) and `demigods[]` lists (portraits from
 the name). The interim omen and demigod images stop for good the first time an `image_prompt` appears. Unknown keys
 were always to be ignored, so older clients are unaffected.
@@ -75,6 +81,70 @@ The image bytes. `ext` is `png` (OpenAI), `svg` (the mock), or `webp` / `jpeg`. 
 The routes are served on the game server's own port (the Theatre's router is extended, alongside `/ws`, `/healthz`,
 `/stats`), so they work through the same ngrok tunnel.
 
+## The style config: `data/media_style.json`
+
+Benito's lever (docs/SHARED_MEDIA_SPEC.md §4). The server loads `FN7_MEDIA_STYLE` (a path) if set, else
+`data/media_style.json` in its working directory if it exists, else the copy compiled into the binary.
+
+```json
+{ "version": "1",
+  "house_style": "collectible-figure game illustration, Fortnite meets Final Destination, chunky stylized 3D, bold saturated colors",
+  "kinds": { "portrait": {"framing": "waist-up, three-quarter view, dramatic rim light", "size": "1024x1024"},
+             "event":    {"framing": "wide cinematic, seen from high above", "size": "1536x1024"},
+             "statue":   {"framing": "amiibo-style figure on a round base atop a pile of its items", "size": "1024x1024"},
+             "place":    {"framing": "establishing shot", "size": "1536x1024"},
+             "army":     {"framing": "wide cinematic, a marching host seen from a low angle, banners raised", "size": "1536x1024"},
+             "item":     {"framing": "a single item shown alone like a loot icon, centered, three-quarter view, plain background", "size": "1024x1024"} },
+  "avoid": ["text", "logos", "real people's likenesses", "gore close-ups"],
+  "event_selection": { "min_magnitude": 8, "always": ["cast", "elimination", "general_appointed", "mutiny"], "max_per_match": 12 } }
+```
+
+- **Prompts.** `<framing>: <subject>. Style: <house_style>. Avoid: <avoid>.`, generated at the kind's `size` (the
+  OpenAI request's `size`; it also picks the price). A kind the file leaves out falls back to the built-in framing
+  above.
+- **Selection.** An event gets a moment card when its `magnitude` ≥ `min_magnitude` or its `kind` is in `always`
+  (`kind` as in `events[].kind`: the ledger verb; `elimination` is accepted for `eliminate`). At most `max_per_match`
+  moment-card images per match (`FN7_IMAGE_MAX_EVENTS` overrides it). Storyboard shots and requests by reference don't
+  count against this cap (budgets still apply).
+- **Validation.** At startup: unknown keys (typos) are errors except `_comment`-style keys starting with `_`; kinds
+  must be known; sizes `WIDTHxHEIGHT` (64..4096 each); `min_magnitude` 0..10. A bad file stops the server with the file
+  and field named (`media style: data/media_style.json: kinds.portrait.size "big" is not WIDTHxHEIGHT …`). The startup
+  log line `media images=… style=… style_version=… style_hash=…` says which style is live.
+- **Recorded.** Every match's ruleset carries `media_style: {version, hash, source, body}` (`hash` = sha256 of the parsed
+  JSON, so reformatting doesn't change it). A new framing, house style, avoid list or size changes every affected
+  image's key (no stale picture is reused); retuning only `event_selection` keeps every cached image.
+
+## Visual sheets (character identity)
+
+Every demigod and named person has a **visual sheet**: `visual: {sheet_hash, traits: {build, face, outfit, colors:
+[a, b], prop, emblem}}`, picked deterministically from the match seed and the character's id and name (nothing that
+changes in a match), so it is the same at every beat and in every replay. It appears on `demigods[]` in the PublicView,
+`game.globe` and `game.region`, on `game.person`, and on `game.media` portraits.
+
+Every image of a character is drawn from its sheet: a portrait is the sheet plus a pose; event images (moment cards,
+storyboard moments) name who is in them with their sheets ("…; starring Vex (wiry and long-limbed, …, in teal and gold,
+carrying …, with the emblem of a broken crown)"); statues carry the sheet; an army's banners use its demigod's colors
+and emblem. A demigod's `portrait_image`, its `game.media` portrait and its storyboard close-up are one image.
+
+## Images by reference: `game.media`
+
+`game.media {kind: "portrait"|"place"|"event"|"army", ref}` (WebSocket for a seat; `GET
+/api/rooms/{code}/query/media?kind=…&ref=…` for public refs) answers at once with `{kind, ref, name, image, reason?,
+visual?}`. The server writes the prompt from the state (a client never sends one), checks visibility (a seat sees public
+things, its own people, people in its view and events it knows; HTTP sees public refs only), applies the per-seat rate
+limit and the budgets, and only enqueues. The same ref always gives the same `hash`; repeats and cached images are free.
+Over budget or with images off: an `off` image with a `reason`. Over the rate: a `bad_request` error (`rate limited: …
+try again in N s`). Contract details in CLIENT_API.md (`game.media`).
+
+## The storyboard (final-cut animatic)
+
+`match.ended.summary.storyboard` is an ordered list of shots `{shot, kind, beat, at: [lon, lat], region, image_prompt,
+image_kind, image, caption, duration_ms, camera: "globe"|"close", row, refs}`: a `title` shot (the final cut's title
+over the arena), up to 10 `moment`s (the biggest public moments, eliminations first, in story order) and a `champion`
+close-up with the final cut's closing lines. Built by the plugin from the state and the narrator's final cut
+(deterministic); the server fills `image` (an event or portrait image object). A moment's image is its moment card's;
+the champion's is its portrait. Video clips per shot (phase 2) are not built: they need Chris's budget.
+
 ## Enabling (the host)
 
 | Variable | Default | Meaning |
@@ -83,9 +153,11 @@ The routes are served on the game server's own port (the Theatre's router is ext
 | `OPENAI_API_KEY` | | Required for `openai`; without it images stay off |
 | `FN7_IMAGE_BUDGET_USD` | `0` | The most ever spent on images in `FN7_MEDIA_DIR`. **0 = nothing is ever generated by `openai`.** What earlier runs spent counts (summed from the sidecars), so this is a lifetime cap for the cache directory |
 | `FN7_IMAGE_MATCH_BUDGET_USD` | = the budget | The most one match may spend |
-| `FN7_IMAGE_MAX_EVENTS` | `12` | Event images per match |
+| `FN7_MEDIA_STYLE` | `data/media_style.json` | The style config (see above); invalid = the server won't start |
+| `FN7_IMAGE_MAX_EVENTS` | the style's `max_per_match` (12) | Moment-card images per match |
+| `FN7_MEDIA_RATE_PER_MIN` | `30` | New images one seat (or the public HTTP asker) may request by reference per minute per match; 0 = unlimited |
 | `FN7_IMAGE_MODEL` | `gpt-image-1-mini` | Any OpenAI Images model (`gpt-image-1`, `dall-e-3`, `dall-e-2`, …) |
-| `FN7_IMAGE_SIZE` | `1024x1024` | |
+| `FN7_IMAGE_SIZE` | `1024x1024` | Only for a request without a size; the style config gives every kind its size |
 | `FN7_IMAGE_QUALITY` | `medium` | `low/medium/high` (gpt-image), `standard/hd` (dall-e-3) |
 | `FN7_IMAGE_PRICE_USD` | from the table | Price per image; required for a model the table doesn't know (otherwise every request is refused) |
 | `FN7_IMAGE_BASE_URL` | `https://api.openai.com/v1` | |
@@ -133,6 +205,12 @@ them, they change):
 That is `(portraits + statues + N) × price`; portraits of returning names are cached across matches. More players or
 memorized-character portraits add one image each.
 
+**Since the style config** (media release): event, place and army images are wide (`1536x1024`), so they cost the wide
+price (`gpt-image-1-mini` medium: $0.015 instead of $0.011). The storyboard adds its title shot and any moment that had
+no card (usually 1 to 4 images; eliminations and casts already have cards), and every `game.media` request for a new
+image adds one. For the default model and the repo style, a 4-player match is about **$0.10** with no moment cards and
+**$0.30** at the 12-card cap, plus whatever clients request by reference (bounded by the per-match budget).
+
 ## Recording
 
 Every step is recorded into the match's run (the image work runs under the hook's tracing context):
@@ -142,6 +220,7 @@ Every step is recorded into the match's run (the image work runs under the hook'
 | `media_request` | Queued | `hash, kind, provider, model, price_usd, prompt` |
 | `media_cached` | Already on disk | `hash, kind, provider, path` |
 | `media_refused` | Over budget / cap / unknown price / queue full | `hash, kind, provider, reason, prompt` |
+| `media_rate_limited` | A `game.media` request past the per-seat rate | `who, rate_per_min, retry_after_s` |
 | `media_ready` | Stored | `hash, kind, provider, model, status, latency_ms, cost_usd, bytes, path` |
 | `media_failed` | Generator error | `hash, kind, provider, status, latency_ms, error` |
 
@@ -159,6 +238,9 @@ adds the framing and house style and scrubs any `xx:N` ids. Without `image_kind`
 built by the plugin (and replays) stay deterministic; the server's `MediaPlugin` wrapper adds the image objects on the
 way out and never touches the state.
 
-Rust API (`crates/fn7-media`): `ImagePrompt::{from_subject, portrait, item, event, statue}`,
-`Media::{request, annotate, manifest, wait_idle}`, `ImageGenerator` (`MockGenerator`, `OpenAiImages`),
-`fn7_media::http::router`.
+Rust API (`crates/fn7-media`): `MediaStyle` (`style.rs`), `ImagePrompt::{styled, from_subject, restyle, portrait, item,
+event, statue}`, `Media::{prompt, request, request_with, request_by_ref, annotate, manifest, style, wait_idle}`,
+`ImageGenerator` (`MockGenerator`, `OpenAiImages`), `fn7_media::http::router`. Plugin side (`crates/fn7-plugin`):
+`visual.rs` (sheets), `payload::{event_subject, portrait_prompt, person_portrait_prompt, place_prompt, army_prompt}`,
+`phases::storyboard`, the `media` query (`queries.rs`). Server side: `fn7-server/src/media.rs` (`MediaPlugin`: payload
+annotation and `game.media` replies) and `FinalNight7Plugin::with_media_style` (the ruleset record).

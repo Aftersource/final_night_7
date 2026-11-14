@@ -211,6 +211,53 @@
       ],
       "type": "object"
     },
+    "ImageObject": {
+      "description": "An image the media server attached (only when the server has images on; see docs/MEDIA.md). Fetch `url` once `status` is `ready` (watch GET /media/index for `hash`); `off` = none will come, show a placeholder.",
+      "properties": {
+        "hash": {
+          "description": "Content key (sha256 hex): cache by it forever.",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "portrait",
+            "item",
+            "event",
+            "statue",
+            "place",
+            "army"
+          ],
+          "type": "string"
+        },
+        "prompt": {
+          "description": "The full prompt sent to the image model (house style; no engine ids).",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "ready",
+            "off"
+          ],
+          "type": "string"
+        },
+        "url": {
+          "description": "`/media/<hash>.<ext>` once ready, relative to the server's HTTP origin.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "hash",
+        "kind",
+        "status",
+        "url",
+        "prompt"
+      ],
+      "type": "object"
+    },
     "Influence": {
       "description": "One demigod's share of one region (district in a city): crowds there weighted by their allegiance, its Following, its armies, its presence. A region's shares sum to at most 1; shares under 0.005 are omitted.",
       "properties": {
@@ -362,6 +409,63 @@
         "rogue"
       ],
       "type": "string"
+    },
+    "Visual": {
+      "description": "A character's visual sheet (docs/SHARED_MEDIA_SPEC.md §3.1): picked from the match seed, the character's id and name; the same at every beat and in every replay. Every image of the character carries these traits.",
+      "properties": {
+        "sheet_hash": {
+          "description": "sha256 (hex) of the sheet version, the character's ref and its traits: key art or caches on it.",
+          "type": "string"
+        },
+        "traits": {
+          "description": "",
+          "properties": {
+            "build": {
+              "description": "Body type.",
+              "type": "string"
+            },
+            "colors": {
+              "description": "Two signature colors (color words).",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "emblem": {
+              "description": "Their emblem (also on their armies' banners).",
+              "type": "string"
+            },
+            "face": {
+              "description": "Face and hair.",
+              "type": "string"
+            },
+            "outfit": {
+              "description": "What they wear.",
+              "type": "string"
+            },
+            "prop": {
+              "description": "The one thing they carry.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "build",
+            "face",
+            "outfit",
+            "colors",
+            "prop",
+            "emblem"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "sheet_hash",
+        "traits"
+      ],
+      "type": "object"
     },
     "WorldMod": {
       "description": "A persistent world mod (left by a cast's ramifications), applied every beat inside its radius.",
@@ -561,8 +665,12 @@
             "description": "Alive only: the place name it is in.",
             "type": "string"
           },
+          "portrait_image": {
+            "$ref": "#/$defs/ImageObject",
+            "description": "Its portrait (images on only)."
+          },
           "portrait_prompt": {
-            "description": "An image prompt for its portrait (subject only; stable all match).",
+            "description": "An image prompt for its portrait (subject only, with its visual sheet; stable all match).",
             "type": "string"
           },
           "pos": {
@@ -583,6 +691,10 @@
               "integer",
               "null"
             ]
+          },
+          "visual": {
+            "$ref": "#/$defs/Visual",
+            "description": "Its visual sheet (stable all match). Always present since the media release; absent in older recordings."
           }
         },
         "required": [

@@ -10,6 +10,15 @@
 //! under a key containing "portrait" or on an object whose `ref`/`demigod`/`character` is a `dg:`/`ch:` ref; `item` on
 //! an `it:` ref; otherwise `event`.
 //!
+//! **Event selection (moment cards).** An event object (one with a numeric `magnitude` and a `kind`, as in
+//! `events[]`) whose prompt is an event gets an image only if the style's `event_selection` picks it (magnitude ≥
+//! `min_magnitude`, or its `kind` is in `always`); the per-match cap (`max_per_match`) is enforced by
+//! [`Media::request`]. Other objects (storyboard shots, statues, portraits) are not filtered, and storyboard shots
+//! (objects with a `camera`) don't count against the cap (they mostly reuse the moment cards' images; budgets apply).
+//!
+//! Every prompt is written in the service's style ([`Media::style`]). Annotation only enqueues: it never waits on a
+//! generator, so it never holds up a beat.
+//!
 //! **Interim prompts.** Until the plugin sends any `image_prompt` (checked per process), two more rules give the
 //! client something to show: public omens (`omens[]`, the big god rulings) become event images, and demigod lists
 //! (`demigods[]` with a `dg:` ref and a name) get portraits. They switch off for good the first time an `image_prompt`
@@ -51,9 +60,10 @@ impl Media {
                 }
             }
             Value::Object(o) => {
+                let capped = !o.contains_key("camera");
                 for (out, p) in self.prompts_in(o, parent, interim) {
                     if let Some(p) = p {
-                        o.insert(out.to_string(), self.request(&p, match_id).to_json());
+                        o.insert(out.to_string(), self.request_with(&p, match_id, capped).to_json());
                         *n += 1;
                     }
                 }
@@ -75,33 +85,33 @@ impl Media {
         interim: bool,
     ) -> Vec<(&'static str, Option<ImagePrompt>)> {
         let s = |k: &str| o.get(k).and_then(Value::as_str);
+        let style = self.style();
         let mut out = vec![];
         if let Some(text) = s("image_prompt") {
             let kind = s("image_kind")
                 .and_then(ImageKind::parse)
                 .unwrap_or_else(|| infer_kind(o, parent));
-            out.push(("image", ImagePrompt::from_subject(kind, text)));
+            let selected = match (kind, o.get("magnitude").and_then(Value::as_u64), s("kind")) {
+                (ImageKind::Event, Some(m), Some(k)) => {
+                    style.event_selection.selects(k, m.min(255) as u8)
+                }
+                _ => true,
+            };
+            if selected {
+                out.push(("image", self.prompt(kind, text)));
+            }
         } else if let Some(text) = s("statue_prompt") {
-            out.push((
-                "statue_image",
-                ImagePrompt::from_subject(ImageKind::Statue, text),
-            ));
+            out.push(("statue_image", self.prompt(ImageKind::Statue, text)));
         }
         if let Some(text) = s("portrait_prompt") {
-            out.push((
-                "portrait_image",
-                ImagePrompt::from_subject(ImageKind::Portrait, text),
-            ));
+            out.push(("portrait_image", self.prompt(ImageKind::Portrait, text)));
         }
-        if interim && out.is_empty() && !o.contains_key("image") {
+        if interim && out.is_empty() && !o.contains_key("image") && !o.contains_key("image_prompt") {
             if parent == "omens" {
                 if let (Some(god), Some(speech)) = (s("god"), s("speech")) {
                     let speech = speech.trim().trim_matches('"');
                     let subject = format!("the god {god} reaches down into the battle royale of demigods, decreeing \"{speech}\"");
-                    out.push((
-                        "image",
-                        ImagePrompt::from_subject(ImageKind::Event, &subject),
-                    ));
+                    out.push(("image", self.prompt(ImageKind::Event, &subject)));
                 }
             } else if parent == "demigods" {
                 if let (Some(r), Some(name)) = (s("ref"), s("name")) {
@@ -112,7 +122,8 @@ impl Media {
                                 role: "the demigod".into(),
                                 name: name.into(),
                                 ..Default::default()
-                            }),
+                            })
+                            .map(|p| p.restyle(style)),
                         ));
                     }
                 }
