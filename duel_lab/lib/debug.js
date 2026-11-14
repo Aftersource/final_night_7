@@ -7,7 +7,7 @@ import { qrot, add, worldToHex } from './m.js';
 const COL = { vault: '#4cff7a', mantle: '#ffd84c', perch: '#ff9d3c', wallrun: '#4cc3ff', wallkick: '#b07cff', slide: '#ff5ca8', swing: '#ffffff' };
 const line = (pts, color, loop) => { const g = new THREE.BufferGeometry().setFromPoints(pts.map((p) => new THREE.Vector3(...p))); return new (loop ? THREE.LineLoop : THREE.Line)(g, new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true })); };
 function label(text, color) { const c = document.createElement('canvas'); c.width = 256; c.height = 48; const g = c.getContext('2d'); g.font = '700 26px monospace'; g.fillStyle = '#000b'; g.fillRect(0, 0, 256, 48); g.fillStyle = color; g.textBaseline = 'middle'; g.fillText(text, 8, 25);
-  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false, transparent: true })); s.scale.set(1.0, 0.19, 1); return s; }
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false, transparent: true, sizeAttenuation: false })); s.scale.set(0.085, 0.016, 1); return s; }
 const dot = (r, color) => new THREE.Mesh(new THREE.SphereGeometry(r, 10, 8), new THREE.MeshBasicMaterial({ color, depthTest: false, transparent: true }));
 
 export function makeDebug(scene3, W, B, R, fighters, panel) {

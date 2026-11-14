@@ -44,8 +44,8 @@ function frame(T) {
   const forced = Q.get('shot'), cam = p ? cameraAt(camera, forced ? { ...p, shot: forced } : p, pi > 0 ? PAN[pi - 1] : { shot: 'box' }, tau, FA.pos, FB.pos) : shot('box');
   let shake = 0, flash = 0, burst = null, flipA = 0;
   if (p) {
-    for (const c of p.contacts || []) { const dt = tau - c.t_ms; if (dt >= 0 && dt < 600) { if (!c.miss) { shake = Math.max(shake, Math.exp(-dt / 130)); flash = Math.max(flash, Math.exp(-dt / 70) * 0.6); } if (dt < 520) burst = [c.text, dt, c.by]; } }
-    if (p.flip) { flipA = tau < 900 ? Math.sin((tau / 900) * Math.PI) : 0; flash = Math.max(flash, Math.exp(-tau / 90) * 0.4); }
+    for (const c of p.contacts || []) { const dt = tau - c.t_ms; if (dt >= 0 && dt < 600) { if (!c.miss) { shake = Math.max(shake, Math.exp(-dt / 130)); flash = Math.max(flash, Math.exp(-dt / 70) * 0.35); } if (dt < 520) burst = [c.text, dt, c.by]; } }
+    if (p.flip) { flipA = tau < 900 ? Math.sin((tau / 900) * Math.PI) : 0; flash = Math.max(flash, Math.exp(-tau / 90) * 0.25); }
   }
   cam.pos.x += Math.sin(T * 0.09) * shake * 0.22; cam.pos.y += Math.cos(T * 0.13) * shake * 0.18;
   if (p) { [FA, FB].forEach((f, i) => { pts[i * 3].copy(f.root.position); pts[i * 3 + 1].copy(f.root.position).setY(f.root.position.y + 1.0); f.bones.head.getWorldPosition(pts[i * 3 + 2]).setY(pts[i * 3 + 2].y + 0.25); }); keepInFrame(camera, cam.pos, cam.look, pts); }

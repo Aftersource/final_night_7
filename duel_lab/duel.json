@@ -124,10 +124,10 @@
         { "clip": "run", "ms": 700, "loop": true, "to": [-2.30, -0.30], "path": "dash" },
         { "clip": "kick", "ms": 2300, "speed": 1.25, "face": "foe" } ] },
       "b": { "line": "vault the desk and close", "segs": [
-        { "clip": "jump_attack", "ms": 450, "at": 1500, "to": [3.46, -0.33], "path": "drop" },
-        { "clip": "run", "ms": 450, "loop": true, "to": [2.17, 0.0], "path": "dash" },
+        { "clip": "jump_attack", "ms": 650, "at": 1500, "to": [3.46, -0.33], "path": "drop" },
+        { "clip": "run", "ms": 350, "loop": true, "to": [2.17, 0.0], "path": "dash" },
         { "clip": "run", "ms": 700, "loop": true, "speed": 0.6, "to": [0.84, 0.0], "path": "vault", "over": "desk" },
-        { "clip": "idle_guard", "ms": 500, "loop": true },
+        { "clip": "idle_guard", "ms": 400, "loop": true },
         { "clip": "stagger_back", "ms": 900, "to": [1.12, 0.07], "path": "knock", "h": 0.25 } ] },
       "contacts": [
         { "t_ms": 1420, "by": "a", "text": "THOK", "kind": "kick", "limb": "foot_r", "on": "crate_e", "power": 0.9, "y": 0.36 },
@@ -144,7 +144,7 @@
       "b": { "line": "run the pillar, flip over him, cut", "segs": [
         { "clip": "run", "ms": 450, "loop": true, "to": [1.24, -1.33], "path": "dash" },
         { "clip": "run", "ms": 800, "loop": true, "speed": 1.3, "path": "wallrun", "on": "pillar", "steps": 3 },
-        { "clip": "jump_attack", "ms": 950, "at": 900, "speed": 1.0, "to": [-0.89, -0.53], "path": "flip", "h": 0.9 },
+        { "clip": "jump_attack", "ms": 950, "at": 900, "speed": 1.0, "to": [-0.49, -0.70], "path": "flip", "h": 0.9 },
         { "clip": "strike_side", "ms": 800, "speed": 1.4 } ] },
       "contacts": [ { "t_ms": 2550, "by": "b", "text": "SHHK", "kind": "hand", "limb": "hand_r", "at": "chest" } ],
       "hp": { "a": 8, "b": 9 }
