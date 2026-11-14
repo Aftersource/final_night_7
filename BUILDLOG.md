@@ -915,3 +915,8 @@ Engineering: the contract for selecting, moving and displaying demigods:
 - Walking comes from l:/r: orders, with each commit's pos tweened over the beat.
 - The client shows a column of light, an arc, the arrival burst, the deed banner and the health loss.
 - The scroll gets no foil or flash while expanded.
+
+> When the head turns, it should be gentle, like a slow pan, even after it notices the pointer. Currently it moves far too fast to follow.
+> Slow it down to 8x.
+
+Engineering: the head-tracking follow starts the instant the pointer moves but pans GENTLY, about 8× slower than before. It's a framerate-independent critically damped follow (smooth time ~1.6 s), on mac/perf with the one-shadow-light performance fix.
