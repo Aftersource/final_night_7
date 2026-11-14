@@ -768,6 +768,84 @@ challenge may follow immediately (during or after the teleport) with the loss al
 `duel_counter_ms` (3000), `duel_ai_chance` (0.02), `duel_ai_reach_km` (2000), `duel_auto_rounds` (2). Ranges in
 `docs/schemas/settings.schema.json` and the rulebook's appendix.
 
+## Exact resume: `present` (state schema 8)
+
+A match started by this server (state **schema 8**; older matches in flight keep the 0.8.1 behaviour) can be redrawn
+at the exact present from one message. The whole data structure is in [TIME_TRAVEL.md](TIME_TRAVEL.md). Schemas:
+`Present`, `PresentDuel` in `public_view`; `DuelClock` in `round_started_public`; `query_present`.
+
+**Reconnect.** Open a socket, send `auth.resume {resume_token}`. A **seated** player gets `auth.ok`, `room.snapshot`,
+`match.snapshot`. The match snapshot has the core's `round`, `phase`, `deadline`, `window` (the open slow window),
+`started`, `brief`, `outcome`, `you`, and in `public_state`:
+
+- `demigods[]`: every demigod;
+- `rules { version, state_schema, server }`: the rules this match runs on (the server's version is also
+  `server.hello.d.api.rules_version`);
+- `present`:
+
+```json
+"present": {
+  "server_time_ms": 1794690927811, "beat": 2, "live": true, "paused_since_ms": null,
+  "mark": { "at_ms": 0, "seq": 0, "resolved_ms": 1794690925100, "round_ms": 1794690925300 },
+  "events": [ { "event": "summoning", "seq": 5, "received_at_ms": 1794690926350, "beat": 2 },
+              { "event": "challenge.lock", "duel_id": "duel:s6:0:2", "seq": 6, "received_at_ms": 1794690926360, "beat": 2 },
+              { "event": "duel.blow", "duel_id": "duel:s6:0:2", "n": 1, "seq": 7, "received_at_ms": 1794690926371, "beat": 2 } ],
+  "duels": [ { "duel_id": "duel:s6:0:2", "a": {}, "b": {}, "lock": {},
+               "hp": { "a": 10.0, "b": 9.8 }, "range": "close", "initiative": "a",
+               "stances": { "a": "neutral", "b": "off_balance" }, "set": { "a": null, "b": null },
+               "blows": [ { "event": "duel.blow", "n": 1, "at_ms": 1794690926371, "seq": 7 } ],
+               "n": 1, "typed": 1, "ko": null, "opened": false,
+               "started_ms": 1794690926360, "deadline_ms": 1794691166360, "ends_beat": 97, "pauses": [],
+               "clock": { "at_ms": 1794690927811, "elapsed_ms": 1451, "remaining_ms": 238549, "running": true },
+               "over": false } ]
+}
+```
+
+| Field | Use |
+|---|---|
+| `server_time_ms` | the server's clock when the view was built. Your clock offset is `server_time_ms - Date.now()` at receipt (or use `sys.pong.server_time`) |
+| `events[]` | the public `phase.event` payloads of every instant action since the last resolve, in arrival order, each with `seq`, `received_at_ms`, `beat`. Replay them as if they had just arrived (flash a summoning already on its way, etc.) |
+| `duels[]` | every open duel in full. `a`, `b`, `lock`: exactly `challenge.lock`. `blows[]`: every blow so far, in order, each the `duel.blow` it was shown as (die, damage, `hp`, `anim`, `choreo`, `counter`) with `at_ms` (its server stamp) and `seq` |
+| `duels[].clock` | `elapsed_ms`: duel time elapsed, the offset to seek to. `remaining_ms`: until `deadline_ms`. `running: false` while the room stands still |
+| `duels[].pauses` | `[from_ms, to_ms]` spans the duel's clock stood still. A blow's offset in the duel is `at_ms - started_ms` minus the pauses before it |
+| `paused_since_ms` | the room stands still since then (also `match.snapshot.paused`); clocks are frozen at that moment |
+| `live` | false only for a past state (the admin's state at a round) or a fork before its first Start |
+
+`present` is also in every `round.committed.public_state`. `game.present` (public; also
+`GET /api/rooms/{code}/query/present`) returns the same object: use it when you want it again without a resume. It
+reads the whole state: ask it when you (re)connect, don't poll it.
+
+**A viewer** (`room.join {viewer: true}`) gets the same `match.snapshot` (`you: null`) on joining, mid-duel included.
+
+**A viewer who drops is gone.** The core removes a viewer from its room when its socket closes. Its `auth.resume`
+then answers `auth.ok` and **nothing else**: no `room.snapshot`, no `match.snapshot`, no `room.left` (and a socket
+that sends nothing is closed after 60 s). So a viewer client, right after `auth.ok` to a resume, sends
+`room.join {house: true, viewer: true}` (or `{code, viewer: true}`) again; the reply is `room.snapshot` and the
+`match.snapshot` follows at once. Don't wait for a snapshot first. A seated client can use one rule for both cases:
+if no `room.snapshot` arrives within 1 s of `auth.ok`, join again. Send `sys.ping` every 20 s either way.
+
+**Viewers and `round.brief`.** The core sends `round.brief` to seats only. A viewer gets `phase.changed`,
+`phase.event`, `round.started`, `round.outcome`, `round.committed`, `seat.*`, `match.ended`, and reads the brief's
+public part from `match.snapshot.brief` (as of its join) and the board from `round.committed.public_state`.
+
+**After a server restart** the match is restored at its last commit and paused until a human connects. Resume as
+usual. The snapshot has `paused: true`, `resumes_round`, and `present` as it was before the stop: the same duel,
+blows, hp. Instant actions the server had accepted are not lost: they are resolved at the first beat. Text typed
+into the interrupted beat's Compose or slow window IS lost (`you.action` is null, `window` is null): send it again.
+At the first Start every open duel's deadline moves by the time the room stood still:
+
+```json
+"duel_clock": { "event": "duel.clock", "beat": 5, "now_ms": 1794690934100,
+                "pause": { "from_ms": 1794690931063, "to_ms": 1794690934100, "ms": 3037 },
+                "duels": [ { "duel_id": "duel:s6:0:2", "deadline_ms": 1794691169397, "pauses": [[1794690931063, 1794690934100]] } ] }
+```
+
+(`round.started.public.duel_clock`, only when there was a pause of 2 s or more: also after the room paused because
+every human left.)
+
+**Ids across restarts.** The core's `seq` restarts at 1 when the server restarts. Order events by
+`(received_at_ms, seq)`, not by `seq` alone. `duel_id` stays unique within a match (a clash gets `seq + 1000000`).
+
 ## Message flow for one beat
 
 One Theatre **round** is one **beat**, so `round` and `beat` are always the same number. There are no choices: `round.private.choices`

@@ -45,8 +45,47 @@ checks (tests, clippy, replay, schema validation, a live match), updates docs/CL
 `#benito/finalnight` what changed for clients.
 
 ## Open requests to the engine (theatre_worker)
-None. (Sync-hook tracing, `ctx` for `fallback_outcome` and the `fallback_outcome` hook record landed in `1741d8f`;
-`/admin/*` ignoring unknown query params such as the ngrok gate's `?key=` needs no change.)
+
+From the exact-resume audit (2026-11-14; docs/TIME_TRAVEL.md §8 has what each one costs today). Line numbers are
+`theatre` at `3523189` plus its uncommitted work.
+
+1. **Persist the round in progress.** `MatchSnap` (`crates/server/src/persist.rs:58`) holds the plugin state as of the
+   last Commit and `next_seq` (the event log's). Not persisted: `MatchRun.pending` (accepted instant actions,
+   `room.rs` `on_instant_submit`), the Compose `actions`, the open window and its held actions, and
+   `next_action_seq` (`room.rs:339`, reset to 0 by `MatchRun::new` in `restore_room`, `room.rs:703`). Asked: write
+   them with the room snapshot (or an append-only per-room log flushed at each accepted action) and restore them, so
+   a restart resumes inside the beat and `Action.seq` never repeats within a match. Until then FN7 journals instant
+   actions itself and re-feeds them (`fn7-plugin/src/present.rs`), and steps duel ids past a clash.
+2. **Make the recording crash-safe.** `write_loop` (`crates/trace/src/lib.rs:424`) writes through a `BufWriter` and
+   flushes only on `Record::Flush` and at `run_end`: a kill loses the buffered tail (under 8 KiB) and the reopened
+   file continues on the torn line. Asked: flush after each record (or at least after each `event` and `hook`), and
+   write a newline first when appending to a file that does not end with one.
+3. **A timer / hold-window callback.** A plugin runs only on actions and beats. Asked:
+   `PhaseControl.wake_in_ms: Option<u64>` (returnable from `on_instant`, `on_action_begin`, and a new sync hook
+   `on_timer(&self, state, round, now_ms, key) -> PhaseControl`), which calls `on_timer` once at that time on the
+   room actor, in the match's recording context, recorded as a sync hook with `now_ms` in its input; its
+   `PhaseControl.public` goes out as a `phase.event`. With the room-wide **hold** asked for in 0.8.1 (no beats
+   resolve while a hold is open) this is one facility: a hold window with a tick. It replaces `fields.duel_tick`.
+4. **Time and pauses in the hooks.** Asked: `on_round_start` gets `now_ms` and `paused_ms` (how long the room stood
+   still before this round: a pause with nobody connected, a restore, a fork), recorded with the hook's input. FN7
+   measures both itself today and records them as a `duel_clock` event that its replay feeds back.
+5. **Views in the match's context.** `RoomActor::public_view` / `seat_view` (`room.rs:4080`, `4090`) and the admin's
+   `state_at` (`admin.rs:248`) call the plugin outside `with_trace`. Asked: run them inside the match's context (run
+   id, round), or pass the match id to every hook, so a plugin can tell two matches with one seed apart (a fork and
+   its parent) and a live state from a historical one.
+6. **`server_time` in `match.snapshot`**, and **several public events from one `on_instant`**
+   (`Option<Value>` → `Vec<Value>`, each its own `phase.event`). FN7 puts the clock in `public_state.present` and
+   nests extra events in `also[]`.
+7. **Tell a resumed viewer it has no room.** `RoomCmd::Disconnected` removes a viewer and clears its room
+   (`room.rs:1161-1167`); `Gateway::resume` (`gateway.rs:463-513`) then sends `auth.ok` and, with `p.room == None`,
+   nothing else. A client waiting for `room.snapshot` hangs until the 60 s idle close (seen live in the house,
+   2026-11-14 20:51 UTC). Asked: either keep a dropped viewer's place for the resume TTL and send it
+   `room.snapshot` + `match.snapshot` on resume like a seat, or reply to the resume with `room.left {room_id: null,
+   reason: "viewer_dropped"}` so the client knows to join again. (PROTOCOL.md says "A viewer who disconnects is
+   gone"; it does not say the resume is silent.)
+8. **`round.brief` for viewers.** `on_brief` (`room.rs:2091-2103`) sends it per seat only. Asked: also to viewers,
+   with `private: null`, like `round.outcome`. And `rules_version` in `GET /api/house` (`describe`, `room.rs:4373`)
+   next to `rules`; today a client reads `server.hello.d.api.rules_version`.
 
 ## Guardrails
 - **Wrappers must forward every engine hook.** `MediaPlugin` wraps the game in the server and `fn7-server::record::
