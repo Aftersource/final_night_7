@@ -807,3 +807,17 @@ Engineering:
 - Screen map v4: one hex per power in an arc around the right of the board, with the pouch at its front-right end.
 - Dropping a power on the globe makes it MEGA (level 1); sliding it onto the board makes it MINI.
 - Demigods show their real generated diorama images at full fidelity: diorama boxes on the table, and the main image on the HUD cards with the portrait as an inset.
+
+## 2026-11-14: no 3D will block, shiny elemental flashes on the power hexes
+
+> Good. The physical will scroll block should not be shown if it is already rolled up in the 2D UX, which is fine. Make
+> the elemental hex tiles on the right flash occasionally, preferably with their elemental
+> effect, such as a cloud forming over the lightning and bolting down. It is unclear what Unity can do for each of them, so only one
+> animating at a time. Asked whether all of the world lines, such as coastlines, are done.
+
+Engineering:
+- The Mac kit:
+  - hides the studio's 3D WILL bar while the HUD is mounted
+  - gives the power hexes a random shiny flash, one at a time, each with a small effect for its element
+  - draws the PB2002 fault lines (reassigned from the silent Windows builder), visible only while a mega is armed
+- The coastline fade and the level-1 hopping crowds stay with the Windows builder: not done yet.
