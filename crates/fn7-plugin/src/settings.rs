@@ -163,9 +163,18 @@ pub struct Settings {
     /// Rules 0.8.1 marker: always `true` in settings validated by a 0.8.1+ server, absent (`false`) in recordings from
     /// before, so 0.8.1 behaviour changes (the takeover rename fix) stay off when an older match replays.
     pub rules_0_8_1: bool,
-    /// Rules 0.8.1: a challenge reaches this many times the level's hex size (regions 120 km, villages 3 km, houses
-    /// 30 m, people 3 m).
-    pub duel_reach_factor: f32,
+    /// Rules 0.8.1: a challenge always reaches this far (km), at any zoom.
+    pub challenge_min_km: f32,
+    /// Rules 0.8.1: at the client's board `level` a challenge also reaches as far as two board cards touching there
+    /// (km): direct combat must be very straightforward to engage. The reach is max(`challenge_min_km`, this). This is
+    /// the regions level's (also for a missing or unknown level).
+    pub challenge_contact_km_regions: f32,
+    /// Rules 0.8.1: the touching-cards reach (km) of a challenge issued at the villages level.
+    pub challenge_contact_km_villages: f32,
+    /// Rules 0.8.1: the touching-cards reach (km) of a challenge issued at the houses level.
+    pub challenge_contact_km_houses: f32,
+    /// Rules 0.8.1: the touching-cards reach (km) of a challenge issued at the people level.
+    pub challenge_contact_km_people: f32,
     /// Rules 0.8.1: beats between two challenges by the same demigod (1 = one a beat).
     pub duel_cooldown_beats: u32,
     /// Rules 0.8.1: multiplier on every duel blow's damage (0-3, a crit 4).
@@ -184,7 +193,8 @@ pub struct Settings {
     /// Rules 0.8.1: a blow within this (ms) of the same side's previous one is a quick follow-up (+1).
     pub duel_followup_ms: u32,
     /// Rules 0.8.1: the longest a duel may run (ms from the lock): the engine's hold deadline ("the world holds its
-    /// breath"); without engine holds, blows after it are refused and the duel still ends at the resolve.
+    /// breath"); without engine holds the world keeps beating, lines after it are refused, and the duel ends at the
+    /// first resolve past it (at most `ceil(duel_deadline_ms / flow_ms)` resolves from its lock).
     pub duel_deadline_ms: u32,
 }
 
@@ -260,7 +270,11 @@ impl Default for Settings {
             god_power_gift: 1,
             challenge_enabled: true,
             rules_0_8_1: true,
-            duel_reach_factor: 1.5,
+            challenge_min_km: 120.0,
+            challenge_contact_km_regions: 600.0,
+            challenge_contact_km_villages: 15.0,
+            challenge_contact_km_houses: 0.15,
+            challenge_contact_km_people: 0.015,
             duel_cooldown_beats: 1,
             duel_damage_scale: 1.0,
             duel_ai_chance: 0.02,
@@ -291,7 +305,8 @@ const F32_KEYS: &[&str] =
       "manifest_scale", "manifest_muster_scale", "entropy_per_mega", "entropy_per_mini", "dm_reach_km",
       "dm_encounter_damage_scale", "dm_road_wear", "dm_road_decay", "dm_shrine_heal", "dm_shrine_ward", "fault_near_km", "fault_far_km",
       "fault_near_magnitude", "fault_far_magnitude", "fault_near_radius", "fault_far_radius", "fault_near_damage",
-      "fault_far_damage", "summon_loss_scale", "duel_reach_factor", "duel_damage_scale", "duel_ai_chance", "duel_ai_reach_km"];
+      "fault_far_damage", "summon_loss_scale", "challenge_min_km", "challenge_contact_km_regions", "challenge_contact_km_villages",
+      "challenge_contact_km_houses", "challenge_contact_km_people", "duel_damage_scale", "duel_ai_chance", "duel_ai_reach_km"];
 
 /// The shortest decimal that reads back as `x` (so `0.04f32` is `0.04`, not `0.03999999910593033`).
 fn f32_decimal(x: f32) -> f64 {
@@ -426,7 +441,11 @@ impl Settings {
             god_power_gift: int("god_power_gift", d.god_power_gift, 0, 10)?,
             challenge_enabled: boolean("challenge_enabled", d.challenge_enabled)?,
             rules_0_8_1: true,
-            duel_reach_factor: num("duel_reach_factor", d.duel_reach_factor, 0.5, 10.0)?,
+            challenge_min_km: num("challenge_min_km", d.challenge_min_km, 0.0, 20000.0)?,
+            challenge_contact_km_regions: num("challenge_contact_km_regions", d.challenge_contact_km_regions, 0.0, 20000.0)?,
+            challenge_contact_km_villages: num("challenge_contact_km_villages", d.challenge_contact_km_villages, 0.0, 20000.0)?,
+            challenge_contact_km_houses: num("challenge_contact_km_houses", d.challenge_contact_km_houses, 0.0, 20000.0)?,
+            challenge_contact_km_people: num("challenge_contact_km_people", d.challenge_contact_km_people, 0.0, 20000.0)?,
             duel_cooldown_beats: int("duel_cooldown_beats", d.duel_cooldown_beats, 1, 100)?,
             duel_damage_scale: num("duel_damage_scale", d.duel_damage_scale, 0.0, 10.0)?,
             duel_ai_chance: num("duel_ai_chance", d.duel_ai_chance, 0.0, 1.0)?,
@@ -553,7 +572,8 @@ mod tests {
         assert_eq!(v["challenge_enabled"], true);
         assert!(Settings::from_value(&v).challenge_enabled);
         assert!(!Settings::from_value(&json!({"beats_total": 30, "flow_ms": 3000})).challenge_enabled);
-        assert_eq!(Settings::validate(&Value::Null).unwrap()["duel_reach_factor"].to_string(), "1.5");
+        assert_eq!(Settings::validate(&Value::Null).unwrap()["challenge_contact_km_houses"].to_string(), "0.15");
+        assert_eq!(Settings::validate(&Value::Null).unwrap()["challenge_min_km"].to_string(), "120.0");
         assert!(Settings::validate(&json!({"duel_ai_chance": 2})).is_err());
     }
 

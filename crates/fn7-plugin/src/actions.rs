@@ -125,11 +125,8 @@ fn challenge_of(fields: &Value) -> Result<Option<ChallengeOrder>, String> {
     };
     let demigod = dg("demigod").ok_or("not_yours")?;
     let target = dg("target").ok_or("bad_target")?;
-    let level = match o.get("level") {
-        None | Some(Value::Null) => "villages",
-        Some(Value::String(s)) => crate::duel::level_of(s).ok_or("bad_level")?,
-        _ => return Err("bad_level".into()),
-    };
+    // A missing or unknown level counts as regions (the widest contact reach).
+    let level = o.get("level").and_then(Value::as_str).and_then(crate::duel::level_of).unwrap_or("regions");
     Ok(Some(ChallengeOrder { demigod, target, level }))
 }
 

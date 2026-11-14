@@ -33,6 +33,7 @@ use fn7_model::hexgrid::{cell_at, HexLevel};
 use fn7_model::seed::{hash_str, Rng};
 use fn7_model::*;
 use fn7_society::geo::{distance_km, place_at, region_at};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use theatre_plugin_api::Action;
 
@@ -40,7 +41,7 @@ use crate::actions::{BlowOrder, ChallengeOrder, Input};
 use crate::dm::{self, Decision};
 use crate::settings::Settings;
 
-/// The board levels a challenge may be issued at, with their hexes (the reach is the size × `duel_reach_factor`).
+/// The board levels a challenge may be issued at, with their hexes (the lock's framing).
 pub const LEVELS: [(&str, HexLevel); 4] =
     [("regions", HexLevel::Regions), ("villages", HexLevel::Villages), ("houses", HexLevel::Houses), ("people", HexLevel::People)];
 
@@ -70,23 +71,50 @@ fn hex_level(level: &str) -> HexLevel {
     LEVELS.iter().find(|l| l.0 == level).map(|l| l.1).unwrap_or(HexLevel::Villages)
 }
 
-/// How far (km, great circle) a challenge at `level` reaches.
+/// How far (km, great circle) a challenge issued at the client's board `level` reaches: max(`challenge_min_km` (120),
+/// the contact distance at that level: regions 600, villages 15, houses 0.15, people 0.015). Two board cards touching
+/// at the current zoom, or within 120 km at any zoom, may fight (Chris's concern: the challenge range felt too far);
+/// direct combat must be very straightforward to engage).
 pub fn reach_km(level: &str, st: &Settings) -> f64 {
-    hex_level(level).size_m() / 1000.0 * st.duel_reach_factor.max(0.1) as f64
+    let contact = match level {
+        "villages" => st.challenge_contact_km_villages,
+        "houses" => st.challenge_contact_km_houses,
+        "people" => st.challenge_contact_km_people,
+        _ => st.challenge_contact_km_regions,
+    };
+    (st.challenge_min_km.max(contact) as f64).max(0.0)
+}
+
+/// A distance for a refusal, km at 3 significant decimals.
+fn km3(x: f64) -> f64 {
+    (x * 1000.0).round() / 1000.0
+}
+
+/// The finest board level whose hex still holds both duellists `km` apart (the lock's framing; regions at most).
+pub fn frame_level(km: f64) -> &'static str {
+    LEVELS.iter().rev().map(|l| l.0).find(|l| km * 1000.0 <= hex_level(l).size_m()).unwrap_or("regions")
+}
+
+/// A player's challenge: `"duel:s<seq>:<a>:<b>"` (the challenge action's room-wide `seq`, known both live and at the
+/// resolve, so the id never changes across beats). A built-in AI's: `"duel:<beat>:<a>:<b>"`.
+pub fn duel_id_seq(seq: u64, a: DemigodId, b: DemigodId) -> String {
+    format!("duel:s{seq}:{}:{}", a.0, b.0)
 }
 
 pub fn duel_id(beat: u32, a: DemigodId, b: DemigodId) -> String {
     format!("duel:{beat}:{}:{}", a.0, b.0)
 }
 
-/// `"duel:<beat>:<a>:<b>"` → its parts.
-pub fn parse_id(id: &str) -> Option<(u32, DemigodId, DemigodId)> {
+/// `"duel:<beat>:<a>:<b>"` or `"duel:s<seq>:<a>:<b>"` → `(beat or seq, a, b)`.
+pub fn parse_id(id: &str) -> Option<(u64, DemigodId, DemigodId)> {
     let mut it = id.strip_prefix("duel:")?.split(':');
-    let beat = it.next()?.parse().ok()?;
+    let first = it.next()?;
+    let n = first.strip_prefix('s').unwrap_or(first).parse().ok()?;
     let a = it.next()?.parse().ok()?;
     let b = it.next()?.parse().ok()?;
-    it.next().is_none().then_some((beat, DemigodId(a), DemigodId(b)))
+    it.next().is_none().then_some((n, DemigodId(a), DemigodId(b)))
 }
+
 
 fn round1(x: f32) -> f32 {
     (x * 10.0).round() / 10.0
@@ -230,7 +258,7 @@ fn jaccard(a: &str, b: &str) -> f64 {
 
 /// Rules 0.8.1: a demigod summoned this beat before the challenge: it fights from its destination, at its health
 /// minus the summoning's pending mishap ("teleporting into an opponent with a 2-3 life penalty is crazy dangerous").
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Moved {
     pub demigod: DemigodId,
     pub to: LonLat,
@@ -251,7 +279,7 @@ fn stance(w: &World, moved: &[Moved], d: DemigodId) -> (LonLat, f32) {
 }
 
 /// A duellist as the duel saw it at the lock (from the committed state).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Fighter {
     pub id: DemigodId,
     pub seat: u8,
@@ -311,7 +339,7 @@ fn fighter(w: &World, d: DemigodId, region: PlaceId, moved: &[Moved]) -> Fighter
 }
 
 /// A duel: two fighters locked at a place.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Duel {
     pub id: String,
     pub beat: u32,
@@ -319,9 +347,9 @@ pub struct Duel {
     /// Where (the target's ground) and its hex at the challenge's level.
     pub at: LonLat,
     pub cell: String,
-    pub level: &'static str,
+    pub level: String,
     pub place: String,
-    pub phase: &'static str,
+    pub phase: String,
     pub night: bool,
     /// Place and time words a line can use.
     pub terrain: Vec<String>,
@@ -335,12 +363,24 @@ pub struct Duel {
     pub deadline_ms: i64,
     /// The built-in AI's summoning next to its rival before the challenge (applied at the resolve).
     pub leap: Option<Moved>,
+    /// The last beat whose resolve may still carry it (without an engine hold the world keeps beating: a duel lasts
+    /// `ceil(duel_deadline_ms / flow_ms)` resolves from the beat it locked in, or ends sooner at a knockout or once a
+    /// resolve's newest action stamp passes `deadline_ms`).
+    #[serde(default)]
+    pub ends_beat: u32,
 }
 
 impl Duel {
     #[allow(clippy::too_many_arguments)]
     pub fn new(w: &World, beat: u32, a: DemigodId, b: DemigodId, level: &'static str, by_seat: Option<u8>, started_ms: i64,
                moved: &[Moved]) -> Duel {
+        Duel::with_id(w, duel_id(beat, a, b), beat, a, b, level, by_seat, started_ms, moved)
+    }
+
+    /// [`Duel::new`] under a given id (a player's challenge: [`duel_id_seq`]).
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_id(w: &World, id: String, beat: u32, a: DemigodId, b: DemigodId, level: &'static str, by_seat: Option<u8>,
+                   started_ms: i64, moved: &[Moved]) -> Duel {
         let st = crate::world::settings(w);
         let at = stance(w, moved, b).0;
         let region = region_at(w, at);
@@ -349,15 +389,16 @@ impl Duel {
         let region_name = w.name_of(Ref::Place(region));
         let mut terrain = lore_words(&[place.as_str(), region_name.as_str()]);
         terrain.push(phase.to_string());
+        let resolves = (st.duel_deadline_ms as u64).div_ceil(st.flow_ms.max(500) as u64).max(1) as u32;
         Duel {
-            id: duel_id(beat, a, b),
+            id,
             beat,
             f: [fighter(w, a, region, moved), fighter(w, b, region, moved)],
             at,
             cell: cell_at(at, hex_level(level)).key(),
-            level,
+            level: level.to_string(),
             place,
-            phase,
+            phase: phase.to_string(),
             night: phase == "night",
             terrain,
             distance_km: distance_km(stance(w, moved, a).0, at),
@@ -366,6 +407,7 @@ impl Duel {
             started_ms,
             deadline_ms: if started_ms > 0 { started_ms + st.duel_deadline_ms as i64 } else { 0 },
             leap: None,
+            ends_beat: beat + resolves - 1,
         }
     }
 
@@ -390,8 +432,11 @@ pub fn lock_json(w: &World, d: &Duel) -> Value {
     json!({ "event": "challenge.lock", "duel_id": d.id, "a": side_json(w, &d.f[0]), "b": side_json(w, &d.f[1]),
             "at": d.at, "cell": d.cell, "level": d.level,
             // Every client centres the camera and spins the globe here.
-            "focus": { "at": d.at, "cell": d.cell, "level": d.level },
-            "ends": if ENGINE_HOLDS { "ko_or_deadline" } else { "resolve" },
+            "focus": { "at": d.at, "lat": d.at[1], "lon": d.at[0], "cell": d.cell, "level": d.level },
+            // A knockout or the deadline ends it. Without the engine's hold the world keeps beating meanwhile and the
+            // duel lasts at most to `ends_beat`'s resolve (or the deadline's, whichever is first).
+            "ends": "ko_or_deadline", "ends_beat": d.ends_beat, "deadline_ms": (d.deadline_ms > 0).then_some(d.deadline_ms),
+            "world": if ENGINE_HOLDS { "held" } else { "beating" },
             "freeze": { "requested": true, "supported": ENGINE_HOLDS, "participants": participants,
                         "deadline_ms": (d.deadline_ms > 0).then_some(d.deadline_ms) },
             "leap": d.leap.map(|m| json!({ "demigod": Ref::Demigod(m.demigod), "to": m.to, "health_lost": n1(m.lost) })),
@@ -583,15 +628,16 @@ fn anim(d: &Duel, side: usize, text: &str, verdict: Option<DiceVerdict>, ko: boo
 // ---------------------------------------------------------------------------------------------------------------------
 
 /// One die thrown in a duel (for `dice[]` at the resolve).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Strike {
     pub query: String,
     pub by: DemigodId,
     pub roll: DiceRoll,
 }
 
-/// A duel in progress: a pure function of the duel and the ordered blows (live and at the resolve alike).
-#[derive(Debug, Clone, PartialEq)]
+/// A duel in progress: a pure function of the duel and the ordered blows (live and at the resolve alike). Kept in the
+/// state between resolves (`World::dm.duels`) while it lasts; `log` and `strikes` are this resolve's only.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Bout {
     pub duel: Duel,
     pub hp: [f32; 2],
@@ -600,8 +646,10 @@ pub struct Bout {
     pub last_ms: [Option<i64>; 2],
     pub last_seq: [Option<u64>; 2],
     pub said: [Vec<String>; 2],
-    /// Every blow event, in order (with its counter).
+    /// Every blow event since the last resolve, in order (with its counter).
+    #[serde(skip)]
     pub log: Vec<Value>,
+    #[serde(skip)]
     pub strikes: Vec<Strike>,
     /// The side knocked out.
     pub ko: Option<usize>,
@@ -611,14 +659,25 @@ pub struct Bout {
     pub flow: crate::choreo::Flow,
     /// Bolts each side spent on invokes (paid at the resolve).
     pub invoked: [u32; 2],
+    /// What earlier resolves already applied to the world: damage taken and bolts paid per side.
+    #[serde(default)]
+    pub applied: [f32; 2],
+    #[serde(default)]
+    pub paid: [u32; 2],
+    /// A resolve already recorded its lock (and landed the AI's leap).
+    #[serde(default)]
+    pub opened: bool,
+    /// The newest action `seq` a resolve delivered to it (the live cache replays only later lines on top).
+    #[serde(default)]
+    pub delivered_seq: u64,
 }
 
 impl Bout {
     pub fn new(duel: Duel) -> Bout {
         let hp = [duel.f[0].health, duel.f[1].health];
-        let flow = crate::choreo::Flow::new(duel.level);
+        let flow = crate::choreo::Flow::new(&duel.level);
         Bout { duel, hp, n: 0, last_ms: [None; 2], last_seq: [None; 2], said: [vec![], vec![]], log: vec![], strikes: vec![],
-               ko: None, typed: 0, lines: vec![], flow, invoked: [0; 2] }
+               ko: None, typed: 0, lines: vec![], flow, invoked: [0; 2], applied: [0.0; 2], paid: [0; 2], opened: false, delivered_seq: 0 }
     }
 
     fn hp_json(&self) -> Value {
@@ -824,6 +883,11 @@ pub fn ended(w: &World, id: &str) -> bool {
     w.dm.decided(&format!("{id}:end")).is_some()
 }
 
+/// The duels a resolve left under way (`World::dm.duels`), in order.
+pub fn open_bouts(w: &World) -> Vec<Bout> {
+    w.dm.duels.iter().filter_map(|v| serde_json::from_value::<Bout>(v.clone()).ok()).collect()
+}
+
 fn on_cooldown(w: &World, d: DemigodId, beat: u32, st: &Settings) -> bool {
     let cd = st.duel_cooldown_beats.max(1);
     if cd <= 1 {
@@ -837,10 +901,11 @@ fn on_cooldown(w: &World, d: DemigodId, beat: u32, st: &Settings) -> bool {
         .any(|e| e.kind == "duel.lock" && e.data["a"]["demigod"] == me && e.beat < beat)
 }
 
-/// May `seat` issue challenge `c` at `beat`, with `bouts` already fought or under way this beat? Refusal words (the
-/// client's contract, in this order): `challenge_disabled`, `not_yours`, `fallen`, `bad_target`, `too_far`, `busy`
-/// (either is already in a duel this beat), `cooldown` (its last challenge was under `duel_cooldown_beats` ago).
-/// A demigod summoned earlier this beat (`moved`) is checked at its destination.
+/// May `seat` issue challenge `c` at `beat`, with `bouts` under way (the state's open duels and this beat's)? Refusal
+/// words (the client's contract, in this order): `challenge_disabled`, `not_yours`, `fallen`, `bad_target`, `too_far`
+/// (`too_far:<distance km>:<allowed km>`: beyond [`reach_km`] at the challenge's level), `busy` (either is already in a
+/// duel), `cooldown` (its last challenge was under `duel_cooldown_beats` ago). A demigod summoned earlier (`moved`) is
+/// checked at its destination.
 pub fn check_challenge(w: &World, seat: u8, c: &ChallengeOrder, beat: u32, st: &Settings, bouts: &[Bout], moved: &[Moved]) -> Result<(), String> {
     if !st.challenge_enabled || !w.dm_rules() {
         return Err("challenge_disabled".into());
@@ -857,10 +922,12 @@ pub fn check_challenge(w: &World, seat: u8, c: &ChallengeOrder, beat: u32, st: &
     if foe.seat == seat {
         return Err("bad_target".into());
     }
-    if distance_km(stance(w, moved, me.id).0, stance(w, moved, foe.id).0) > reach_km(c.level, st) {
-        return Err("too_far".into());
+    let km = distance_km(stance(w, moved, me.id).0, stance(w, moved, foe.id).0);
+    let allowed = reach_km(c.level, st);
+    if km > allowed {
+        return Err(format!("too_far:{}:{}", km3(km), km3(allowed)));
     }
-    if bouts.iter().any(|b| b.duel.f.iter().any(|f| f.id == me.id || f.id == foe.id)) {
+    if bouts.iter().any(|b| b.ko.is_none() && b.duel.f.iter().any(|f| f.id == me.id || f.id == foe.id)) {
         return Err("busy".into());
     }
     if on_cooldown(w, me.id, beat, st) {
@@ -870,16 +937,17 @@ pub fn check_challenge(w: &World, seat: u8, c: &ChallengeOrder, beat: u32, st: &
 }
 
 /// The built-in AI's challenges this beat (decided from the state at the round's start; recomputed identically at
-/// the resolve): each standing AI-controlled demigod with a rival in reach (regions × `duel_reach_factor`) challenges
-/// the nearest with chance `duel_ai_chance`, at the closest level that reaches. `(a, b, level)`.
+/// the resolve): each standing AI-controlled demigod not already in a duel with a rival within `challenge_min_km` challenges
+/// the nearest with chance `duel_ai_chance`, framed at the finest level whose hex holds both. `(a, b, level)`.
 pub fn ai_challenges(w: &World, beat: u32, st: &Settings) -> Vec<AiChallenge> {
     if !st.challenge_enabled || !w.dm_rules() || st.duel_ai_chance <= 0.0 || st.society_only {
         return vec![];
     }
-    let reach = reach_km("regions", st);
+    let reach = st.challenge_min_km.max(0.0) as f64;
     let far = (st.duel_ai_reach_km as f64).max(reach);
+    let fighting: Vec<DemigodId> = open_bouts(w).iter().flat_map(|b| b.duel.f.iter().map(|f| f.id)).collect();
     let mut out: Vec<AiChallenge> = vec![];
-    let busy = |out: &[AiChallenge], d: DemigodId| out.iter().any(|x| x.a == d || x.b == d);
+    let busy = |out: &[AiChallenge], d: DemigodId| fighting.contains(&d) || out.iter().any(|x| x.a == d || x.b == d);
     for d in w.alive_demigods() {
         if crate::table::controller(w, d) != "ai" || busy(&out, d.id) {
             continue;
@@ -896,8 +964,7 @@ pub fn ai_challenges(w: &World, beat: u32, st: &Settings) -> Vec<AiChallenge> {
             .min_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
         let Some((km, foe)) = foe else { continue };
         if km <= reach {
-            let level = LEVELS.iter().rev().map(|l| l.0).find(|l| km <= reach_km(l, st)).unwrap_or("regions");
-            out.push(AiChallenge { a: d.id, b: foe, level, leap: None });
+            out.push(AiChallenge { a: d.id, b: foe, level: frame_level(km), leap: None });
             continue;
         }
         // Out of reach: it summons itself next to its rival first (a summoning, with its mishap), then challenges.
@@ -916,7 +983,7 @@ pub fn ai_challenges(w: &World, beat: u32, st: &Settings) -> Vec<AiChallenge> {
 }
 
 /// One of the built-in AI's challenges: `a` challenges `b` at `level`, after summoning itself next to `b` (`leap`)
-/// when `b` was beyond regions reach (but within `duel_ai_reach_km`).
+/// when `b` was beyond reach (but within `duel_ai_reach_km`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct AiChallenge {
     pub a: DemigodId,
@@ -936,12 +1003,24 @@ fn ai_bout(w: &World, beat: u32, c: &AiChallenge) -> Bout {
 // The live cache (display only)
 // ---------------------------------------------------------------------------------------------------------------------
 
+/// A duel line as it arrived live (replayed onto the state's bout when the cache rolls over to the next beat).
+#[derive(Debug, Clone)]
+pub struct Raw {
+    pub duel_id: String,
+    pub seat: u8,
+    pub text: String,
+    pub at_ms: i64,
+    pub seq: u64,
+}
+
 #[derive(Debug, Default)]
 pub struct BeatLive {
     pub bouts: Vec<Bout>,
     /// Summonings accepted this beat, in arrival order (rules 0.8.1).
     pub moved: Vec<Moved>,
     pub ai_seeded: bool,
+    /// Duel lines accepted live this beat.
+    pub raw: Vec<Raw>,
 }
 
 /// Per match (seed) and beat: the bouts shown live. Never read by the resolve.
@@ -953,6 +1032,8 @@ pub struct Live {
 pub type LiveCache = Arc<Mutex<Live>>;
 
 impl Live {
+    /// This beat's live bouts: the state's open duels, the AI's challenges, and (rolling over from the last beat) the
+    /// lines and challenges that arrived while that beat was resolving (after the actions it was handed).
     fn at(&mut self, w: &World) -> &mut BeatLive {
         let (seed, beat) = (w.meta.seed, w.meta.beat);
         self.beats.retain(|k, _| k.0 != seed || k.1 + 3 >= beat);
@@ -960,18 +1041,39 @@ impl Live {
             let k = *self.beats.keys().next().expect("non-empty");
             self.beats.remove(&k);
         }
-        let st = crate::world::settings(w);
-        let e = self.beats.entry((seed, beat)).or_default();
-        if !e.ai_seeded {
-            e.ai_seeded = true;
-            for (k, c) in ai_challenges(w, beat, &st).iter().enumerate() {
-                e.bouts.insert(k, ai_bout(w, beat, c));
+        if !self.beats.contains_key(&(seed, beat)) {
+            let st = crate::world::settings(w);
+            let mut e = BeatLive { ai_seeded: true, ..Default::default() };
+            e.bouts = open_bouts(w);
+            for c in ai_challenges(w, beat, &st) {
+                e.bouts.push(ai_bout(w, beat, &c));
                 if let Some(m) = c.leap {
                     e.moved.push(m);
                 }
             }
+            if let Some(prev) = beat.checked_sub(1).and_then(|b| self.beats.get(&(seed, b))) {
+                for pb in &prev.bouts {
+                    if ended(w, &pb.duel.id) {
+                        continue;
+                    }
+                    if let Some(sb) = e.bouts.iter_mut().find(|b| b.duel.id == pb.duel.id) {
+                        let since = sb.delivered_seq;
+                        let id = sb.duel.id.clone();
+                        for r in prev.raw.iter().filter(|r| r.duel_id == id && r.seq > since) {
+                            if let Some(side) = sb.duel.side_of(r.seat) {
+                                sb.step(w, &st, side, &r.text, r.at_ms, r.seq);
+                            }
+                        }
+                    } else if pb.duel.by_seat.is_some() && !pb.opened {
+                        // A challenge the last resolve wasn't handed yet: it stays live until the next one.
+                        e.bouts.push(pb.clone());
+                        e.raw.extend(prev.raw.iter().filter(|r| r.duel_id == pb.duel.id).cloned());
+                    }
+                }
+            }
+            self.beats.insert((seed, beat), e);
         }
-        e
+        self.beats.get_mut(&(seed, beat)).expect("inserted")
     }
 }
 
@@ -992,15 +1094,15 @@ pub fn note_summons(live: &LiveCache, w: &World, moved: Vec<Moved>) {
 pub fn round_start(live: &LiveCache, w: &World) -> Vec<Value> {
     let mut l = lock(live);
     let e = l.at(w);
-    e.bouts.iter().filter(|b| b.duel.by_seat.is_none()).map(|b| lock_json(w, &b.duel)).collect()
+    e.bouts.iter().filter(|b| b.duel.by_seat.is_none() && !b.opened).map(|b| lock_json(w, &b.duel)).collect()
 }
 
 /// Find the live bout a blow names, and the sender's side.
 fn find<'a>(e: &'a mut BeatLive, w: &World, seat: u8, b: &BlowOrder) -> Result<(&'a mut Bout, usize), String> {
-    let bout = e.bouts.iter_mut().find(|x| x.duel.id == b.duel_id).ok_or("no_duel")?;
     if ended(w, &b.duel_id) {
         return Err("duel_over".into());
     }
+    let bout = e.bouts.iter_mut().find(|x| x.duel.id == b.duel_id).ok_or("no_duel")?;
     let side = bout.duel.side_of(seat).ok_or("not_yours")?;
     if bout.ko.is_some() || bout.past_deadline(theatre_trace::now_ms()) {
         return Err("duel_over".into());
@@ -1038,7 +1140,8 @@ pub fn on_instant(live: &LiveCache, w: &World, seat: u8, a: &Action, i: &Input) 
     let e = l.at(w);
     let mut v = if let Some(c) = &i.challenge {
         check_challenge(w, seat, c, w.meta.beat, &st, &e.bouts, &e.moved).ok()?;
-        let d = Duel::new(w, w.meta.beat, c.demigod, c.target, c.level, Some(seat), a.received_at_ms, &e.moved);
+        let id = duel_id_seq(a.seq, c.demigod, c.target);
+        let d = Duel::with_id(w, id, w.meta.beat, c.demigod, c.target, c.level, Some(seat), a.received_at_ms, &e.moved);
         let v = lock_json(w, &d);
         e.bouts.push(Bout::new(d));
         crate::world::event("duel_lock", Some(Ref::Demigod(c.demigod).to_string()), v.clone());
@@ -1047,6 +1150,7 @@ pub fn on_instant(live: &LiveCache, w: &World, seat: u8, a: &Action, i: &Input) 
         let b = i.blow.as_ref()?;
         let (bout, side) = find(e, w, seat, b).ok()?;
         let v = bout.step(w, &st, side, &b.text, a.received_at_ms, a.seq)?;
+        e.raw.push(Raw { duel_id: b.duel_id.clone(), seat, text: b.text.clone(), at_ms: a.received_at_ms, seq: a.seq });
         crate::world::event("duel_blow", Some(b.duel_id.clone()), v.clone());
         v
     };
@@ -1071,8 +1175,17 @@ pub struct Act {
     pub summons: Vec<crate::actions::SummonOrder>,
 }
 
+/// This resolve's challenge and duel input: the acts in arrival order, plus the batch's newest receive stamp (the
+/// resolve's only clock, recorded with the actions) and its newest `seq`.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Acts {
+    pub acts: Vec<Act>,
+    pub now_ms: i64,
+    pub max_seq: u64,
+}
+
 /// This resolve's challenge and duel actions (instant, from real seats), in arrival order.
-pub fn acts_of(actions: &[Action]) -> Vec<Act> {
+pub fn acts_of(actions: &[Action]) -> Acts {
     let mut out: Vec<Act> = actions
         .iter()
         .filter(|a| a.instant && !a.defaulted && a.seat < crate::SYNTHETIC_SEAT)
@@ -1084,7 +1197,11 @@ pub fn acts_of(actions: &[Action]) -> Vec<Act> {
         })
         .collect();
     out.sort_by_key(|a| a.seq);
-    out
+    Acts {
+        acts: out,
+        now_ms: actions.iter().map(|a| a.received_at_ms).max().unwrap_or(0),
+        max_seq: actions.iter().map(|a| a.seq).max().unwrap_or(0),
+    }
 }
 
 /// A duel fought this beat, applied, waiting for its deed.
@@ -1094,19 +1211,37 @@ pub struct Pending {
     pub ctx: DuelCtx,
     /// A human fought in it (its deed asks the LLM).
     pub human: bool,
+    /// Why it ended: `ko`, `deadline`, `fallen` or `auto` (two built-in AIs, fought out at once).
+    pub reason: &'static str,
 }
 
-/// Fight this beat's duels from the committed state (the AI's challenges, then the actions in arrival order) and
-/// apply them: every blow's d20 in the memory (`dice[]`, reason "a duel"), the damage (a knockout eliminates by the
-/// usual rules), the loser's dropped loot on the duel's hex, the lock in the memory there.
-pub fn process(w: &mut World, beat: u32, acts: &[Act], pantheon: &Pantheon, st: &Settings) -> Vec<Pending> {
+/// What this resolve did with the duels.
+#[derive(Debug, Clone, Default)]
+pub struct Resolved {
+    /// Duels that ended (their deeds are told in the act batch, then [`record`]).
+    pub ended: Vec<Pending>,
+    /// Duels still under way: public `challenge.open` entries (saved in `World::dm.duels`).
+    pub open: Vec<Value>,
+    /// Every duellist of this beat (their hands' travel this beat is void: they're locked in).
+    pub pinned: Vec<DemigodId>,
+    /// Built-in AI demigods that leapt to their duel this beat.
+    pub leapt: Vec<DemigodId>,
+}
+
+/// Fight this beat's duels from the committed state (the open ones, the AI's challenges, then the actions in arrival
+/// order) and apply them: every blow's d20 in the memory (`dice[]`, reason "a duel"), the damage taken since the last
+/// resolve, the invokes' bolts, the lock in the memory at the hex. A duel ENDS at a knockout, when a duellist fell
+/// elsewhere, when its last beat (`ends_beat`) resolves or the batch's newest stamp passes its deadline (the world
+/// keeps beating: no engine hold yet), or at once between two built-in AIs; then the loser's loot drops on the duel's
+/// hex. The others stay open in `World::dm.duels`.
+pub fn process(w: &mut World, beat: u32, input: &Acts, pantheon: &Pantheon, st: &Settings) -> Resolved {
     if !st.challenge_enabled || !w.dm_rules() {
-        return vec![];
+        return Resolved::default();
     }
-    let mut bouts: Vec<Bout> =
-        ai_challenges(w, beat, st).iter().map(|c| ai_bout(w, beat, c)).collect();
-    let mut moved: Vec<Moved> = bouts.iter().filter_map(|b| b.duel.leap).collect();
-    for act in acts {
+    let mut bouts: Vec<Bout> = open_bouts(w);
+    bouts.extend(ai_challenges(w, beat, st).iter().map(|c| ai_bout(w, beat, c)));
+    let mut moved: Vec<Moved> = bouts.iter().filter(|b| !b.opened).filter_map(|b| b.duel.leap).collect();
+    for act in &input.acts {
         if st.rules_0_8_1 {
             for x in &act.summons {
                 if crate::summon::check(w, act.seat, x, beat, st).is_ok() {
@@ -1118,87 +1253,128 @@ pub fn process(w: &mut World, beat: u32, acts: &[Act], pantheon: &Pantheon, st: 
         }
         if let Some(c) = &act.challenge {
             match check_challenge(w, act.seat, c, beat, st, &bouts, &moved) {
-                Ok(()) => bouts.push(Bout::new(Duel::new(w, beat, c.demigod, c.target, c.level, Some(act.seat), act.at_ms, &moved))),
+                Ok(()) => {
+                    let id = duel_id_seq(act.seq, c.demigod, c.target);
+                    bouts.push(Bout::new(Duel::with_id(w, id, beat, c.demigod, c.target, c.level, Some(act.seat), act.at_ms, &moved)))
+                }
                 Err(why) => crate::world::event("challenge_refused", Some(Ref::Demigod(c.demigod).to_string()),
                                                 json!({ "beat": beat, "seq": act.seq, "reason": why })),
             }
         }
         if let Some(b) = &act.blow {
-            let Some((bb, a, d)) = parse_id(&b.duel_id) else { continue };
-            // This beat's id, or the previous beat's for a challenge that arrived while that beat was resolving (it
-            // was delivered here; the bout adopts the id its lock showed).
-            let k = bouts.iter().position(|x| {
-                x.duel.id == b.duel_id
-                    || (bb + 1 == beat && x.duel.f[0].id == a && x.duel.f[1].id == d && x.duel.by_seat.is_some()
-                        && x.typed == 0 && x.duel.id == duel_id(beat, a, d) && !ended(w, &b.duel_id))
-            });
-            let Some(k) = k else { continue };
-            if bouts[k].duel.id != b.duel_id {
-                bouts[k].duel.id = b.duel_id.clone();
+            let Some(bout) = bouts.iter_mut().find(|x| x.duel.id == b.duel_id) else { continue };
+            let Some(side) = bout.duel.side_of(act.seat) else { continue };
+            if w.demigods[bout.duel.f[side].id.ix()].alive {
+                bout.step(w, st, side, &b.text, act.at_ms, act.seq);
             }
-            let Some(side) = bouts[k].duel.side_of(act.seat) else { continue };
-            bouts[k].step(w, st, side, &b.text, act.at_ms, act.seq);
         }
     }
-    let mut out = vec![];
+    let mut out = Resolved::default();
+    let mut still: Vec<Value> = vec![];
     for mut bout in bouts {
-        if bout.typed == 0 {
+        bout.delivered_seq = bout.delivered_seq.max(input.max_seq);
+        let fallen = bout.duel.f.iter().any(|f| !w.demigods[f.id.ix()].alive);
+        let human = bout.duel.f.iter().any(|f| !f.ai);
+        let time_up = beat >= bout.duel.ends_beat || (bout.duel.deadline_ms > 0 && input.now_ms > bout.duel.deadline_ms);
+        let reason = if bout.ko.is_some() {
+            Some("ko")
+        } else if fallen {
+            Some("fallen")
+        } else if !human {
+            Some("auto")
+        } else if time_up || ENGINE_HOLDS {
+            Some("deadline")
+        } else {
+            None
+        };
+        if reason.is_some() && !fallen && bout.typed == 0 && bout.ko.is_none() {
             bout.auto(w, st);
         }
-        out.push(apply(w, beat, bout, pantheon, st));
+        let reason = if bout.ko.is_some() { Some("ko") } else { reason };
+        out.pinned.extend(bout.duel.f.iter().map(|f| f.id));
+        if let Some(m) = bout.duel.leap.filter(|_| !bout.opened) {
+            out.leapt.push(m.demigod);
+        }
+        match reason {
+            Some(why) => out.ended.push(apply(w, beat, bout, pantheon, st, Some(why)).expect("final")),
+            None => {
+                let mut bout = bout;
+                let log = std::mem::take(&mut bout.log);
+                apply_segment(w, beat, &mut bout, pantheon, st, false);
+                out.open.push(open_json(&bout, log));
+                still.push(serde_json::to_value(&bout).unwrap_or(Value::Null));
+            }
+        }
     }
+    w.dm.duels = still;
     out
 }
 
-fn apply(w: &mut World, beat: u32, bout: Bout, pantheon: &Pantheon, st: &Settings) -> Pending {
+/// The public `challenge.open` entry of a duel still under way after this resolve.
+pub fn open_json(b: &Bout, log: Vec<Value>) -> Value {
+    let d = &b.duel;
+    json!({ "event": "challenge.open", "duel_id": d.id, "a": Ref::Demigod(d.f[0].id), "b": Ref::Demigod(d.f[1].id),
+            "hp": b.hp_json(), "blows": b.n, "typed": b.typed, "ends_beat": d.ends_beat,
+            "deadline_ms": (d.deadline_ms > 0).then_some(d.deadline_ms), "range": b.flow.range,
+            "initiative": if b.flow.initiative == 0 { "a" } else { "b" }, "log": log })
+}
+
+/// Apply what the duel did since the last resolve: its lock and the AI's leap (once), every die, the invokes' bolts
+/// and the damage taken since (`fin`: a knockout takes everything left).
+fn apply_segment(w: &mut World, beat: u32, bout: &mut Bout, pantheon: &Pantheon, st: &Settings, fin: bool) {
     let d = bout.duel.clone();
-    let wh = dm::locate(w, d.at, HexLevel::People);
-    let mut lock = lock_json(w, &d);
-    for k in ["a", "b"] {
-        if let Some(o) = lock[k].as_object_mut() {
-            o.remove("portrait_prompt");
-            o.remove("diorama_prompt");
+    if !bout.opened {
+        bout.opened = true;
+        let wh = dm::locate(w, d.at, HexLevel::People);
+        let mut lock = lock_json(w, &d);
+        for k in ["a", "b"] {
+            if let Some(o) = lock[k].as_object_mut() {
+                o.remove("portrait_prompt");
+                o.remove("diorama_prompt");
+            }
         }
-    }
-    dm::remember(w, beat, &wh, Decision { scope: Scope::Cell, kind: "duel.lock", query: Some(format!("{}:lock", d.id)), public: true,
-                                          text: format!("{} challenged {} to a duel here", d.f[0].name, d.f[1].name), data: lock });
-    // The AI's leap: the summoning lands first (its mishap's d20, the move, the health), as a summon would.
-    if let Some(m) = d.leap {
-        let order = crate::actions::SummonOrder { demigod: m.demigod, target: m.to, cell: None, seq: 0 };
-        let health = w.demigods[m.demigod.ix()].health;
-        let (q, roll, _) = crate::summon::mishap(w, beat, &order, health, st);
-        dm::record_roll(w, beat, &q, Ref::Demigod(m.demigod), &roll, "a summoning", m.to);
-        let name = d.f[0].name.clone();
-        let to_place = place_at(w, m.to);
-        let mut props = vec![Proposal {
-            source: Source::Rules, intent: None,
-            effect: Effect::Move { who: Ref::Demigod(m.demigod), to: m.to, place: Some(to_place) },
-            act: format!("{name} summons itself to challenge {}", d.f[1].name), actor: Ref::Demigod(m.demigod),
-            magnitude: 4, valence: 0, witnesses: vec![Ref::Demigod(m.demigod)], cause: None,
-        }];
-        if m.lost > 0.0 {
-            props.push(Proposal {
+        dm::remember(w, beat, &wh, Decision { scope: Scope::Cell, kind: "duel.lock", query: Some(format!("{}:lock", d.id)), public: true,
+                                              text: format!("{} challenged {} to a duel here", d.f[0].name, d.f[1].name), data: lock });
+        // The AI's leap: the summoning lands first (its mishap's d20, the move, the health), as a summon would.
+        if let Some(m) = d.leap {
+            let order = crate::actions::SummonOrder { demigod: m.demigod, target: m.to, cell: None, seq: 0 };
+            let health = w.demigods[m.demigod.ix()].health;
+            let (q, roll, _) = crate::summon::mishap(w, beat, &order, health, st);
+            dm::record_roll(w, beat, &q, Ref::Demigod(m.demigod), &roll, "a summoning", m.to);
+            let name = d.f[0].name.clone();
+            let to_place = place_at(w, m.to);
+            let mut props = vec![Proposal {
                 source: Source::Rules, intent: None,
-                effect: Effect::Damage { who: Ref::Demigod(m.demigod), amount: m.lost, cause: "a reckless summoning".into() },
-                act: format!("{name} lands badly"), actor: Ref::Place(to_place), magnitude: 3, valence: -1,
-                witnesses: vec![Ref::Demigod(m.demigod)], cause: None,
-            });
-        }
-        crate::merge::run(w, props, pantheon, beat, st.max_witnesses as usize);
-        w.demigods[m.demigod.ix()].orders.clear();
-        if let Some(s) = dm::story_mut(w, m.demigod) {
-            s.last_summon = Some(beat);
+                effect: Effect::Move { who: Ref::Demigod(m.demigod), to: m.to, place: Some(to_place) },
+                act: format!("{name} summons itself to challenge {}", d.f[1].name), actor: Ref::Demigod(m.demigod),
+                magnitude: 4, valence: 0, witnesses: vec![Ref::Demigod(m.demigod)], cause: None,
+            }];
+            if m.lost > 0.0 {
+                props.push(Proposal {
+                    source: Source::Rules, intent: None,
+                    effect: Effect::Damage { who: Ref::Demigod(m.demigod), amount: m.lost, cause: "a reckless summoning".into() },
+                    act: format!("{name} lands badly"), actor: Ref::Place(to_place), magnitude: 3, valence: -1,
+                    witnesses: vec![Ref::Demigod(m.demigod)], cause: None,
+                });
+            }
+            crate::merge::run(w, props, pantheon, beat, st.max_witnesses as usize);
+            w.demigods[m.demigod.ix()].orders.clear();
+            if let Some(s) = dm::story_mut(w, m.demigod) {
+                s.last_summon = Some(beat);
+            }
         }
     }
-    for s in &bout.strikes {
+    for s in std::mem::take(&mut bout.strikes) {
         dm::record_roll(w, beat, &s.query, Ref::Demigod(s.by), &s.roll, "a duel", d.at);
     }
     // Invokes cost a bolt each from the purse (the god answered mid-duel).
-    for (i, n) in bout.invoked.iter().enumerate() {
-        if *n > 0 {
+    for i in 0..2 {
+        let due = bout.invoked[i].saturating_sub(bout.paid[i]);
+        if due > 0 {
             let id = d.f[i].id;
-            let left = w.demigods[id.ix()].bolts.saturating_sub(*n);
+            let left = w.demigods[id.ix()].bolts.saturating_sub(due);
             w.set_bolts(id, left);
+            bout.paid[i] = bout.invoked[i];
         }
     }
     let taken = bout.taken();
@@ -1206,14 +1382,15 @@ fn apply(w: &mut World, beat: u32, bout: Bout, pantheon: &Pantheon, st: &Setting
     let mut props = vec![];
     #[allow(clippy::needless_range_loop)]
     for i in 0..2 {
-        if taken[i] <= 0.0 {
+        let (me, foe) = (&d.f[i], &d.f[1 - i]);
+        let ko = fin && bout.ko == Some(i);
+        let delta = round1(taken[i] - bout.applied[i]);
+        if delta <= 0.0 && !ko {
             continue;
         }
-        let (me, foe) = (&d.f[i], &d.f[1 - i]);
-        let ko = bout.ko == Some(i);
         // A knockout takes everything left (the float never leaves a sliver of health).
         let now = w.demigods[me.id.ix()].health;
-        let amount = if ko { now.max(me.health).max(taken[i]) + 1.0 } else { taken[i] };
+        let amount = if ko { now.max(me.health).max(taken[i]) + 1.0 } else { delta };
         props.push(Proposal {
             source: Source::Rules,
             intent: None,
@@ -1221,16 +1398,25 @@ fn apply(w: &mut World, beat: u32, bout: Bout, pantheon: &Pantheon, st: &Setting
             act: if ko {
                 format!("{} is knocked out in a duel with {}", me.name, foe.name)
             } else {
-                format!("{} takes {} in a duel with {}", me.name, taken[i], foe.name)
+                format!("{} takes {} in a duel with {}", me.name, delta, foe.name)
             },
             actor: Ref::Place(place),
-            magnitude: if ko { 8 } else { (taken[i].round() as u8 + 3).min(7) },
+            magnitude: if ko { 8 } else { (delta.round() as u8 + 3).min(7) },
             valence: -1,
             witnesses: vec![Ref::Demigod(me.id), Ref::Demigod(foe.id)],
             cause: None,
         });
     }
+    bout.applied = taken;
     crate::merge::run(w, props, pantheon, beat, st.max_witnesses as usize);
+}
+
+/// End a duel: its last segment applied, then the loot and the deed's context.
+fn apply(w: &mut World, beat: u32, mut bout: Bout, pantheon: &Pantheon, st: &Settings, reason: Option<&'static str>) -> Option<Pending> {
+    let reason = reason?;
+    apply_segment(w, beat, &mut bout, pantheon, st, true);
+    let d = bout.duel.clone();
+    let taken = bout.taken();
     // The loser's loot falls on the duel's hex: everything at a knockout; else, beaten by a clear margin, it rolls to
     // keep hold of its newest thing (DC 11, like a fight).
     let result = bout.result();
@@ -1271,25 +1457,26 @@ fn apply(w: &mut World, beat: u32, bout: Bout, pantheon: &Pantheon, st: &Setting
         seed: Rng::derive(w.meta.seed, &[hash_str(&d.id), 0xDEED]).next_u64(),
     };
     let human = d.f.iter().any(|f| !f.ai);
-    Pending { bout, ctx, human }
+    Some(Pending { bout, ctx, human, reason })
 }
 
-/// The `duel.end` payload (with the blow `log`).
+/// The `challenge.end` payload (`log`: the blows this final resolve was handed; the earlier ones came live and in
+/// earlier `challenge.open` entries).
 pub fn end_json(p: &Pending, deed: &str) -> Value {
     let b = &p.bout;
     let d = &b.duel;
     let r = b.result();
     let t = b.taken();
-    json!({ "event": "duel.end", "duel_id": d.id, "a": Ref::Demigod(d.f[0].id), "b": Ref::Demigod(d.f[1].id),
+    json!({ "event": "challenge.end", "duel_id": d.id, "a": Ref::Demigod(d.f[0].id), "b": Ref::Demigod(d.f[1].id),
             "a_name": d.f[0].name, "b_name": d.f[1].name,
             "winner": r.map(|x| Ref::Demigod(d.f[x.0].id)), "loser": r.map(|x| Ref::Demigod(d.f[x.1].id)),
-            "ko": b.ko.is_some(), "damage": { "a": n1(t[0]), "b": n1(t[1]) }, "hp": { "a": n1(b.hp[0]), "b": n1(b.hp[1]) },
+            "ko": b.ko.is_some(), "reason": p.reason, "damage": { "a": n1(t[0]), "b": n1(t[1]) }, "hp": { "a": n1(b.hp[0]), "b": n1(b.hp[1]) },
             "blows": b.n, "typed": b.typed, "deed": deed, "at": d.at, "pos": d.at, "cell": d.cell, "level": d.level, "place": d.place,
-            "log": b.log })
+            "locked_beat": d.beat, "log": b.log })
 }
 
 /// Record the told deeds: `duel.end` in the memory at the duel's hex, a tale for both duellists. Returns the public
-/// `duel.end` events (`round.outcome.public.duels[]`).
+/// `challenge.end` events (`round.outcome.public.duels[]`).
 pub fn record(w: &mut World, beat: u32, pending: &[Pending], deeds: &[String]) -> Vec<Value> {
     let mut out = vec![];
     for (k, p) in pending.iter().enumerate() {
@@ -1314,7 +1501,6 @@ pub fn record(w: &mut World, beat: u32, pending: &[Pending], deeds: &[String]) -
     }
     out
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1325,7 +1511,9 @@ mod tests {
         assert_eq!(parse_id("duel:1:2"), None);
         assert_eq!((level_of("Region"), level_of("people"), level_of("galaxy")), (Some("regions"), Some("people"), None));
         let st = Settings::default();
-        assert!((reach_km("villages", &st) - 4.5).abs() < 1e-9);
+        assert_eq!((reach_km("regions", &st), reach_km("villages", &st), reach_km("houses", &st), reach_km("people", &st)),
+                   (600.0, 120.0, 120.0, 120.0), "touching cards at regions zoom, else 120 km");
+        assert_eq!((frame_level(0.002), frame_level(2.0), frame_level(90.0), frame_level(500.0)), ("people", "villages", "regions", "regions"));
         let w = crate::testkit::world(4, 3);
         let d = Duel::new(&w, 1, DemigodId(0), DemigodId(2), "regions", None, 0, &[]);
         let (me, foe) = (&d.f[0], &d.f[1]);
