@@ -1036,3 +1036,25 @@ Engineering:
 > The poles still appear in front of the portraits. Use z-ordering properly.
 
 Engineering: the remaining pillars are the studio's own demigod map markers ("Hero" pillar, disc and ball), which stand at the same lat/lon as the kit's cards. They are hidden while the kit's pieces stand, so the only thing at a demigod's spot is its card, and the cards draw on top.
+
+## 2026-11-14: session log (state at compact, ~19:00 UTC)
+- **STABLE:** rules 0.8.0 (server 86ce033; engine 3523189 + the house attract/fork commits). FINAL7 is the always-on house game.
+  - Start it ONLY with `runs/lan/start_stable.sh`: detached under nohup, so it survives session restarts. That script has the $20 image budget and 3 event images per match.
+  - The previous session's end killed a server started from the terminal; restarted this way.
+- **Live and proven:**
+  - images in the two approved looks (prewarmed, cached per name)
+  - the house: one game, attract replay, fork-on-interaction, away/reclaim, retake
+  - two demigods per player, bolts/sparks, items, cells, aura, hotspots, the final wish
+  - the DM rulebook + place×time memory, Benito's 8 features, fault lines, summon, god-tier powers
+  - profiles/history/library, time travel (exact replay + fork)
+- **Unreal main e47641b-era (5001f8b+):** the kit, lobby, two-demigod HUD, edge power hexes + pouch, gods on pedestals, diorama boxes, real-Earth board, summon drag + display, no click warping. ~50 fps in Chris's editor.
+- **Unfinished:** challenge mode 0.8.1 (the agent was cut off). Its partial work is on branch `backend/challenge-wip` 538fc73, NOT merged. It includes the duel formal model + choreography, summon damage at accept, challenge-after-teleport, the "(2)" name fix, and the HEAL bug (heals silently dropped).
+- **Requested from theatre_worker:** a room-wide HOLD window (the world freezes during a duel, 30 s) and a `room.signal` typing relay.
+- **Next:** finish and deploy 0.8.1, then the Mac's queue:
+  - the scroll + stone-tablet restyle
+  - the challenge presentation with wooden mannequins
+  - the ring at join
+  - the lighting redesign
+- **Meshy:** check the balance via the MCP after a restart (Chris's screenshot shows 2,275 credits) and plan the duel rigs.
+- **Also:** seat fairness (χ² 16.7) needs a follow-up; Benito's side is silent since 11:26; rotate all keys after the jam.
+- **Read first next session:** BUILDLOG.md, docs/DM_RULEBOOK.md, docs/PLAYBOOK.md (Plays 9-11), docs/CLIENT_API.md, final_night_7_unreal docs/BACKLOG.md + docs/design/screen_map_v4.png.
