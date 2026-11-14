@@ -337,6 +337,93 @@
       ],
       "type": "object"
     },
+    "DuelClock": {
+      "description": "State schema 8: `round.started.public.duel_clock`, when the room stood still before this beat (it was paused with nobody connected, the server was down, or it is a fork): every open duel's clock stood still for it, and its deadline moved.",
+      "properties": {
+        "beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "duels": {
+          "description": "Each open duel's new deadline.",
+          "items": {
+            "description": "",
+            "properties": {
+              "deadline_ms": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "duel_id": {
+                "description": "",
+                "type": "string"
+              },
+              "pauses": {
+                "description": "Every [from_ms, to_ms] its clock stood still.",
+                "items": {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "type": "array"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "duel_id",
+              "deadline_ms",
+              "pauses"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "event": {
+          "const": "duel.clock"
+        },
+        "now_ms": {
+          "description": "The server's clock at this Start.",
+          "type": "integer"
+        },
+        "pause": {
+          "description": "The span the room stood still.",
+          "properties": {
+            "from_ms": {
+              "type": "integer"
+            },
+            "ms": {
+              "description": "",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "to_ms": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "from_ms",
+            "to_ms",
+            "ms"
+          ],
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "event",
+        "beat",
+        "now_ms",
+        "pause",
+        "duels"
+      ],
+      "type": "object"
+    },
     "LonLat": {
       "description": "[longitude, latitude] in degrees (WGS84). Note the order: longitude first.",
       "items": {
@@ -396,6 +483,9 @@
       "description": "Number of debt collections queued for this beat (all demigods).",
       "minimum": 0,
       "type": "integer"
+    },
+    "duel_clock": {
+      "$ref": "#/$defs/DuelClock"
     },
     "eliminated": {
       "description": "Names of demigods that fell during Start.",

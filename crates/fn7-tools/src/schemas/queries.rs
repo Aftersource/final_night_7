@@ -453,6 +453,8 @@ pub(super) fn replies() -> Vec<(&'static str, &'static str, Value)> {
                         ("eliminated_beat", opt_int("")), ("cause", json!({ "type": ["string", "null"] }))], &[]), ""))], &[]), "Best first.")),
             ],
         )),
+        ("query_present", "present", json!({ "anyOf": [r("Present"), { "type": "null" }],
+            "description": "`game.present` (state schema 8): the present moment, the same object as match.snapshot.public_state.present; null in older states." })),
         ("query_items", "items", object(
             "`game.items` (rules 0.7.0): a page of items, most recent first: public ones for everyone, your own in full.",
             &[("items", array(r("Item"), "")), ("next_cursor", opt_int("")), ("total", int("")), ("beat", int(""))],

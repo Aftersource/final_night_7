@@ -963,7 +963,8 @@ fn round_started_public() -> Value {
             ("alive", int("Demigods still standing.")),
         ],
         &[("players_alive", int("Rules 0.7.0: players with a demigod standing.")),
-          ("challenges", array(r("ChallengeLock"), "Rules 0.8.1: the built-in AI's challenges this beat (absent when none): fight back with fields.duel."))],
+          ("challenges", array(r("ChallengeLock"), "Rules 0.8.1: the built-in AI's challenges this beat (absent when none): fight back with fields.duel.")),
+          ("duel_clock", r("DuelClock"))],
     )
 }
 
@@ -1221,7 +1222,10 @@ fn public_view() -> Value {
           ("society", json!({ "type": ["object", "null"], "additionalProperties": true, "description": "The society's public summary (schema 4). Its shape is not frozen yet (the society build is in progress); read defensively." })),
           ("shrines", array(r("Shrine"), "Rules 0.8.0: every shrine on the board.")),
           ("time_of_day", r("TimeOfDay")),
-          ("time_of_day_phase", r("DayPhase"))],
+          ("time_of_day_phase", r("DayPhase")),
+          ("rules", object("The rules this match runs on.", &[("version", string("The match's rules version (e.g. \"0.8.1\").")),
+              ("state_schema", int("The match's state schema.")), ("server", string("The server's current rules version (new matches start on it)."))], &[])),
+          ("present", r("Present"))],
     )
 }
 
@@ -1488,6 +1492,47 @@ fn v08_defs() -> Map<String, Value> {
     blow_opt.extend([("counter", r("DuelStrike")), ("hp_after", object("Healths after the counter.", &[("a", num("")), ("b", num(""))], &[])),
                      ("at_ms", json!({ "type": "integer" })), ("seq", int("")), ("received_at_ms", json!({ "type": "integer" }))]);
     d.insert("DuelBlow".into(), object("Rules 0.8.1: `phase.event.public` for each duel line, at once (also in the resolve's challenge.open / challenge.end log).", &blow_req, &blow_opt));
+    let ab = |desc: &str, v: Value| object(desc, &[("a", v.clone()), ("b", v)], &[]);
+    let stance = json!({ "type": "string", "enum": ["neutral", "guarding", "committed", "off_balance", "airborne", "downed"] });
+    d.insert("DuelClock".into(), object(
+        "State schema 8: `round.started.public.duel_clock`, when the room stood still before this beat (it was paused with nobody connected, the server was down, or it is a fork): every open duel's clock stood still for it, and its deadline moved.",
+        &[("event", json!({ "const": "duel.clock" })), ("beat", int("")), ("now_ms", json!({ "type": "integer", "description": "The server's clock at this Start." })),
+          ("pause", nullable(object("The span the room stood still.", &[("from_ms", json!({ "type": "integer" })), ("to_ms", json!({ "type": "integer" })), ("ms", int(""))], &[]))),
+          ("duels", array(object("", &[("duel_id", string("")), ("deadline_ms", nullable(json!({ "type": "integer" }))),
+              ("pauses", array(json!({ "type": "array", "items": { "type": "integer" }, "minItems": 2, "maxItems": 2 }), "Every [from_ms, to_ms] its clock stood still."))], &[]), "Each open duel's new deadline."))],
+        &[],
+    ));
+    d.insert("PresentDuel".into(), object(
+        "State schema 8: one open duel in full, as it stands now (`present.duels[]`): enough to redraw it and seek to the exact offset.",
+        &[("duel_id", string("")), ("a", json!({ "type": "object", "additionalProperties": true, "description": "The challenger, as in challenge.lock.a." })),
+          ("b", json!({ "type": "object", "additionalProperties": true, "description": "The target, as in challenge.lock.b." })),
+          ("lock", r("ChallengeLock")), ("hp", ab("Duel healths now.", num(""))),
+          ("range", json!({ "type": "string", "enum": ["far", "mid", "close", "grapple"] })), ("initiative", json!({ "type": "string", "enum": ["a", "b"] })),
+          ("stances", ab("", stance)), ("set", ab("The defence each side has set and not used.", json!({ "type": ["string", "null"] }))),
+          ("blows", array(r("DuelBlow"), "Every blow so far, in order, as it was shown: the state's, then the ones since the last resolve. Each has `at_ms` and `seq` (automatic blows of an unattended duel have none).")),
+          ("n", int("Blows numbered so far.")), ("typed", int("")), ("ko", json!({ "type": ["string", "null"], "enum": ["a", "b", null] })),
+          ("opened", boolean("A resolve has applied its lock.")),
+          ("started_ms", nullable(json!({ "type": "integer", "description": "The lock's server stamp (null: an AI's challenge in a state without the beat's clock)." }))),
+          ("deadline_ms", nullable(json!({ "type": "integer", "description": "Includes every pause." }))),
+          ("ends_beat", int("")), ("pauses", array(json!({ "type": "array", "items": { "type": "integer" } }), "[from_ms, to_ms] spans its clock stood still.")),
+          ("clock", nullable(object("Its clock when the view was built (frozen at `present.paused_since_ms` while the room stands still).",
+              &[("at_ms", json!({ "type": "integer" })), ("elapsed_ms", int("Duel time elapsed: the offset to seek to.")), ("remaining_ms", int("")), ("running", boolean(""))], &[]))),
+          ("over", boolean("Knocked out or past its deadline: the next resolve ends it."))],
+        &[],
+    ));
+    d.insert("Present".into(), object(
+        "State schema 8 (exact resume): the present moment, in every public view (so in every match.snapshot) and in `game.present`. See docs/TIME_TRAVEL.md.",
+        &[("server_time_ms", json!({ "type": "integer", "description": "The server's clock when this view was built." })), ("beat", int("")),
+          ("live", boolean("This is the match's live state (false: a past state, shown as it was, or a fork before its first Start).")),
+          ("mark", nullable(object("The newest instant action the state itself contains, and its clocks.", &[("at_ms", json!({ "type": "integer" })), ("seq", int("")),
+              ("resolved_ms", json!({ "type": "integer" })), ("round_ms", json!({ "type": "integer" }))], &[]))),
+          ("paused_since_ms", nullable(json!({ "type": "integer", "description": "The room stands still since then (nobody connected, or restored and not started)." }))),
+          ("events", array(json!({ "type": "object", "additionalProperties": true, "required": ["seq", "received_at_ms", "beat"],
+              "description": "A phase.event.public payload (cast streak, summoning, god_power, challenge.lock, duel.blow) with its `seq`, `received_at_ms` and `beat`." }),
+              "The public events of the instant actions since the last resolve, in arrival order.")),
+          ("duels", array(r("PresentDuel"), "Every open duel in full."))],
+        &[],
+    ));
     d.insert("ChallengeOpen".into(), object(
         "Rules 0.8.1: a duel still under way after this resolve (`round.outcome.public.duels_open[]`; the damage so far is applied).",
         &[("event", json!({ "const": "challenge.open" })), ("duel_id", string("")), ("a", r("Ref")), ("b", r("Ref")),
