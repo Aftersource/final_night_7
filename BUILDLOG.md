@@ -647,3 +647,39 @@ Engineering:
   - The Entropy powers become carved tan/white wood-block tiles with clean vector icons.
   - Powers are dragged onto the globe (targeting at level 1, the regions) or the board.
   - Clicking the globe opens zoom 2 on the clicked region's hotspot.
+
+## 2026-11-14: rules 0.7.0: two full demigods per player, the item engine, the hex rule
+
+Engineering (designer decisions: two demigods per player, each with its own health; no shared pool):
+- **State schema 5, rules 0.7.0.** Each player's Left and Right hands are two `Demigod` rows (`side`, `player`), each
+  with its own health, position, cell, items, deeds, look, portrait and diorama. Default names stay
+  "<player>'s Left Hand" / "<player>'s Right Hand" (cached images stay valid). A player is out when both fall.
+- **Purse and debts:** bolts per player (mirrored), debts per body (the acting body owes).
+- **Final Night:** exactly one player survives, by total standing (health minus debt).
+- **Item engine wired:** manifest orders judged by rules (tier, cost, odds, seeded roll), LLM names only, `mf:` rows,
+  item `ext`, hosts in the field. Bare-verb item names fixed.
+- **Benito's hex rule:** the client's exact hex indexing (`fn7-model/src/hexgrid.rs`), `cell` on every demigod, person,
+  crowd and mob piece; no two demigods on one people-level cell unless engaged.
+- **For the client:** `side`, `aura`, `players[]`, the live Time bill, crowd and mob pieces, item `icon`, hotspots, the
+  Final Wish (`final_wish: true` on beat 1).
+- **Replay:** every change gated on the schema; schema-4 recordings replay with 0 differences.
+- **Balance (fn7-sim, 128 seeds, 60 beats, no LLM):** median match 57 beats (before: 58), mean 53.8 (54.2), seat wins
+  32/30/30/36 (before 35/35/30/28).
+
+## 2026-11-14: mega and mini powers, the 1:5 economy
+
+> here is the score: each god has mega and mini powers. The design Unreal agent and Chris discussed this; make
+> sure the agent is updated with that. Mega powers are scale 1 on the map, with a huge area of effect; mini powers are on the table outline,
+> much more targeted in scope. Stop asking for confirmation before pushes when ready. Anyway, any god can use the mini powers
+> without lighting up the board, but the ratio is 1:5, so 1 epic power per 5 minis. If a god uses
+> a mega power, all other gods get +1 mega power too. Then the other god can use mega powers (giving +1:5 as
+> well), or save it up to cause havoc later. A god can always cast a mega power; they just start with 1:5. Get
+> Confirm the idea.
+
+Engineering:
+- Players (gods) hold MEGA and MINI charges, starting at 1 mega : 5 mini.
+- Mega powers act at map scale 1 (level 1, region hexes) with a huge area of effect.
+- Mini powers act on the table board, targeted and small, and never light up anyone else's economy.
+- Casting a mega gives every other god +1 mega charge, plus 5 mini (the 1:5 bundle); they can spend it or hoard it.
+- All values are settings (mega_start, mini_start, mega_gift, mini_gift).
+- Pushes from the Mac session: Chris pre-authorizes `mac/*` pushes when ready (a permission setting on that Mac).
