@@ -959,3 +959,26 @@ Engineering:
 > Clicking it keeps warping the view around the map. Asked whether that has been fixed.
 
 Engineering: a single click must never move the board view. Only an explicit zoom (wheel, double-click on a demigod, the RESET VIEW button) or your own summon landing off-board may move it.
+
+## 2026-11-14: the clash: everyone swooshes to the fight, masked live typing, 30 seconds of focus
+
+> Everyone should flash in a Mega Man style swoosh, and everyone centers on the fight, and then
+> everyone sees the clash banner, and then the globe spins to that location, and everyone looks at it.
+> The interaction cycle and UX changes for this part will be discussed, since text typing is very useful,
+> and both the player's text and the opponent's text should be visible as it is locked in. The password-style masking should be used
+> obfuscation. If a player can watch what the opponent typed, character by character, and read it, that is acceptable. Understood.
+> what they said. Otherwise, the player is improvising. The 30 seconds of intense focus should be kept in mind, as the scroll
+> such as the wish being expanded to a movie screen-like display that will extend, or the globe could be made very
+> transparent so the blackboard becomes the focus and everything is projected there. It could be projected up or
+> down; the decision is open, but the best option is likely to make the actual 3D small characters dance
+> around, moving in any form with other animations when they are with armies or similar. This is where that
+> rule engine comes into play. The rule engine runs locally in challenge mode, so players can see each other's type in a sense.
+> That will be fun. Proceed with that.
+
+Engineering (challenge mode presentation, v1.2):
+- On a challenge, EVERY client: flash, flash, flash plus a Mega Man swoosh; the camera centres on the fight; a CLASH banner; the globe spins to the spot.
+- The duel lasts 30 s (the world on hold).
+- Both duellists' typing is shown live, password-masked: each character flashes readable for an instant, then becomes `*`. Read it fast and you know their move; otherwise you're winging it.
+- The blackboard/movie screen behind the globe becomes the duel stage (the globe goes translucent), and the WILL scroll expands onto it.
+- On stage, the two demigods' 3D figures (with their armies or followers if they have them) act out each blow, driven by the rule engine's animation cues per blow.
+- The engine needs a fast typing relay for the duellists (requested).
