@@ -50,7 +50,11 @@ use serde::{Deserialize, Serialize};
 /// Schema 7 (rules 0.8.1): challenge mode (open duels in [`dm::Dm::duels`]), the summon's damage check at the accept,
 /// heals routed to Nature, the takeover rename fix. Rules that changed in 0.8.1 read [`World::challenge_rules`], so
 /// schema-4..6 recordings replay exactly.
-pub const STATE_SCHEMA: u32 = 7;
+///
+/// Schema 8 (exact resume): an open duel keeps every blow so far ([`dm::Dm::duels`]: `blows`, `pauses`), the state
+/// carries the newest instant action a resolve was handed and the beat's clocks ([`dm::Dm::mark`]), duel input is
+/// ordered by arrival stamp. Rules that changed read [`World::resume_rules`], so schema-4..7 recordings replay exactly.
+pub const STATE_SCHEMA: u32 = 8;
 
 /// Match-wide settings and clocks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -384,6 +388,10 @@ impl World {
     /// Schema 7 rules are on (rules 0.8.1): challenge mode and the 0.8.1 fixes.
     pub fn challenge_rules(&self) -> bool {
         self.meta.schema >= dm::CHALLENGE_SCHEMA
+    }
+    /// Schema 8 rules are on (exact resume): duels keep their whole timeline in the state, the delivery mark and clocks.
+    pub fn resume_rules(&self) -> bool {
+        self.meta.schema >= dm::RESUME_SCHEMA
     }
     /// A seat's demigods, in id order (Left then Right in schema 5).
     pub fn bodies_of_seat(&self, seat: u8) -> impl Iterator<Item = &Demigod> {

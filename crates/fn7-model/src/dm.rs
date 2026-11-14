@@ -27,6 +27,9 @@ pub const DM_SCHEMA: u32 = 6;
 /// The schema challenge mode and the other rules 0.8.1 changes switch on at.
 pub const CHALLENGE_SCHEMA: u32 = 7;
 
+/// The schema exact resume switches on at (an open duel's whole timeline and the delivery mark live in the state).
+pub const RESUME_SCHEMA: u32 = 8;
+
 /// Scars kept per demigod (the newest).
 pub const SCARS_KEPT: usize = 12;
 
@@ -360,6 +363,30 @@ pub struct Dm {
     /// across beats). The plugin owns the shape (`fn7-plugin::duel::Bout`); empty = nothing serialized.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub duels: Vec<Value>,
+    /// Schema 8 (exact resume): what the last resolve was handed, and the beat's clocks. Absent before the first one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mark: Option<Mark>,
+}
+
+/// Schema 8: the delivery mark and clocks of a state (all epoch ms; 0 = unknown).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct Mark {
+    /// The newest instant action a resolve has been handed: its receive stamp and `seq`. Instant actions stamped after
+    /// it (in `(at_ms, seq)` order) are not in this state yet.
+    pub at_ms: i64,
+    pub seq: u64,
+    /// The newest receive stamp of any action the last resolve was handed (its only clock).
+    pub resolved_ms: i64,
+    /// This beat's Start on the server's clock (a recorded side input; 0 in simulations).
+    #[serde(default)]
+    pub round_ms: i64,
+}
+
+impl Mark {
+    /// Was an instant action stamped `(at_ms, seq)` handed to a resolve already?
+    pub fn delivered(&self, at_ms: i64, seq: u64) -> bool {
+        (at_ms, seq) <= (self.at_ms, self.seq)
+    }
 }
 
 impl Dm {

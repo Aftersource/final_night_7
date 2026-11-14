@@ -66,7 +66,7 @@ fn manifest_lists_every_query_with_an_args_schema() {
     let names: Vec<&str> = specs.iter().map(|s| s.name.as_str()).collect();
     assert_eq!(
         names,
-        ["globe", "region", "node", "person", "army", "events", "me", "powers", "gods", "standings", "media", "items", "item", "memory",
+        ["globe", "region", "node", "person", "army", "events", "me", "powers", "gods", "standings", "present", "media", "items", "item", "memory",
          "encounters", "piles_final"]
     );
     for s in &specs {
