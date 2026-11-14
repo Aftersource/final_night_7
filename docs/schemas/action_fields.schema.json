@@ -417,6 +417,37 @@
         }
       ]
     },
+    "duel_keys": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "description": "Live typing (instant; travels alone): a duellist's client says how its unsent line stands. Relayed at once to everyone as `duel.typing`; it decides nothing, is not stored and is not replayed to a reconnecting client. Refusals: challenge_disabled, panels_off, no_duel, not_yours, bad_len, bad_tail.",
+          "properties": {
+            "duel_id": {
+              "type": "string"
+            },
+            "len": {
+              "description": "Characters in the line being typed now.",
+              "maximum": 120,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "tail": {
+              "description": "The newest characters typed since your last duel_keys (0 to 4, never more than `len`; empty after a deletion). No control or invisible format characters.",
+              "maxLength": 4,
+              "type": "string"
+            }
+          },
+          "required": [
+            "duel_id",
+            "len"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "duel_tick": {
       "anyOf": [
         {

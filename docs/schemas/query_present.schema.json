@@ -53,6 +53,17 @@
                 "integer",
                 "null"
               ]
+            },
+            "skin": {
+              "description": "Its mannequin's skin. From the name: FNV-1a 32 of the name's UTF-8 bytes with ASCII A-Z lower-cased, mod 5 in this order; unless it holds a thing a god granted (dragonscale) or a thing of gold (gold). Absent from servers before this field: compute it from the name.",
+              "enum": [
+                "wood",
+                "obsidian",
+                "gold",
+                "dragonscale",
+                "butterfly"
+              ],
+              "type": "string"
             }
           },
           "required": [
@@ -139,6 +150,17 @@
                 "integer",
                 "null"
               ]
+            },
+            "skin": {
+              "description": "Its mannequin's skin. From the name: FNV-1a 32 of the name's UTF-8 bytes with ASCII A-Z lower-cased, mod 5 in this order; unless it holds a thing a god granted (dragonscale) or a thing of gold (gold). Absent from servers before this field: compute it from the name.",
+              "enum": [
+                "wood",
+                "obsidian",
+                "gold",
+                "dragonscale",
+                "butterfly"
+              ],
+              "type": "string"
             }
           },
           "required": [
@@ -2778,6 +2800,60 @@
           "description": "",
           "minimum": 0,
           "type": "integer"
+        },
+        "typing": {
+          "description": "Live typing: each side's unsent line as its last `duel.typing` left it (never the characters).",
+          "properties": {
+            "a": {
+              "description": "",
+              "properties": {
+                "at_ms": {
+                  "description": "The server stamp of that message; null: none since this server process started.",
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "len": {
+                  "description": "Characters typed and not sent (0: nothing, or the line was sent).",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "len",
+                "at_ms"
+              ],
+              "type": "object"
+            },
+            "b": {
+              "description": "",
+              "properties": {
+                "at_ms": {
+                  "description": "The server stamp of that message; null: none since this server process started.",
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "len": {
+                  "description": "Characters typed and not sent (0: nothing, or the line was sent).",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "len",
+                "at_ms"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "a",
+            "b"
+          ],
+          "type": "object"
         }
       },
       "required": [

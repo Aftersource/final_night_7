@@ -542,9 +542,9 @@ Accepted, every client gets `phase.event` `challenge.lock` (both portraits lock 
 ```json
 { "event": "challenge.lock", "duel_id": "duel:s41:0:1", "beat": 2, "level": "regions",
   "a": { "demigod": "dg:0", "name": "Ash's Left Hand", "player": "Ash", "seat": 0, "controller": "human",
-         "health": 10.0, "max_health": 10.0, "portrait_prompt": "Ash's Left Hand, a demigod: …", "diorama_prompt": "…" },
+         "health": 10.0, "max_health": 10.0, "skin": "obsidian", "portrait_prompt": "Ash's Left Hand, a demigod: …", "diorama_prompt": "…" },
   "b": { "demigod": "dg:1", "name": "Brix's Left Hand", "player": "Brix", "seat": 1, "controller": "ai",
-         "health": 10.0, "max_health": 10.0, "portrait_prompt": "…", "diorama_prompt": "…" },
+         "health": 10.0, "max_health": 10.0, "skin": "gold", "portrait_prompt": "…", "diorama_prompt": "…" },
   "at": [106.94723503967316, -6.058344802246152], "cell": "5:regions:11:-4",
   "focus": { "at": [106.94723503967316, -6.058344802246152], "lat": -6.058344802246152, "lon": 106.94723503967316,
              "cell": "5:regions:11:-4", "level": "regions" },
@@ -556,6 +556,8 @@ Accepted, every client gets `phase.event` `challenge.lock` (both portraits lock 
 
 - `a` is the challenger, `b` the target. `focus` (also `at`) is the target's ground: every client centres the
   camera and spins the globe there (`lat` / `lon` spelled out). Both `health` values are the duel's health bars.
+- `a.skin`, `b.skin`: each fighter's mannequin skin, one of `wood`, `obsidian`, `gold`, `dragonscale`, `butterfly`
+  (see "Skins" below). Optional: a server without it sends none, and you compute the name's skin yourself.
 - `duel_id` is `duel:s<seq>:<a>:<b>` for a player's challenge (`seq` = the challenge action's room-wide seq, so the id
   never changes across beats) and `duel:<beat>:<a>:<b>` for the built-in AI's. Quote it in every line.
 - **The end:** a knockout, or the deadline (`duel_deadline_ms`, 30 s after the lock: `deadline_ms`, epoch ms).
@@ -571,6 +573,38 @@ Accepted, every client gets `phase.event` `challenge.lock` (both portraits lock 
   gets the duel's whole span; two AIs fight it out at once). When its rival was beyond 120 km, the AI summons itself
   next to it first: `leap: {demigod, to, health_lost}` (play the teleport and the red pulse; `a.health` is already
   reduced).
+
+#### Skins
+
+`skin` is on each fighter of `challenge.lock` (`a`, `b`), so also in `round.started.public.challenges[]` and in
+`present.duels[]` (`a`, `b`, `lock.a`, `lock.b`). No rules version and no state schema: it is computed when the
+payload is built and stored nowhere. The server picks, in this order:
+
+1. a skin the player named for the demigod: **reserved** (no persona field or account setting carries one yet; when
+   one does, it arrives in this same field);
+2. gear the demigod holds (objects, not armies, fleets or beasts): a thing **a god granted** → `dragonscale`; else a
+   thing **of gold** (the word gold, golden, gilded or gilt in its name or description) → `gold`;
+3. the name: `SKINS[fnv1a32(lower(name)) mod 5]` with `SKINS = [wood, obsidian, gold, dragonscale, butterfly]`.
+
+Rule 3 is the one a client can compute, and what it shows when `skin` is absent:
+
+- `name` is the fighter's `name` exactly as the payload has it (no trimming);
+- `lower`: **only ASCII `A`-`Z` become `a`-`z`**; every other character is left alone (no Unicode case folding, so
+  every language's string library gives the same bytes);
+- FNV-1a, 32 bits, over the **UTF-8 bytes**: `h = 2166136261`; for each byte `h = ((h XOR byte) * 16777619) mod 2^32`.
+
+| `name` | hash | mod 5 | `skin` |
+|---|---|---|---|
+| `Ash's Left Hand` | `0xb1aeb883` | 1 | `obsidian` |
+| `Brix's Right Hand` | `0x5b655229` | 0 | `wood` |
+| `Dune's Right Hand` | `0xb090f624` | 2 | `gold` |
+| `KALI` (= `kali`) | `0x2eced3aa` | 3 | `dragonscale` |
+| `Nyx` | `0x197b6960` | 4 | `butterfly` |
+| `Émile the Unready` (the `É` stays `C3 89`) | `0x3eadb7d1` | 2 | `gold` |
+
+(FNV-1a itself: `""` → `0x811c9dc5`, `"a"` → `0xe40c292c`, `"foobar"` → `0xbf9cf968`.) When `skin` is present, use it:
+rules 1 and 2 need the server. Gear is read when the payload is built, so the `skin` in a later `present` can differ
+from the lock's if the demigod's gear changed at a resolve in between: keep the lock's for the duel.
 
 ### Lines: `fields.duel` → `duel.blow`
 
@@ -818,7 +852,8 @@ at every input close**:
 - If nobody ticks (both clients gone), nothing is lost: the next duel line and every beat's resolve close every
   window their stamps have passed, and the panels come in `also[]` / `challenge.open.panels`. What a panel shows
   never depends on when it was computed.
-- It is an instant action (rate limit 2/s, burst 4 per seat): one tick per panel is well inside it.
+- It is an instant action (rate limit 2/s, burst 4 per seat): one tick per panel is well inside it (but it shares that
+  bucket with your lines and your live typing: see "Live typing" for the cadence that leaves room for it).
 
 ### Where panels and the scene arrive
 
@@ -908,6 +943,94 @@ at one resolve as in 0.8.1.
 | `hp`, `range`, `initiative` | after the panel: exactly the last staged blow's |
 | `winner`, `ko` | outro only: `a` / `b` / null |
 
+### Live typing: `duel.typing`
+
+Both duellists' lines show as they are typed, masked like a password field: stars, with the newest letters readable
+for a moment (`*****p`). Watch your opponent's line character by character and you know what is coming; otherwise you
+are winging it. Schemas: `duel_keys` in `action_fields`, `DuelTyping` in `phase_event`, `typing` in `PresentDuel`. No
+rules version and no state schema: a server from before it accepts the action and does nothing with it (no
+`duel.typing`), and a client that ignores `duel.typing` loses nothing.
+
+**Send** (a duellist's client, while its player types; an instant action that travels alone):
+
+```json
+{ "t": "action.submit", "d": { "instant": true, "fields": {
+    "duel_keys": { "duel_id": "duel:s6:0:2", "len": 9, "tail": " I s" } } } }
+```
+
+| Field | Rule |
+|---|---|
+| `duel_id` | the duel you are in |
+| `len` | integer 0..120: the characters in your line **now** (it goes down when the player deletes; 0 = the line is empty) |
+| `tail` | string, 0 to 4 characters: the **newest** characters typed since your last `duel_keys` (the last 4 if more were typed; `""` after a deletion). Never longer than `len`. No control characters (tab, newline, ...) and no invisible format characters (zero-width, bidi overrides) |
+
+The reply is `action.received {accepted: true}`, or `accepted: false` with `reason`: `bad_len`, `bad_tail`,
+`no_duel` (no `duel_id`, no such duel under way, or its outro is out), `not_yours` (only its two duellists type;
+viewers never do), `panels_off` (the match is older than 0.8.2), `challenge_disabled`: a `duel_tick`'s refusals plus
+the two shape ones.
+
+**Receive** (everyone in the room, viewers too, at once, as `phase.event.public`):
+
+```json
+{ "event": "duel.typing", "duel_id": "duel:s6:0:2", "by": "a", "demigod": "dg:0", "len": 9, "tail": " I s",
+  "at_ms": 1794700012345, "seq": 57 }
+```
+
+- `by`: the side typing (`a` = the challenger); `demigod`: its ref. `at_ms`: the server's receive stamp; `seq`: the
+  action's room-wide arrival number. Order by `(at_ms, seq)` and drop a frame older than the one you already drew.
+- **Draw** side `by`'s line as `len` characters: stars, with the last `tail.length` of them replaced by `tail`.
+  Letters from an earlier frame turn into stars. When more than 4 characters were typed between two frames, the ones
+  in between were never sent: they are stars from the start.
+- **Your own line**: draw it from your own keyboard at once, with the same mask; you get your own `duel.typing` back
+  like everyone else (use it or ignore it).
+- **The line is sent** (`fields.duel`): on the `duel.blow` whose `by` is that fighter's demigod, clear its typing line
+  (the server zeroes its length; it sends no extra `duel.typing`). An automatic counter (`auto: true`) clears nothing.
+  A player who erases the line: send `len: 0, tail: ""`.
+- **It decides nothing.** Only the `fields.duel` sent on Enter is a blow. Typing never moves the panel cycle (it is
+  not a tick), is not in the state, is not in a recording's outcome (a recorded match replays the same with or
+  without it), and is **never replayed**: `present.events[]` has no `duel.typing`. A client that (re)connects
+  mid-duel reads `present.duels[].typing = {a: {len, at_ms}, b: {len, at_ms}}` (each side's current length: draw that
+  many stars; `at_ms` null and `len` 0 when nothing was typed since the server process started) and gets letters
+  from the next frame on. If a side's `at_ms` is older than about 10 s and no frame follows, its client is gone: fade
+  the stars.
+
+#### How often: the cadence that fits the rate limit
+
+Instant actions are limited **per seat** by the core: a token bucket of 2 per second, burst 4. A duellist's
+`duel_keys`, `duel_tick` (one per panel: every 2.4 to 3.6 s) and lines (`fields.duel`) all draw on the same bucket,
+and a limited message is answered with `error {code: "rate_limited"}`: it is **dropped**, whichever kind it is. So
+typing sent too often costs you ticks and lines.
+
+Measured on a private server (two human duellists and a viewer on localhost, both ticking every panel and sending a
+line every 3 s, typing at 7 characters per second, 30 s per run; per duellist):
+
+| `duel_keys` cadence | instants sent /s | `duel_keys` limited | ticks limited | lines limited |
+|---|---|---|---|---|
+| every 450 ms | 2.8 | 15 to 17 of 65 | 3 to 5 of 10 | 1 to 4 of 9 |
+| every 600 ms | 2.3 | 3 to 9 of 50 | 0 to 2 of 11 | 0 to 3 of 9 |
+| every 700 ms | 2.1 | 2 of 43 | 0 | 0 |
+| every 800 ms | 1.9 | 0 | 0 | 0 |
+| every 900 ms (also with a line every 2 s) | 1.8 to 1.9 | 0 | 0 | 0 |
+| every 1000 ms (also with a line every 2 s) | 1.7 to 1.8 | 0 | 0 | 0 |
+| client-side bucket, below (also with a line every 2 s or 5 s) | 2.0 | 0 | 0 | 0 |
+
+The relay itself is fast: from the sender's `send` to the viewer's receipt, median 20 ms, 95th percentile 30 to 75 ms.
+
+**So one `duel_keys` every 450 ms does not fit.** Do one of these:
+
+1. **Fixed: at most one `duel_keys` every 900 ms**, and only when the line changed since the last one. Simple and
+   always inside the limit with a tick per panel and a line every 2 s. (800 ms was clean too, with no margin.)
+2. **Better: mirror the bucket in the client** (the measured policy): keep `tokens` (start 4; add 2 per second, cap
+   4; subtract 1 for every instant action you send, of any kind: casts and summons count too). Send a `duel_keys` only
+   when the line changed, at least 450 ms have passed since your last one, **and `tokens >= 2`** (one token stays in
+   reserve). Send ticks and lines whenever they are due (if `tokens < 1`, which the reserve prevents, wait the few
+   milliseconds until it is 1). This gave 1.2 to 1.6 `duel_keys` per second (1.2 with a line every 2 s, 1.6 with one
+   every 5 s: bursts at 450 ms after a pause, about one per 750 ms in steady typing) with nothing limited, and ticks and lines never waited.
+
+Either way: **never retry a limited `duel_keys`** (the next one supersedes it), and always send lines and ticks
+first. At these rates a fast typist (more than about 5 characters per second) outruns the 4-character `tail`: some
+letters only ever show as stars. That is the design's "otherwise, you're winging it"; `len` is always exact.
+
 ## Exact resume: `present` (state schema 8)
 
 A match started by this server (state **schema 8** and up; older matches in flight keep the 0.8.1 behaviour) can be redrawn
@@ -947,6 +1070,7 @@ at the exact present from one message. The whole data structure is in [TIME_TRAV
 | `events[]` | the public `phase.event` payloads of every instant action since the last resolve, in arrival order, each with `seq`, `received_at_ms`, `beat`. Replay them as if they had just arrived (flash a summoning already on its way, etc.) |
 | `duels[]` | every open duel in full. `a`, `b`, `lock`: exactly `challenge.lock`. `blows[]`: every blow so far, in order, each the `duel.blow` it was shown as (die, damage, `hp`, `anim`, `choreo`, `counter`) with `at_ms` (its server stamp) and `seq` |
 | `duels[].clock` | `elapsed_ms`: duel time elapsed, the offset to seek to. `remaining_ms`: until `deadline_ms`. `running: false` while the room stands still |
+| `duels[].typing` | `{a: {len, at_ms}, b: {len, at_ms}}`: how long each side's unsent line is now (its last `duel.typing`; `at_ms` null: none since this server process started). Draw that many stars. Typing events themselves are never in `events[]` |
 | `duels[].pauses` | `[from_ms, to_ms]` spans the duel's clock stood still. A blow's offset in the duel is `at_ms - started_ms` minus the pauses before it |
 | `paused_since_ms` | the room stands still since then (also `match.snapshot.paused`); clocks are frozen at that moment |
 | `live` | false only for a past state (the admin's state at a round) or a fork before its first Start |

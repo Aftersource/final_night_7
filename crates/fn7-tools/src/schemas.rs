@@ -949,6 +949,16 @@ fn action_fields_schema() -> Value {
             }] },
             "duel_tick": { "anyOf": [{ "type": "null" }, { "type": "object", "required": ["duel_id"], "properties": { "duel_id": { "type": "string" } },
                 "description": "Rules 0.8.2 (instant; travels alone): a duellist's client says the current panel's input window closed, so the next panel is computed now. Refusals: panels_off, no_duel, not_yours." }] },
+            "duel_keys": { "anyOf": [{ "type": "null" }, {
+                "type": "object",
+                "description": "Live typing (instant; travels alone): a duellist's client says how its unsent line stands. Relayed at once to everyone as `duel.typing`; it decides nothing, is not stored and is not replayed to a reconnecting client. Refusals: challenge_disabled, panels_off, no_duel, not_yours, bad_len, bad_tail.",
+                "properties": {
+                    "duel_id": { "type": "string" },
+                    "len": { "type": "integer", "minimum": 0, "maximum": 120, "description": "Characters in the line being typed now." },
+                    "tail": { "type": "string", "maxLength": 4, "description": "The newest characters typed since your last duel_keys (0 to 4, never more than `len`; empty after a deletion). No control or invisible format characters." }
+                },
+                "required": ["duel_id", "len"]
+            }] },
             "duel": { "anyOf": [{ "type": "null" }, {
                 "type": "object",
                 "description": "Rules 0.8.1: one line typed in a duel, resolved at once (`duel.blow`). Refusals: no_duel, duel_over, not_yours, fallen, empty, too_long.",
@@ -1469,7 +1479,9 @@ fn v08_defs() -> Map<String, Value> {
         &[("demigod", r("Ref")), ("name", string("")), ("player", string("")), ("seat", nullable(int("null for the built-in AI."))),
           ("controller", json!({ "type": "string", "enum": ["human", "ai"] })), ("health", num("Health at the lock (both are shown: the duel's health bars).")),
           ("max_health", num("")), ("portrait_prompt", string("")), ("diorama_prompt", string(""))],
-        &[("portrait_image", json!({ "type": "object" })), ("diorama_image", json!({ "type": "object" }))],
+        &[("portrait_image", json!({ "type": "object" })), ("diorama_image", json!({ "type": "object" })),
+          ("skin", json!({ "type": "string", "enum": ["wood", "obsidian", "gold", "dragonscale", "butterfly"],
+                           "description": "Its mannequin's skin. From the name: FNV-1a 32 of the name's UTF-8 bytes with ASCII A-Z lower-cased, mod 5 in this order; unless it holds a thing a god granted (dragonscale) or a thing of gold (gold). Absent from servers before this field: compute it from the name." }))],
     );
     d.insert("ChallengeLock".into(), object(
         "Rules 0.8.1: `phase.event.public` when a challenge is accepted (or `round.started.public.challenges[]` for the AI's): both portraits lock in.",
@@ -1567,7 +1579,20 @@ fn v08_defs() -> Map<String, Value> {
           ("clock", nullable(object("Its clock when the view was built (frozen at `present.paused_since_ms` while the room stands still).",
               &[("at_ms", json!({ "type": "integer" })), ("elapsed_ms", int("Duel time elapsed: the offset to seek to.")), ("remaining_ms", int("")), ("running", boolean(""))], &[]))),
           ("over", boolean("Knocked out or past its deadline: the next resolve ends it."))],
-        &[("scene", nullable(r("DuelScene"))), ("panels", array(r("DuelPanel"), "Rules 0.8.2: every panel so far, in order."))],
+        &[("scene", nullable(r("DuelScene"))), ("panels", array(r("DuelPanel"), "Rules 0.8.2: every panel so far, in order.")),
+          ("typing", ab("Live typing: each side's unsent line as its last `duel.typing` left it (never the characters).",
+              object("", &[("len", int("Characters typed and not sent (0: nothing, or the line was sent).")),
+                           ("at_ms", nullable(json!({ "type": "integer", "description": "The server stamp of that message; null: none since this server process started." })))], &[])))],
+    ));
+    d.insert("DuelTyping".into(), object(
+        "`duel.typing`: a duellist is typing (the relay of its `fields.duel_keys`). Ephemeral: shown once, stored nowhere, never in `present.events`. Mask the line as `len` stars with `tail` as its newest characters.",
+        &[("event", json!({ "const": "duel.typing" })), ("duel_id", string("")),
+          ("by", json!({ "type": "string", "enum": ["a", "b"], "description": "The side typing (a = the challenger)." })),
+          ("demigod", r("Ref")), ("len", json!({ "type": "integer", "minimum": 0, "maximum": 120, "description": "Characters in its line now; 0: cleared." })),
+          ("tail", json!({ "type": "string", "maxLength": 4, "description": "The newest characters since its last message (may be empty)." })),
+          ("at_ms", json!({ "type": "integer", "description": "The server's receive stamp (epoch ms)." })),
+          ("seq", int("The action's room-wide arrival number."))],
+        &[],
     ));
     let hex = json!({ "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2, "description": "A stage hex [q, r]: x = 1.732 (q + r/2), z = 1.5 r metres." });
     d.insert("DuelScene".into(), object(
@@ -1850,7 +1875,7 @@ pub fn all() -> Vec<(&'static str, Value)> {
         ("match_summary", finish("match_summary", "match.ended summary", "match.ended.summary", match_summary(), &pool)),
         ("phase_event", finish("phase_event", "phase.event public", "phase.event.public (pushed at once: who slowed time, a cast's streak)",
             json!({ "description": "`phase.event.public`: an immediate push from the game. `event` says which.",
-                    "oneOf": [r("Slowed"), r("Streak"), r("Summoning"), r("ChallengeLock"), r("DuelBlow"), r("DuelPanel")] }), &pool)),
+                    "oneOf": [r("Slowed"), r("Streak"), r("Summoning"), r("ChallengeLock"), r("DuelBlow"), r("DuelPanel"), r("DuelTyping")] }), &pool)),
     ];
     out.extend(query_schemas(&pool));
     out
