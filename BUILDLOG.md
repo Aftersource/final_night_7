@@ -860,3 +860,29 @@ Engineering:
   - a couple hundred MB streamed per map
   - real-time-ish Archon-like chat combat
 - Renders go to production_assets/beta, never tmp.
+
+## 2026-11-14: god-tier powers (our side), flash and summon your demigod (Benito's side), challenge mode next
+
+> While he naps, the plan is to have this side make the god-tier powers, and for
+> his instant effects, clicking a demigod icon should flash next to them. Make sure Benito's other agents are
+> working on their part on the Unreal side. If the player is on the board in any position, they should be able to summon their
+> demigod there almost instantly by dragging them there, and the demigod should act like a board game piece dragged onto
+> the table map or the world map. They appear there in that turn with their story and deed, which needs to
+> account for what they were doing and where they were, carried into their new place on the board, in the funniest way
+> possible, generally losing a point or two of health depending on how healthy they are (indicating recklessness
+> at high health, so a high chance of 20% etc). After that, discuss what happens in challenge mode, which
+> will be a Mega Man X style double lock-in of the diorama portraits of both demigods, complicated by more
+> than two demigods, which will be worked out.
+
+> Benito has likely never played Archon.
+
+Engineering:
+- Our side: GOD-TIER POWERS, one signature power hex per god (Time, Nature, Consequence, Death, Chance, Memory, Entropy). They invoke that god directly from the ring, cost more bolts, and the server resolves them as god rulings.
+- Benito's side (client):
+  - Clicking a demigod icon flashes the camera to that demigod.
+  - Dragging a demigod piece onto the table board or the world map SUMMONS it there.
+- Server (summon): an instant `summon` action that relocates the demigod THIS beat.
+  - The narrator writes a funny transit that accounts for what it was doing, recorded as a story deed.
+  - It loses 1–2 health. The chance and amount grow with current health (recklessness), so at full health it's about 20% of its health.
+  - All of it is set by settings.
+- Next discussion: CHALLENGE MODE, a Mega Man X-style double lock-in of both demigods' diorama portraits when they engage (more than two is to be designed).
