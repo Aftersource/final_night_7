@@ -792,3 +792,18 @@ Engineering:
 - Coastlines and city lines are mostly faded, fading in on zoom or hover.
 - Level 1 ground life: crowds drawn as small hopping figures.
 - Stretch goal: Archon-style typed battles at people level.
+
+## 2026-11-14: powers around the right of the board, the tier set by where it drops (relayed by the Mac session, typos fixed)
+
+> Mega powers sit over the globe and mini powers sit on the table board. If the bottom of the table cannot visually fit the
+> power hexes around it, place them on the right side: surround the right of the table board with the powers. There is no need
+> to be mega and mini (rows); players will figure it out, and mega is always allowed. Keep the small pouch idea as well,
+> even if it is on the right.
+
+> For demigods, portraits are fine, but dioramas are required. Lay them out at the same fidelity as
+> the diorama pictures, at the same fidelity.
+
+Engineering:
+- Screen map v4: one hex per power in an arc around the right of the board, with the pouch at its front-right end.
+- Dropping a power on the globe makes it MEGA (level 1); sliding it onto the board makes it MINI.
+- Demigods show their real generated diorama images at full fidelity: diorama boxes on the table, and the main image on the HUD cards with the portrait as an inset.
