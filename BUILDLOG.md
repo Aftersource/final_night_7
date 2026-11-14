@@ -933,3 +933,7 @@ Engineering: the summon drag ships in the same mac/perf merge (press your demigo
 > challenge mode and Archon.
 
 Engineering: board pieces draw in front of buildings, with large hit targets. Double-clicking a rival demigod that shares your demigod's grid area opens CHALLENGE MODE (contract v1 below, in DM_RULEBOOK "Challenge mode").
+
+> If the player double-clicks their demigod without dragging, the view should zoom to it.
+
+Engineering: double-clicking your own demigod (card, box or piece, without dragging) selects it and zooms the board one level closer at its position. Double-clicking a rival in the same grid area starts a challenge; elsewhere it just zooms to the rival.
