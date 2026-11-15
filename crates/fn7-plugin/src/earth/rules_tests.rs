@@ -120,7 +120,8 @@ async fn casts_feed_the_field_and_the_field_reaches_the_rules() {
     let m = w.dm.memory.iter().find(|m| m.kind == "earth.quake").unwrap();
     assert!(m.public && m.place.starts_with("pl:") && m.up == vec!["world".to_string()] && m.data["cell"].is_string(), "{m:?}");
     let events: Vec<&Value> = r.outs.iter().flat_map(|o| o["dm_events"].as_array().unwrap()).filter(|e| e["event"].as_str().unwrap().starts_with("earth.")).collect();
-    assert!(events.len() >= 8 && events.iter().all(|e| e["text"].is_string() && e["at"].is_array()));
+    assert!(events.len() >= 8 && events.iter().all(|e| e["text"].is_string() && (e["at"].is_array() || e["event"] == "earth.settled")), "bad earth events: {:?}", events.iter().filter(|e| !(e["text"].is_string() && e["at"].is_array())).take(3).collect::<Vec<_>>());
+    // (earth.settled is a world-scope summary of evicted cells: it names a place in its text and carries no point.)
     // Never more entries a beat than the setting allows (the cap's own record aside).
     for b in 1..=20u32 {
         let n = w.dm.memory.iter().filter(|m| m.beat == b && m.kind.starts_with("earth.") && m.kind != "earth.settled").count();

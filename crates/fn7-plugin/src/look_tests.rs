@@ -538,7 +538,7 @@ fn a_thing_is_never_named_after_an_entity_and_never_pictured_as_one() {
         w.demigods[bot.ix()].player = "Bot Kestrel".into();
         w.seats[2].display_name = "Bot Kestrel".into();
     });
-    assert_eq!(t.w().meta.schema, 15);
+    assert_eq!(t.w().meta.schema, fn7_model::STATE_SCHEMA);
     // The source: the find takes the object's name.
     let mut w = t.w();
     let it = resolver_find(&mut w, bot, "Bot Kestrel's Right Hand", "finds a rusted fish-gutting knife among the trout.");
