@@ -17,6 +17,7 @@ use fn7_model::seed::Rng;
 
 use crate::choreo::{self, MoveClass, Range};
 
+#[derive(Debug)]
 /// One row: the words, the class they ask for, the clips that class may play for them, and its options.
 pub struct Row {
     pub words: &'static [&'static str],
@@ -28,10 +29,14 @@ pub struct Row {
     pub weak: bool,
     /// Typos may match (short commands only).
     pub fuzzy: bool,
+    /// Schema 14: an armed fighter plays its weapon class's clips for this class instead (a generic attack word).
+    pub weapon: bool,
+    /// The state schema the row applies from (12: every schema-12 duel; 14: rows added with duel weapons).
+    pub since: u32,
 }
 
 const fn row(words: &'static [&'static str], class: MoveClass, clips: &'static [&'static str]) -> Row {
-    Row { words, class, clips, leap: false, weak: false, fuzzy: true }
+    Row { words, class, clips, leap: false, weak: false, fuzzy: true, weapon: false, since: 12 }
 }
 
 /// The move words. A word with a space is a phrase.
@@ -41,18 +46,18 @@ pub const TABLE: &[Row] = &[
     row(&["kick"], MoveClass::Strike, &["kick", "roundhouse_kick", "high_kick"]),
     row(&["sweep", "trip"], MoveClass::Strike, &["leg_sweep"]),
     Row { leap: true, ..row(&["jump", "leap", "vault", "pounce", "dive"], MoveClass::Strike, &["jump_attack"]) },
-    row(&["punch", "attack", "strike", "fight", "hit", "bash", "pummel", "batter"], MoveClass::Strike, &["jab", "punch_combo", "strike_side"]),
+    Row { weapon: true, ..row(&["punch", "attack", "strike", "fight", "hit", "bash", "pummel", "batter"], MoveClass::Strike, &["jab", "punch_combo", "strike_side"]) },
     row(&["jab"], MoveClass::Strike, &["jab"]),
     row(&["uppercut"], MoveClass::Heavy, &["uppercut"]),
     Row { weak: true, ..row(&["elbow"], MoveClass::Strike, &["elbow_strike"]) },
     Row { weak: true, ..row(&["knee"], MoveClass::Strike, &["knee_strike"]) },
     row(&["flail", "frenzy", "combo", "flurry"], MoveClass::Strike, &["combo_triple", "punch_combo"]),
     row(&["spin", "whirl"], MoveClass::Strike, &["blade_spin", "axe_spin"]),
-    row(&["slash", "slice", "cut", "lash", "whip", "claw", "rake"], MoveClass::Strike, &["strike_slash", "blade_spin"]),
-    row(&["stab", "pierce", "impale", "skewer", "lunge", "thrust", "spear"], MoveClass::Strike, &["lunge"]),
-    row(&["smash", "crush", "cleave", "overhead", "haymaker", "headbutt", "pulverize", "obliterate", "full force", "all my strength"],
-        MoveClass::Heavy, &["heavy_hammer", "heavy_charged", "ground_slam", "sword_judgment"]),
-    row(&["block", "guard", "shield", "brace", "defend"], MoveClass::Guard, &["block", "block_cross", "shield_push"]),
+    Row { weapon: true, ..row(&["slash", "slice", "cut", "lash", "whip", "claw", "rake"], MoveClass::Strike, &["strike_slash", "blade_spin"]) },
+    Row { weapon: true, ..row(&["stab", "pierce", "impale", "skewer", "lunge", "thrust", "spear"], MoveClass::Strike, &["lunge"]) },
+    Row { weapon: true, ..row(&["smash", "crush", "cleave", "overhead", "haymaker", "headbutt", "pulverize", "obliterate", "full force", "all my strength"],
+        MoveClass::Heavy, &["heavy_hammer", "heavy_charged", "ground_slam", "sword_judgment"]) },
+    Row { weapon: true, ..row(&["block", "guard", "shield", "brace", "defend"], MoveClass::Guard, &["block", "block_cross", "shield_push"]) },
     row(&["parry", "deflect", "counter", "riposte"], MoveClass::Parry, &["parry_high", "parry_back", "counter"]),
     row(&["throw", "judo", "toss", "slam", "hurl", "suplex", "flip", "body-slam"], MoveClass::Throw, &["throw_shoulder", "grapple_throw_down"]),
     row(&["grab", "choke", "wrestle", "clinch", "seize", "headlock", "throttle", "hold you", "pin", "hug"], MoveClass::Grapple, &["grapple_throw_down"]),
@@ -67,10 +72,18 @@ pub const TABLE: &[Row] = &[
     row(&["plead", "beg", "pray", "mercy", "please"], MoveClass::Taunt, &["kneel", "bow"]),
     row(&["taunt", "mock", "laugh", "insult", "jeer", "sneer", "yawn", "scoff"], MoveClass::Taunt, &["taunt"]),
     row(&["feint", "fake", "trick", "bluff", "pretend"], MoveClass::Feint, &["evade_spin"]),
+    // Schema 14 (duel weapons): shooting words play the weapon's clips; without a ranged weapon they are a strike.
+    Row { weapon: true, since: 14, fuzzy: false, ..row(&["shoot", "snipe", "open fire", "fire at", "loose an arrow", "gun down", "blast away"], MoveClass::Strike, &["strike_side", "jab"]) },
+    Row { weapon: true, since: 14, fuzzy: false, ..row(&["chop", "reap", "hew"], MoveClass::Heavy, &["heavy_hammer", "axe_spin"]) },
 ];
 
-/// The clips a class plays when the line names none.
+/// The clips a class plays when the line names none (the current list's).
 pub fn defaults(class: MoveClass) -> &'static [&'static str] {
+    current().defaults.iter().find(|d| d.0 == class).map(|d| d.1).unwrap_or_else(|| defaults_compiled(class))
+}
+
+/// The compiled-in [`defaults`].
+pub fn defaults_compiled(class: MoveClass) -> &'static [&'static str] {
     match class {
         MoveClass::Strike => &["strike_slash", "strike_side", "lunge", "jab", "kick", "elbow_strike", "punch_combo"],
         MoveClass::Heavy => &["heavy_hammer", "heavy_charged", "ground_slam", "sword_judgment", "axe_spin", "uppercut"],
@@ -196,12 +209,43 @@ pub const CLASS_INFO: &[(&str, &str)] = &[
     ("taunt", "words only: takes the initiative, unsettles the foe; also an appeal (plead, beg)"),
 ];
 
-/// THE LIST (docs/DUEL_MOVES.md): everything a line can be mapped to, as data: the classes, the clips (with what
-/// they are, the classes they serve and the fallback of a new one), the paths, and the move words. `version` changes
-/// whenever any of it does.
+/// Schema 14: each weapon class's clips per move class (the generic ones when a class has none), what it shoots and
+/// how far it is meant to fight. `unarmed` has no set: the generic clips.
+pub const WEAPON_TABLE: &[(&str, &str, &[(&str, &[&str])], Option<&str>)] = &[
+    ("one_handed", "a sword, an axe, a mace or a knife in one hand", &[
+        ("strike", &["strike_slash", "lunge", "blade_spin"]), ("heavy", &["sword_judgment", "heavy_charged", "axe_spin"])], None),
+    ("two_handed", "a greatsword, a great hammer, a war axe or a polearm in both hands", &[
+        ("strike", &["twohand_reap", "twohand_chop"]), ("heavy", &["twohand_chop", "sword_judgment", "axe_spin"]),
+        ("guard", &["twohand_stance"]), ("parry", &["twohand_stance", "parry_high"])], None),
+    ("bow", "a bow or a crossbow", &[
+        ("strike", &["bow_quick_shot", "bow_draw_shoot"]), ("heavy", &["bow_draw_shoot"]), ("close", &["bow_aim_walk"]),
+        ("retreat", &["bow_aim_walk", "dodge_roll_back"])], Some("arrow")),
+    ("rifle", "a gun: a rifle, a pistol, a musket", &[
+        ("strike", &["gun_side_shot", "gun_quick_draw", "gun_run_shoot"]), ("heavy", &["gun_quick_draw"]), ("evade", &["gun_roll_fire", "evade_roll"]),
+        ("close", &["gun_run_shoot"]), ("guard", &["gun_reload", "block"])], Some("bullet")),
+    ("launcher", "a rocket launcher, a cannon, anything that fires a blast", &[
+        ("strike", &["launcher_fire"]), ("heavy", &["launcher_fire"]), ("guard", &["gun_reload"])], Some("rocket")),
+    ("thrown", "rocks, knives, spears, bombs: things thrown by hand", &[
+        ("strike", &["throw_object"]), ("heavy", &["throw_object"])], Some("rock")),
+    ("staff", "a staff, a wand, a sceptre", &[
+        ("strike", &["strike_side", "blade_spin"]), ("heavy", &["ground_slam", "heavy_charged"]), ("invoke", &["mage_cast", "invoke"])], Some("orb")),
+    ("shield", "a shield (held with a free hand)", &[
+        ("guard", &["shield_push", "block_cross"]), ("strike", &["shield_push", "strike_side"]), ("parry", &["block", "parry_high"])], None),
+];
+
+/// The weapon classes, best first for "a duellist's class = its best held weapon's" (a ranged weapon beats a blade
+/// beats a shield beats nothing).
+pub const WEAPON_CLASSES: &[&str] = &["unarmed", "one_handed", "two_handed", "bow", "rifle", "launcher", "thrown", "staff", "shield"];
+
+/// THE LIST as compiled in (docs/DUEL_MOVES.md): everything a line can be mapped to, as data: the classes, the clips
+/// (with what they are, the classes they serve and the fallback of a new one), the paths, the move words, each
+/// class's default clips and the weapon classes' clip sets. `version` changes whenever any of it does.
+/// `data/duel_moves.json` is this list (a test checks); the server loads the FILE ([`load_lookup`]).
 pub fn list() -> serde_json::Value {
     use serde_json::json;
     let fallback = |c: &str| crate::panel::CLIP_FALLBACKS.iter().find(|f| f.0 == c).map(|f| f.1);
+    let classes = [MoveClass::Strike, MoveClass::Heavy, MoveClass::Guard, MoveClass::Parry, MoveClass::Feint, MoveClass::Evade, MoveClass::CloseIn,
+                   MoveClass::Retreat, MoveClass::Grapple, MoveClass::Throw, MoveClass::Invoke, MoveClass::Command, MoveClass::Taunt];
     let mut v = json!({
         "classes": CLASS_INFO.iter().map(|(c, about)| json!({ "class": c, "about": about })).collect::<Vec<_>>(),
         "clips": CLIP_INFO.iter().map(|(c, classes, about)| {
@@ -222,15 +266,268 @@ pub fn list() -> serde_json::Value {
             { "path": "knock", "about": "thrown or knocked back" }, { "path": "vault", "about": "over an object (over: its id)" },
             { "path": "slide", "about": "under an object (under: its id)" }, { "path": "wallkick", "about": "off an object (on: its id)" },
             { "path": "flip", "about": "reserved" }, { "path": "wallrun", "about": "reserved" }, { "path": "mantle", "about": "reserved" }, { "path": "drop", "about": "reserved" }],
-        "words": TABLE.iter().map(|r| json!({ "words": r.words, "class": r.class, "clips": r.clips, "leap": r.leap, "weak": r.weak, "typos": r.fuzzy })).collect::<Vec<_>>(),
+        "words": TABLE.iter().map(|r| json!({ "words": r.words, "class": r.class, "clips": r.clips, "leap": r.leap, "weak": r.weak, "typos": r.fuzzy,
+                                               "weapon": r.weapon, "since": r.since })).collect::<Vec<_>>(),
+        "defaults": classes.iter().map(|c| json!({ "class": c, "clips": defaults_compiled(*c) })).collect::<Vec<_>>(),
+        "weapons": WEAPON_TABLE.iter().map(|(wc, about, sets, shoots)| json!({
+            "weapon_class": wc, "about": about, "projectile": shoots,
+            "sets": sets.iter().map(|(c, clips)| json!({ "class": c, "clips": clips })).collect::<Vec<_>>() })).collect::<Vec<_>>(),
+        "draw_clip": "draw_from_nowhere",
     });
     v["version"] = format!("{:016x}", fn7_model::seed::hash_str(&v.to_string())).into();
     v
 }
 
-/// The list's version ([`list`]).
+/// The current list's version (in every `duel_line` record).
 pub fn list_version() -> String {
-    list()["version"].as_str().unwrap_or("").to_string()
+    current().version.clone()
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The list as data: loaded at startup, validated, installed (docs/DUEL_MOVES.md §1)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/// One clip of the list.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClipEntry {
+    pub clip: &'static str,
+    /// The classes it serves (`strike, heavy`; `reaction`; `reserved: bow`).
+    pub serves: String,
+    pub about: String,
+    pub fallback: Option<String>,
+    /// `(len_s, at_ms, use_ms, hit_ms)`.
+    pub trim: Option<(f64, i64, i64, Option<i64>)>,
+}
+
+/// One weapon class's clip sets.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WeaponSet {
+    pub weapon_class: &'static str,
+    pub about: String,
+    pub projectile: Option<String>,
+    pub sets: Vec<(String, &'static [&'static str])>,
+}
+
+/// The list in use: what the server loaded (or the compiled-in one). Its strings live for the process.
+#[derive(Debug)]
+pub struct MoveList {
+    pub version: String,
+    /// Where it came from: `compiled`, or the file's path.
+    pub source: String,
+    /// The list as JSON (what a ruleset records when it is not the compiled one).
+    pub body: serde_json::Value,
+    pub rows: &'static [Row],
+    pub defaults: Vec<(MoveClass, &'static [&'static str])>,
+    pub clips: Vec<ClipEntry>,
+    pub weapon_sets: Vec<WeaponSet>,
+}
+
+fn leak(s: &str) -> &'static str {
+    Box::leak(s.to_string().into_boxed_str())
+}
+
+fn leak_list(v: &serde_json::Value, what: &str) -> Result<&'static [&'static str], String> {
+    let a = v.as_array().ok_or(format!("{what}: not a list"))?;
+    let mut out = vec![];
+    for x in a {
+        out.push(leak(x.as_str().ok_or(format!("{what}: not a string"))?));
+    }
+    Ok(Box::leak(out.into_boxed_slice()))
+}
+
+fn class_of(v: &serde_json::Value, what: &str) -> Result<MoveClass, String> {
+    serde_json::from_value(v.clone()).map_err(|_| format!("{what}: unknown class {v}"))
+}
+
+impl ClipEntry {
+    /// It serves `class` (by its `for`).
+    pub fn serves(&self, class: &str) -> bool {
+        self.serves.split(", ").any(|x| x == class)
+    }
+}
+
+impl MoveList {
+    /// Validate a list (the file's or the compiled one): every clip is one the rig has ([`crate::panel::CLIPS`]) and
+    /// described once, every fallback is one of the 35 original clips, every class is one of the 13, every word row
+    /// and default and weapon set names known clips, every weapon class is known, every trim fits its clip. The
+    /// error says what is wrong where.
+    pub fn from_value(v: serde_json::Value, source: &str) -> Result<MoveList, String> {
+        let err = |e: String| format!("{source}: {e}");
+        let originals = &crate::panel::CLIPS[..35];
+        let classes: Vec<String> = v["classes"].as_array().ok_or(err("no classes".into()))?.iter()
+            .map(|c| c["class"].as_str().unwrap_or("").to_string()).collect();
+        for c in &classes {
+            class_of(&serde_json::json!(c), "classes").map_err(err)?;
+        }
+        if classes.len() != 13 {
+            return Err(err(format!("13 classes expected, {} found", classes.len())));
+        }
+        let mut clips = vec![];
+        for c in v["clips"].as_array().ok_or(err("no clips".into()))? {
+            let name = c["clip"].as_str().ok_or(err("a clip without a name".into()))?;
+            if !crate::panel::CLIPS.contains(&name) {
+                return Err(err(format!("clip {name:?} is not one the rig has (add it to panel::CLIPS and import it first)")));
+            }
+            if clips.iter().any(|x: &ClipEntry| x.clip == name) {
+                return Err(err(format!("clip {name:?} twice")));
+            }
+            let fallback = c["fallback"].as_str().map(str::to_string);
+            if let Some(f) = &fallback {
+                if !originals.contains(&f.as_str()) {
+                    return Err(err(format!("clip {name:?}: fallback {f:?} is not one of the 35 original clips")));
+                }
+            }
+            let trim = match (c["len_s"].as_f64(), c["at_ms"].as_i64(), c["use_ms"].as_i64()) {
+                (Some(len), Some(at), Some(used)) => {
+                    let hit = c["hit_ms"].as_i64();
+                    let ms = (len * 1000.0).round() as i64;
+                    if at < 0 || used <= 0 || at + used > ms + 1 || hit.is_some_and(|h| h < 0 || h > used) {
+                        return Err(err(format!("clip {name:?}: the trim (at_ms {at}, use_ms {used}, hit_ms {hit:?}) does not fit its {len} s")));
+                    }
+                    Some((len, at, used, hit))
+                }
+                _ => None,
+            };
+            clips.push(ClipEntry { clip: leak(name), serves: c["for"].as_str().unwrap_or("").to_string(), about: c["about"].as_str().unwrap_or("").to_string(),
+                                   fallback, trim });
+        }
+        let known = |c: &str| clips.iter().any(|x| x.clip == c);
+        let check = |xs: &[&str], what: &str| -> Result<(), String> {
+            match xs.iter().find(|c| !known(c)) {
+                Some(c) => Err(err(format!("{what}: clip {c:?} is not in the list"))),
+                None => Ok(()),
+            }
+        };
+        let mut rows = vec![];
+        for (k, r) in v["words"].as_array().ok_or(err("no words".into()))?.iter().enumerate() {
+            let what = format!("words[{k}]");
+            let words = leak_list(&r["words"], &what).map_err(err)?;
+            let clips_r = leak_list(&r["clips"], &what).map_err(err)?;
+            if words.is_empty() || clips_r.is_empty() {
+                return Err(err(format!("{what}: needs words and clips")));
+            }
+            check(clips_r, &what)?;
+            rows.push(Row { words, class: class_of(&r["class"], &what).map_err(err)?, clips: clips_r, leap: r["leap"] == true, weak: r["weak"] == true,
+                            fuzzy: r["typos"] != false, weapon: r["weapon"] == true, since: r["since"].as_u64().unwrap_or(12) as u32 });
+        }
+        let mut defaults = vec![];
+        for d in v["defaults"].as_array().into_iter().flatten() {
+            let c = class_of(&d["class"], "defaults").map_err(err)?;
+            let xs = leak_list(&d["clips"], "defaults").map_err(err)?;
+            check(xs, "defaults")?;
+            defaults.push((c, xs));
+        }
+        let mut weapon_sets = vec![];
+        for wsv in v["weapons"].as_array().into_iter().flatten() {
+            let wc = wsv["weapon_class"].as_str().unwrap_or("");
+            if !WEAPON_CLASSES.contains(&wc) {
+                return Err(err(format!("weapon class {wc:?} is not one of {WEAPON_CLASSES:?}")));
+            }
+            let mut sets = vec![];
+            for s in wsv["sets"].as_array().into_iter().flatten() {
+                let c = class_of(&s["class"], wc).map_err(err)?;
+                let xs = leak_list(&s["clips"], wc).map_err(err)?;
+                check(xs, wc)?;
+                sets.push((serde_json::to_value(c).ok().and_then(|x| x.as_str().map(str::to_string)).unwrap_or_default(), xs));
+            }
+            weapon_sets.push(WeaponSet { weapon_class: leak(wc), about: wsv["about"].as_str().unwrap_or("").to_string(),
+                                         projectile: wsv["projectile"].as_str().map(str::to_string), sets });
+        }
+        // The version is the content's: a hand-edited file gets a new one.
+        let mut body = v;
+        if let Some(o) = body.as_object_mut() {
+            o.remove("version");
+        }
+        let version = format!("{:016x}", fn7_model::seed::hash_str(&body.to_string()));
+        body["version"] = version.clone().into();
+        Ok(MoveList { version, source: source.to_string(), body, rows: Box::leak(rows.into_boxed_slice()), defaults, clips, weapon_sets })
+    }
+
+    pub fn clip(&self, name: &str) -> Option<&ClipEntry> {
+        self.clips.iter().find(|c| c.clip == name)
+    }
+
+    /// The classes a clip serves (its `for`).
+    pub fn clip_for(&self, name: &str) -> Option<&str> {
+        self.clip(name).map(|c| c.serves.as_str())
+    }
+
+    /// A weapon class's clips for a move class (`None`: it has none; play the generic ones).
+    pub fn weapon_clips(&self, weapon_class: &str, class: MoveClass) -> Option<&'static [&'static str]> {
+        let c = serde_json::to_value(class).ok()?;
+        self.weapon_sets.iter().find(|w| w.weapon_class == weapon_class)?.sets.iter().find(|s| Some(s.0.as_str()) == c.as_str()).map(|s| s.1)
+    }
+
+    pub fn projectile(&self, weapon_class: &str) -> Option<&str> {
+        self.weapon_sets.iter().find(|w| w.weapon_class == weapon_class)?.projectile.as_deref()
+    }
+
+    /// Is this the compiled-in list?
+    pub fn is_compiled(&self) -> bool {
+        self.version == compiled().version
+    }
+
+    /// What a match's ruleset records: the version and source, and the whole list when it is not the compiled one
+    /// (a replay reads old matches with the list they were played with: [`install_recorded`]).
+    pub fn ruleset_json(&self) -> serde_json::Value {
+        let mut v = serde_json::json!({ "version": self.version, "source": self.source, "compiled": self.is_compiled() });
+        if !self.is_compiled() {
+            v["list"] = self.body.clone();
+        }
+        v
+    }
+}
+
+static COMPILED: std::sync::OnceLock<&'static MoveList> = std::sync::OnceLock::new();
+static CURRENT: std::sync::RwLock<Option<&'static MoveList>> = std::sync::RwLock::new(None);
+
+/// The compiled-in list.
+pub fn compiled() -> &'static MoveList {
+    COMPILED.get_or_init(|| Box::leak(Box::new(MoveList::from_value(list(), "compiled").expect("the compiled-in duel move list is valid"))))
+}
+
+/// The list in use (the compiled one until [`install`]).
+pub fn current() -> &'static MoveList {
+    CURRENT.read().unwrap_or_else(|e| e.into_inner()).unwrap_or_else(compiled)
+}
+
+/// Make `l` the list in use for this process.
+pub fn install(l: MoveList) -> &'static MoveList {
+    let l: &'static MoveList = Box::leak(Box::new(l));
+    *CURRENT.write().unwrap_or_else(|e| e.into_inner()) = Some(l);
+    l
+}
+
+/// Read and validate a list file.
+pub fn load(path: &std::path::Path) -> Result<MoveList, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+    MoveList::from_value(v, &path.display().to_string())
+}
+
+/// The list for this process (like the media style): `FN7_DUEL_MOVES` (a path; must exist and validate), else
+/// `data/duel_moves.json` if it exists (must validate), else the compiled-in list.
+pub fn load_lookup(get: impl Fn(&str) -> Option<String>) -> Result<MoveList, String> {
+    if let Some(p) = get("FN7_DUEL_MOVES").map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) {
+        return load(std::path::Path::new(&p));
+    }
+    let default = std::path::Path::new("data/duel_moves.json");
+    if default.is_file() {
+        return load(default);
+    }
+    MoveList::from_value(list(), "compiled")
+}
+
+/// Replay: the list a recorded match was played with (its ruleset's `duel_moves.list`), installed; the compiled one
+/// when the ruleset has none (every recording before schema 14, and every match played with the compiled list).
+pub fn install_recorded(ruleset: Option<&serde_json::Value>) -> Result<&'static MoveList, String> {
+    match ruleset.map(|r| &r["duel_moves"]["list"]).filter(|l| l.is_object()) {
+        Some(l) => Ok(install(MoveList::from_value(l.clone(), "recorded ruleset")?)),
+        None => {
+            *CURRENT.write().unwrap_or_else(|e| e.into_inner()) = None;
+            Ok(compiled())
+        }
+    }
 }
 
 /// A line as the rollups count it: lower case, words only, single spaces.
@@ -311,10 +608,19 @@ pub struct Read {
     pub word: &'static str,
     /// The clips of the earlier move words, in order (at most two): played first, as setups.
     pub setup: Vec<&'static str>,
+    /// Schema 14: a generic attack word: an armed fighter plays its weapon's clips.
+    pub weapon: bool,
 }
 
-/// Every move word of `text` in order, then the move: see the module docs. `None`: no move word.
+/// Every move word of `text` in order, then the move: see the module docs. `None`: no move word. The rows of a
+/// schema-12 duel (rows added later are not read).
 pub fn read(text: &str) -> Option<Read> {
+    read_at(text, 12)
+}
+
+/// [`read`] with the current list's rows that apply in a state of `schema`.
+pub fn read_at(text: &str, schema: u32) -> Option<Read> {
+    let table: Vec<&'static Row> = current().rows.iter().filter(|r| r.since <= schema).collect();
     let t = text.to_lowercase();
     // The words with their byte offsets.
     let mut ws: Vec<(usize, &str)> = vec![];
@@ -338,7 +644,7 @@ pub fn read(text: &str) -> Option<Read> {
     let mut found: Vec<(usize, &Row, &'static str, usize)> = vec![];
     for (at, w) in &ws {
         let mut best: Option<(&Row, &'static str, usize)> = None;
-        for r in TABLE {
+        for r in table.iter().copied() {
             for k in r.words.iter().filter(|k| !k.contains(' ')) {
                 if let Some(s) = score(w, k, short && r.fuzzy) {
                     // The best score; among equals the longest word ("jumpkick" before "jump").
@@ -352,7 +658,7 @@ pub fn read(text: &str) -> Option<Read> {
             found.push((*at, r, k, s));
         }
     }
-    for r in TABLE {
+    for r in table.iter().copied() {
         for k in r.words.iter().filter(|k| k.contains(' ')) {
             if let Some(at) = t.find(k) {
                 // A phrase replaces the words inside it.
@@ -375,7 +681,7 @@ pub fn read(text: &str) -> Option<Read> {
             setup.push(c);
         }
     }
-    Some(Read { class: r.class, clips: r.clips, leap: r.leap, word, setup })
+    Some(Read { class: r.class, clips: r.clips, leap: r.leap, word, setup, weapon: r.weapon })
 }
 
 /// The move class a line asks for (schema 12): its move word's, else the 0.8.1 reading.
@@ -400,6 +706,13 @@ pub fn clip(read: Option<&Read>, class: MoveClass, last: Option<&str>, r: &mut R
         Some(x) if x.class == class || (matches!(x.class, MoveClass::Invoke | MoveClass::Command) && class == MoveClass::Taunt) => x.clips,
         _ => defaults(class),
     };
+    let fresh: Vec<&'static str> = list.iter().copied().filter(|c| Some(*c) != last).collect();
+    let from = if fresh.is_empty() { list.to_vec() } else { fresh };
+    from[r.below(from.len() as u64) as usize]
+}
+
+/// A clip from `list`, never `last` when there is a choice.
+pub fn clip_from(list: &'static [&'static str], last: Option<&str>, r: &mut Rng) -> &'static str {
     let fresh: Vec<&'static str> = list.iter().copied().filter(|c| Some(*c) != last).collect();
     let from = if fresh.is_empty() { list.to_vec() } else { fresh };
     from[r.below(from.len() as u64) as usize]
