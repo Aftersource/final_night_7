@@ -126,6 +126,10 @@ pub fn moved(scene: &Scene, world: &World, r: Ref, p: V3) -> Option<V3> {
 fn side_of(v: &Value) -> Option<usize> { match v.as_str() { Some("a") => Some(0), Some("b") => Some(1), _ => None } }
 /// The strike power of a contact: the lab's `power` if the panel gives one, else from the rules' `impulse` (0..1,
 /// damage / 4): 0.5 + 2.6 impulse, so a light blow is the lab's 1.0 and a full one its boosted 3.1.
+/// When a projectile is fired (panel-local ms): the lab's `t_ms` or the rules' `t_fire_ms`.
+pub fn shot_t(c: &Value) -> f64 { c["t_ms"].as_f64().or_else(|| c["t_fire_ms"].as_f64()).unwrap_or(0.0) }
+/// The blast (N s at the centre) of a projectile the table gives none but the rules give an area (`aoe_hexes`).
+pub const AOE_BLAST: f64 = 200.0;
 pub fn contact_power(c: &Value) -> f64 { c["power"].as_f64().unwrap_or_else(|| c["impulse"].as_f64().map(|i| 0.5 + 2.6 * i).unwrap_or(1.0)) }
 
 impl Sim {
@@ -201,7 +205,7 @@ impl Sim {
         // strikes and projectiles, by time
         let mut strikes: Vec<(f64, &Value)> = panel["contacts"].as_array().map(|a| a.iter().map(|c| ((t0 + c["t_ms"].as_f64().unwrap_or(0.0)) / 1000.0, c)).collect()).unwrap_or_default();
         strikes.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-        let mut shots_in: Vec<(f64, &Value)> = panel["projectiles"].as_array().map(|a| a.iter().map(|c| ((t0 + c["t_ms"].as_f64().unwrap_or(0.0)) / 1000.0, c)).collect()).unwrap_or_default();
+        let mut shots_in: Vec<(f64, &Value)> = panel["projectiles"].as_array().map(|a| a.iter().map(|c| ((t0 + shot_t(c)) / 1000.0, c)).collect()).unwrap_or_default();
         shots_in.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
         let (mut si, mut pi) = (0, 0);
 
@@ -222,7 +226,8 @@ impl Sim {
                 on: o.r.map(|r| On::Obj(r.obj, r.part)).unwrap_or(On::Floor), kind: o.why });
         };
         let close_foot = |f: OpenFoot, limb: &'static str, fb: &mut FighterBake| {
-            fb.limbs.push(LimbTarget { t0_ms: local_ms(f.step0), t1_ms: local_ms(f.step1 + FOOT_EVERY), in_ms: 100.0, out_ms: 100.0, limb, p: f.p, n: f.n, on: f.obj.map(|o| On::Obj(o, f.part)).unwrap_or(On::Floor), kind: "plant" });
+            let (t0, t1) = (local_ms(f.step0), local_ms(f.step1 + FOOT_EVERY)); let ramp = (0.5 * (t1 - t0)).min(100.0);
+            fb.limbs.push(LimbTarget { t0_ms: t0, t1_ms: t1, in_ms: ramp, out_ms: ramp, limb, p: f.p, n: f.n, on: f.obj.map(|o| On::Obj(o, f.part)).unwrap_or(On::Floor), kind: "plant" });
         };
 
         let max_end = s_end + if settle { (SETTLE_MAX_MS * HZ as f64 / 1000.0) as u64 } else { 0 };
@@ -294,7 +299,8 @@ impl Sim {
                             let g = hit.map(|h| py + 0.55 - h.0).unwrap_or(0.0f64.max(py - 0.95));
                             let dy = if g - py < -0.45 { 0.0 } else { g - py };
                             let n = hit.map(|h| h.1).unwrap_or(UP);
-                            if dy.abs() > 0.012 || n[1] < 0.995 { found = Some(OpenFoot { step0: step, step1: step, p: [x[0], py + dy, x[2]], n, obj: hit.map(|h| self.world.bodies[h.2].obj), part: hit.map(|h| self.world.bodies[h.2].parts[h.3].src).unwrap_or(0) }); }
+                            // only a surface a foot can stand on (under 45 degrees): a tumbled crate's side is not one
+                            if n[1] > 0.7 && (dy.abs() > 0.012 || n[1] < 0.995) { found = Some(OpenFoot { step0: step, step1: step, p: [x[0], py + dy, x[2]], n, obj: hit.map(|h| self.world.bodies[h.2].obj), part: hit.map(|h| self.world.bodies[h.2].parts[h.3].src).unwrap_or(0) }); }
                         }
                         let same = match (&feet[side][fi], &found) { (Some(o), Some(f)) => o.obj == f.obj && (o.p[1] - f.p[1]).abs() < 0.015 && dot(o.n, f.n) > 0.999 && hypot2(o.p[0] - f.p[0], o.p[2] - f.p[2]) < 0.12, _ => false };
                         if same { feet[side][fi].as_mut().unwrap().step1 = step; }
@@ -366,23 +372,33 @@ impl Sim {
             while pi < shots_in.len() && shots_in[pi].0 <= t + 1e-9 {
                 let c = shots_in[pi].1; pi += 1;
                 let Some(by) = side_of(&c["by"]) else { continue };
-                let pk = projectile(c["kind"].as_str().unwrap_or("stone"));
+                // two shapes: the lab's ({t_ms, kind, on | to: [q, r], y, mass, speed, blast, radius}) and the rules'
+                // (docs/DUEL_MOVES.md 4.6: {t_fire_ms, t_hit_ms, kind, to: "a" | "b" | <object id> | [q, r], speed,
+                // on_hit: {impulse 0..1, aoe_hexes}, miss})
+                let pk = projectile(match c["kind"].as_str().unwrap_or("stone") { "rock" => "stone", "orb" => "fireball", k => k });
+                let oh = &c["on_hit"];
                 let (mass, speed) = (c["mass"].as_f64().unwrap_or(pk.mass), c["speed"].as_f64().unwrap_or(pk.speed).max(1.0));
-                let (blast, radius) = (c["blast"].as_f64().unwrap_or(pk.blast), c["radius"].as_f64().unwrap_or(pk.radius).max(0.1));
+                let aoe = oh["aoe_hexes"].as_f64().unwrap_or(0.0);
+                let blast = c["blast"].as_f64().unwrap_or(if pk.blast > 0.0 { pk.blast } else if aoe > 0.0 { AOE_BLAST } else { 0.0 });
+                let radius = c["radius"].as_f64().unwrap_or(if aoe > 0.0 { aoe * S3 } else { pk.radius }).max(0.1);
+                let power = oh["impulse"].as_f64().map(|i| 0.5 + 2.6 * i).unwrap_or(1.0);
                 let (sy, cy) = sincos(yaws[by]);
                 let from = add(sts[by].0.p, [sy * 0.4, c["y"].as_f64().unwrap_or(1.3), cy * 0.4]);
-                let (goal, mut hit) = if let Some(oi) = c["on"].as_str().and_then(|id| scene.index(id)) {
+                let target = if c["on"].is_null() { &c["to"] } else { &c["on"] };
+                let fighter_target = |foe: usize| (add(sts[foe].0.p, [0.0, 1.3, 0.0]), On::Fighter(foe, "chest".into()));
+                let (goal, mut hit) = if let Some(oi) = target.as_str().filter(|s| *s != "a" && *s != "b").and_then(|id| scene.index(id)) {
                     (self.world.body(oi).map(|b| self.world.bodies[b].p).unwrap_or(scene.objects[oi].com), On::Floor)
-                } else if c["to"].is_array() { let w = hex_to_world([c["to"][0].as_f64().unwrap_or(0.0), c["to"][1].as_f64().unwrap_or(0.0)]); ([w[0], 0.0, w[2]], On::Floor) }
-                else { let foe = side_of(&c["on"]).filter(|s| *s != by).unwrap_or(1 - by); (add(sts[foe].0.p, [0.0, 1.3, 0.0]), On::Fighter(foe, "chest".into())) };
+                } else if target.is_array() { let w = hex_to_world([target[0].as_f64().unwrap_or(0.0), target[1].as_f64().unwrap_or(0.0)]); ([w[0], 0.0, w[2]], On::Floor) }
+                else { fighter_target(side_of(target).filter(|s| *s != by).unwrap_or(1 - by)) };
                 let d = sub(goal, from); let (dl, dir) = (len(d), norm(d));
                 let h = self.world.cast_ray(&|b| !b.hidden, from, dir, dl + 0.3, 0.0);
                 let (to, body) = match h { Some((ht, _, hb, hp)) => { hit = On::Obj(self.world.bodies[hb].obj, self.world.bodies[hb].parts[hp].src); (adds(from, dir, ht), Some(hb)) } None => (goal, None) };
-                let tf = len(sub(to, from)) / speed;
-                let ct = c["t_ms"].as_f64().unwrap_or(0.0);
-                shots.push(Shot { t0_ms: ct, t1_ms: ct + tf * 1000.0, kind: pk.kind.clone(), from, to, by, hit, blast, radius });
+                let ct = shot_t(c);
+                // the rules may fix the arrival; then a body in the way is reached in proportion
+                let tf = match c["t_hit_ms"].as_f64() { Some(th) if th > ct => (th - ct) / 1000.0 * len(sub(to, from)) / dl.max(1e-9), _ => len(sub(to, from)) / speed };
+                shots.push(Shot { t0_ms: ct, t1_ms: ct + tf * 1000.0, kind: pk.kind.clone(), from, to, by, hit, blast: blast * power, radius });
                 if body.is_some() || blast > 0.0 {
-                    self.pending.push((t + tf, Act::Shot { at: to, j: mul(dir, mass * speed), body, blast, radius, by }));
+                    self.pending.push((t + tf, Act::Shot { at: to, j: mul(dir, mass * speed * power), body, blast: blast * power, radius, by }));
                     self.pending.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
                 }
             }
