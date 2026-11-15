@@ -1196,7 +1196,7 @@ async fn the_routes_list_page_detail_serve_files_and_register() {
     let sides = fake_cache(&media);
     let reg = Arc::new(Registry::open(t.path().join("assets")).unwrap());
     ingest::media_cache(&reg, &media).unwrap();
-    let cfg = HttpConfig { key: Some("k1".into()), admin_token: Some("admin-1".into()), sessions: Some(Arc::new(OneSession)) };
+    let cfg = HttpConfig { key: Some("k1".into()), admin_token: Some("admin-1".into()), sessions: Some(Arc::new(OneSession)), gods: None };
     let app = crate::http::router(reg.clone(), cfg);
 
     // The key gates every read.

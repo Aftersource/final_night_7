@@ -3278,6 +3278,20 @@ What the Unreal client does for each seat:
    asset with a new sha256: the next `figures` answer names it, and the old file can be evicted at leisure.
 6. **Re-ask** at each match start (the answer is small). `bytes` and `tris` are there to budget before fetching.
 
+**The god at a seat** (ACCOUNTS.md § 14): `figures?name=<a player's display name>` also answers `god`, the stone god
+that player chose:
+
+```json
+"god": { "source": "account", "account": "acc_…", "status": "ready",
+         "image": { "hash": "5f0c…", "url": "/media/5f0c….png", "status": "ready", "sha256": "…", "asset_id": "ast_…", "file_url": "/api/assets/ast_…/file" },
+         "statue": null, "statue_status": null, "description": "…", "stone": "white_marble", "pose": "thinker", "accepted_at": 1794780002000 }
+```
+
+`statue` is the god statue's GLB asset (with `file_url` and `sha256`, fetched and cached like any statue) once one is
+ready. A player who has not accepted a god: the house's marble god of that name when one exists (`"source": "house"`:
+`image.url` is the marble reference picture's `file_url`, `statue` its GLB), else `"god": null` (draw the default
+pedestal). Cache the image by `sha256` (or by `hash`, the media key) like the statues.
+
 `GET /api/assets/figures` without `name` lists every statue and figure there is, to prefetch. A god's statue is
 asked for the same way (`name=Chris&subject_kind=god`); when a demigod and a god share a name and no `subject_kind` is
 given, `statue` is the demigod's and `god_statue` the god's.
@@ -3318,6 +3332,7 @@ contract. Schemas: [`account_session`](schemas/account_session.schema.json),
 [`account_demigod`](schemas/account_demigod.schema.json),
 [`account_demigod_put`](schemas/account_demigod_put.schema.json),
 [`account_demigod_answer`](schemas/account_demigod_answer.schema.json),
+[`account_god`](schemas/account_god.schema.json) (and the other `account_god_*`: the god form),
 [`account_entitlements`](schemas/account_entitlements.schema.json),
 [`account_error`](schemas/account_error.schema.json). A scripted client that makes every call below, in order:
 [`clients/fn7_accounts_e2e.mjs`](clients/fn7_accounts_e2e.mjs).
@@ -3331,7 +3346,8 @@ contract. Schemas: [`account_session`](schemas/account_session.schema.json),
 - Every answer is `Cache-Control: no-store`. Times are Unix epoch milliseconds.
 - **Rate limits** answer `429 {"error": "rate_limited"}` with a `Retry-After` header in seconds. Per minute: the
   sign-in routes and `/api/game/bind` 10 per client address; `/api/auth/poll` 120 per client address; `GET /api/me…`
-  240, writes 30 and demigod saves 6 per account.
+  240, writes 30 and demigod (and god form) saves 6 per account; new god previews `god_preview_per_day` (6) per
+  account per day.
 - Unknown keys in a request body are refused (`400 invalid`).
 
 | Status | `error` | When |
@@ -3348,10 +3364,12 @@ contract. Schemas: [`account_session`](schemas/account_session.schema.json),
 | 409 | `name_mismatch` | `/api/game/bind`: the websocket logged in under a name that is not the account's. |
 | 409 | `already_linked` | The account already has a Google identity. |
 | 409 | `identity_in_use` | (In a poll's `failed` answer.) That Google account belongs to another account. |
+| 409 | `preview_not_ready` | `POST /api/me/god/accept`: the preview is still being drawn. |
 | 413 | `too_large` | The body is over the route's cap (16 384 bytes for settings, 8 192 elsewhere). |
-| 422 | `refused` | The moderation pass refused a demigod sheet, or a display name broke the content rules. |
+| 422 | `refused` | The moderation pass refused a demigod sheet or a god form, or a display name broke the content rules. |
 | 429 | `rate_limited` | See above. |
 | 503 | `google_not_configured` | This server has no Google sign-in. Guests work. |
+| 503 | `budget_reached`, `image_refused`, `images_off` | `POST /api/me/god/preview`: the server's image budget is spent, the image layer refused, or images are off. |
 | 500 | `store`, `internal` | The server failed. Retry later. |
 
 ### `GET /api/auth/config`
@@ -3527,6 +3545,70 @@ The same sheet sent again is answered from the stored record without a new pass.
 Other errors: `400 invalid` (`"personality is limited to 600 characters (this is 601)"`), `409 name_conflict`
 (`"Vex is one of the game's own demigods"`, `"another player's demigod has that name, or one that reads the same"`,
 `"your two demigods need different names"`), `404 not_found` (a hand other than `left` / `right`), `429`.
+
+### The god form: `GET/PUT /api/me/god`, `POST /api/me/god/preview`, `POST /api/me/god/accept`
+Session. The design, Chris's words and the reasoning: [ACCOUNTS.md § 14](ACCOUNTS.md#14-the-god-form-designed-2026-11-14-built-2026-11-15-on-branch-backendgod-form).
+Schemas: [`account_god`](schemas/account_god.schema.json), [`account_god_put`](schemas/account_god_put.schema.json),
+[`account_god_answer`](schemas/account_god_answer.schema.json), [`account_god_preview`](schemas/account_god_preview.schema.json),
+[`account_god_accept`](schemas/account_god_accept.schema.json).
+
+The "Characterization" tab: one entry box ("How does your stone godform look?"), a stone picker and a pose picker,
+then **Preview** and **Accept**.
+
+**`GET /api/me/god`** → the form (defaults until saved), the newest preview, the portrait (the accepted preview), the
+statues, the limits and the presets for the pickers:
+```json
+{"saved": true, "description": "A hunched old god with a lantern.", "stone": "white_marble", "stone_custom": false, "pose": "thinker",
+ "moderation": {"verdict": "ok", "reason": "", "model": "claude-haiku-5-5", "at": 1794780000000, "original": {"description": "A hunched old god with a lantern.", "stone": "white_marble", "pose": "thinker"}},
+ "preview": {"hash": "5f0c…", "url": "/media/5f0c….png", "status": "ready", "prompt": "A single monumental statue of a god carved from white marble…", "at": 1794780001000,
+             "description": "A hunched old god with a lantern.", "stone": "white_marble", "pose": "thinker", "accepted": true},
+ "portrait": {"hash": "5f0c…", "url": "/media/5f0c….png", "status": "ready", "accepted_at": 1794780002000, "description": "…", "stone": "white_marble", "pose": "thinker"},
+ "statues": [], "statue_meshy": false,
+ "limits": {"description": 600, "stone": 60, "preview_per_day": 6, "previews_left_today": 5, "statues_per_account": 1},
+ "options": {"stones": [{"id": "white_marble", "label": "White marble"}, {"id": "black_onyx", "label": "Black onyx"}, {"id": "granite", "label": "Granite"},
+                        {"id": "sandstone", "label": "Sandstone"}, {"id": "jade", "label": "Jade"}, {"id": "bronze", "label": "Bronze"}, {"id": "gold_leaf", "label": "Gold leaf"}],
+             "poses": [{"id": "thinker", "label": "The Thinker"}, {"id": "david", "label": "Michelangelo's David"}, {"id": "moses_seated", "label": "Moses, seated"},
+                       {"id": "discus_thrower", "label": "The Discus Thrower"}, {"id": "atlas", "label": "Atlas"}, {"id": "winged_victory", "label": "Winged Victory"},
+                       {"id": "boxer_at_rest", "label": "The Boxer at Rest"}, {"id": "custom", "label": "Your own"}]}}
+```
+
+**`PUT /api/me/god`**
+```json
+{"description": "A hunched old god with a lantern.", "stone": "white_marble", "pose": "thinker"}
+```
+Every key optional (`""`, `white_marble`, `thinker`). `stone` is a preset id or the player's own words (≤ 60
+characters, one line); `pose` a preset id or `custom` (then the description says the pose and may not be empty).
+Unknown keys, a description over 600 characters, control characters (other than newlines and tabs in the
+description) and unknown poses are `400 invalid`. The answer is the demigod sheet's (above): `ok` (saved verbatim),
+`rephrase` (saved as `final`; `original`, `final`, `reason`, `categories`), `refuse` (`422`, nothing saved, `god` =
+what the account still has), each with `god` = the `GET` answer. The same form again is answered without a new pass.
+
+**`POST /api/me/god/preview`** (no body) draws one reference image of the saved form:
+```json
+{"status": "pending", "hash": "5f0c…", "url": null, "prompt": "A single monumental statue of a god carved from white marble with soft grey veining, …",
+ "charged": true, "previews_left_today": 5, "description": "A hunched old god with a lantern.", "stone": "white_marble", "pose": "thinker"}
+```
+Show the image when `GET /api/me/god` → `preview.status` is `ready` (or watch `GET /media/index`); `url` is
+`/media/<hash>.<ext>`. The same form again is the same picture: `charged: false`, free, instant once drawn. Errors:
+`404 not_found` (save a form first), `429 rate_limited` with `Retry-After` (more than `previews_left_today` new
+pictures in 24 h; pictures that exist are still free), `503 budget_reached` (the server's image budget),
+`503 images_off`.
+
+**`POST /api/me/god/accept`** `{"hash": "5f0c…"}` (optional: the newest preview by default) → the preview is the
+player's **god portrait from now on** (the seat shows it):
+```json
+{"accepted": {"hash": "5f0c…", "url": "/media/5f0c….png", "status": "ready", "accepted_at": 1794780002000,
+              "description": "A hunched old god with a lantern.", "stone": "white_marble", "pose": "thinker"},
+ "statue": "not_enabled"}
+```
+`statue` is `"not_enabled"` unless the server has 3D statues on (they cost real credits; off by default); then
+`{"status": "queued", "task_id": "…", "provider": "meshy", "credits_estimate": 30}` (follow it in `GET /api/me/god` →
+`statues[]`: `queued` → `ready`), `{"status": "cap_reached", "cap": 1, "statues": 1}`, or `"not_configured"`.
+Errors: `404 not_found` (no such preview), `409 preview_not_ready` (still being drawn).
+
+**At the table** every client asks `GET /api/assets/figures?name=<seat display name>` (no session) and reads `god`
+(see "Assets" above): the accepted image, the statue once ready, else the house's marble god of that name, else
+`null`. Nothing about the god form is in the match's payloads.
 
 ### `GET /api/me/entitlements`
 Session. **Billing is not live.**

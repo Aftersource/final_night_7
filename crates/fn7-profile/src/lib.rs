@@ -21,6 +21,7 @@
 //! ([`ingest::read_recording`]) can both run over the same match.
 
 pub mod accounts;
+pub mod gods;
 pub mod ingest;
 pub mod normalize;
 pub mod schema;

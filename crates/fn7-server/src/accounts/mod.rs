@@ -33,6 +33,7 @@
 //! removes them. `FN7_NAME_GUARD=off` turns the eviction and the takeover refusal off (personas and history still
 //! need a bound seat).
 
+pub mod god;
 pub mod google;
 pub mod http;
 pub mod limiter;
@@ -458,6 +459,11 @@ impl Accounts {
     /// Run the moderation pass over a sheet (one LLM call, or the rules).
     pub async fn moderate(&self, sheet: &Sheet) -> Judgement {
         moderate::run(self.llm.as_deref(), sheet, self.cfg.moderation_timeout).await
+    }
+
+    /// Run the moderation pass over a god form (the same one LLM call and rules as a demigod sheet).
+    pub async fn moderate_god(&self, g: &moderate::GodText) -> moderate::GodJudgement {
+        moderate::run_god(self.llm.as_deref(), g, self.cfg.moderation_timeout).await
     }
 
     /// What `account` brings to `seat`: its two stored demigods (their final text) and its pronouns.

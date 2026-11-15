@@ -1,0 +1,61 @@
+{
+  "$defs": {},
+  "$id": "account_god_preview.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "charged": {
+      "description": "false: this picture already existed (free, not counted).",
+      "type": "boolean"
+    },
+    "description": {
+      "type": "string"
+    },
+    "hash": {
+      "description": "The fn7-media key: GET /media/<hash>.<ext>; also GET /api/assets/<hash>.",
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "pose": {
+      "type": "string"
+    },
+    "previews_left_today": {
+      "type": "integer"
+    },
+    "prompt": {
+      "description": "Exactly what the image model was sent.",
+      "type": "string"
+    },
+    "status": {
+      "description": "pending: watch GET /api/me/god (preview.status) or GET /media/index.",
+      "enum": [
+        "pending",
+        "ready"
+      ],
+      "type": "string"
+    },
+    "stone": {
+      "type": "string"
+    },
+    "url": {
+      "description": "/media/<hash>.<ext> once ready.",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "status",
+    "hash",
+    "url",
+    "prompt",
+    "charged",
+    "previews_left_today",
+    "description",
+    "stone",
+    "pose"
+  ],
+  "title": "POST /api/me/god/preview: the answer",
+  "type": "object"
+}

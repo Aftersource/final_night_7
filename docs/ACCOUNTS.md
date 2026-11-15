@@ -343,7 +343,7 @@ When a signed-in, bound player's seat is created (match start) or taken (mid-mat
 - `POST /api/auth/logout_all` → `{"revoked": n}`. Every session of the account, this one included.
 - `DELETE /api/me` with `{"confirm": "<your display name>"}` → `{"deleted": {...}, "remains": [...]}`.
 
-**Deleted:** the account; its identities (the email with them); every session; the settings document; both demigod
+**Deleted:** the account; its identities (the email with them); every session; the settings document; the god form (its previews, accepted images and statue records); both demigod
 sheets and the moderation log; entitlements; game bindings; and its linked profiles (the current name's and any past
 names') with their descriptions, history rows, demigod identities and library entries.
 
@@ -352,7 +352,8 @@ names') with their descriptions, history rows, demigod identities and library en
 1. **Match recordings** (server-side JSONL files, admin access only): the display name the player used, their
    demigods' names and personality text as they were in those matches, and the orders they typed. Recordings never
    held an email, a session token or a resume token.
-2. **Images already generated** for their demigods (keyed by demigod name) in the media cache.
+2. **Images already generated** for their demigods (keyed by demigod name) and for their god form (previews and any
+   statue) in the media cache and the asset registry.
 3. **Other players' history rows** that mention their display name or demigod names (a champion's name, an
    elimination).
 4. **The list of past matches** (ids, dates, champions' names), without their own row.
@@ -463,7 +464,7 @@ Screens and calls, in order. Every call is in CLIENT_API.md with its request, an
 - The scripted client (`docs/clients/fn7_accounts_e2e.mjs`) against a private server on another port, twice: with no
   LLM (the rules fallback), and with its own fake gateway answering `ok` / `rephrase` / `refuse`.
 
-## 14. The god form (designed 2026-11-14; not built yet)
+## 14. The god form (designed 2026-11-14; built 2026-11-15 on branch `backend/god-form`)
 
 Chris's words (verbatim):
 
@@ -475,27 +476,127 @@ Chris's words (verbatim):
 
 What it is: each player's god sits at their seat as a stone statue. The player chooses how it looks.
 
+**Status: built and tested** (branch `backend/god-form`, from STABLE `55a1c3d`). Code: the routes and the service
+`crates/fn7-server/src/accounts/god.rs`; the moderation pass `fn7_agents::moderate::run_god`; the store
+`crates/fn7-profile/src/gods.rs` (profile-store migration 4); the figures answer `fn7_assets::query::god_figure`.
+Tests: `crates/fn7-server/tests/god.rs`. Schemas: `docs/schemas/account_god*.schema.json`. No game state, payload or
+recording changes: **state schema stays 20**. Nothing spends by default (Meshy statues are off).
+
 **The screen** (the setup screen after sign-in, a "Characterization" tab beside the two demigod sheets):
 
 - An **entry box**: "How does your stone godform look?" Free text, the player's own words (up to 600 characters): the
-  figure, the pose, what it holds.
+  figure, the pose, what it holds. → `description`.
 - A **stone / texture choice**: white marble (the default), black onyx, granite, sandstone, jade, bronze, gold leaf,
-  or their own words.
-- A **pose** picker with classical poses as shortcuts that fill the box (The Thinker, David, Moses seated, the Discus
-  Thrower, Atlas, Winged Victory, the Boxer at Rest), still editable.
+  or their own words. → `stone`: `white_marble` | `black_onyx` | `granite` | `sandstone` | `jade` | `bronze` |
+  `gold_leaf`, or any other text (≤ 60 characters, one line, at least one letter), which is judged by the same pass.
+- A **pose** picker with classical poses as shortcuts (The Thinker, David, Moses seated, the Discus Thrower, Atlas,
+  Winged Victory, the Boxer at Rest), still editable. → `pose`: `thinker` | `david` | `moses_seated` |
+  `discus_thrower` | `atlas` | `winged_victory` | `boxer_at_rest` | `custom` (the description says the pose; it may not
+  be empty then).
 - **Preview and accept**: the server draws a reference image first (cheap). The player accepts it or edits and tries
-  again (rate limited). Only an accepted image becomes a 3D statue.
+  again (rate limited). Only an accepted image can become a 3D statue.
 - Until a player has made one, their seat shows the default: a marble statue with the likeness of their Left Hand in
-  a classical pose (as made for Chris, Benito and the AI players on 2026-11-14).
+  a classical pose (as made for Chris, Benito and the AI players on 2026-11-14): the figures endpoint answers it as
+  `god.source = "house"`.
 
-**The server** (to build): `GET/PUT /api/me/god` `{description, stone, pose}`; the same one-pass moderation as the
-demigod sheets (the player's words verbatim unless they break the content rules; `ok` / `rephrase` / `refuse`);
-`POST /api/me/god/preview` makes the reference image (OpenAI, the marble statue prompt in
-`final_night_7_unreal/production_assets/meshy/figures/*/provenance.json`); `POST /api/me/god/accept` queues the statue
-(Meshy image-to-3D, about 30 credits) and registers it in the asset registry as kind `god`, keyed by the account.
-Cached: one statue per accepted description; a new description is a new statue and the old ones stay in the library.
-Budgets: previews per day and statues per account are capped by settings; a statue costs real credits, so the cap
-defaults low. `GET /api/assets/figures?name=` serves the current one to every client at the table.
+### The calls (all with `Authorization: Bearer <session_token>`, like every `/api/me` route)
 
-**The client** (to build): the tab above; the seat pedestal shows the statue from the figures endpoint, cached by
-sha256, with the player's colour as the aura.
+| Call | Answer |
+|---|---|
+| `GET /api/me/god` | `{saved, description, stone, stone_custom, pose, moderation, preview, portrait, statues, statue_meshy, limits, options}` |
+| `PUT /api/me/god` `{description, stone, pose}` | the moderation answer: `200 {verdict: ok\|rephrase, model, god, [reason, categories, original, final]}`, `422 {error: refused, verdict: refuse, reason, categories, original, god}` |
+| `POST /api/me/god/preview` (no body) | `{status: pending\|ready, hash, url, prompt, charged, previews_left_today, description, stone, pose}` |
+| `POST /api/me/god/accept` `{hash?}` (default: the newest preview) | `{accepted: {hash, url, status, accepted_at, description, stone, pose}, statue: "not_enabled" \| {...}}` |
+| `GET /api/assets/figures?name=<display name>` (no session) | the figures answer plus `god`: the god at that player's seat |
+
+**`PUT /api/me/god`** is the demigod sheet's contract (§ 7) on the god form: unknown keys refused (`400 invalid`,
+detail `bad JSON body: unknown field "colour" …`), lengths refused not trimmed (`"description is limited to 600 characters
+(this is 601)"`, `"stone is limited to 60"`), control characters refused (newlines and tabs allowed in the
+description), `pose is one of thinker, david, …`. A key left out is its default (`""`, `white_marble`, `thinker`).
+Then **one** moderation pass (`fn7_agents::moderate::run_god`: the same model `claude-haiku-5-5`, the same gateway, the
+same five content rules, the same rules-only fallback and the same always-by-rule checks for personal data and forged
+prompt markers) over the description and, when it is the player's own words, the stone. `ok` stores the bytes as sent;
+`rephrase` stores the minimal rewrite (`original` and `final` in the answer); `refuse` stores nothing (`422`, the
+previous form stays). The same form sent again is not judged again. Every pass is in the account's moderation log
+(`demigod_moderation`, `hand = "god"`). Rate limit: the demigod sheets' (6 judged saves a minute).
+
+**`POST /api/me/god/preview`** makes ONE reference image of the saved form through fn7-media: the house's marble
+statue prompt from `final_night_7_unreal/production_assets/meshy/figures/*_god/provenance.json` with the chosen stone,
+the chosen pose (the house statues' own pose phrases) and the player's words, 1024x1536, no reference images:
+
+```
+A single monumental statue of a god carved from white marble with soft grey veining, in the manner of classical
+sculpture, seated on a rough stone block in the pose of The Thinker: leaning forward, one elbow on the knee, chin
+resting on the back of the hand, the other forearm across the thigh, deep in thought. The god, as its player describes
+it: A hunched old god with a lantern. Rendered entirely in stone: no colour, no paint, only pale marble. Carved in a
+slightly blocky, faceted, simplified way, like a chunky low-poly sculpture: broad planes, strong chisel facets,
+simplified hands and face, a strong readable silhouette. The whole statue visible from head to toe including its plain
+rough-hewn stone block seat or base, limbs clearly separated from the body. Plain flat mid-grey background, soft even
+studio light, no cast shadow on the background, no text, no other figures, no scenery.
+```
+
+- **Cached by (description, stone, pose)**: the prompt is a pure function of the three, and fn7-media keys an image
+  by its prompt, so the same form is the same `hash` and asking again is free (`charged: false`, not counted, nothing
+  generated), in this process or after a restart (the media cache on disk).
+- **Per account per day**: at most `god_preview_per_day` new pictures in any 24 hours (`FN7_GOD_PREVIEW_PER_DAY`,
+  default **6**); past it `429 rate_limited` with `Retry-After` (seconds until the oldest of them is a day old). A
+  picture that already exists is free even at the cap.
+- **The global image budget**: the media layer's `FN7_IMAGE_BUDGET_USD` (and its per-request bucket) applies;
+  over it `503 budget_reached` (`detail`: the media layer's reason), nothing counted. Images off: `503 images_off`.
+  No saved form: `404 not_found`.
+- `status` is `pending` (being drawn: watch `GET /api/me/god` → `preview.status`, or `GET /media/index`) or `ready`
+  (`url` = `/media/<hash>.<ext>`).
+- **Registered** in the asset registry before it is asked for: `kind image`, `subkind god_preview`, subject
+  `god:<display name>`, `meta.account` = the account id; the media layer's live rows land on that row, so its
+  generation has the **exact prompt**, the reserved price and the cost, and `requested_account`; the file is
+  `images/god_preview/<sha256>.<ext>`.
+
+**`POST /api/me/god/accept`** makes the preview (the newest, or `hash`) the account's **god portrait at once**:
+`GET /api/me/god` → `portrait`, and the figures endpoint serves it to every client at the table. A preview still being
+drawn answers `409 preview_not_ready`; an unknown one `404 not_found`. The registry row gets `meta.accepted_at` and
+`meta.accepted_by`. Older accepted images stay (the library); accepting the current one again changes nothing.
+
+Then **the statue**, which costs real Meshy credits (about 30 each; the house had 259 left on 2026-11-15, and Chris
+and Benito approve spend):
+
+- `god_statue_meshy` **off** (the default; `FN7_GOD_STATUE_MESHY`): `"statue": "not_enabled"`. Nothing is queued.
+- on, without `MESHY_API_KEY`: `"statue": "not_configured"`.
+- on: one Meshy image-to-3D task from the accepted image (`POST https://api.meshy.ai/openapi/v1/image-to-3d`, the house
+  statues' parameters: textured, PBR, 2k, GLB) → `{"status": "queued", "task_id", "provider": "meshy",
+  "credits_estimate": 30}`. One statue per accepted image (accepting it again answers that statue with
+  `cached: true`); at most `god_statues_per_account` (`FN7_GOD_STATUES_PER_ACCOUNT`, default **1**) statues that did
+  not fail, past which `{"status": "cap_reached", "cap", "statues"}` and nothing is sent. When the task ends the
+  server writes its files under `<assets>/incoming/god/<task id>/`, appends a **job record** to
+  `<assets>/jobs/god_statues.jsonl` (ASSETS.md "import-jobs": provider meshy, task id, credits with basis
+  `credits_reported`, or `estimated` when Meshy does not report them, the source image, the GLB and its preview) and
+  imports it (`fn7_assets::provenance::import_jobs`): a `model/statue` asset of subject `god:<display name>`, made
+  from the accepted preview (lineage `source`), its generation `requested_account` = the account. `GET /api/me/god` →
+  `statues[]` shows `queued` → `ready` (or `failed`, with `error`). A task in flight when the server restarts stays
+  `queued` (its job can be recorded by hand from Meshy's task with `fn7-assets import-jobs`).
+
+**`GET /api/assets/figures?name=Chris`** (public, like every `/api/assets` read: only the host's `?key=` when one is
+configured) answers, besides the statue and figure of that name, `god`:
+
+```json
+"god": { "source": "account", "account": "acc_…", "status": "ready",
+         "image": { "hash": "5f0c…", "url": "/media/5f0c….png", "status": "ready", "sha256": "…", "asset_id": "ast_…",
+                    "file_url": "/api/assets/ast_…/file" },
+         "statue": null, "statue_status": null,
+         "description": "A hunched old god with a lantern.", "stone": "white_marble", "pose": "thinker",
+         "accepted_at": 1794780000000 }
+```
+
+`statue` is the god statue's asset (the GLB, with `file_url` and `sha256`) once one is ready. Without an accepted god:
+the house's marble god of that name when `fn7-assets import-provenance` registered one from `figures.json`
+(`"source": "house"`, the marble reference image and the statue), else `"god": null`.
+
+**On the seat payload**: not added. Every seat already carries its player's display name, and the figures endpoint is
+one cheap call per seat at match start, cached by sha256, so no game state, payload or recording changes (state schema
+stays 20). The client asks `figures?name=<seat display name>` for each human seat.
+
+**Deletion** (§ 9): the god form, its previews, accepted images and statue records go with the account; the images and
+models already made stay in the media cache and the registry (`remains`).
+
+**The client** (to build): the tab above (`GET /api/me/god` gives `options` for the pickers and `limits` for the
+counters); the seat pedestal shows the god image or statue from the figures endpoint, cached by sha256, with the
+player's colour as the aura.

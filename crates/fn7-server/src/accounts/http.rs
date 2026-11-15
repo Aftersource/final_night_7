@@ -17,6 +17,7 @@
 //! | `GET/PUT /api/me/demigods/{left|right}` | session | the demigod, with the moderation answer on `PUT` |
 //! | `GET /api/me/entitlements` | session | `{tier, entitlements, billing}` |
 //! | `POST /api/game/bind` `{resume_token}` | session | `{bound, player_id, display_name, demigods}` |
+//! | `GET/PUT /api/me/god`, `POST /api/me/god/preview`, `POST /api/me/god/accept` | session | the god form: [`super::god`] |
 //!
 //! A session is `Authorization: Bearer <session_token>`. Every error is `{error: <code>, detail: <text>}` with the
 //! HTTP status that fits (400 `invalid`, 401 `unauthorized`, 404 `not_found`, 409 `name_taken` / `name_lookalike` /
@@ -46,6 +47,9 @@ use super::{Accounts, Poll};
 
 type St = State<Arc<Accounts>>;
 
+/// Largest request body of the small routes, in bytes (the god form shares it).
+pub(crate) const SMALL_BODY: usize = MAX_BODY;
+
 /// Largest request body of the small routes, in bytes.
 const MAX_BODY: usize = 8 * 1024;
 
@@ -69,20 +73,20 @@ pub fn router(accounts: Arc<Accounts>) -> Router {
 
 // ---- answers ----------------------------------------------------------------------------------------------------
 
-fn finish(mut r: Response) -> Response {
+pub(crate) fn finish(mut r: Response) -> Response {
     r.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     r
 }
 
-fn ok(v: Value) -> Response {
+pub(crate) fn ok(v: Value) -> Response {
     finish(Json(v).into_response())
 }
 
-fn fail(status: StatusCode, code: &str, detail: impl Into<String>) -> Response {
+pub(crate) fn fail(status: StatusCode, code: &str, detail: impl Into<String>) -> Response {
     finish((status, Json(json!({ "error": code, "detail": detail.into() }))).into_response())
 }
 
-fn limited(wait: u64) -> Response {
+pub(crate) fn limited(wait: u64) -> Response {
     let mut r = fail(StatusCode::TOO_MANY_REQUESTS, "rate_limited", format!("too many requests: try again in {wait} s"));
     if let Ok(v) = HeaderValue::from_str(&wait.to_string()) {
         r.headers_mut().insert(header::RETRY_AFTER, v);
@@ -90,7 +94,7 @@ fn limited(wait: u64) -> Response {
     r
 }
 
-fn account_error(e: AccountError) -> Response {
+pub(crate) fn account_error(e: AccountError) -> Response {
     let status = match &e {
         AccountError::BadName | AccountError::Invalid(_) => StatusCode::BAD_REQUEST,
         AccountError::NameTaken | AccountError::NameLookalike(_) | AccountError::IdentityInUse => StatusCode::CONFLICT,
@@ -122,7 +126,7 @@ fn bearer(h: &HeaderMap) -> Option<String> {
     (!t.is_empty()).then(|| t.to_string())
 }
 
-fn parse<T: for<'de> Deserialize<'de>>(body: &Bytes, max: usize) -> Result<T, Response> {
+pub(crate) fn parse<T: for<'de> Deserialize<'de>>(body: &Bytes, max: usize) -> Result<T, Response> {
     if body.len() > max {
         return Err(fail(StatusCode::PAYLOAD_TOO_LARGE, "too_large", format!("the body is limited to {max} bytes")));
     }
@@ -131,7 +135,7 @@ fn parse<T: for<'de> Deserialize<'de>>(body: &Bytes, max: usize) -> Result<T, Re
 }
 
 /// Run a store call off the async runtime.
-async fn blocking<T: Send + 'static>(st: &Arc<Accounts>, f: impl FnOnce(&Accounts) -> T + Send + 'static) -> Result<T, Response> {
+pub(crate) async fn blocking<T: Send + 'static>(st: &Arc<Accounts>, f: impl FnOnce(&Accounts) -> T + Send + 'static) -> Result<T, Response> {
     let st = st.clone();
     tokio::task::spawn_blocking(move || f(&st))
         .await
@@ -139,7 +143,7 @@ async fn blocking<T: Send + 'static>(st: &Arc<Accounts>, f: impl FnOnce(&Account
 }
 
 /// The session a request carries, or the 401.
-async fn authed(st: &Arc<Accounts>, h: &HeaderMap) -> Result<(Account, SessionInfo), Response> {
+pub(crate) async fn authed(st: &Arc<Accounts>, h: &HeaderMap) -> Result<(Account, SessionInfo), Response> {
     let unauthorized = || fail(StatusCode::UNAUTHORIZED, "unauthorized", "send a valid session as Authorization: Bearer <session_token>");
     let token = bearer(h).ok_or_else(unauthorized)?;
     match blocking(st, move |a| a.store().session_account(&token)).await? {
@@ -149,7 +153,7 @@ async fn authed(st: &Arc<Accounts>, h: &HeaderMap) -> Result<(Account, SessionIn
     }
 }
 
-async fn authed_limited(st: &Arc<Accounts>, h: &HeaderMap, class: Class) -> Result<(Account, SessionInfo), Response> {
+pub(crate) async fn authed_limited(st: &Arc<Accounts>, h: &HeaderMap, class: Class) -> Result<(Account, SessionInfo), Response> {
     let found = authed(st, h).await?;
     st.limiter.check(class, &found.0.id).map_err(limited)?;
     Ok(found)
@@ -376,7 +380,7 @@ struct DeleteBody {
 /// What a deletion cannot reach, said exactly (docs/ACCOUNTS.md "Deleting an account").
 pub const REMAINS: [&str; 5] = [
     "match recordings (server-side JSONL files, admin access only): the display name you played under, your demigods' names and personality text as they were in those matches, and the orders you typed",
-    "images already generated for your demigods (keyed by demigod name) in the media cache",
+    "images already generated for your demigods (keyed by demigod name) and for your god form (its previews and any statue) in the media cache and the asset registry",
     "other players' history rows that mention your display name or your demigods' names (a champion's name, an elimination)",
     "the list of past matches (ids, dates, champions' names) without your own row",
     "a one-way hash of each profile name you held, kept so a rebuild from old recordings never restores your history",
@@ -551,7 +555,7 @@ struct DemigodBody {
 }
 
 /// Check a field's shape. Text is never altered here: a field that doesn't fit is refused, not trimmed.
-fn check_text(label: &str, text: &str, max: usize, multiline: bool) -> Result<(), String> {
+pub(crate) fn check_text(label: &str, text: &str, max: usize, multiline: bool) -> Result<(), String> {
     let n = text.chars().count();
     if n > max {
         return Err(format!("{label} is limited to {max} characters (this is {n})"));
@@ -828,6 +832,42 @@ pub fn schemas() -> Vec<(&'static str, Value)> {
             "current": { "type": "boolean" },
         }
     });
+    let god_doc = json!({
+        "type": "object", "additionalProperties": false, "required": ["description", "stone", "pose"],
+        "properties": {
+            "description": text(moderate::MAX_GOD_DESCRIPTION, "The player's words."),
+            "stone": { "type": "string", "description": "A preset id or the player's own words." },
+            "pose": { "type": "string", "description": "A preset id or custom." },
+        }
+    });
+    let image = |d: &str| json!({ "type": ["object", "null"], "description": d,
+        "required": ["hash", "url", "status"],
+        "properties": {
+            "hash": { "type": "string", "description": "The fn7-media key." },
+            "url": { "type": ["string", "null"], "description": "/media/<hash>.<ext> once on disk." },
+            "status": { "type": "string", "enum": ["pending", "ready", "failed", "refused", "off", "missing"] },
+        } });
+    let god_view = json!({
+        "type": "object", "additionalProperties": false,
+        "required": ["saved", "description", "stone", "stone_custom", "pose", "moderation", "preview", "portrait", "statues", "statue_meshy", "limits", "options"],
+        "properties": {
+            "saved": { "type": "boolean", "description": "false until the account saves a god form (the defaults are shown)." },
+            "description": text(moderate::MAX_GOD_DESCRIPTION, "What the preview draws."),
+            "stone": { "type": "string" }, "stone_custom": { "type": "boolean", "description": "true when the stone is the player's own words." },
+            "pose": { "type": "string" },
+            "moderation": { "type": ["object", "null"], "description": "The pass that judged the saved form: {verdict, reason, model, at, original}." },
+            "preview": image("The newest preview asked for, with prompt, at, description, stone, pose and accepted."),
+            "portrait": image("The accepted preview: the god's portrait at the seat (with accepted_at, description, stone, pose)."),
+            "statues": { "type": "array", "items": { "type": "object", "required": ["task_id", "media_hash", "provider", "status", "requested_at"],
+                "properties": { "task_id": { "type": "string" }, "media_hash": { "type": "string" }, "provider": { "type": "string" },
+                    "status": { "type": "string", "enum": ["queued", "ready", "failed"] }, "credits": { "type": ["number", "null"] },
+                    "asset_id": { "type": ["string", "null"] }, "error": { "type": ["string", "null"] },
+                    "requested_at": { "type": "integer" }, "finished_at": { "type": ["integer", "null"] } } } },
+            "statue_meshy": { "type": "boolean", "description": "Whether accepting queues a 3D statue on this server (default false)." },
+            "limits": { "type": "object", "required": ["description", "stone", "preview_per_day", "previews_left_today", "statues_per_account"] },
+            "options": { "type": "object", "required": ["stones", "poses"], "description": "The presets: [{id, label}]." },
+        }
+    });
     let with = |id: &str, title: &str, mut body: Value, defs: Value| {
         body["$schema"] = draft.into();
         body["$id"] = format!("{id}.schema.json").into();
@@ -889,12 +929,62 @@ pub fn schemas() -> Vec<(&'static str, Value)> {
                         "properties": { "live": { "const": false }, "provider": { "type": "null" }, "note": { "type": "string" } } },
                 } }),
             json!({}))),
+        ("account_god", with("account_god", "GET /api/me/god (and `god` in the PUT answer)", god_view.clone(), json!({ "GodDoc": god_doc.clone() }))),
+        ("account_god_put", with("account_god_put", "PUT /api/me/god: the request",
+            json!({ "type": "object", "additionalProperties": false, "description": "Every key optional: description \"\", stone white_marble, pose thinker.",
+                "properties": {
+                    "description": text(moderate::MAX_GOD_DESCRIPTION, "How your stone godform looks, in your words: the figure, the pose, what it holds. Kept character for character when the verdict is ok. Newlines and tabs allowed; other control characters refused."),
+                    "stone": { "type": "string", "maxLength": moderate::MAX_GOD_STONE, "description": "A preset id (white_marble, black_onyx, granite, sandstone, jade, bronze, gold_leaf) or your own words (one line, at least one letter; judged by the same pass)." },
+                    "pose": { "type": "string", "enum": crate::accounts::god::POSES.iter().map(|p| p.0).collect::<Vec<_>>(), "description": "A classical pose, or custom (then the description says the pose and may not be empty)." },
+                } }),
+            json!({}))),
+        ("account_god_answer", with("account_god_answer", "PUT /api/me/god: the moderation answer (200 for ok and rephrase, 422 for refuse)",
+            json!({ "type": "object", "required": ["verdict", "model", "god"],
+                "properties": {
+                    "verdict": { "type": "string", "enum": ["ok", "rephrase", "refuse"], "description": "ok: saved exactly as sent. rephrase: saved as `final`. refuse (HTTP 422): nothing saved." },
+                    "model": { "type": "string", "description": "claude-haiku-5-5, or rules." },
+                    "god": r("God"),
+                    "reason": { "type": "string" },
+                    "categories": { "type": "array", "items": { "type": "string", "enum": ["hate", "sexual", "harassment", "instructions", "personal_data"] } },
+                    "original": r("GodDoc"), "final": r("GodDoc"),
+                    "error": { "const": "refused" }, "detail": { "type": "string" },
+                } }),
+            json!({ "God": god_view.clone(), "GodDoc": god_doc.clone() }))),
+        ("account_god_preview", with("account_god_preview", "POST /api/me/god/preview: the answer",
+            json!({ "type": "object", "additionalProperties": false,
+                "required": ["status", "hash", "url", "prompt", "charged", "previews_left_today", "description", "stone", "pose"],
+                "properties": {
+                    "status": { "type": "string", "enum": ["pending", "ready"], "description": "pending: watch GET /api/me/god (preview.status) or GET /media/index." },
+                    "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "The fn7-media key: GET /media/<hash>.<ext>; also GET /api/assets/<hash>." },
+                    "url": { "type": ["string", "null"], "description": "/media/<hash>.<ext> once ready." },
+                    "prompt": { "type": "string", "description": "Exactly what the image model was sent." },
+                    "charged": { "type": "boolean", "description": "false: this picture already existed (free, not counted)." },
+                    "previews_left_today": { "type": "integer" },
+                    "description": { "type": "string" }, "stone": { "type": "string" }, "pose": { "type": "string" },
+                } }),
+            json!({}))),
+        ("account_god_accept", with("account_god_accept", "POST /api/me/god/accept {hash?}: the answer",
+            json!({ "type": "object", "additionalProperties": false, "required": ["accepted", "statue"],
+                "properties": {
+                    "accepted": { "type": "object", "description": "The account's god portrait from now on.",
+                        "required": ["hash", "url", "status", "accepted_at", "description", "stone", "pose"] },
+                    "statue": { "oneOf": [
+                        { "type": "string", "enum": ["not_enabled", "not_configured"], "description": "not_enabled: the server's god_statue_meshy is off (the default). not_configured: on, without a Meshy key." },
+                        { "type": "object", "required": ["status"], "properties": {
+                            "status": { "type": "string", "enum": ["queued", "ready", "failed", "cap_reached"] },
+                            "task_id": { "type": "string" }, "provider": { "const": "meshy" },
+                            "credits_estimate": { "type": "number" }, "credits": { "type": ["number", "null"] },
+                            "asset_id": { "type": ["string", "null"] }, "cached": { "type": "boolean" },
+                            "cap": { "type": "integer" }, "statues": { "type": "integer" }, "error": { "type": "string" } } } ] },
+                } }),
+            json!({}))),
         ("account_error", with("account_error", "Every error of the account routes",
             json!({ "type": "object", "required": ["error", "detail"],
                 "properties": {
                     "error": { "type": "string", "enum": ["invalid", "bad_name", "unauthorized", "not_found", "name_taken", "name_lookalike",
                         "name_conflict", "name_mismatch", "identity_in_use", "already_linked", "profile_claimed", "confirm_required", "too_large",
-                        "refused", "rate_limited", "google_not_configured", "store", "internal"] },
+                        "refused", "rate_limited", "google_not_configured", "images_off", "budget_reached", "image_refused",
+                        "preview_not_ready", "store", "internal"] },
                     "detail": { "type": "string", "description": "Human-readable; switch on error." },
                 } }),
             json!({}))),

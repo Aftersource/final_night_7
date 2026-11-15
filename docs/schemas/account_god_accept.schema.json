@@ -1,0 +1,89 @@
+{
+  "$defs": {},
+  "$id": "account_god_accept.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "accepted": {
+      "description": "The account's god portrait from now on.",
+      "required": [
+        "hash",
+        "url",
+        "status",
+        "accepted_at",
+        "description",
+        "stone",
+        "pose"
+      ],
+      "type": "object"
+    },
+    "statue": {
+      "oneOf": [
+        {
+          "description": "not_enabled: the server's god_statue_meshy is off (the default). not_configured: on, without a Meshy key.",
+          "enum": [
+            "not_enabled",
+            "not_configured"
+          ],
+          "type": "string"
+        },
+        {
+          "properties": {
+            "asset_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "cached": {
+              "type": "boolean"
+            },
+            "cap": {
+              "type": "integer"
+            },
+            "credits": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "credits_estimate": {
+              "type": "number"
+            },
+            "error": {
+              "type": "string"
+            },
+            "provider": {
+              "const": "meshy"
+            },
+            "statues": {
+              "type": "integer"
+            },
+            "status": {
+              "enum": [
+                "queued",
+                "ready",
+                "failed",
+                "cap_reached"
+              ],
+              "type": "string"
+            },
+            "task_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "required": [
+    "accepted",
+    "statue"
+  ],
+  "title": "POST /api/me/god/accept {hash?}: the answer",
+  "type": "object"
+}

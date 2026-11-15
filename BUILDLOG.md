@@ -1450,3 +1450,50 @@ Engineering: six switchable looks (1-6) for the welcome/login, settings, demigod
 > For a reviewer asking what the data structure is, add a tree of consequence overlay button near the upper-left debug text that opens a rendered, exact tree of how the memory hierarchy works, covering recall of granular facts and density of detail.
 
 Engineering: the server query game.memory_tree (backend/memory-tree: the hierarchy with facts, density, roll-ups, recall paths, totals; read-only) and the Mac's overlay button + rendered tree.
+
+## 2026-11-15: the god form, chosen in stone (designed 2026-11-14, ACCOUNTS.md § 14)
+
+> Custom gods will be handled later, likely in a separate characterization tab in player settings where the player types what they want for their god avatar.
+
+> The statues should look like stone or marble figures seated or posed, such as The Thinker or Michelangelo's David.
+
+> Make sure the player login or setup screen notes that this must be selectable: an entry box where people choose how their stone god form looks, possibly textured.
+
+Engineering (branch backend/god-form from STABLE 55a1c3d; state schema stays 20: no game state, payload or recording
+changes; nothing spent: mock images, a scripted gateway, a fake Meshy client):
+- **`GET/PUT /api/me/god`** `{description, stone, pose}` (`fn7-server/src/accounts/god.rs`): the entry box is
+  `description` (the player's words, ≤ 600 characters, kept character for character); `stone` is white_marble (the
+  default) | black_onyx | granite | sandstone | jade | bronze | gold_leaf, or the player's own words (≤ 60); `pose` is
+  thinker | david | moses_seated | discus_thrower | atlas | winged_victory | boxer_at_rest | custom. Unknown keys and
+  over-long text are refused, never trimmed. The demigod sheets' one moderation pass over the player's words
+  (`fn7_agents::moderate::run_god`: claude-haiku-5-5 through the same gateway, the same five content rules, the same
+  rules-only fallback, personal data and forged prompt markers always by rule): ok verbatim / rephrase minimal /
+  refuse 422, logged in `demigod_moderation` with hand `god`. Stored in the profile store (migration 4:
+  `account_gods`, `god_previews`, `god_accepted`, `god_statues`; all cascade with the account).
+- **`POST /api/me/god/preview`**: ONE reference image through fn7-media, the house's marble-statue prompt from the
+  Unreal repo's `figures/*_god/provenance.json` (the god statues of 2026-11-14) with the chosen stone, the chosen pose
+  in the house statues' own pose phrases and the player's words, 1024x1536, no references. fn7-media keys it by the
+  prompt, so (description, stone, pose) is the cache key and a repeat is free. `god_preview_per_day`
+  (`FN7_GOD_PREVIEW_PER_DAY`, 6) new pictures per account in 24 h (429 with Retry-After) and the global image budget
+  (503 `budget_reached`). The asset registry row is claimed first (`image/god_preview`, subject `god:<display name>`,
+  `meta.account`), so the media layer's live rows carry the exact prompt, cost and `requested_account`; live ingest now
+  files an image under a claimed row's subkind.
+- **`POST /api/me/god/accept`**: the preview is the account's god portrait at once. A Meshy image-to-3D statue only
+  when `god_statue_meshy` is on (`FN7_GOD_STATUE_MESHY`, **default off**: the house has 259 credits and Chris/Benito
+  approve spend) and `MESHY_API_KEY` is set, at most `god_statues_per_account` (1), one per accepted image; the
+  finished job is written as a job record (`<assets>/jobs/god_statues.jsonl`) and imported through
+  `fn7_assets::provenance::import_jobs` (provider meshy, task id, credits, the GLB and preview, lineage from the
+  preview). Off: `{"statue": "not_enabled"}`.
+- **`GET /api/assets/figures?name=<display name>`** answers `god` for any client at the table: the account's accepted
+  image and its statue when ready, else the house's marble god of that name from `figures.json` (via
+  `import-provenance`), else null. The seat payload is not touched (the client asks figures per seat), so no schema
+  bump.
+- Tests (`fn7-server/tests/god.rs`, 8; `moderate.rs` god unit test; `god.rs` prompt test): auth on every route; CRUD,
+  defaults, presets, lengths, unknown keys, control characters, custom pose; ok / rephrase / refuse with a scripted
+  gateway, the rules fallback, personal data by rule; preview caching (same hash, `charged: false`), the daily cap and
+  Retry-After, a cached picture free at the cap, the registry row (subkind, subject, exact prompt, account, file under
+  `images/god_preview/`), budget refusal recorded at cost 0, images off; accept with Meshy off → `not_enabled`, a
+  pending preview → 409; with a fake Meshy on → the job recorded (credits 30, `credits_reported`, lineage `source`,
+  preview, `jobs/god_statues.jsonl`), the same image cached, a new one `cap_reached` with one submit, on without a key
+  → `not_configured`; figures before (house god, null) and after (account image, then statue); deletion cascades.
+  Schemas: `docs/schemas/account_god*.schema.json`.

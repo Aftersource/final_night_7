@@ -7,6 +7,26 @@ use serde_json::{json, Map, Value};
 use crate::subject::name_key;
 use crate::{Registry, Result};
 
+/// An account's accepted god, as the accounts layer knows it (the server implements [`crate::http::Gods`]).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AccountGod {
+    pub account: String,
+    /// The fn7-media key of the accepted reference image.
+    pub media_hash: String,
+    /// `/media/<hash>.<ext>` once it is on disk.
+    pub url: Option<String>,
+    /// `pending` | `ready`.
+    pub status: String,
+    /// The registry's model asset of its ready statue, if any.
+    pub statue_asset: Option<String>,
+    /// `queued` | `ready` | `failed` of its newest statue, if any.
+    pub statue_status: Option<String>,
+    pub description: String,
+    pub stone: String,
+    pub pose: String,
+    pub accepted_at: i64,
+}
+
 pub const MAX_LIMIT: u32 = 500;
 pub const DEFAULT_LIMIT: u32 = 50;
 
@@ -268,6 +288,52 @@ impl Registry {
                     Ok(json!({ "figures": all, "mannequin": mannequin()? }))
                 }
             }
+        })
+    }
+
+    /// The god at a seat (docs/ACCOUNTS.md § 14), for `GET /api/assets/figures?name=`: the account's accepted god
+    /// portrait (and its statue when one is ready) when `account` is given, else the house's marble god of that name
+    /// (the marble reference image and the statue imported from the Unreal repo's `figures.json`), else `null`.
+    pub fn god_figure(&self, name: &str, account: Option<&AccountGod>) -> Result<Value> {
+        let cols = "id, kind, subkind, variant, subject_kind, subject_key, display_name, sha256, path, bytes, mime, tris, created_at, media_hash, status";
+        let key = name_key(name).unwrap_or_default();
+        self.with(|c| {
+            let one = |sql: &str, p: &[&dyn rusqlite::ToSql]| -> Result<Value> {
+                Ok(rows(c, sql, p)?.into_iter().next().map(with_urls).unwrap_or(Value::Null))
+            };
+            if let Some(g) = account {
+                let asset = one(&format!("SELECT {cols} FROM assets WHERE id = ?1"), &[&crate::asset_id_for_media(&g.media_hash)])?;
+                let statue = match &g.statue_asset {
+                    Some(id) => one(&format!("SELECT {cols} FROM assets WHERE id = ?1 AND status = 'ready'"), &[id])?,
+                    None => Value::Null,
+                };
+                return Ok(json!({
+                    "source": "account", "account": g.account, "status": g.status,
+                    "image": { "hash": g.media_hash, "url": g.url, "status": g.status,
+                               "sha256": asset["sha256"], "asset_id": asset["id"], "file_url": asset["file_url"] },
+                    "statue": statue, "statue_status": g.statue_status,
+                    "description": g.description, "stone": g.stone, "pose": g.pose, "accepted_at": g.accepted_at,
+                }));
+            }
+            let image = one(
+                &format!("SELECT {cols} FROM current_assets WHERE kind='image' AND subkind='reference' AND variant='heroic' AND subject_kind='god' AND subject_key = ?1"),
+                &[&key],
+            )?;
+            let statue = one(
+                &format!("SELECT {cols} FROM current_assets WHERE kind='model' AND subkind='statue' AND subject_kind='god' AND subject_key = ?1 ORDER BY variant LIMIT 1"),
+                &[&key],
+            )?;
+            if image.is_null() && statue.is_null() {
+                return Ok(Value::Null);
+            }
+            let url = image["file_url"].clone();
+            Ok(json!({
+                "source": "house", "account": null, "status": if image.is_null() { "none" } else { "ready" },
+                "image": if image.is_null() { Value::Null } else {
+                    json!({ "hash": null, "url": url, "status": "ready", "sha256": image["sha256"], "asset_id": image["id"], "file_url": url })
+                },
+                "statue": statue, "statue_status": if statue.is_null() { Value::Null } else { json!("ready") },
+            }))
         })
     }
 

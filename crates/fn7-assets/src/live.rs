@@ -242,8 +242,9 @@ pub fn apply(c: &Connection, root: &std::path::Path, r: &MediaRecord) -> Result<
         What::Sidecar | What::Cached => r.first_match.as_deref(),
         _ => asking,
     };
-    let exists: Option<(String, String)> =
-        c.query_row("SELECT status, subject_key FROM assets WHERE id=?1", [&id], |row| Ok((row.get(0)?, row.get(1)?))).optional()?;
+    let exists: Option<(String, String, String)> = c
+        .query_row("SELECT status, subject_key, subkind FROM assets WHERE id=?1", [&id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .optional()?;
     // A record without the prompt (a recording's ready/failed/cached) can only add to an asset we already have.
     if exists.is_none() && r.prompt.is_none() {
         return Ok(());
@@ -251,7 +252,9 @@ pub fn apply(c: &Connection, root: &std::path::Path, r: &MediaRecord) -> Result<
     let subj = r.prompt.as_deref().map(|p| subject::from_prompt(&r.kind, p, real_match(gen_match.or(asking))));
     let file = match (&r.file, r.what) {
         (Some(p), What::Ready | What::Cached | What::Sidecar) if p.is_file() => {
-            Some(crate::files::store_file(root, p, "image", &r.kind, Link::Hard)?)
+            // Under the row's own subkind when it was claimed first (a god preview: `images/god_preview/`).
+            let sub = exists.as_ref().map(|e| e.2.as_str()).unwrap_or(&r.kind);
+            Some(crate::files::store_file(root, p, "image", sub, Link::Hard)?)
         }
         _ => None,
     };
