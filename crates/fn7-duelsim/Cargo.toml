@@ -1,0 +1,9 @@
+[package]
+name = "fn7-duelsim"
+description = "The duel's physics, baked on the server: masses from materials, a deterministic rigid-body engine, parkour paths on real surfaces, limb targets for the client's IK."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde_json.workspace = true
