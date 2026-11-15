@@ -1,0 +1,145 @@
+{
+  "$defs": {
+    "Ref": {
+      "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row, ce cell, mb mob. Stable for the whole match.",
+      "examples": [
+        "ch:12"
+      ],
+      "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg|ce|mb):\\d+$",
+      "type": "string"
+    }
+  },
+  "$id": "query_duel_odds.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "`game.duel_odds` (state schema 18): how a duel between `demigod` and `target` would likely go (DM_RULEBOOK 21.2), from seeded trials: the same state gives the same odds.",
+  "properties": {
+    "demigod": {
+      "$ref": "#/$defs/Ref"
+    },
+    "distance_km": {
+      "description": "",
+      "type": "number"
+    },
+    "exchanges": {
+      "description": "duel_deadline_ms / duel_counter_ms.",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "idle_win_pct": {
+      "description": "0..100: its chance if its player types nothing (the AI's counters still land).",
+      "type": "number"
+    },
+    "my_dc": {
+      "description": "The DC the demigod's blows roll against.",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "my_health": {
+      "description": "Exact where the asker sees it (its own demigod, an open duel's hp), else a band: hale (7+), hurt, near death (3 or less).",
+      "type": [
+        "number",
+        "string"
+      ]
+    },
+    "my_mod": {
+      "description": "The demigod's blow modifier (wit +1, health, wardrobe, items, gear, home turf).",
+      "type": "integer"
+    },
+    "reach_km": {
+      "description": "",
+      "type": "number"
+    },
+    "reach_ok": {
+      "description": "Both stand and the target is within the challenge's reach at `level`.",
+      "type": "boolean"
+    },
+    "target": {
+      "$ref": "#/$defs/Ref"
+    },
+    "their_dc": {
+      "description": "The DC the target's blows roll against.",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "their_health": {
+      "description": "As my_health: a rival's exact health only inside an open duel.",
+      "type": [
+        "number",
+        "string"
+      ]
+    },
+    "their_mod": {
+      "description": "The target's (its private kit not counted).",
+      "type": "integer"
+    },
+    "too_far_km": {
+      "description": "How far beyond the reach the target stands.",
+      "type": "number"
+    },
+    "trials": {
+      "description": "Seeded trials.",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "why": {
+      "description": "Short reasons, in plain words.",
+      "items": {
+        "description": "",
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "win_pct": {
+      "description": "0..100: the demigod's chance to win, typing a line every exchange (wit assumed +1).",
+      "type": "number"
+    }
+  },
+  "required": [
+    "demigod",
+    "target",
+    "win_pct",
+    "idle_win_pct",
+    "my_health",
+    "their_health",
+    "my_mod",
+    "their_mod",
+    "my_dc",
+    "their_dc",
+    "exchanges",
+    "trials",
+    "reach_ok",
+    "reach_km",
+    "distance_km",
+    "why"
+  ],
+  "title": "game.duel_odds",
+  "type": "object",
+  "x-applies-to": "game.duel_odds reply (WebSocket), GET /api/rooms/{code}/query/duel_odds",
+  "x-args": {
+    "additionalProperties": true,
+    "description": "Over HTTP every arg is a query-string parameter (numbers as numeric strings). Unknown args are ignored.",
+    "properties": {
+      "demigod": {
+        "description": "The challenger (usually yours).",
+        "pattern": "^dg:\\d+$",
+        "type": "string"
+      },
+      "level": {
+        "description": "The board level the challenge would be issued at (regions, villages, houses, people; default regions): sets the reach.",
+        "type": "string"
+      },
+      "target": {
+        "description": "The one it would fight.",
+        "pattern": "^dg:\\d+$",
+        "type": "string"
+      }
+    },
+    "required": [
+      "demigod",
+      "target"
+    ],
+    "type": "object"
+  },
+  "x-description": "State schema 18: how a duel between `demigod` and `target` would likely go, from the duel rules (DM_RULEBOOK 21.2): `win_pct` (you type a line every exchange), `idle_win_pct` (you type nothing), each side's health (exact where the asker sees it: its own demigods, an open duel's hp; else a band hale|hurt|near death, and the odds use the band), modifiers and DCs, `reach_ok` (+ `too_far_km`) and short `why` reasons. Seeded trials: the same state gives the same odds. Read-only, cheap.",
+  "x-public": true
+}

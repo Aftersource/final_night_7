@@ -1827,6 +1827,80 @@ God powers act on a server-side voxel field of the planet; the full model, numbe
 Schemas: `query_earth`, `query_earth_at`, and `EarthBeat` / `EarthSummary` / `EarthPhenomenon` / `EarthCells` in
 `outcome_public`, `public_view` and `query_present`.
 
+## Next move hint (state schema 18)
+
+Benito, after playing, noted that the screen never says what the player should do next or why it matters. Every
+beat, each **human** seat's SeatView (`round.brief.private`, `round.private_state.state`, `match.snapshot.you.private_state`
+and `game.me`, all the same object) carries one private `hint` and one `goal` line. The server picks them by rules from
+the state (no LLM, the same state always gives the same hint). They are never stored. AI and bot seats get neither, and
+states older than schema 18 carry neither.
+
+Draw `hint.text` as **one big line at top centre** with an arrow at `hint.target`, `hint.why` under it in a smaller
+type, and `goal` in a corner.
+
+```json
+"hint": {
+  "text": "Your Left Hand is under attack in Madrid: drag a power onto Benito's army",
+  "why": "Benito's army is 180 km away and your Left Hand has 3 health",
+  "action": "cast_power",
+  "target": { "ref": "cl:0", "at": [-1.57474, 40.38054], "cell": "0:people:-635981:1204548" },
+  "urgency": 3,
+  "kind": "danger"
+},
+"goal": "Last standing wins. You: 2 alive, 3 rivals. Beat 41 of 60."
+```
+
+| Field | Meaning |
+|---|---|
+| `text` | Imperative, names and places, at most **80** characters |
+| `why` | What it changes, at most **100** characters |
+| `action` | The gesture (below) |
+| `target` | Optional. Where the arrow points: `ref` (a thing: `dg:`, `cl:`, `it:`, `lg:`), `at` (`[lon, lat]`), `cell` (a people-level hex key). Any of them may be missing |
+| `urgency` | 0 calm, 1 worth doing, 2 do it this beat, 3 now (in a duel, or a demigod about to fall) |
+| `kind` | Which rule picked it: `duel`, `danger`, `resurrect`, `break_curse`, `watch`, `challenge`, `event`, `mega`, `gear`, `quest`, `will` |
+
+**`action` → the client's gesture**
+
+| `action` | Gesture |
+|---|---|
+| `duel_type` | You are in a duel: focus the duel's text box and pulse it ("TYPE NOW") |
+| `cast_power` | Open the power palette; the arrow points where to drag the power (the target) |
+| `type_will` | Open the text entry (action.begin); the text suggests the words |
+| `summon` | Drag your demigod (usually `target.ref`) onto `target.at` (`fields.summon`) |
+| `challenge` | Drag your demigod onto the rival (`fields.challenge`) |
+| `heal` | Open the text entry with a heal will for the demigod in `target.ref` |
+| `flee` | Open the text entry to order the demigod away (or drag it, if summoning is off cooldown) |
+| `seek_gear` | Point at the marked hex or loot (`target.cell`); move the demigod there |
+| `explore` | Pan toward unexplored ground; open the text entry |
+| `resurrect` | Open the text entry with a raising will for the fallen demigod (`target.ref`), or follow the quest step |
+| `break_curse` | Show the curse's counter-quest (its current step is the text) |
+| `watch` | Spectator: fly the camera to `target.at` |
+
+**Examples** (from the tests and a scripted sim, seat 0 "Chris"):
+
+| `kind` | `action` | `text` / `why` |
+|---|---|---|
+| `duel` | `duel_type` | "You're in a duel with Vex's Right Hand: TYPE NOW" / "They hit you every 3 s; each line is a blow" |
+| `danger` | `cast_power` | "Your Left Hand is under attack in Madrid: drag a power onto Benito's army" / "Benito's army is 180 km away and your Left Hand has 3 health" |
+| `danger` | `heal` | "Your Left Hand is under attack in Madrid: type a will to heal it" / "Benito's Right Hand is 200 km away, your Left Hand has 2.5 health and you have no bolts" |
+| `danger` | `summon` | "Your Left Hand is caught in fire at Madrid: drag it to safe ground" / "Your Left Hand has 3 health and the fire hurts it every beat it stays" |
+| `danger` | `summon` | "Your Left Hand is outside Time's circle at Madrid: drag it inside" / "Time's circle closes past your Left Hand next beat and it has 1 health" |
+| `resurrect` | `resurrect` | "Raise your Left Hand: type a will to bring it back from the dead" / "Death asks 5 sparks for it; you have 5 sparks and 0 bolts" |
+| `break_curse` | `break_curse` | "Break the seal on your Left Hand: Hold a butterfly's wing" / "A seal of no resurrection holds your Left Hand; this is step 1 of 2 of its counter-quest" |
+| `watch` | `watch` | "Watch Northern Africa: Benito's Left Hand drops a volcano on Cairo" / "Both your demigods have fallen and Death will raise no more for you" |
+| `challenge` | `challenge` | "Benito's Right Hand stands by your Left Hand in Madrid: challenge it" / "It is 40 km away, in reach: a duel won by knockout eliminates it" |
+| `event` | `type_will` | "A cast struck near your Left Hand in Southern Europe: type a will to react" / "274 km away: Benito's Left Hand hurls a meteor at Zaragoza" |
+| `mega` | `cast_power` | "Cast a mega on Benito's Left Hand at the Afar triple junction" / "A mega there hits 2.5x as hard (junction tier); you have 3 bolts" |
+| `gear` | `seek_gear` | "Send your Left Hand to the marked hex in Southern Europe: gear may wait there" / "Your Left Hand carries nothing; an encounter won there drops gear (74 km away)" |
+| `gear` | `type_will` | "Arm your Left Hand: type a will like \"l: forge me a blessed spear\"" / "Your Left Hand carries nothing; a will to arm it rolls a d20 against a low DC" |
+| `quest` | `summon` | "Quest for your Left Hand: Stand in a city at dusk" / "Step 2 of 2: finishing the quest heals your Left Hand 3 more" |
+| `will` | `type_will` | "Type a will: raise an army in Madrid for your Left Hand" / "You have no army and Mara's Right Hand is 3163 km away" |
+| `will` | `heal` | "Heal your Right Hand in Southern Europe: type a will to mend its wounds" / "Your Right Hand has 5 of 10 health; the next blow could be its last" |
+
+The priority list is in DM_RULEBOOK chapter 29. **What it never reveals:** a rival's health, a rival's standing
+orders, an army's orders, what a hidden encounter is (only its marked hex), anything private in another seat's book.
+It reads only what your seat already sees. Schema: `$defs/NextMoveHint` in `seat_view`, `brief_private`, `query_me`.
+
 ## Message flow for one beat
 
 One Theatre **round** is one **beat**, so `round` and `beat` are always the same number. There are no choices: `round.private.choices`
@@ -2013,6 +2087,8 @@ commit.
 | `armies` | Army[] | Your live armies, with their `orders` |
 | `orders` | `{hand, text, since}`[] | Your hands' standing orders: what they keep doing, by rules, while you are silent |
 | `slow` | null | Always null since theatre faa7220 (kept for older clients); the open window is the core's `window.opened` / `match.snapshot.window` |
+| `hint` | NextMoveHint | State schema 18, human seats only: the next move (see "Next move hint") |
+| `goal` | string | State schema 18, human seats only: "Last standing wins. You: 2 alive, 3 rivals. Beat 41 of 60." |
 
 **Entity** (one thing you can see): `{ ref, name, kind, pos? }`. `kind` is one of `demigod`, `character`, `cluster`,
 `group`, `god`, `place`, `item`, `agent` or `ledger`, matching the ref prefix. A cluster entity adds `size` (head
@@ -2515,6 +2591,7 @@ Unknown args are ignored, including the ngrok gate's `?key=`.
 | `encounters` | yes | `region?` (`pl:`) | Rules 0.8.0: the encounter hexes (hidden ones only as marked) |
 | `fault` | yes | `at` (`[lon, lat]`; HTTP `at=lon,lat`, or `lon` + `lat`) | State schema 16: a mega's preview there: `km`, `tier`, `junction`, `factor` ("Junctions, tiers and the hover preview") |
 | `faults_overview` | yes | none | State schema 16: every junction and the tier thresholds, for the globe overlay |
+| `duel_odds` | yes | `demigod`, `target` (`dg:` refs), `level`? | State schema 18: `win_pct`, `idle_win_pct`, health (exact or a band), modifiers, reach, `why` ("`game.duel_odds`") |
 | `piles_final` | yes | none | The end-of-match piles; an error until the match is over |
 | `media` | yes (public refs) | `kind` (`portrait` / `place` / `event` / `army`), `ref` | An image of that thing, by reference: an image object at once (pending, then ready via the manifest) |
 | `profile` | yes | `name?` (default: your seat's name) | A player's persistent profile (see "Profiles, history and library") |
@@ -2685,6 +2762,30 @@ described under "Conventions". `region` keeps one region's events only.
 
 `C→S { "t": "game.me", "id": "m1", "d": {} }` → your **SeatView** (the same object as `round.private_state.state`,
 schema `query_me`), built from the current state. Over HTTP it answers `403`.
+
+### `game.duel_odds` (state schema 18)
+
+`C→S { "t": "game.duel_odds", "id": "o1", "d": { "demigod": "dg:0", "target": "dg:6", "level": "regions" } }` (public:
+also `GET /api/rooms/{code}/query/duel_odds?demigod=dg:0&target=dg:6`). How a duel would likely go, before anyone
+challenges, from the duel rules (DM_RULEBOOK 21.2). Show it when the player hovers a rival with a demigod selected, and
+when a challenge locks.
+
+```json
+{ "demigod": "dg:0", "target": "dg:6", "win_pct": 94.5, "idle_win_pct": 0.0,
+  "my_health": 10.0, "their_health": "hurt", "my_mod": 3, "their_mod": 1, "my_dc": 10, "their_dc": 10,
+  "exchanges": 10, "trials": 600, "reach_ok": true, "reach_km": 600.0, "distance_km": 50.0,
+  "why": ["your blows: d20 +3 vs DC 10; theirs: d20 +1 vs DC 10", "you: an item +1", "you are hale: +1",
+          "the AI counters every 3 s whether you type or not", "type nothing and you win 0%"] }
+```
+
+- `win_pct`: you type a line every exchange (wit assumed +1). `idle_win_pct`: you type nothing (the AI's counters still
+  land every `duel_counter_ms`). The duel runs `duel_deadline_ms / duel_counter_ms` exchanges; a knockout ends it, else
+  whoever took less damage wins. 600 seeded trials: the same state gives the same numbers.
+- **Health is exact only where you already see it** (your own demigods; both sides of an open duel, whose hp is
+  public); otherwise a band, `"hale"` (7+), `"hurt"` or `"near death"` (3 or less), and the odds use the band's middle.
+  Over HTTP (no seat) both sides are bands. A rival's private kit isn't counted; its public items and wardrobe are.
+- `reach_ok`: both stand and the target is within the challenge's reach at `level` (default `regions`, 600 km);
+  otherwise `too_far_km`. Schema: [`query_duel_odds`](schemas/query_duel_odds.schema.json).
 
 ### `game.powers`, `game.gods`
 

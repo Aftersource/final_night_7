@@ -93,7 +93,12 @@ use serde::{Deserialize, Serialize};
 /// step, a god's ruling, Entropy's ramifications, a general, the narrator, a duel's deed) carries a short line of what
 /// the Earth simulator's field holds there now, and a duel's scene carries the ground (`ground`, hazard props). Rules
 /// that changed read [`World::earth_prompt_rules`], so schema-4..16 recordings replay exactly.
-pub const STATE_SCHEMA: u32 = 17;
+///
+/// Schema 18 (the next move): every human seat's SeatView (`round.brief.private`, `round.private_state`, `game.me`)
+/// carries a private `hint`: the one thing to do now, why it matters, the gesture and where to point, picked by rules
+/// from the state (no LLM). Derived, never stored; payloads read [`World::hint_rules`], so schema-4..17 recordings
+/// replay exactly (their briefs carry no hint).
+pub const STATE_SCHEMA: u32 = 18;
 
 /// Match-wide settings and clocks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -483,6 +488,10 @@ impl World {
     /// Schema 17 rules: the earth underfoot reaches the prompts that act in a place (and a duel's scene).
     pub fn earth_prompt_rules(&self) -> bool {
         self.meta.schema >= earth::EARTH_PROMPT_SCHEMA
+    }
+    /// Schema 18: human seats' SeatViews carry the next-move hint (payload only; the state is unchanged).
+    pub fn hint_rules(&self) -> bool {
+        self.meta.schema >= dm::HINT_SCHEMA
     }
     /// Schema 14 rules: duel weapons, hammer-space, projectiles, the picker's recorded picks.
     pub fn duel_weapon_rules(&self) -> bool {

@@ -228,6 +228,9 @@ fn query_replies_validate() {
         cases.push(("fault", None, a, &state));
     }
     cases.push(("faults_overview", None, json!({}), &state));
+    // State schema 18: duel odds, as a seat and in public.
+    cases.push(("duel_odds", Some(0), json!({ "demigod": "dg:0", "target": "dg:1" }), &state));
+    cases.push(("duel_odds", None, json!({ "demigod": "dg:0", "target": "dg:1" }), &state));
     let mine: Vec<Ref> = w.items.iter().filter(|i| i.holders.last() == Some(&Ref::Demigod(DemigodId(0)))).map(|i| Ref::Item(i.id)).collect();
     let item_args: Vec<Value> = mine.iter().take(1).map(|r| json!({ "ref": s(*r) })).collect();
     for a in &item_args {

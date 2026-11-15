@@ -1372,3 +1372,15 @@ Engineering: the cause is the house attract fork (a joiner inherits his seat fro
 Benito, in his game-design session, asked whether a classic lobby with joiner and starter options could be added, where a starter can pick all bots or create their own servers. He felt the design was overcomplicated, said the will box example does not hint at the death flow, and asked that duels be explained better or fixed, that anything confusing or not visually represented be found, and why duels look blocky, noting they should be image-generated.
 
 Engineering: a classic lobby (play vs bots / host with a code / join by code / the house) and the fallen-WILL chip go to the Mac; his own private room on his PC tonight; the duel fighters' look is his pick (generated cards, Meshy statues, or a backdrop).
+## 2026-11-15: the next move, every beat (verbatim)
+
+> The screen should say what the player's next move is and why it matters.
+
+Then, from the same playtest: Benito lost 7 of 7 duels, and in 5 of them the AI challenged him and he typed nothing.
+
+Engineering (branch backend/next-move; state schema 18; no LLM or image spend):
+- **The hint** (`fn7-plugin/src/hint.rs`, DM_RULEBOOK ch. 29, CLIENT_API "Next move hint"): each human seat's SeatView (`round.brief.private`, `round.private_state`, `game.me`) carries `hint {text ≤ 80, why ≤ 100, action, target {ref?, at?, cell?}, urgency 0..3, kind}`, picked by rules in priority order: in a duel (TYPE NOW), a demigod about to fall (earth hazard, Time's circle, army, rival), the fallen (raise, or the seal's counter-quest), spectators watch, a rival in your hex, a world event near you, a mega at a fault junction, no gear, a quest step, a concrete will. AI and bot seats get none. Plus a `goal` line: "Last standing wins. You: 2 alive, 3 rivals. Beat 41 of 60."
+- **Duel odds** (`game.duel_odds`, public): `win_pct` and `idle_win_pct` from 600 seeded trials of the §21.2 blow, health exact only where the seat sees it (else hale / hurt / near death), modifiers, reach, reasons. For a fresh match's even fight the silent player wins 0%.
+- **Hidden information**: only what the seat sees (no rival health, standing orders, army orders or hidden encounter kinds); a test plants secrets in every case and checks none leaks.
+- **Replay**: derived, never stored; payloads gated on `World::hint_rules()` (schema ≥ 18, `dm::HINT_SCHEMA`), so schema ≤ 17 recordings replay unchanged. Release `fn7-sim --replay` of the three newest finished LAN recordings (schema 17): 0d90bd79 121/121 snapshots identical, a10a4a51 162/162, 96c36dfa 159/159; 0 differences, summaries identical.
+

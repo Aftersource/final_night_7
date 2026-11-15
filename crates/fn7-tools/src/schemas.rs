@@ -1168,6 +1168,8 @@ fn seat_view_body(desc: &str) -> Value {
             ("my_items", array(r("Item"), "Rules 0.7.0: every item your demigods hold.")),
             ("quests", wills::seat_fields()[0].1.clone()), ("curses", wills::seat_fields()[1].1.clone()),
             ("boons", wills::seat_fields()[2].1.clone()), ("raises", wills::seat_fields()[3].1.clone()),
+            ("hint", r("NextMoveHint")),
+            ("goal", string("State schema 18, human seats only: the goal line, every beat, e.g. \"Last standing wins. You: 2 alive, 3 rivals. Beat 41 of 60.\"")),
             ("hierarchy", json!({ "type": ["object", "null"], "additionalProperties": true, "description": "The society hierarchy at your zoom (schema 4: node, path, children, crowds, cells, people, armies with chains of command, mobs, battles). Its shape is not frozen yet (the society build is in progress); read defensively." }))],
     )
 }
@@ -1955,6 +1957,18 @@ fn v07_defs() -> Map<String, Value> {
           ("time_bill", r("TimeBill")), ("controller", e(&["human", "ai"], "")),
           ("connected", json!({ "type": ["boolean", "null"] }))],
         &[],
+    ));
+    d.insert("NextMoveHint".into(), object(
+        "State schema 18: the next move, private to a human seat (AI and bot seats never get one). Picked by rules from \
+         the state every beat (no LLM), never stored. Draw `text` as one big line at top centre with an arrow at `target`; \
+         map `action` to the gesture (docs/CLIENT_API.md \"Next move hint\").",
+        &[("text", string("Imperative, names and places, at most 80 characters (e.g. \"Your Right Hand is under attack in Kinshasa: drag a power onto Vex's army\").")),
+          ("why", string("What it changes, at most 100 characters.")),
+          ("action", e(&fn7_plugin::hint::HintAction::ALL, "The gesture: duel_type (you are in a duel: focus the duel's text box), cast_power (drag a power onto the target), type_will (open the text entry), summon (drag your demigod onto the target), challenge, heal, flee, seek_gear, explore, resurrect, break_curse, watch.")),
+          ("urgency", json!({ "type": "integer", "minimum": 0, "maximum": 3, "description": "0 calm .. 3 in a duel or a demigod about to fall." })),
+          ("kind", e(&fn7_plugin::hint::KINDS, "Which rule picked it (the priority list, DM_RULEBOOK chapter 28)."))],
+        &[("target", object("Where the arrow points: any of a thing, a point, a hex.", &[],
+            &[("ref", r("Ref")), ("at", r("LonLat")), ("cell", string("A hex cell key (people level).")) ]))],
     ));
     d.insert("Charges".into(), object(
         "Rules 0.7.0, the 1:5 economy: the player's power charges (public). A MEGA power costs a bolt (and every other player gains bolt_gift bolts, spark_gift sparks); a MINI costs a spark (no gifts). Bolts also pay Time's toll and gods' prices.",

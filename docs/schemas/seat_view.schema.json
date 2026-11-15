@@ -1129,6 +1129,85 @@
       ],
       "type": "object"
     },
+    "NextMoveHint": {
+      "description": "State schema 18: the next move, private to a human seat (AI and bot seats never get one). Picked by rules from the state every beat (no LLM), never stored. Draw `text` as one big line at top centre with an arrow at `target`; map `action` to the gesture (docs/CLIENT_API.md \"Next move hint\").",
+      "properties": {
+        "action": {
+          "description": "The gesture: duel_type (you are in a duel: focus the duel's text box), cast_power (drag a power onto the target), type_will (open the text entry), summon (drag your demigod onto the target), challenge, heal, flee, seek_gear, explore, resurrect, break_curse, watch.",
+          "enum": [
+            "duel_type",
+            "cast_power",
+            "type_will",
+            "summon",
+            "challenge",
+            "heal",
+            "flee",
+            "seek_gear",
+            "explore",
+            "resurrect",
+            "break_curse",
+            "watch"
+          ],
+          "type": "string"
+        },
+        "kind": {
+          "description": "Which rule picked it (the priority list, DM_RULEBOOK chapter 28).",
+          "enum": [
+            "duel",
+            "danger",
+            "resurrect",
+            "break_curse",
+            "watch",
+            "challenge",
+            "event",
+            "mega",
+            "gear",
+            "quest",
+            "will"
+          ],
+          "type": "string"
+        },
+        "target": {
+          "description": "Where the arrow points: any of a thing, a point, a hex.",
+          "properties": {
+            "at": {
+              "$ref": "#/$defs/LonLat"
+            },
+            "cell": {
+              "description": "A hex cell key (people level).",
+              "type": "string"
+            },
+            "ref": {
+              "$ref": "#/$defs/Ref"
+            }
+          },
+          "required": [],
+          "type": "object"
+        },
+        "text": {
+          "description": "Imperative, names and places, at most 80 characters (e.g. \"Your Right Hand is under attack in Kinshasa: drag a power onto Vex's army\").",
+          "type": "string"
+        },
+        "urgency": {
+          "description": "0 calm .. 3 in a duel or a demigod about to fall.",
+          "maximum": 3,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "why": {
+          "description": "What it changes, at most 100 characters.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "why",
+        "action",
+        "urgency",
+        "kind"
+      ],
+      "type": "object"
+    },
     "Quest": {
       "description": "Rules 0.9.0: a mystic quest: a short chain of checkable steps; when all are done its effect applies.",
       "properties": {
@@ -1828,6 +1907,10 @@
         }
       ]
     },
+    "goal": {
+      "description": "State schema 18, human seats only: the goal line, every beat, e.g. \"Last standing wins. You: 2 alive, 3 rivals. Beat 41 of 60.\"",
+      "type": "string"
+    },
     "hands": {
       "description": "Your two hands: [left, right].",
       "items": {
@@ -1842,6 +1925,9 @@
         "object",
         "null"
       ]
+    },
+    "hint": {
+      "$ref": "#/$defs/NextMoveHint"
     },
     "items": {
       "description": "Items your demigod holds.",
