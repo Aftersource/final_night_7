@@ -55,7 +55,7 @@ was current at THAT beat. Written only at the end of a beat (`look::step`, rules
 | `looks[].loadout` | the hash of the loadout its IMAGES show (`""`: the base identity images). A human's only |
 | `looks[].since_beat` | the beat its images became these |
 | `looks[].gear[]` | the pieces its images show: `{role, kind, material, tier, stem, blessing, name}` (the prompt is written from these and the demigod's name, never from items that may since have changed hands) |
-| `looks[].portrait`, `.diorama` | sha256 of its portrait subject and its diorama subject (the image identity; `""`: base) |
+| `looks[].portrait`, `.diorama` | sha256 of its portrait identity and its diorama subject (the image identity; `""`: base). The portrait identity is the schema-11 portrait subject, frozen (`look::portrait_identity`): the prompt the media layer is sent may be rewritten (`fn7-gear-portrait/2`) without changing the state |
 | `looks[].lines[]` | every line of the pictured loadout (what a later loadout is compared with to say what was gained) |
 | `looks[].made[]`, `.made_beat` | the gear pictures made for it this match (the cap) and the beat of the newest (the debounce) |
 | `looks[].past[]` | its earlier looks, oldest first (the newest 8): `{loadout, since_beat, until_beat, gear[]}` |

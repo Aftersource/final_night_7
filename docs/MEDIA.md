@@ -237,8 +237,29 @@ loadouts are pictured (under their new names).
 
 ### The prompts
 
-The subject is the base identity subject **unchanged** (name, visual sheet, pose: so the face and build stay the same),
-then a gear clause, then a closing instruction. Each piece is written place first, then a concrete noun, its material
+**Gear portrait** (`fn7_media::gear_version(Portrait)` = `fn7-gear-portrait/2`). The live match ae54b0af showed why
+the first template failed: the whole base subject came first ("…, carrying a golden abacus, …; … lightning crackling
+between their fingers"), the gear clause last, and the base note said to keep the "pose family exactly", so the model
+kept the base portrait's hands (the abacus and the fire) and the blade never appeared. Now the gear is the **subject of
+the shot** and comes first, right after the name and before the identity and the style text:
+
+1. the lead piece: a weapon "raised in the right hand and held up across the chest", a charm "held up in the right
+   hand toward the viewer", armour as worn; then "the <noun> is clearly visible and in focus, fully in frame";
+2. the other pieces, placed as in the table (a second weapon is slung across the back);
+3. "the hands now hold this new gear instead of their old props: their <signature prop> is no longer in hand
+   (dropped, or hanging at the belt), and nothing else is held";
+4. the identity sheet without its prop (build, face, outfit, colours, emblem; "two glowing orchestrator hands float at
+   their sides") and "the same face, build, clothes and colours as before".
+
+The portrait's note on its base image (`portrait_base_note`, default `style::DEFAULT_PORTRAIT_BASE_NOTE`) lets the hands
+and pose change and goes right after the subject, **before** `Style:`. The state does not see the template: a look's
+stored `portrait` hash (and the cap's `made` list) is over the frozen schema-11 subject (`look::portrait_identity`), so
+recordings replay exactly; the gear-portrait version in the image key keeps an old-template picture from being reused.
+Identity portraits and item art key exactly as before.
+
+**Gear diorama** (unchanged; it worked): the base diorama subject (its signature prop sits at the miniature's feet, not
+in its hands), then the gear clause, the shared `base_note` at the end. Each piece is written place first, then a
+concrete noun, its material Each piece is written place first, then a concrete noun, its material
 in the house style's vocabulary, its glow by tier, and its god's signature when blessed. Never a number, a stat or an
 id. Templates (`look.rs`: `worn`, `placed`, `phrase`, `material_look`, `tier_glow`, `signature`):
 
@@ -263,21 +284,24 @@ id. Templates (`look.rs`: `worn`, `placed`, `phrase`, `material_look`, `tier_glo
 | heron-feather | long grey-white heron feathers bound in silver wire | | | | |
 
 A full gear portrait prompt (the subject is from `look_tests::example_subjects`; the framing, style, reference note and
-avoid text are the portrait kind's as today; the last sentence is the style's `base_note`):
+avoid text are the portrait kind's as today; the sentence before `Style:` is the style's `portrait_base_note`):
 
-> Waist-up, three-quarter view, dramatic rim light: Chris's Left Hand, a demigod: wiry and long-limbed, silver braids
-> and a serene stare, wearing ornate plate armor over a hoodie in violet and jet black, carrying a golden abacus, with
-> the emblem of a thorned rose; a larger-than-life figure with two glowing orchestrator hands floating at their sides
-> and lightning crackling between their fingers; newly geared: gripped in the right hand, a blade of iridescent
+> Waist-up, three-quarter view, dramatic rim light: Chris's Left Hand, a demigod, newly geared: waist-up, the new gear
+> is the subject of this shot: raised in the right hand and held up across the chest, a blade of iridescent
 > butterfly-wing membrane veined like stained glass, ornate, glowing steadily, wound with living vines and small green
-> leaves; strapped over the chest and shoulders, plate armour of cold blue-white moonsteel, finely made, with a faint
-> glow along its edges; hanging on a cord at the throat, a talisman of beaten gold, ornate, glowing steadily, inlaid
-> with pale bone, a cold grey mist trailing from it; the same face, build, clothes and colours as before, with only
-> this gear added. Style: a dark-fantasy world at night under a vast starry sky … dreamy and eerie. Match the reference
-> images exactly in art style, rendering, colour palette, lighting and level of detail; this is a new shot in that same
-> world, not a copy of them. No words or letters in the picture, no gore, no real people. The first reference image is
-> this same character: keep its face, build, clothes, colours and pose family exactly as they are there and add only
-> the gear described; the other reference images set the art style.
+> leaves; the blade is clearly visible and in focus, fully in frame; strapped over the chest and shoulders, plate
+> armour of cold blue-white moonsteel, finely made, with a faint glow along its edges; hanging on a cord at the throat,
+> a talisman of beaten gold, ornate, glowing steadily, inlaid with pale bone, a cold grey mist trailing from it; the
+> hands now hold this new gear instead of their old props: their golden abacus is no longer in hand (dropped, or
+> hanging at the belt), and nothing else is held; wiry and long-limbed, silver braids and a serene stare, wearing
+> ornate plate armor over a hoodie in violet and jet black, with the emblem of a thorned rose; two glowing orchestrator
+> hands float at their sides; the same face, build, clothes and colours as before. The first reference image is this
+> same character before the new gear: keep its face, build, clothes and colours exactly as they are there, but not
+> what its hands hold or its pose: the hands now hold the new gear described, which must be clearly visible and in
+> focus; the other reference images set the art style. Style: a dark-fantasy world at night under a vast starry sky …
+> dreamy and eerie. Match the reference images exactly in art style, rendering, colour palette, lighting and level of
+> detail; this is a new shot in that same world, not a copy of them. No words or letters in the picture, no gore, no
+> real people.
 
 The diorama subject is the base diorama subject, then "the miniature now carries its gear as chunky faceted low-poly
 pieces: raised in its right hand, a blade of …; as blocky plates over its torso and shoulders, plate armour of …; as a
@@ -297,7 +321,7 @@ again).
 ### The cache key
 
 `sha256(fn7-media/3 \n generator label \n size \n prompt text [\n ref:<sha256 of each style reference>] [\n base:<the
-base image's key>])`. So a gear picture's key is (kind: in the text's framing; identity: the base subject in the text
+base image's key> [\n gear:<the kind's gear version: fn7-gear-portrait/2 for a gear portrait; none for a diorama>]])`. So a gear picture's key is (kind: in the text's framing; identity: the base subject in the text
 and the base key; loadout: the gear clause in the text; style version: the style text and the reference files;
 references: their hashes and the base key). The base's key, not its bytes, is used, so the key is known the moment the
 look changes (the payload can name the pending hash at once). **Generated once, reused forever, across matches**: the

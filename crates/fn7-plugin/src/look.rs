@@ -388,9 +388,71 @@ pub struct Shown {
     pub gear: Gear,
 }
 
-/// The portrait subject of `name` with `gear`: the identity sheet exactly as the base portrait has it, then the gear
-/// clause (what is held in which hand, what is worn, materials and glow). No stats, no ids.
+/// The portrait subject of `name` with `gear`. The gear is the subject of the shot and comes first, before the identity
+/// and so before the style text: the lead piece in the hands (a weapon raised in the right hand across the chest, a
+/// charm held up toward the viewer) or worn, clearly visible and in focus, then the other pieces, then the hands' old
+/// props set aside (the base portrait, the first reference image, still shows them), then the identity sheet without
+/// its prop and "the same face, build, clothes and colours". No stats, no ids. Not part of the state (a look's stored
+/// hash is over [`portrait_identity`], which never changes); a template change bumps `fn7_media::gear_version`.
+///
+/// The live defect it fixes (match ae54b0af): the old subject was the whole base subject ("..., carrying a golden
+/// abacus, ...; ... lightning crackling between their fingers") with "newly geared: gripped in the right hand, a blade
+/// ..." at its very end and "keep its pose family exactly" in the note, so the model kept the base portrait's hands
+/// (the abacus and the fire) and the blade never appeared.
 pub fn portrait_subject(name: &str, gear: &[Shown]) -> String {
+    let shown = crate::visual::image_name(name);
+    let v = crate::visual::demigod_by_name(name);
+    let t = &v.traits;
+    let (lead, rest) = match gear.split_first() {
+        Some((l, r)) => (Some(l), r),
+        None => (None, gear),
+    };
+    let mut parts: Vec<String> = vec![];
+    let mut held = false;
+    if let Some(l) = lead {
+        let p = phrase(&l.gear);
+        let n = noun(&l.gear);
+        let (what, in_hand) = match (l.role.as_str(), l.gear.kind) {
+            ("weapon", _) => (format!("raised in the right hand and held up across the chest, {p}"), true),
+            ("charm", _) if has_word(&n, &["crown", "circlet", "diadem", "helm", "helmet"]) => (format!("worn on the brow, {p}"), false),
+            ("charm", _) => (format!("held up in the right hand toward the viewer, {p}"), true),
+            ("armor", _) => (worn("armor", &l.gear), false),
+            (_, ItemKind::Weapon | ItemKind::Relic | ItemKind::Artifact | ItemKind::Other) => (format!("held up in the right hand, {p}"), true),
+            _ => (worn(&l.role, &l.gear), false),
+        };
+        held = in_hand;
+        parts.push(format!("waist-up, the new gear is the subject of this shot: {what}; the {n} is clearly visible and in focus, fully in frame"));
+    }
+    for s in rest {
+        let w = worn(&s.role, &s.gear);
+        // The right hand already holds the lead piece: a second weapon goes across the back.
+        let w = if held && s.role == "weapon" { format!("slung across the back, {}", phrase(&s.gear)) } else { w };
+        held |= s.role == "weapon";
+        parts.push(w);
+    }
+    let prop = t.prop.trim();
+    let prop = ["a ", "an ", "the "].iter().find_map(|a| prop.strip_prefix(a)).unwrap_or(prop);
+    let props = if held {
+        format!("the hands now hold this new gear instead of their old props: their {prop} is no longer in hand (dropped, or hanging at the belt), and nothing else is held")
+    } else {
+        format!("their {prop} is set aside or hangs at the belt, so the new gear is unobstructed")
+    };
+    format!(
+        "{shown}, a demigod, newly geared: {}; {props}; {}, {}, wearing {} in {} and {}, with the emblem of {}; two glowing orchestrator \
+         hands float at their sides; the same face, build, clothes and colours as before",
+        parts.join("; "),
+        t.build,
+        t.face,
+        t.outfit,
+        t.colors[0],
+        t.colors[1],
+        t.emblem
+    )
+}
+
+/// The portrait subject a look's stored hash is over (`Look::portrait`, `Look::made`: the cap counts these): the
+/// schema-11 template, frozen, so a template change never changes the state and every recording replays exactly.
+fn portrait_identity(name: &str, gear: &[Shown]) -> String {
     let base = crate::payload::portrait_prompt_for(name);
     let clause: Vec<String> = gear.iter().map(|s| worn(&s.role, &s.gear)).collect();
     format!("{base}; newly geared: {}; the same face, build, clothes and colours as before, with only this gear added", clause.join("; "))
@@ -585,7 +647,7 @@ pub fn step(w: &mut World, beat: u32, st: &Settings) -> Vec<Change> {
         let (portrait, diorama) = if shown.is_empty() {
             (String::new(), String::new())
         } else {
-            (sha(&[&portrait_subject(&name, &shown)]), sha(&[&diorama_subject(&name, &shown)]))
+            (sha(&[&portrait_identity(&name, &shown)]), sha(&[&diorama_subject(&name, &shown)]))
         };
         let mut kept = None;
         if !portrait.is_empty() && !rec.made.contains(&portrait) {

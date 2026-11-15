@@ -198,9 +198,9 @@ fn a_humans_major_acquisition_is_a_new_look_and_the_ais_is_not() {
     // The human's look: the gear subjects, on top of the unchanged identity subjects.
     let l = t.look(a);
     let (ps, ds) = (l["portrait_subject"].as_str().unwrap(), l["diorama_subject"].as_str().unwrap());
-    let base = l["base_portrait"].as_str().unwrap();
-    assert!(ps.starts_with(base), "the identity sheet is unchanged: {ps}");
-    assert!(ps.contains("newly geared: gripped in the right hand, a blade of iridescent butterfly-wing membrane veined like stained glass, ornate, glowing steadily, wound with living vines and small green leaves; the same face"), "{ps}");
+    let v = crate::visual::demigod_by_name("Chris's Left Hand");
+    assert!(ps.starts_with("Chris's Left Hand, a demigod, newly geared: waist-up, the new gear is the subject of this shot: raised in the right hand and held up across the chest, a blade of iridescent butterfly-wing membrane veined like stained glass, ornate, glowing steadily, wound with living vines and small green leaves; the blade is clearly visible"), "{ps}");
+    assert!(ps.contains(&format!("{}, {}, wearing {}", v.traits.build, v.traits.face, v.traits.outfit)) && ps.ends_with("the same face, build, clothes and colours as before"), "the identity sheet is kept: {ps}");
     assert!(ds.starts_with(l["base_diorama"].as_str().unwrap()) && ds.contains("raised in its right hand, a blade of"), "{ds}");
     assert!(!ps.contains("it:") && !ps.contains("dg:") && !ps.contains('+'), "no ids and no stats");
     assert_eq!((l["gear"].as_bool(), l["since_beat"].as_u64(), l["looks_made"].as_u64(), l["looks_cap"].as_u64()), (Some(true), Some(2), Some(1), Some(4)));
@@ -364,7 +364,7 @@ fn a_will_arms_a_humans_demigods_and_their_looks_change() {
     for e in &ev {
         assert_eq!(e["player"], "Chris");
         assert!(e["gained"]["name"].as_str().unwrap().contains("Blade"), "{e}");
-        assert!(e["portrait_subject"].as_str().unwrap().contains("gripped in the right hand, a "));
+        assert!(e["portrait_subject"].as_str().unwrap().contains("the new gear is the subject of this shot: raised in the right hand and held up across the chest, a "));
     }
     // The private will result's item and the seat's items carry the same picture prompt as the look's loadout.
     let mine_ = o.per_seat.iter().find(|(s, _)| *s == 0).unwrap().1.clone();
@@ -584,4 +584,42 @@ fn a_thing_is_never_named_after_an_entity_and_never_pictured_as_one() {
     let w = t.w();
     let junk = w.items.iter().find(|i| i.name == "Bot Kestrel's Right Hand").unwrap();
     assert!(!look::book(&w).art.contains(&look::gear_of(&w, junk).art_key()), "no item art for it");
+}
+
+/// The live gear portrait (match ae54b0af) kept the base portrait's hands (an abacus and fire) and never showed the
+/// obsidian blade. The gear is now the subject of the shot, first, in the hands instead of the old props (the full
+/// prompt, with the note before the style text: `fn7-media` `a_gear_portrait_says_the_hands_change_before_the_style`);
+/// the identity stays. The state's look hash is unchanged (it is over the frozen
+/// schema-11 subject), so recordings replay exactly.
+#[test]
+fn the_gear_portrait_puts_the_gear_in_the_hands_and_in_frame() {
+    let mut t = table(21, json!({}));
+    let a = mine(&t.w(), 0)[0];
+    t.give(a, ItemKind::Weapon, Tier::Trinket, "Obsidian Blade", None);
+    t.beat("");
+    let l = t.look(a);
+    let ps = l["portrait_subject"].as_str().unwrap().to_string();
+    let blade = "a blade of black volcanic obsidian glass with razor facets, plain and battered";
+    let v = crate::visual::demigod_by_name("Chris's Left Hand");
+    // The gear leads: right after the name, before the identity sheet.
+    assert!(ps.starts_with("Chris's Left Hand, a demigod, newly geared: waist-up, the new gear is the subject of this shot: raised in the right hand and held up across the chest, "), "{ps}");
+    assert!(ps.contains(blade) && ps.contains("the blade is clearly visible and in focus, fully in frame"), "{ps}");
+    assert!(ps.find(blade).unwrap() < ps.find(&v.traits.build).unwrap(), "gear before identity: {ps}");
+    // The hands hold the gear instead of the old prop; the prop is not carried, the fire is gone.
+    let prop = v.traits.prop.trim_start_matches("a ").trim_start_matches("an ");
+    assert!(ps.contains(&format!("the hands now hold this new gear instead of their old props: their {prop} is no longer in hand")), "{ps}");
+    assert!(!ps.contains(&format!("carrying {}", v.traits.prop)) && !ps.contains("lightning crackling"), "{ps}");
+    // The identity stays.
+    assert!(ps.contains(&v.traits.face) && ps.contains(&v.traits.outfit) && ps.ends_with("the same face, build, clothes and colours as before"), "{ps}");
+    assert!(ps.len() < 1200, "within the media layer's subject limit");
+    // The state keeps the schema-11 identity hash: sha256 of the old template's subject.
+    let old = format!(
+        "{}; newly geared: gripped in the right hand, {blade}; the same face, build, clothes and colours as before, with only this gear added",
+        crate::payload::portrait_prompt_for("Chris's Left Hand")
+    );
+    println!("BEFORE: {old}\n\nAFTER: {ps}");
+    let rec = look::book(&t.w()).looks.into_iter().find(|r| r.demigod == a).unwrap();
+    use sha2::Digest;
+    assert_eq!(rec.portrait, hex::encode(sha2::Sha256::digest(old.as_bytes())));
+    assert_eq!(rec.made, vec![rec.portrait.clone()]);
 }
