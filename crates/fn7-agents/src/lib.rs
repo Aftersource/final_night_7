@@ -36,6 +36,7 @@ pub mod runner;
 pub mod step;
 pub mod summon;
 pub mod duel;
+pub mod duel_pick;
 
 pub use common::{Entity, Fallback, Labels, Outcome};
 pub use runner::{run_job, run_minds, MindCall, MindReply, RunReport};
