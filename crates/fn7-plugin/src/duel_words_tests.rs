@@ -201,7 +201,7 @@ fn schema_20_is_untouched() {
     let b = submit(&t, &at(0, line(&id, "I pull out a rocket launcher"), 3, now - 27_000)).unwrap();
     assert!(b["move"]["whiff"].is_null() && b["move"]["draw"]["held"] == false, "hammer-space as before: {}", b["move"]);
     let w = world::load(&t.state).unwrap();
-    assert!(!w.duel_words_rules() && fn7_model::STATE_SCHEMA == 21);
+    assert!(!w.duel_words_rules() && fn7_model::STATE_SCHEMA >= 21);
 }
 
 /// Prints one real example per case (docs): `cargo test -p fn7-plugin duel_words_examples -- --ignored --nocapture`.

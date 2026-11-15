@@ -241,6 +241,8 @@ fn shared_defs() -> Map<String, Value> {
             ("fizzled", string("Its target doesn't exist (it will fizzle).")),
             ("fault_km", num("Rules 0.8.0, megas only: great-circle distance (km) from the aim to the nearest fault line.")),
             ("fault_factor", num("Rules 0.8.0, megas only: the damage multiplier the fault rule gives (1.6 near a fault .. 0.6 far).")),
+            ("text", string("State schema 22: the cast in plain words, naming the place, never coordinates (\"Benito casts lightning in Moscow\"); it says when it covers the caster's own demigod.")),
+            ("own_hit", r("Ref")),
         ].into_iter().chain(faults::cast_fields()).collect::<Vec<_>>(),
     );
     d.insert(
@@ -270,6 +272,8 @@ fn shared_defs() -> Map<String, Value> {
                 ("target_name", json!({ "type": ["string", "null"] })),
                 ("fault_km", num("Rules 0.8.0: first cast, a mega: distance (km) to the nearest fault line.")),
                 ("fault_factor", num("Rules 0.8.0: first cast, a mega: the fault rule's damage multiplier.")),
+                ("text", string("State schema 22: first cast in plain words (the place by name, never coordinates).")),
+                ("own_hit", r("Ref")),
             ].into_iter().chain(faults::cast_fields()).collect::<Vec<_>>(),
         ),
     );
@@ -301,6 +305,8 @@ fn shared_defs() -> Map<String, Value> {
                 ("fizzled", string("Why it fizzled (not enough bolts, no such target); nothing was spent.")),
                 ("fault_km", num("Rules 0.8.0, megas only: distance (km) from where it struck to the nearest fault line.")),
                 ("fault_factor", num("Rules 0.8.0, megas only: the fault rule's damage multiplier (radius and magnitude scale with it).")),
+                ("text", string("State schema 22: the cast in plain words, naming the place, never coordinates (\"Benito casts lightning in Moscow\", \"... right on their own Left Hand in Moscow\")).")),
+                ("own_hit", json!({ "$ref": "#/$defs/Ref", "description": "State schema 22: the caster's own demigod its area covered (no rule change: it is hurt as anyone there)." })),
             ].into_iter().chain(faults::cast_fields()).collect::<Vec<_>>(),
         ),
     );

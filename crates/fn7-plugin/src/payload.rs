@@ -70,6 +70,36 @@ pub fn region_name(w: &World, at: LonLat) -> String {
     w.name_of(Ref::Place(fn7_society::geo::region_at(w, at)))
 }
 
+/// A settlement this near (km, planet) names a point that lies outside it ("near Moscow").
+pub const NEAR_KM: f64 = 300.0;
+
+/// Schema 22 (clear words): a point in plain words, never coordinates: "in Moscow" (a settlement it lies in), "near
+/// Moscow" (one within [`NEAR_KM`]), "in Eastern Europe" (the region), "at sea off Eastern Europe" (no country under
+/// it); in a city arena, "in <the most specific place>". Returns (the phrase, the bare name).
+pub fn where_words(w: &World, at: LonLat) -> (String, String) {
+    use fn7_society::geo::{country_at, distance_km, place_at};
+    let here = place_at(w, at);
+    let name = w.name_of(Ref::Place(here));
+    if !w.is_planet() || w.places.get(here.ix()).is_some_and(|p| p.kind == PlaceKind::Site) {
+        return (format!("in {name}"), name);
+    }
+    let near = w
+        .places
+        .iter()
+        .filter(|p| p.kind == PlaceKind::Site)
+        .map(|p| (distance_km(p.center, at), p))
+        .filter(|(d, _)| *d <= NEAR_KM)
+        .min_by(|a, b| a.0.total_cmp(&b.0).then(a.1.id.cmp(&b.1.id)));
+    if let Some((_, p)) = near {
+        return (format!("near {}", p.name), p.name.clone());
+    }
+    let region = region_name(w, at);
+    if country_at(at).is_none() {
+        return (format!("at sea off {region}"), region);
+    }
+    (format!("in {region}"), region)
+}
+
 /// A ledger row's geotag: where it happened and the region (planet) or district (city) it was in.
 pub fn geotag(w: &World, r: &LedgerRow) -> (Option<LonLat>, Option<String>) {
     let (at, region) = geotag_place(w, r);

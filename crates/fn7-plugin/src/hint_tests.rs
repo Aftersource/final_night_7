@@ -325,7 +325,124 @@ fn bolts_and_a_rival_on_a_junction_ask_for_a_mega() {
     });
     assert_eq!((h.kind, h.action, h.urgency), ("mega", HintAction::CastPower, 1));
     assert!(h.text.starts_with("Cast a mega on Benito's Left Hand at the Afar triple junction"), "{}", h.text);
-    assert!(h.why.contains("junction tier") && h.why.contains("3 bolts"), "{}", h.why);
+    assert!(h.why.starts_with("Plate boundaries meet there, so it hits ") && h.why.contains("3 bolts"), "{}", h.why);
+    assert!(!h.why.contains("tier") && !h.text.contains("tier"), "no jargon: {} / {}", h.text, h.why);
+}
+
+/// Schema 22 (clear words) and its gate: the schema-21 wording stays as it was.
+fn at_schema(schema: u32, f: impl FnOnce(&mut World)) -> Hint {
+    let (_, state) = start(json!({}));
+    let mut w = world::load(&state).unwrap();
+    calm(&mut w);
+    w.meta.schema = schema;
+    f(&mut w);
+    let w = world::load(&world::save(&w)).unwrap();
+    let h = for_seat(&w, 0).expect("a hint");
+    check(&h);
+    println!("schema {schema}: {:<8} {} | {}", h.kind, h.text, h.why);
+    h
+}
+
+fn junction_rival(w: &mut World) {
+    let l = body(w, 0, Hand::Left);
+    w.demigods[l.ix()].bolts = 3;
+    let vex = body(w, 1, Hand::Left);
+    w.demigods[vex.ix()].pos = [42.0, 11.5];
+}
+
+#[test]
+fn clear_words_mega_has_no_tier_jargon_and_schema_21_is_unchanged() {
+    let old = at_schema(21, junction_rival);
+    assert!(old.why.contains("junction tier"), "{}", old.why);
+    let new = at_schema(22, junction_rival);
+    assert_eq!(new.text, old.text);
+    assert!(new.why.starts_with("Plate boundaries meet there, so it hits ") && !new.why.contains("tier"), "{}", new.why);
+}
+
+#[test]
+fn clear_words_an_event_right_here_says_so() {
+    let ev = |w: &mut World| {
+        let vex = body(w, 1, Hand::Left);
+        row(w, vex, "cast", "The sea walks inland", MADRID, 7);
+    };
+    let old = at_schema(21, ev);
+    assert!(old.why.starts_with("0 km away: The sea walks inland"), "{}", old.why);
+    let new = at_schema(22, ev);
+    assert_eq!(new.kind, "event");
+    assert_eq!(new.why, "Right where your Left Hand stands: The sea walks inland");
+    assert!(!new.why.contains("0 km"));
+}
+
+#[test]
+fn clear_words_a_stale_low_urgency_hint_rotates_every_3_beats() {
+    // A mega (rule 6) and a will (rule 9) both apply: they take turns, 3 beats each, from the state's beat.
+    let kinds: Vec<&str> = (2..=9u32)
+        .map(|beat| at_schema(22, |w| {
+            junction_rival(w);
+            w.meta.beat = beat;
+        }).kind)
+        .collect();
+    assert_eq!(kinds, ["mega", "will", "will", "will", "mega", "mega", "mega", "will"]);
+    // Schema 21: the top rule every beat.
+    for beat in 2..=9u32 {
+        assert_eq!(at_schema(21, |w| { junction_rival(w); w.meta.beat = beat; }).kind, "mega");
+    }
+    // Urgent hints never rotate: a rival in your hex stays.
+    for beat in 2..=9u32 {
+        let h = at_schema(22, |w| {
+            junction_rival(w);
+            w.meta.beat = beat;
+            let vex = body(w, 1, Hand::Right);
+            w.demigods[vex.ix()].pos = fn7_society::geo::destination(MADRID, 10.0, 0.5);
+        });
+        assert_eq!(h.kind, "challenge");
+    }
+}
+
+#[test]
+fn clear_words_a_cast_on_your_own_demigod_warns_next_beat() {
+    let own = |w: &mut World| {
+        let l = body(w, 0, Hand::Left);
+        let r = body(w, 0, Hand::Right);
+        w.demigods[r.ix()].health = 7.0;
+        let id = row(w, l, "cast", "Chris's Left Hand casts lightning on Lisbon", LISBON, 5);
+        w.ledger.rows.last_mut().unwrap().witnessed_by = vec![Ref::Demigod(r)];
+        let _ = id;
+    };
+    let new = at_schema(22, own);
+    assert_eq!((new.kind, new.action, new.urgency), ("own_hit", HintAction::Heal, 2));
+    assert!(new.text.starts_with("Your lightning hit your own Right Hand in ") && !new.text.contains("38."), "{}", new.text);
+    let old = at_schema(21, own);
+    assert_ne!(old.kind, "own_hit");
+}
+
+#[test]
+fn clear_words_cast_lines_name_the_place_and_an_own_hit() {
+    use crate::actions::{CastOrder, CastTarget};
+    let moscow: LonLat = [37.63, 55.96];
+    let lines = |schema: u32| {
+        let (_, state) = start(json!({}));
+        let mut w = world::load(&state).unwrap();
+        calm(&mut w);
+        w.meta.schema = schema;
+        let l = body(&w, 1, Hand::Left);
+        w.demigods[l.ix()].pos = moscow;
+        let o = |at: LonLat| CastOrder { power: "lightning".into(), target: CastTarget::At(at), text: None, magnitude: None, seq: 1,
+                                         instant: true, scale: Some(CastScale::Mini) };
+        let mine = crate::casts::streak(&w, l, 1, &[o(moscow)]).unwrap();
+        let far = crate::casts::streak(&w, l, 1, &[o([20.0, 20.0])]).unwrap();
+        (mine, far)
+    };
+    let (mine, far) = lines(22);
+    println!("{}\n{}", mine["text"], far["text"]);
+    let t = mine["text"].as_str().unwrap();
+    assert!(t.contains("right on their own Left Hand") && t.contains("Moscow"), "{t}");
+    assert!(!t.contains("55.") && mine["at"] == json!(moscow) && mine["own_hit"].is_string(), "{mine}");
+    let t = far["text"].as_str().unwrap();
+    assert!(t.starts_with("Benito casts ") && !t.contains("own") && !t.contains("20."), "{t}");
+    assert!(far.get("own_hit").is_none());
+    let (mine, _) = lines(21);
+    assert!(mine.get("text").is_none() && mine.get("own_hit").is_none(), "schema 21 untouched: {mine}");
 }
 
 #[test]

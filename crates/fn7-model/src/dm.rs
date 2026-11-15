@@ -65,6 +65,10 @@ pub const TOKEN_PLAY_SCHEMA: u32 = 19;
 /// steps (`move.steps`, the instant `stage` on `duel.blow`), and each fighter carries its `look`.
 pub const DUEL_WORDS_SCHEMA: u32 = 21;
 
+/// The schema the hint and the cast lines speak plainly at (clear words: place names, no jargon, own-hit warnings,
+/// stale hints rotated).
+pub const CLEAR_WORDS_SCHEMA: u32 = 22;
+
 /// Token-play scenes kept in the state (the newest).
 pub const SCENES_KEPT: usize = 24;
 

@@ -1946,7 +1946,9 @@ type, and `goal` in a corner.
 | `action` | The gesture (below) |
 | `target` | Optional. Where the arrow points: `ref` (a thing: `dg:`, `cl:`, `it:`, `lg:`), `at` (`[lon, lat]`), `cell` (a people-level hex key). Any of them may be missing |
 | `urgency` | 0 calm, 1 worth doing, 2 do it this beat, 3 now (in a duel, or a demigod about to fall) |
-| `kind` | Which rule picked it: `duel`, `danger`, `resurrect`, `break_curse`, `watch`, `challenge`, `event`, `mega`, `gear`, `quest`, `will` |
+| `kind` | Which rule picked it: `duel`, `danger`, `own_hit` (schema 22), `resurrect`, `break_curse`, `watch`, `challenge`, `event`, `mega`, `gear`, `quest`, `will` |
+
+**State schema 22 (clear words).** Plain words: no tier jargon ("Plate boundaries meet there, so it hits 2.1x as hard"), a distance under 1 km reads "right here" ("Right where your Left Hand stands: ..."). A low-urgency hint (urgency ≤ 1) takes turns with the other low-urgency rules that apply, 3 beats each (from the beat, never stored). `own_hit` (urgency 2): the beat after a cast of yours covered one of your own demigods ("Your lightning hit your own Right Hand in Moscow: aim clear of it"). Cast lines (`streak`, the outcome's `casts`) carry `text`, the cast in plain words with the place named, never coordinates ("Benito casts lightning bolt right on their own Left Hand in Moscow"), and `own_hit` (the caster's own demigod its area covers; no rule change). **Clients: show `text` in the world log instead of formatting `at` as "55.96N 37.63E".**
 
 **`action` → the client's gesture**
 
