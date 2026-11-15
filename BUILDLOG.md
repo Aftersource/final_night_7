@@ -1542,6 +1542,7 @@ nothing spent):
   the public or another seat, counted exactly, shown to their own seat; determinism (twice, and on a reloaded state);
   a memory past the scan cap reads exactly 2,000 entries and says so; a past beat equals a state whose memory ends there;
   bad args refused. `fn7-tools` strict validation of real replies against the regenerated `query_memory_tree` schema.
+
 ## 2026-11-15: duels that look like your main character, played out as you type
 
 > Why do the characters look like blank models in duels?
