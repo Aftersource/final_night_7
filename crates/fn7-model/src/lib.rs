@@ -67,7 +67,13 @@ use serde::{Deserialize, Serialize};
 /// Schema 12 (AI duellists type): in a duel with a clock an AI fighter types a line in every input window: a bout's
 /// `ai` (the typing scripts not yet entered), blows marked `ai`, panels with `typing_script` and a `play_ms` that
 /// fits the line. Rules that changed read [`World::ai_duel_rules`], so schema-4..11 recordings replay exactly.
-pub const STATE_SCHEMA: u32 = 12;
+///
+/// Schema 16 (fault junctions and tiers; 13..15 are taken by the Earth simulator, duel weapons and item names on their
+/// branches): a mega near a plate-boundary junction gets extra multipliers, every mega lands in a tier (`junction` ..
+/// `tiny`) that scales its ramifications, and a tiny one's lasting mods stay local. The gate is
+/// `fn7_plugin::faults::JUNCTION_SCHEMA` (with the room setting `fault_junctions_enabled`), so older recordings
+/// replay exactly.
+pub const STATE_SCHEMA: u32 = 16;
 
 /// Match-wide settings and clocks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

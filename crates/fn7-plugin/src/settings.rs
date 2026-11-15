@@ -146,6 +146,21 @@ pub struct Settings {
     pub fault_near_damage: f32,
     /// Rules 0.8.0: damage multiplier of a mega cast far from any fault line.
     pub fault_far_damage: f32,
+    /// State schema 16, fault junctions and tiers (the feature gate): a mega near a plate-boundary junction gets the
+    /// junction multipliers on top of the distance curve, every mega lands in a tier (`junction` .. `tiny`) that scales
+    /// the world's answer, and a tiny one's lasting mods stay local. Absent in settings recorded before it: off.
+    pub fault_junctions_enabled: bool,
+    /// Schema 16: a mega this close (km) to a junction gets its multipliers (scaled by the junction's strength,
+    /// falling off linearly to nothing at this distance).
+    pub fault_junction_km: f32,
+    /// Schema 16: magnitude added at a junction of strength 1 (× strength × falloff).
+    pub fault_junction_magnitude: f32,
+    /// Schema 16: radius multiplier at a junction of strength 1 (1 + (this − 1) × strength × falloff).
+    pub fault_junction_radius: f32,
+    /// Schema 16: damage multiplier at a junction of strength 1 (1 + (this − 1) × strength × falloff).
+    pub fault_junction_damage: f32,
+    /// Schema 16: a tiny mega's (≥ `fault_far_km` from any fault) world mods reach at most this far (km): local.
+    pub fault_tiny_mod_km: f32,
     /// Rules 0.8.0: players may summon their demigods across the board (an instant `fields.summon`).
     pub summon_enabled: bool,
     /// Rules 0.8.0: beats between two summonings of the same demigod (1 = once a beat).
@@ -348,6 +363,12 @@ impl Default for Settings {
             fault_far_radius: 1.0,
             fault_near_damage: 1.6,
             fault_far_damage: 0.6,
+            fault_junctions_enabled: true,
+            fault_junction_km: 300.0,
+            fault_junction_magnitude: 3.0,
+            fault_junction_radius: 1.5,
+            fault_junction_damage: 1.8,
+            fault_tiny_mod_km: 150.0,
             summon_enabled: true,
             summon_cooldown_beats: 1,
             summon_loss_scale: 1.0,
@@ -430,7 +451,8 @@ const F32_KEYS: &[&str] =
       "manifest_scale", "manifest_muster_scale", "entropy_per_mega", "entropy_per_mini", "dm_reach_km",
       "dm_encounter_damage_scale", "dm_road_wear", "dm_road_decay", "dm_shrine_heal", "dm_shrine_ward", "fault_near_km", "fault_far_km",
       "fault_near_magnitude", "fault_far_magnitude", "fault_near_radius", "fault_far_radius", "fault_near_damage",
-      "fault_far_damage", "summon_loss_scale", "challenge_min_km", "challenge_contact_km_regions", "challenge_contact_km_villages",
+      "fault_far_damage", "fault_junction_km", "fault_junction_magnitude", "fault_junction_radius", "fault_junction_damage",
+      "fault_tiny_mod_km", "summon_loss_scale", "challenge_min_km", "challenge_contact_km_regions", "challenge_contact_km_villages",
       "challenge_contact_km_houses", "challenge_contact_km_people", "duel_damage_scale", "duel_ai_chance", "duel_ai_reach_km",
       "duel_ai_lines_per_window", "duel_ai_aggression",
       "will_debt_cap", "will_debt_per_spark", "will_entropy_per_spark", "heal_token", "heal_scale", "arms_scale", "raise_years", "raise_health_fraction", "curse_entropy", "wills_ai_chance"];
@@ -561,6 +583,12 @@ impl Settings {
             fault_far_radius: num("fault_far_radius", d.fault_far_radius, 0.1, 10.0)?,
             fault_near_damage: num("fault_near_damage", d.fault_near_damage, 0.0, 10.0)?,
             fault_far_damage: num("fault_far_damage", d.fault_far_damage, 0.0, 10.0)?,
+            fault_junctions_enabled: boolean("fault_junctions_enabled", d.fault_junctions_enabled)?,
+            fault_junction_km: num("fault_junction_km", d.fault_junction_km, 0.0, 3000.0)?,
+            fault_junction_magnitude: num("fault_junction_magnitude", d.fault_junction_magnitude, -10.0, 10.0)?,
+            fault_junction_radius: num("fault_junction_radius", d.fault_junction_radius, 0.1, 10.0)?,
+            fault_junction_damage: num("fault_junction_damage", d.fault_junction_damage, 0.0, 10.0)?,
+            fault_tiny_mod_km: num("fault_tiny_mod_km", d.fault_tiny_mod_km, 20.0, 1500.0)?,
             summon_enabled: boolean("summon_enabled", d.summon_enabled)?,
             summon_cooldown_beats: int("summon_cooldown_beats", d.summon_cooldown_beats, 1, 100)?,
             summon_loss_scale: num("summon_loss_scale", d.summon_loss_scale, 0.0, 10.0)?,
@@ -694,6 +722,10 @@ impl Settings {
         }
         if v.get("duel_one_per_player").is_none() {
             s.duel_one_per_player = false;
+        }
+        // Fault junctions and tiers (schema 16): settings recorded before them have no `fault_junctions_enabled`: off.
+        if v.get("fault_junctions_enabled").is_none() {
+            s.fault_junctions_enabled = false;
         }
         // Settings recorded before flow/slow (schema 2) had only `beat_ms`.
         if v.get("flow_ms").is_none() {
