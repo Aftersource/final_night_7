@@ -3289,6 +3289,62 @@
       ],
       "type": "object"
     },
+    "FaultJunction": {
+      "description": "State schema 16: the plate-boundary junction pulling on a mega (the strongest pull within fault_junction_km).",
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/LonLat"
+        },
+        "kind": {
+          "description": "triple: boundaries of 3+ plates meet; knot: a dense, twisting stretch of boundary far from any triple junction.",
+          "enum": [
+            "triple",
+            "knot"
+          ],
+          "type": "string"
+        },
+        "km": {
+          "description": "Great-circle distance (km) from the aim to it.",
+          "type": "number"
+        },
+        "name": {
+          "description": "Its name when it is a famous one (\"Afar triple junction\"): narration says \"at the Afar triple junction\".",
+          "type": "string"
+        },
+        "plates": {
+          "description": "PB2002 plate codes meeting there (sorted); empty for a knot.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "strength": {
+          "description": "0..1: the strongest triple junction is 1 (by the size of the plates meeting and the boundary around it).",
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "at",
+        "strength",
+        "plates",
+        "km"
+      ],
+      "type": "object"
+    },
+    "FaultTier": {
+      "description": "State schema 16: a mega's tier: junction (within fault_junction_km of a junction), fault (≤ fault_near_km from a fault line), near (the first half of the curve), mild (the second half), tiny (≥ fault_far_km: a tiny volcano; its lasting mods stay local).",
+      "enum": [
+        "junction",
+        "fault",
+        "near",
+        "mild",
+        "tiny"
+      ],
+      "type": "string"
+    },
     "LonLat": {
       "description": "[longitude, latitude] in degrees (WGS84). Note the order: longitude first.",
       "items": {
@@ -3441,6 +3497,9 @@
                 "description": "Rules 0.8.0, megas only: great-circle distance (km) from the aim to the nearest fault line.",
                 "type": "number"
               },
+              "fault_tier": {
+                "$ref": "#/$defs/FaultTier"
+              },
               "fizzled": {
                 "description": "Its target doesn't exist (it will fizzle).",
                 "type": "string"
@@ -3448,6 +3507,17 @@
               "icon": {
                 "description": "Icon key.",
                 "type": "string"
+              },
+              "junction": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/FaultJunction"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "State schema 16, megas only: the junction it falls near (its multipliers are in fault_factor, radius_km and the magnitude), or null."
               },
               "place": {
                 "description": "The most specific place aimed at.",
@@ -3529,9 +3599,23 @@
           "description": "Rules 0.8.0: first cast, a mega: distance (km) to the nearest fault line.",
           "type": "number"
         },
+        "fault_tier": {
+          "$ref": "#/$defs/FaultTier"
+        },
         "icon": {
           "description": "First cast: icon key.",
           "type": "string"
+        },
+        "junction": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FaultJunction"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "State schema 16, megas only: the junction it falls near (its multipliers are in fault_factor, radius_km and the magnitude), or null."
         },
         "place": {
           "description": "First cast: place aimed at.",

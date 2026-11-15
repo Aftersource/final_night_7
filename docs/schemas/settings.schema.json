@@ -479,6 +479,39 @@
       "minimum": 0.1,
       "type": "number"
     },
+    "fault_junction_damage": {
+      "default": 1.8,
+      "description": "State schema 16: damage multiplier at a junction of strength 1 (1 + (this − 1) × strength × falloff).",
+      "maximum": 10.0,
+      "minimum": 0.0,
+      "type": "number"
+    },
+    "fault_junction_km": {
+      "default": 300.0,
+      "description": "State schema 16: a mega this close (km) to a junction gets its multipliers, scaled by the junction's strength and falling off linearly to nothing at this distance.",
+      "maximum": 3000.0,
+      "minimum": 0.0,
+      "type": "number"
+    },
+    "fault_junction_magnitude": {
+      "default": 3.0,
+      "description": "State schema 16: magnitude added at a junction of strength 1 (× strength × falloff).",
+      "maximum": 10.0,
+      "minimum": -10.0,
+      "type": "number"
+    },
+    "fault_junction_radius": {
+      "default": 1.5,
+      "description": "State schema 16: radius multiplier at a junction of strength 1 (1 + (this − 1) × strength × falloff).",
+      "maximum": 10.0,
+      "minimum": 0.1,
+      "type": "number"
+    },
+    "fault_junctions_enabled": {
+      "default": true,
+      "description": "State schema 16, fault junctions and tiers (the feature gate): a mega near a plate-boundary junction gets the junction multipliers on top of the distance curve, every mega lands in a tier (junction .. tiny) that scales the world's answer, and a tiny one's lasting mods stay local. Settings recorded before it lack it and read back false (old recordings replay unchanged).",
+      "type": "boolean"
+    },
     "fault_near_damage": {
       "default": 1.6,
       "description": "Rules 0.8.0: damage multiplier near a fault line.",
@@ -505,6 +538,13 @@
       "description": "Rules 0.8.0: radius multiplier near a fault line.",
       "maximum": 10.0,
       "minimum": 0.1,
+      "type": "number"
+    },
+    "fault_tiny_mod_km": {
+      "default": 150.0,
+      "description": "State schema 16: a tiny mega's lasting world mods reach at most this far (km): local, never regional.",
+      "maximum": 1500.0,
+      "minimum": 20.0,
       "type": "number"
     },
     "final_wish_magnitude": {

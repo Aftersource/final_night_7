@@ -1,0 +1,164 @@
+{
+  "$defs": {
+    "FaultJunction": {
+      "description": "State schema 16: the plate-boundary junction pulling on a mega (the strongest pull within fault_junction_km).",
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/LonLat"
+        },
+        "kind": {
+          "description": "triple: boundaries of 3+ plates meet; knot: a dense, twisting stretch of boundary far from any triple junction.",
+          "enum": [
+            "triple",
+            "knot"
+          ],
+          "type": "string"
+        },
+        "km": {
+          "description": "Great-circle distance (km) from the aim to it.",
+          "type": "number"
+        },
+        "name": {
+          "description": "Its name when it is a famous one (\"Afar triple junction\"): narration says \"at the Afar triple junction\".",
+          "type": "string"
+        },
+        "plates": {
+          "description": "PB2002 plate codes meeting there (sorted); empty for a knot.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "strength": {
+          "description": "0..1: the strongest triple junction is 1 (by the size of the plates meeting and the boundary around it).",
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "at",
+        "strength",
+        "plates",
+        "km"
+      ],
+      "type": "object"
+    },
+    "FaultTier": {
+      "description": "State schema 16: a mega's tier: junction (within fault_junction_km of a junction), fault (≤ fault_near_km from a fault line), near (the first half of the curve), mild (the second half), tiny (≥ fault_far_km: a tiny volcano; its lasting mods stay local).",
+      "enum": [
+        "junction",
+        "fault",
+        "near",
+        "mild",
+        "tiny"
+      ],
+      "type": "string"
+    },
+    "LonLat": {
+      "description": "[longitude, latitude] in degrees (WGS84). Note the order: longitude first.",
+      "items": {
+        "type": "number"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+    }
+  },
+  "$id": "query_fault.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "`game.fault` (state schema 16): what a mega aimed here would get (the hover preview while a mega is armed). Read-only and deterministic.",
+  "properties": {
+    "at": {
+      "$ref": "#/$defs/LonLat"
+    },
+    "factor": {
+      "description": "The multipliers a mega gets there under this match's rules (the distance curve, times the junction's).",
+      "properties": {
+        "damage": {
+          "description": "Damage multiplier (the cast's fault_factor).",
+          "type": "number"
+        },
+        "magnitude": {
+          "description": "Added to the mega's magnitude (rounded when it lands, 1..10).",
+          "type": "number"
+        },
+        "radius": {
+          "description": "Radius multiplier.",
+          "type": "number"
+        }
+      },
+      "required": [
+        "magnitude",
+        "radius",
+        "damage"
+      ],
+      "type": "object"
+    },
+    "junction": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FaultJunction"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The junction pulling on it, or null (also null before state schema 16 or with fault_junctions_enabled off)."
+    },
+    "junctions": {
+      "description": "The match's fault rule includes junctions and tiers (state schema 16 and fault_junctions_enabled).",
+      "type": "boolean"
+    },
+    "km": {
+      "description": "Great-circle distance (km) to the nearest fault line.",
+      "type": "number"
+    },
+    "tier": {
+      "$ref": "#/$defs/FaultTier"
+    }
+  },
+  "required": [
+    "at",
+    "km",
+    "tier",
+    "junction",
+    "factor",
+    "junctions"
+  ],
+  "title": "game.fault",
+  "type": "object",
+  "x-applies-to": "game.fault reply (WebSocket), GET /api/rooms/{code}/query/fault",
+  "x-args": {
+    "additionalProperties": true,
+    "description": "Over HTTP every arg is a query-string parameter (numbers as numeric strings). Unknown args are ignored.",
+    "properties": {
+      "at": {
+        "description": "[lon, lat] in degrees (over HTTP `at=lon,lat`; or give `lon` and `lat`).",
+        "type": [
+          "array",
+          "string"
+        ]
+      },
+      "lat": {
+        "description": "Instead of `at`.",
+        "type": [
+          "number",
+          "string"
+        ]
+      },
+      "lon": {
+        "description": "Instead of `at`.",
+        "type": [
+          "number",
+          "string"
+        ]
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "x-description": "State schema 16 (the hover preview while a mega is armed): what a mega aimed at `at` would get: great-circle distance to the nearest fault line (`km`), its `tier` (junction, fault, near, mild, tiny), the junction pulling on it (`{name?, kind, at, strength, plates, km}` or null) and the multipliers `factor: {magnitude (added), radius, damage}` under this match's rules. Read-only, deterministic, cheap (reads only the settings).",
+  "x-public": true
+}
