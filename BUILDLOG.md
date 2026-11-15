@@ -1294,6 +1294,10 @@ Engineering (branch backend/duel-weapons; state schema 14, 13 being the earth si
 
 > Just make it happen, and get it designed for the Unreal team.
 
+> Right-click zooms out, and the player does not lose track in the same way.
+
+> That looks and feels poor and is very laggy. Stop doing it that way; use the mouse pointer and get the controls right.
+
 Benito asked that the star reference image be sent to Chris's agents, and that they be asked how to avoid frustrating him.
 
 Engineering:
