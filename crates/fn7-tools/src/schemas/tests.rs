@@ -248,6 +248,12 @@ fn query_replies_validate() {
         cases.push(("earth", None, a, &state));
     }
     cases.push(("earth_at", None, json!({ "beat": since }), &state));
+    // State schema 20: what lasts (the whole planet, and a board's reach) and a past beat's effects.
+    cases.push(("earth", None, json!({ "scars": true }), &state));
+    cases.push(("earth", None, json!({ "cell": key, "scars": true }), &state));
+    for b in 1..=w.meta.beat {
+        cases.push(("earth_at", None, json!({ "beat": b }), &state));
+    }
     let specs = p.queries();
     for (name, seat, args, st) in cases {
         let schema = schema(&format!("query_{name}"));
@@ -257,5 +263,42 @@ fn query_replies_validate() {
         let v = p.query(st, seat, name, &args).unwrap_or_else(|e| panic!("{name}: {e}"));
         let errs = validate(&schema, &v, true);
         assert!(errs.is_empty(), "game.{name} {args} (seat {seat:?}) vs query_{name}:\n{}", errs.join("\n"));
+    }
+}
+
+/// State schema 20: a storm on a city's crowd for a few beats; every beat's `earth` (with its effects), the summary and
+/// `game.earth_at` / `game.earth {scars}` replies validate strictly.
+#[test]
+fn earth_effects_validate() {
+    use fn7_plugin::earth::{rules, sim};
+    use fn7_plugin::{testkit, FinalNight7Plugin};
+    use theatre_plugin_api::GamePlugin;
+    let mut w = testkit::world(4, 9);
+    let st = fn7_plugin::world::settings(&w);
+    let p = FinalNight7Plugin::new();
+    let crowd = w.clusters.iter().find(|c| c.army.is_none() && c.size >= 200 && w.places[c.place.ix()].kind == PlaceKind::Quarter).unwrap();
+    let home = w.places[crowd.place.ix()].center;
+    let defs = schema("outcome_public")["$defs"].clone();
+    let beat_schema = json!({ "$defs": defs, "$ref": "#/$defs/EarthBeat" });
+    let mut effects = 0;
+    for beat in 1..=8u32 {
+        if beat == 2 {
+            rules::note(&mut w, beat, &st, sim::STORM, home, 10, 800.0, sim::TIER_MEGA, 1, sim::CAUSE_CAST);
+            rules::note(&mut w, beat, &st, sim::FLOOD, home, 9, 800.0, sim::TIER_MEGA, 2, sim::CAUSE_CAST);
+        }
+        let eb = rules::step(&mut w, beat, p.pantheon(), &st).unwrap();
+        let v = fn7_plugin::earth::view::beat_json(&eb);
+        effects += v["effects"].as_array().unwrap().len();
+        let errs = validate(&beat_schema, &v, true);
+        assert!(errs.is_empty(), "beat {beat}: {errs:?}");
+    }
+    assert!(effects > 10, "{effects} effects");
+    w.meta.beat = 8;
+    let state = serde_json::to_value(&w).unwrap();
+    for (name, args) in [("earth_at", json!({ "beat": 3 })), ("earth_at", json!({ "beat": 8 })), ("earth", json!({ "scars": true })),
+                         ("present", json!({}))] {
+        let v = p.query(&state, None, name, &args).unwrap();
+        let errs = validate(&schema(&format!("query_{name}")), &v, true);
+        assert!(errs.is_empty(), "{name}: {errs:?}");
     }
 }

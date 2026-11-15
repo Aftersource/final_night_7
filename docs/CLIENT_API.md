@@ -1819,7 +1819,9 @@ God powers act on a server-side voxel field of the planet; the full model, numbe
 | `game.earth {cell, level?, rings?, since?, coarse?}` | **the board**: 22 rings around the hex (1,519 hexes) at its level, 9 bytes a hex (`h16, top, water, lava, ash, fire, snow, heat, crack`) in ring order, base64 (18.2 KB); `since: <beat>` only the changed hexes (`changed` = ring positions) |
 | `game.earth {tiles: 4, since?}` | **the globe**: rings of latitude every 4° (2,578 tiles, row counts in `row_cols`), the same 9-byte record per tile (38 KB; `since` only the changed tiles) |
 | `game.earth {}` / `{bbox}` / `{base, grid}` | the regions field: every cell that differs from base, a box, the whole globe's heights and the grid's keys |
-| `game.earth_at {beat}` | the whole field at a past beat, rebuilt from a keyframe |
+| `game.earth_at {beat}` | the whole field at a past beat, rebuilt from a keyframe; schema 20: that beat's `effects` and `scars` |
+| `round.outcome.public.earth.effects` (schema 20) | **what the earth did, thing by thing** (below): `effects[]`, `effects_total`, `effects_counts`; also in `present.earth` (the last beat's) |
+| `game.earth {scars: true}` (schema 20) | what lasts per cell over the planet: `burnt`, `mud`, `ruins`, `wrecks`, `sheltering`, `fallen`; a board answer with `scars: true` carries the scars in its reach |
 | `game.node {cell}` | an observed hex's `earth` (its field values) and the field's weather |
 | `dm_events` | `earth.*` entries (quake, eruption, drowned, land_rose, plate_moved, impact, wave, omen, road_cut, shrine_toppled, settled) |
 | Settings | `earth_*` (EARTH_SIM.md §8) |
@@ -1900,6 +1902,122 @@ type, and `goal` in a corner.
 The priority list is in DM_RULEBOOK chapter 29. **What it never reveals:** a rival's health, a rival's standing
 orders, an army's orders, what a hidden encounter is (only its marked hex), anything private in another seat's book.
 It reads only what your seat already sees. Schema: `$defs/NextMoveHint` in `seat_view`, `brief_private`, `query_me`.
+### What the earth did, thing by thing (state schema 20)
+
+Every schema-20 beat's `round.outcome.public.earth` adds `effects` (at most `earth_effects_max`, 200, worst first),
+`effects_total` (before the cap) and `effects_counts` (per `what`). `present.earth` carries the last beat's;
+`game.earth_at {beat}` carries that beat's exactly as it was sent, plus `scars` at its end. Full rules:
+[`EARTH_SIM.md`](EARTH_SIM.md) §13; schema `EarthEffect`, `EarthScars`.
+
+```
+{ cell, level, thing: { kind, ref? }, what, to_cell?, count?, amount?, cause, phenomenon?, power?, seat? }
+```
+
+- `cell` is a `face:level:q:r` key at the thing's level (houses: buildings; people: demigods, persons, shrines;
+  villages: settlements, crowds at home; regions: forests, roads, armies). Draw it where `game.earth` draws that hex.
+- `thing.kind`: `building forest crowd road shrine demigod person army settlement`; `ref`: `cl:N`, `dg:N`, `ch:N`,
+  `pl:N` (a building's settlement), `shrine:ID`, `pl:A~pl:B` (road).
+- `what`: `burned flooded destroyed damaged fled died sheltered buried swept returned`.
+- `count` is people: **draw that many tokens at people scale** (1,400 died = 1,400 fallen tokens), scaled down per level.
+- `to_cell`: where people went (`fled` → the shelter's houses hex, paired with a `sheltered` there of the same count;
+  `returned` → home). `amount`: damage for demigods and persons; for a forest the share of its vegetation gone when the front crossed it (it burns on; `scars.burnt` shows what is left).
+- `cause` is the phenomenon id from `phenomena[]` (0: none named), `phenomenon` its kind, `power` the cast's magnitude
+  and `seat` the caster when a seat cast it.
+
+**What lasts** (`scars`, in `game.earth_at`, `game.earth {scars: true}`, and a board answer with `scars: true` within its reach):
+`burnt` (fuel now of base: regrows slowly), `mud` (floodwater drying), `ruins`, `wrecks` (destroyed buildings, houses
+hexes, they stay), `sheltering` (people in shelters at that beat, with counts), `fallen` (the dead of the last 12 beats
+per cell, with counts). Draw stumps on burnt, mud and wrecks on mud, broken houses on wrecks, and tokens in shelters
+and lying where they fell, from these lists, at any beat.
+
+**Real effects per power** (a mega of magnitude 9 cast by seat 1 on a city's crowd, beats 1..10 of a no-LLM match, the first of each thing × what; `beat` added here for reading; `cargo test -p fn7-plugin examples_per_power -- --ignored --nocapture`):
+
+- **flood** (59 effects over 10 beats):
+
+  ```json
+  {"beat": 3, "cause": 1, "cell": "1:villages:-135:-1077", "count": 1889, "level": "villages", "phenomenon": "flood", "power": 9, "seat": 1, "thing": {"kind": "crowd", "ref": "cl:1"}, "what": "died"}
+  {"beat": 2, "cause": 1, "cell": "1:villages:-130:-1091", "count": 750, "level": "villages", "phenomenon": "flood", "power": 9, "seat": 1, "thing": {"kind": "crowd", "ref": "cl:0"}, "to_cell": "1:houses:-13151:-108436", "what": "fled"}
+  {"beat": 2, "cause": 1, "cell": "1:houses:-13151:-108436", "count": 750, "level": "houses", "phenomenon": "flood", "power": 9, "seat": 1, "thing": {"kind": "crowd", "ref": "cl:0"}, "what": "sheltered"}
+  {"beat": 2, "cause": 1, "cell": "1:houses:-13153:-108437", "level": "houses", "phenomenon": "flood", "power": 9, "seat": 1, "thing": {"kind": "building", "ref": "pl:2"}, "what": "flooded"}
+  {"beat": 2, "cause": 1, "cell": "1:villages:-132:-1084", "level": "villages", "phenomenon": "flood", "power": 9, "seat": 1, "thing": {"kind": "settlement", "ref": "pl:2"}, "what": "flooded"}
+  ```
+- **wildfire** (63 effects over 10 beats):
+
+  ```json
+  {"beat": 2, "cause": 1, "cell": "1:villages:-135:-1077", "count": 2040, "level": "villages", "phenomenon": "wildfire", "power": 9, "seat": 1, "thing": {"kind": "crowd", "ref": "cl:2"}, "what": "died"}
+  {"beat": 2, "cause": 1, "cell": "1:villages:-130:-1091", "count": 750, "level": "villages", "phenomenon": "wildfire", "power": 9, "seat": 1, "thing": {"kind": "crowd", "ref": "cl:0"}, "to_cell": "1:houses:-18840:-134196", "what": "fled"}
+  {"beat": 2, "cause": 1, "cell": "1:houses:-18840:-134196", "count": 750, "level": "houses", "phenomenon": "wildfire", "power": 9, "seat": 1, "thing": {"kind": "crowd", "ref": "cl:0"}, "what": "sheltered"}
+  {"beat": 3, "cause": 1, "cell": "1:houses:-13151:-108437", "level": "houses", "phenomenon": "wildfire", "power": 9, "seat": 1, "thing": {"kind": "building", "ref": "pl:2"}, "what": "burned"}
+  {"amount": 0.05, "beat": 2, "cause": 1, "cell": "1:regions:-4:-28", "level": "regions", "phenomenon": "wildfire", "power": 9, "seat": 1, "thing": {"kind": "forest"}, "what": "burned"}
+  ```
+- **storm_clouds** (47 effects over 10 beats):
+
+  ```json
+  {"beat": 2, "cause": 1, "cell": "1:villages:-130:-1091", "count": 750, "level": "villages", "phenomenon": "storm", "power": 9, "seat": 1, "thing": {"kind": "crowd", "ref": "cl:0"}, "to_cell": "1:houses:-13154:-108435", "what": "fled"}
+  {"beat": 2, "cause": 1, "cell": "1:houses:-13154:-108435", "count": 750, "level": "houses", "phenomenon": "storm", "power": 9, "seat": 1, "thing": {"kind": "crowd", "ref": "cl:0"}, "what": "sheltered"}
+  {"beat": 4, "cause": 1, "cell": "1:houses:-13154:-108435", "count": 750, "level": "houses", "phenomenon": "storm", "power": 9, "seat": 1, "thing": {"kind": "crowd", "ref": "cl:0"}, "to_cell": "1:villages:-130:-1091", "what": "returned"}
+  {"amount": 0.28, "beat": 2, "cause": 1, "cell": "1:people:-139228:-1086138", "level": "people", "phenomenon": "storm", "power": 9, "seat": 1, "thing": {"kind": "person", "ref": "ch:0"}, "what": "damaged"}
+  ```
+- **earthquake** (75 effects over 10 beats):
+
+  ```json
+  {"beat": 2, "cause": 1, "cell": "1:villages:-135:-1077", "count": 1966, "level": "villages", "phenomenon": "earthquake", "power": 9, "seat": 1, "thing": {"kind": "crowd", "ref": "cl:2"}, "what": "died"}
+  {"beat": 2, "cause": 1, "cell": "1:villages:-130:-1091", "count": 750, "level": "villages", "phenomenon": "earthquake", "power": 9, "seat": 1, "thing": {"kind": "crowd", "ref": "cl:0"}, "to_cell": "1:houses:-18840:-134196", "what": "fled"}
+  {"beat": 2, "cause": 1, "cell": "1:houses:-18840:-134196", "count": 750, "level": "houses", "phenomenon": "earthquake", "power": 9, "seat": 1, "thing": {"kind": "crowd", "ref": "cl:0"}, "what": "sheltered"}
+  {"beat": 3, "cause": 1, "cell": "1:houses:-18840:-134196", "count": 750, "level": "houses", "phenomenon": "earthquake", "power": 9, "seat": 1, "thing": {"kind": "crowd", "ref": "cl:0"}, "to_cell": "1:villages:-130:-1091", "what": "returned"}
+  {"amount": 0.25, "beat": 2, "cause": 1, "cell": "1:people:-139228:-1086138", "level": "people", "phenomenon": "earthquake", "power": 9, "seat": 1, "thing": {"kind": "person", "ref": "ch:0"}, "what": "damaged"}
+  ```
+- **volcano** (106 effects over 10 beats):
+
+  ```json
+  {"beat": 2, "cause": 1, "cell": "1:villages:-135:-1077", "count": 1861, "level": "villages", "phenomenon": "volcano", "power": 9, "seat": 1, "thing": {"kind": "crowd", "ref": "cl:2"}, "what": "died"}
+  {"beat": 2, "cause": 1, "cell": "1:villages:-130:-1091", "count": 750, "level": "villages", "phenomenon": "volcano", "power": 9, "seat": 1, "thing": {"kind": "crowd", "ref": "cl:0"}, "to_cell": "1:houses:-18840:-134196", "what": "fled"}
+  {"beat": 2, "cause": 1, "cell": "1:houses:-18840:-134196", "count": 750, "level": "houses", "phenomenon": "volcano", "power": 9, "seat": 1, "thing": {"kind": "crowd", "ref": "cl:0"}, "what": "sheltered"}
+  {"amount": 0.21, "beat": 3, "cause": 1, "cell": "1:regions:-4:-27", "level": "regions", "phenomenon": "volcano", "power": 9, "seat": 1, "thing": {"kind": "forest"}, "what": "burned"}
+  {"beat": 5, "cause": 1, "cell": "1:houses:-18840:-134196", "count": 750, "level": "houses", "phenomenon": "volcano", "power": 9, "seat": 1, "thing": {"kind": "crowd", "ref": "cl:0"}, "to_cell": "1:villages:-130:-1091", "what": "returned"}
+  ```
+- **meteor** (48 effects over 10 beats):
+
+  ```json
+  {"beat": 2, "cause": 1, "cell": "1:villages:-135:-1077", "count": 2978, "level": "villages", "phenomenon": "meteor", "power": 9, "seat": 1, "thing": {"kind": "crowd", "ref": "cl:2"}, "what": "died"}
+  {"beat": 2, "cause": 1, "cell": "1:villages:-130:-1091", "count": 750, "level": "villages", "phenomenon": "meteor", "power": 9, "seat": 1, "thing": {"kind": "crowd", "ref": "cl:0"}, "to_cell": "1:houses:-18840:-134196", "what": "fled"}
+  {"beat": 2, "cause": 1, "cell": "1:houses:-18840:-134196", "count": 750, "level": "houses", "phenomenon": "meteor", "power": 9, "seat": 1, "thing": {"kind": "crowd", "ref": "cl:0"}, "what": "sheltered"}
+  {"beat": 2, "cause": 1, "cell": "1:houses:-13151:-108437", "level": "houses", "phenomenon": "meteor", "power": 9, "seat": 1, "thing": {"kind": "building", "ref": "pl:2"}, "what": "swept"}
+  {"amount": 1.0, "beat": 2, "cause": 1, "cell": "1:villages:-132:-1084", "level": "villages", "phenomenon": "meteor", "power": 9, "seat": 1, "thing": {"kind": "settlement", "ref": "pl:2"}, "what": "swept"}
+  ```
+- **lightning** (64 effects over 10 beats):
+
+  ```json
+  {"beat": 2, "cause": 1, "cell": "1:villages:-135:-1077", "count": 2978, "level": "villages", "phenomenon": "lightning", "power": 9, "seat": 1, "thing": {"kind": "crowd", "ref": "cl:2"}, "what": "died"}
+  {"beat": 2, "cause": 1, "cell": "1:villages:-130:-1091", "count": 750, "level": "villages", "phenomenon": "lightning", "power": 9, "seat": 1, "thing": {"kind": "crowd", "ref": "cl:0"}, "to_cell": "1:houses:-13154:-108435", "what": "fled"}
+  {"beat": 2, "cause": 1, "cell": "1:houses:-13154:-108435", "count": 750, "level": "houses", "phenomenon": "lightning", "power": 9, "seat": 1, "thing": {"kind": "crowd", "ref": "cl:0"}, "what": "sheltered"}
+  {"beat": 5, "cause": 1, "cell": "1:houses:-13153:-108437", "level": "houses", "phenomenon": "lightning", "power": 9, "seat": 1, "thing": {"kind": "building", "ref": "pl:2"}, "what": "burned"}
+  {"amount": 0.16, "beat": 3, "cause": 1, "cell": "1:regions:-4:-27", "level": "regions", "phenomenon": "lightning", "power": 9, "seat": 1, "thing": {"kind": "forest"}, "what": "burned"}
+  ```
+- **swarm** (36 effects over 10 beats):
+
+  ```json
+  {"beat": 3, "cause": 1, "cell": "1:villages:-130:-1091", "count": 750, "level": "villages", "phenomenon": "swarm", "power": 9, "seat": 1, "thing": {"kind": "crowd", "ref": "cl:0"}, "to_cell": "1:houses:-13154:-108435", "what": "fled"}
+  {"beat": 3, "cause": 1, "cell": "1:houses:-13154:-108435", "count": 750, "level": "houses", "phenomenon": "swarm", "power": 9, "seat": 1, "thing": {"kind": "crowd", "ref": "cl:0"}, "what": "sheltered"}
+  {"amount": 0.13, "beat": 5, "cause": 1, "cell": "1:people:-139228:-1086138", "level": "people", "phenomenon": "swarm", "power": 9, "seat": 1, "thing": {"kind": "person", "ref": "ch:0"}, "what": "damaged"}
+  ```
+- **sink_land** (41 effects over 10 beats):
+
+  ```json
+  {"beat": 2, "cause": 1, "cell": "1:villages:-135:-1077", "count": 2978, "level": "villages", "phenomenon": "sink_land", "power": 9, "seat": 1, "thing": {"kind": "crowd", "ref": "cl:2"}, "what": "died"}
+  {"beat": 2, "cause": 1, "cell": "1:villages:-130:-1091", "count": 750, "level": "villages", "phenomenon": "sink_land", "power": 9, "seat": 1, "thing": {"kind": "crowd", "ref": "cl:0"}, "to_cell": "1:houses:-18840:-134196", "what": "fled"}
+  {"beat": 2, "cause": 1, "cell": "1:houses:-18840:-134196", "count": 750, "level": "houses", "phenomenon": "sink_land", "power": 9, "seat": 1, "thing": {"kind": "crowd", "ref": "cl:0"}, "what": "sheltered"}
+  {"beat": 2, "cause": 1, "cell": "1:houses:-13151:-108437", "level": "houses", "phenomenon": "sink_land", "power": 9, "seat": 1, "thing": {"kind": "building", "ref": "pl:2"}, "what": "swept"}
+  {"amount": 1.0, "beat": 2, "cause": 1, "cell": "1:villages:-132:-1084", "level": "villages", "phenomenon": "sink_land", "power": 9, "seat": 1, "thing": {"kind": "settlement", "ref": "pl:2"}, "what": "swept"}
+  ```
+- **storm_clouds (blizzard)** (46 effects over 10 beats):
+
+  ```json
+  {"beat": 2, "cause": 1, "cell": "1:villages:-130:-1091", "count": 750, "level": "villages", "phenomenon": "blizzard", "power": 9, "seat": 1, "thing": {"kind": "crowd", "ref": "cl:0"}, "to_cell": "1:houses:-13154:-108435", "what": "fled"}
+  {"beat": 2, "cause": 1, "cell": "1:houses:-13154:-108435", "count": 750, "level": "houses", "phenomenon": "blizzard", "power": 9, "seat": 1, "thing": {"kind": "crowd", "ref": "cl:0"}, "what": "sheltered"}
+  {"beat": 4, "cause": 1, "cell": "1:houses:-13154:-108435", "count": 750, "level": "houses", "phenomenon": "blizzard", "power": 9, "seat": 1, "thing": {"kind": "crowd", "ref": "cl:0"}, "to_cell": "1:villages:-130:-1091", "what": "returned"}
+  {"amount": 0.28, "beat": 2, "cause": 1, "cell": "1:people:-139228:-1086138", "level": "people", "phenomenon": "blizzard", "power": 9, "seat": 1, "thing": {"kind": "person", "ref": "ch:0"}, "what": "damaged"}
+  ```
 
 ## Message flow for one beat
 

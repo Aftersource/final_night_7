@@ -18,8 +18,42 @@ fn b64_or_arr(desc: &str) -> Value {
     json!({ "type": ["string", "array"], "description": desc })
 }
 
+const WHATS: [&str; 10] = ["burned", "flooded", "destroyed", "damaged", "fled", "died", "sheltered", "buried", "swept", "returned"];
+const THINGS: [&str; 9] = ["building", "forest", "crowd", "road", "shrine", "demigod", "person", "army", "settlement"];
+
+/// Schema 20's optional fields on a beat's `earth` (and the summary, `game.earth_at`): the effects, thing by thing.
+fn fx_fields() -> Vec<(&'static str, Value)> {
+    vec![("effects", array(r("EarthEffect"), "State schema 20: what the earth did this beat, thing by thing, worst first, at most `earth_effects_max` (docs/EARTH_SIM.md §13).")),
+         ("effects_total", int("State schema 20: effects before the cap.")),
+         ("effects_counts", json!({ "type": "object", "additionalProperties": { "type": "integer" }, "description": "State schema 20: effects per `what`, before the cap." }))]
+}
+
 pub fn defs() -> Map<String, Value> {
     let mut d = Map::new();
+    let levels = ["regions", "villages", "houses", "people"];
+    d.insert("EarthEffect".into(), object(
+        "State schema 20: one thing the earth did (docs/EARTH_SIM.md §13). `cell` is at the thing's level: houses for buildings, people for demigods, persons and shrines, villages for settlements and crowds, regions for forests, roads and armies.",
+        &[("cell", string("Hex key `face:level:q:r`.")), ("level", e(&levels, "")),
+          ("thing", object("", &[("kind", e(&THINGS, ""))], &[("ref", string("cl:N (crowd, army), dg:N, ch:N (person), pl:N (settlement; a building's settlement), shrine:ID, pl:A~pl:B (road)."))])),
+          ("what", e(&WHATS, "")), ("cause", int("The phenomenon's id (0: none named)."))],
+        &[("to_cell", string("Where they went (fled: the shelter; returned: home).")), ("count", int("People.")),
+          ("amount", num("Damage (demigod, person); share of vegetation gone as the front crossed (forest); ruin share (building); levels lost / 3 (settlement).")),
+          ("phenomenon", e(&KINDS, "The cause's kind.")), ("power", int("The cast's magnitude, 1..10.")), ("seat", int("The caster's seat."))],
+    ));
+    let list = |item: Value, desc: &str| array(item, desc);
+    d.insert("EarthScars".into(), object(
+        "State schema 20: what the earth left, per cell, at a beat (docs/EARTH_SIM.md §13): draw lasting damage at any zoom.",
+        &[("beat", int("")),
+          ("burnt", list(object("", &[("cell", string("")), ("fuel", int("Vegetation now.")), ("base", int("Vegetation at rest."))], &[]), "Land burned off, regrowing.")),
+          ("mud", list(object("", &[("cell", string("")), ("water", int("1..23 left."))], &[]), "A flood drying.")),
+          ("ruins", list(object("", &[("cell", string("")), ("ruin", int(""))], &[]), "Ruin ≥ 96.")),
+          ("wrecks", list(object("", &[("cell", string("Houses-level hex.")), ("settlement", string("")), ("beat", int("")), ("how", e(&["destroyed", "burned", "buried", "swept"], "")),
+              ("cause", int(""))], &[]), "Buildings destroyed.")),
+          ("sheltering", list(object("", &[("crowd", string("")), ("from", string("Villages-level home.")), ("at", string("Houses-level shelter.")), ("settlement", string("")),
+              ("count", int("")), ("since", int("")), ("cause", int(""))], &[]), "People in shelters then.")),
+          ("fallen", list(object("", &[("cell", string("")), ("level", e(&levels, "")), ("count", int("")), ("beat", int("The latest beat."))], &[]), "The dead of the last 12 beats, per cell."))],
+        &[],
+    ));
     d.insert("EarthCells".into(), object(
         "State schema 13: cell columns (docs/EARTH_SIM.md §7). `enc: pack` (the default): `data` is one base64 block, per cell in index order: varint index delta, height byte (0..15), top byte (an index into `tops`), varint layer mask, then one byte per set layer (CLIENT_LAYERS order; `heat` signed). `enc: columns`: `cells` (u16 LE), `h`, `top` and `layers{name}`, one base64 array each. `enc: json`: the same columns as number arrays.",
         &[("n", int("Cells.")), ("enc", e(&["pack", "columns", "json"], ""))],
@@ -49,7 +83,7 @@ pub fn defs() -> Map<String, Value> {
           ("did", object("This beat's counts.", &[("spawned", array(json!({ "type": "integer" }), "Ids born this beat.")), ("spontaneous", int("")), ("ignitions", int("")), ("quenched", int("")), ("steamed", int("")),
               ("rock_made", int("")), ("melted", int("")), ("land_rose", array(json!({ "type": "string" }), "")), ("drowned", array(json!({ "type": "string" }), "")),
               ("woke", array(json!({ "type": "integer" }), "Volcano ids a quake woke.")), ("evicted", int("")), ("refused", int(""))], &[]))],
-        &[],
+        &fx_fields(),
     ));
     d.insert("EarthSummary".into(), object(
         "State schema 13: the field in short (present.earth and the PublicView's `earth`); fetch the cells with game.earth when `hash` differs from yours.",
@@ -58,7 +92,7 @@ pub fn defs() -> Map<String, Value> {
           ("phenomena", array(r("EarthPhenomenon"), "")), ("keyframes", array(json!({ "type": "integer" }), "Beats with a keyframe.")),
           ("first_beat", int("")), ("grid", object("", &[("level", string("")), ("cells", int(""))], &[])),
           ("phenomena_total", int("Live phenomena (`phenomena` has the 20 biggest)."))],
-        &[],
+        &fx_fields(),
     ));
     d
 }
@@ -112,9 +146,11 @@ pub fn replies() -> Vec<(&'static str, &'static str, Value)> {
               ("globe", object("`base: true`: every cell's height, top and fuel now, in index order.", &[("n", int("")), ("enc", string("")),
                   ("h", b64_or_arr("")), ("top", b64_or_arr("")), ("fuel", b64_or_arr(""))], &[])),
               ("grid", object("`grid: true`: the regions grid (face, q, r of every cell, signed bytes, base64).", &[("level", string("")), ("hex_size_m", int("")),
-                  ("cells", int("")), ("face", col("")), ("q", col("")), ("r", col(""))], &[]))])),
+                  ("cells", int("")), ("face", col("")), ("q", col("")), ("r", col(""))], &[])),
+              ("scars", r("EarthScars"))].into_iter().chain(fx_fields()).collect::<Vec<_>>())),
         ("query_earth_at", "earth_at", object("`game.earth_at` (state schema 13): the whole field at the end of a past beat, rebuilt from a keyframe.",
-            &head().into_iter().chain([layers(), ("field", r("EarthCells")), ("keyframes", array(json!({ "type": "integer" }), "")), ("inputs", int("Inputs up to that beat."))]).collect::<Vec<_>>(), &[])),
+            &head().into_iter().chain([layers(), ("field", r("EarthCells")), ("keyframes", array(json!({ "type": "integer" }), "")), ("inputs", int("Inputs up to that beat."))]).collect::<Vec<_>>(),
+            &[("scars", r("EarthScars"))].into_iter().chain(fx_fields()).collect::<Vec<_>>())),
     ]
 }
 
@@ -144,4 +180,5 @@ pub fn settings(p: &mut dyn FnMut(&str, Value)) {
     p("earth_crowd_effects", json!({ "type": "integer", "minimum": 0, "maximum": 100, "default": 6, "description": "State schema 13: Most crowds the field moves in one beat (the worst hit first)." }));
     p("earth_ruin_scale", json!({ "type": "number", "minimum": 0.0, "maximum": 10.0, "default": 1.0, "description": "State schema 13: Multiplier on how much a cell's ruin lowers its settlements' level target." }));
     p("earth_events_per_beat", json!({ "type": "integer", "minimum": 0, "maximum": 50, "default": 6, "description": "State schema 13: Most Earth entries written to the DM's memory in one beat." }));
+    p("earth_effects_max", json!({ "type": "integer", "minimum": 0, "maximum": 1000, "default": 200, "description": "State schema 20: Most effects (`earth.effects[]`: what the earth did, thing by thing) a beat names and keeps, the worst first." }));
 }

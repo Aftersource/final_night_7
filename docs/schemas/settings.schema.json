@@ -500,6 +500,13 @@
       "minimum": 0.0,
       "type": "number"
     },
+    "earth_effects_max": {
+      "default": 200,
+      "description": "State schema 20: Most effects (`earth.effects[]`: what the earth did, thing by thing) a beat names and keeps, the worst first.",
+      "maximum": 1000,
+      "minimum": 0,
+      "type": "integer"
+    },
     "earth_energy_scale": {
       "default": 1.0,
       "description": "State schema 13: Multiplier on every phenomenon's starting power.",

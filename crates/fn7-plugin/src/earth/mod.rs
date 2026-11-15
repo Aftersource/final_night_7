@@ -9,14 +9,19 @@
 //!   the rules (damage, crowds, settlements, roads, shrines, encounters, the DM's memory, public events).
 //! - [`here`]: the earth underfoot (schema 17): one short line of what the field holds at a place, for the prompts
 //!   that act there, and the ground of a duel's stage.
+//! - [`effects`]: what the earth did, thing by thing (schema 20): `earth.effects[]`, crowds to shelters, shelters
+//!   destroyed, the wrecks and the scars a client draws at any zoom.
 //! - [`view`]: what clients get (`earth.delta`, `earth.phenomena`, `game.earth`, `game.earth_at`), finer zoom levels
 //!   derived from the coarse truth, and the ASCII map.
 
 pub use fn7_earth::{codec, grid, sim};
+pub mod effects;
 pub mod here;
 pub mod rules;
 pub mod view;
 
+#[cfg(test)]
+mod effects_tests;
 #[cfg(test)]
 mod here_tests;
 #[cfg(test)]

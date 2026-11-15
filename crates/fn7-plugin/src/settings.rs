@@ -331,6 +331,8 @@ pub struct Settings {
     pub earth_ruin_scale: f32,
     /// Most Earth entries written to the DM's memory in one beat.
     pub earth_events_per_beat: u32,
+    /// Schema 20: most effects (`earth.effects[]`) a beat names and keeps, the worst first.
+    pub earth_effects_max: u32,
     /// Schema 12: a player fights one duel at a time: while one of its demigods is in an open duel, a challenge by
     /// or to any of its demigods is refused (`busy:player`) and the AI's chooser skips it.
     pub duel_one_per_player: bool,
@@ -509,6 +511,7 @@ impl Default for Settings {
             earth_crowd_effects: 6,
             earth_ruin_scale: 1.0,
             earth_events_per_beat: 6,
+            earth_effects_max: 200,
             duel_one_per_player: true,
             duel_ai_lines_per_window: 1.0,
             duel_ai_aggression: 0.6,
@@ -760,6 +763,7 @@ impl Settings {
             earth_crowd_effects: int("earth_crowd_effects", d.earth_crowd_effects, 0, 100)?,
             earth_ruin_scale: num("earth_ruin_scale", d.earth_ruin_scale, 0.0, 10.0)?,
             earth_events_per_beat: int("earth_events_per_beat", d.earth_events_per_beat, 0, 50)?,
+            earth_effects_max: int("earth_effects_max", d.earth_effects_max, 0, 1000)?,
             duel_one_per_player: boolean("duel_one_per_player", d.duel_one_per_player)?,
             duel_ai_lines_per_window: num("duel_ai_lines_per_window", d.duel_ai_lines_per_window, 0.0, 1.0)?,
             duel_ai_aggression: num("duel_ai_aggression", d.duel_ai_aggression, 0.0, 1.0)?,

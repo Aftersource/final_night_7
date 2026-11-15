@@ -1264,3 +1264,12 @@ duel_counter_ms` exchanges (you type a line, they answer), wit assumed +1 for bo
 taken deciding it; `idle_win_pct` is the same with you silent. Health outside a duel shows as a band (hale 7+, hurt,
 near death 3 or less) and the odds use the band's middle.
 
+- **What the earth did, thing by thing (state schema 20).** The DM does not narrate a disaster as a number: every beat
+  names what happened to which thing where (docs/EARTH_SIM.md §13). Forests burn down cell by cell and stay burnt
+  until they regrow; people run from fire, flood, lava and quakes to the nearest standing shelter out of it, and take
+  cover from storms, blizzards, lightning and swarms in the nearest building; a strong hazard breaks shelters (the
+  wreck stays), and the people in a falling shelter die or run on; armies and the people standing in it are hurt;
+  settlements, roads and shrines are ruined, cut and toppled. Every one of these is an effect with a place at the
+  thing's own scale (houses, people, villages, regions), a count of people where people are involved, and the
+  phenomenon and caster that did it. Moves and deaths are real: the shelters and wrecks are in the state, deaths go
+  through the rules, and time travel shows them. When the DM tells of a flood, the numbers it tells are these.

@@ -579,7 +579,7 @@ fn deltas_rebuild_the_field_and_fit_the_budget() {
         let b = k as u32 + 1;
         s.inputs.extend(inputs.iter().filter(|i| i.beat == b).copied());
         let (sim, report, before) = Sim::advance(13, cfg, &mut s, b, *e);
-        let eb = super::rules::EarthBeat { before, sim, report, entries: vec![], damaged: 0, micros: 0 };
+        let eb = super::rules::EarthBeat { before, sim, report, entries: vec![], damaged: 0, micros: 0, effects: None };
         let v = view::beat_json(&eb);
         let bytes = serde_json::to_string(&v).unwrap().len();
         worst = worst.max(bytes);
@@ -696,7 +696,7 @@ fn measure_sizes_and_speed() {
             step_us += us;
             worst_us = worst_us.max(us);
             last_us = us;
-            let eb = super::rules::EarthBeat { before, sim, report, entries: vec![], damaged: 0, micros: 0 };
+            let eb = super::rules::EarthBeat { before, sim, report, entries: vec![], damaged: 0, micros: 0, effects: None };
             let bytes = serde_json::to_string(&view::beat_json(&eb)).unwrap().len();
             payload += bytes;
             worst_payload = worst_payload.max(bytes);
