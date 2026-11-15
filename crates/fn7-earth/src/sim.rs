@@ -9,8 +9,8 @@
 
 use fn7_model::earth::{EarthInput, EarthKeyframe, EarthState, Phenomenon};
 
-use super::codec;
-use super::grid::{grid, mix, Grid, H_MAX, M_ICE, M_ROCK, M_SAND, M_SOIL, M_WATER, SEA_LEVEL};
+use crate::codec;
+use crate::grid::{grid, mix, Grid, H_MAX, M_ICE, M_ROCK, M_SAND, M_SOIL, M_WATER, SEA_LEVEL};
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Kinds, causes, layers

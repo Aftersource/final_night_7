@@ -13,7 +13,7 @@
 
 use base64::Engine;
 
-use super::sim::N_LAYERS;
+use crate::sim::N_LAYERS;
 
 pub type Sparse = Vec<(u16, [u8; N_LAYERS])>;
 

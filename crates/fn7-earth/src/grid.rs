@@ -13,7 +13,10 @@ use fn7_model::hexgrid::{cell_at, hex_to_plane, plane_to_lonlat, HexCell, HexLev
 use fn7_model::LonLat;
 use serde_json::Value;
 
-pub const LAND_MASK: &[u8] = include_bytes!("../../../../data/geo/land_mask_1deg.bin");
+/// The PB2002 plate boundaries (the same file `fn7-plugin::faults` reads).
+pub const FAULTS_JSON: &str = include_str!("../../../data/geo/PB2002_boundaries.json");
+
+pub const LAND_MASK: &[u8] = include_bytes!("../../../data/geo/land_mask_1deg.bin");
 
 /// "No cell".
 pub const NONE: u16 = u16::MAX;
@@ -174,7 +177,7 @@ impl Grid {
         let seeds: Vec<usize> = (0..n).filter(|&i| g.nb[i].iter().any(|&j| land[j as usize] != land[i])).collect();
         g.coast = g.hops(&seeds, 1);
         let mut on_fault = vec![false; n];
-        let v: Value = serde_json::from_str(crate::faults::FAULTS_JSON).unwrap_or(Value::Null);
+        let v: Value = serde_json::from_str(FAULTS_JSON).unwrap_or(Value::Null);
         for f in v["features"].as_array().map(Vec::as_slice).unwrap_or(&[]) {
             let pts: Vec<LonLat> = f["geometry"]["coordinates"]
                 .as_array()
