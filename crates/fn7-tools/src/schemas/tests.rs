@@ -254,6 +254,15 @@ fn query_replies_validate() {
     for b in 1..=w.meta.beat {
         cases.push(("earth_at", None, json!({ "beat": b }), &state));
     }
+    // The tree of consequence: the default (the busiest region), each focus kind, a seat, a past beat, a shallow tree.
+    let hex = fn7_model::hexgrid::people_cell(w.demigods[0].pos);
+    let ch = w.characters.iter().find(|c| matches!(c.origin, Origin::Materialized { .. })).map(|c| s(Ref::Char(c.id))).unwrap_or_else(|| "ch:0".into());
+    let quarter = w.places.iter().find(|x| x.kind == PlaceKind::Quarter).map(|x| s(Ref::Place(x.id))).unwrap_or_else(|| s(Ref::Place(city)));
+    for (seat, a) in [(None, json!({})), (None, json!({ "focus": "dg:0" })), (Some(0), json!({ "focus": "dg:0", "per_node": 12 })),
+                      (None, json!({ "focus": hex })), (None, json!({ "focus": ch })), (None, json!({ "focus": quarter })),
+                      (None, json!({ "focus": s(Ref::Place(city)), "beat": "5" })), (None, json!({ "depth": 2, "per_node": 0 }))] {
+        cases.push(("memory_tree", seat, a, &state));
+    }
     let specs = p.queries();
     for (name, seat, args, st) in cases {
         let schema = schema(&format!("query_{name}"));

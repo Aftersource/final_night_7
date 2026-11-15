@@ -2848,6 +2848,7 @@ Unknown args are ignored, including the ngrok gate's `?key=`.
 | `fault` | yes | `at` (`[lon, lat]`; HTTP `at=lon,lat`, or `lon` + `lat`) | State schema 16: a mega's preview there: `km`, `tier`, `junction`, `factor` ("Junctions, tiers and the hover preview") |
 | `faults_overview` | yes | none | State schema 16: every junction and the tier thresholds, for the globe overlay |
 | `duel_odds` | yes | `demigod`, `target` (`dg:` refs), `level`? | State schema 18: `win_pct`, `idle_win_pct`, health (exact or a band), modifiers, reach, `why` ("`game.duel_odds`") |
+| `memory_tree` | yes (your own private facts too) | `focus?` (hex key / `pl:` / `dg:` / `ch:`), `beat?`, `depth?` (6, 1..6), `per_node?` (6, ≤ 12) | The tree of consequence: the DM's memory as the exact tree it is, recall paths, totals ("Tree of consequence") |
 | `piles_final` | yes | none | The end-of-match piles; an error until the match is over |
 | `media` | yes (public refs) | `kind` (`portrait` / `place` / `event` / `army`), `ref` | An image of that thing, by reference: an image object at once (pending, then ready via the manifest) |
 | `profile` | yes | `name?` (default: your seat's name) | A player's persistent profile (see "Profiles, history and library") |
@@ -3042,6 +3043,506 @@ when a challenge locks.
   Over HTTP (no seat) both sides are bands. A rival's private kit isn't counted; its public items and wardrobe are.
 - `reach_ok`: both stand and the target is within the challenge's reach at `level` (default `regions`, 600 km);
   otherwise `too_far_km`. Schema: [`query_duel_odds`](schemas/query_duel_odds.schema.json).
+
+### Tree of consequence: `game.memory_tree`
+
+`C→S { "t": "game.memory_tree", "id": "t1", "d": { "focus": "dg:0" } }` (public: also
+`GET /api/rooms/{code}/query/memory_tree?focus=dg:0&per_node=6`). The overlay button near the debug text (upper left)
+that opens "how exactly does the memory work": the DM's place × time memory (DM_RULEBOOK chapters 3-4) drawn as the exact
+tree it is, with real counts, real entries and the real prompt lines. Read-only (no state change, no LLM), deterministic,
+bounded: ask it when the overlay opens and when the beat changes, not every frame.
+
+**Args.** `focus`: a hex cell key (`"4:people:1584229:-846109"`), a place (`pl:N`: a region, a city, a city's
+district), a demigod (`dg:N`: the hex it stands on, plus its story) or a person (`ch:N`: the hex it stands on, plus its
+district → crowd → cell). Default: the busiest region now (the most facts in the last 8 beats). `beat`: the memory as it
+stood at the end of that beat (default now). `depth` 1..6: tiers below the world (default 6). `per_node` 0..12: samples,
+roll-up sources and collapsed siblings per node (default 6).
+
+**The tree** (`tree`, a `TreeNode`, children nested). One path is expanded from the world down to the focus; each
+expanded node also lists up to `per_node` busiest siblings as collapsed nodes (counts only). The tiers (`levels` is the
+legend):
+
+| level | DM branch (`store: "dm"`) | society branch (`store: "minds"`) |
+|---|---|---|
+| 0 | `world` (key `"world"`) | |
+| 1 | `region` (`pl:N`) | |
+| 2 | `settlement` (`pl:N`), or `open` (`open:pl:N`: the region's open country) | |
+| 3 | `hex`, `hex_level: "villages"` (3 km) | `district` (`pl:N`, a city's district) |
+| 4 | `hex`, `houses` (30 m) | `crowd` (`cl:N`) |
+| 5 | `hex`, `people` (3 m) | `cell` (`ce:N`) |
+| 6 | `demigod` (a focused demigod's story, under its hex) | `person` (`ch:N`) |
+
+Every node: `id`, `kind`, `level`, `name`, `store`, `children_total`, `facts_total` (entries at the node or rolled up
+into it, public and private), `facts_here`, `private_facts` (counted, never shown), `density` (`per_beat`,
+`per_million_km2`, `log10_per_km2`: about -5.5 for the planet, +6 for a 3 m hex, one scale for every tier; `area_m2`),
+`first_beat`, `last_beat`, `kinds` and `families` (histograms: `dice.rolled`, `earth.quake`, `encounter.marked`,
+`settlement.grew`, `story.scar`, `duel.end` ...; families `dice`, `earth`, `encounter`, `settlement`, `story`, `duel`,
+`memory`, `place`, `mind` ...), `sample_facts` (newest first, ≤ `per_node`: `{id, beat, kind, text, public, place,
+query_key?}`), `rolled_up_from` (`{from, name, facts}`: which children rolled up into it, busiest first), `rollup` (its
+latest `memory.rollup`: `{id, beat, query_key, text, counts, facts, cites, cites_total, exact}`, where `cites` are the
+exact entry ids it counted), `on_path`, `collapsed`, `children`. Hexes add `hex_level`, `center`, `observed_beat`,
+`earth_line` (the line every prompt acting there carries now, null when calm); settlements `settlement_level`; crowds and
+cells `size`; persons `role`, `title`, `alive`; a demigod `story`. A DM node's facts are DM memory entries (`dm.memory`);
+a society node's are the minds' memories (`memory.items`): a person's own, rolled up into its cell, crowd and district.
+
+**Recall paths** (`recall_paths`, 3-5): granular facts near the focus and exactly how each is recalled, as `steps`:
+`query_key` (the key, and for a d20 `reproduces`: the seeded die `Rng::derive(seed, [0xD20, hash(key)])` gives the stored
+face again; asked again, the DM answers from the record) → `stored_roll` → `memory_entry` → `rollups` (each roll-up that
+cites it, with `cites_this`) → `prompts` (`dm_memory`: the exact lines the resolver and the gods read about that region,
+from the real `dm::prompt_lines`, and whether the fact is one of them or why not; `memory_summary`: the coarse zoom's
+latest roll-up; `earth`: the earth line there now). Kinds: `d20`, `encounter` (its whole chain under one id: marked,
+rolled, revealed or faded), `earth` (the field's event: `field` step), `settled` (a fact the DM's prompt carries now),
+`person_memory` (`ledger_row` → `mind_memory` with salience, confidence and hedge → its rank in the person's recall and
+the rendered line). `highlight` lists the tree node ids each path runs through.
+
+**Totals** (`totals`): DM entries by scope and kind (public, private), the minds' store (items read, live, by owner),
+`ledger_rows`, `persons_known`, `society_cells`, `crowds`, `hexes_observed`, `places`, and `state_bytes` (the state's
+JSON size by table, estimated by sampling: within about 7% at beat 50).
+
+**How to draw it.** Levels as tiers (the world at the top, the people hex and the person at the bottom; the society
+branch beside the hexes under the settlement). Node size = `facts_total` (log scale); glow = recency (`last_beat`
+against `beat`); colour by `families`; edges = roll-ups (thickness = the child's `facts_total`; the parent's
+`rolled_up_from` names them). Collapsed siblings as small dimmed nodes with their counts. A node's card: name, counts,
+density, the `kinds` bar, the samples, its latest roll-up (highlight `rollup.cites` among the children's samples). Recall
+paths as a side list: picking one lights its `highlight` nodes from the world down and plays its `steps` as a chain of
+cards (key → die → entry → roll-ups → prompts, the prompt's exact lines with the fact's line marked). `log10_per_km2`
+makes a "density of detail" ramp across the tiers.
+
+**Visibility.** Public facts only; private entries and memories are counted in `private_facts`, never shown. A seat also
+sees its own private DM entries (a quest, a will) and the memories it may see by the `game.person` rule (its own
+people's, told by its own, about an event it knows). Over HTTP: public only, the same for everyone.
+
+**Bounds.** One call reads at most the newest 2,000 DM entries and the newest 2,000 minds' memories (each by its head,
+on the unparsed state), and ledger rows only by index; `bounds` says what it read and whether that was everything
+(`dm_window.complete` is true up to about beat 60; the minds' store is longer, so a person's counts are of its recent
+memories). About 2.5 ms at beat 50 (release; the timing test holds it under 5 ms).
+
+**Past beats.** The DM memory is append-only and beat-stamped, so `beat: N` is the memory exactly as it stood at the end
+of beat N (`as_of.memory: "exact"`), including the prompt lines of that beat. The society's structure is the live one
+(`as_of.society: "now"`) and the earth line is omitted (`"omitted"`): rebuilding them would mean loading a past state,
+which no query does. A whole past state (its society, its field) is the admin state at a round
+(`GET /admin/matches/{id}/state?after_round=N`, docs/TIME_TRAVEL.md); `beat` is for the current match's memory.
+
+A real reply (a played planet match: 4 bot seats, scripted minds, beat 50, `{ "per_node": 2 }`; trimmed where marked
+`…`). Schema: [`query_memory_tree`](schemas/query_memory_tree.schema.json).
+
+```json
+{
+  "beat": 50, "as_of": {"beat": 50, "earth": "exact", "memory": "exact", "society": "exact"},
+  "focus": {
+    "arg": null, "default": true, "id": "pl:49", "kind": "region", "name": "South America",
+    "why": "the busiest region now: the most facts in the last 8 beats"
+  },
+  "depth": 6, "per_node": 2,
+  "levels": [
+    {"kinds": ["world"], "level": 0, "name": "World", "scale": "the planet", "store": "dm"},
+    {
+      "kinds": ["region"], "level": 1, "name": "Region", "scale": "a world region (a city arena: a district)",
+      "store": "dm"
+    },
+    {"…": "levels 2-6"}
+  ],
+  "tree": {
+    "id": "world", "kind": "world", "level": 0, "name": "Earth", "store": "dm", "children_total": 20,
+    "facts_total": 1631, "facts_here": 76, "private_facts": 73,
+    "density": {"area_m2": 510072000000000.0, "log10_per_km2": -5.5, "per_beat": 31.98, "per_million_km2": 3.2},
+    "first_beat": 1, "last_beat": 50,
+    "kinds": {
+      "dice.rolled": 440, "duel.end": 5, "duel.lock": 5, "earth.eruption": 3, "earth.impact": 2, "earth.land_rose": 1,
+      "earth.omen": 5, "earth.quake": 5, "encounter.faded": 20, "encounter.marked": 30, "loot.dropped": 15,
+      "loot.taken": 10, "memory.rollup": 508, "place.building": 5, "place.observed": 222, "quest.done": 1,
+      "quest.failed": 3, "quest.given": 4, "quest.step": 1, "settlement.building": 1, "settlement.grew": 80,
+      "settlement.level": 60, "settlement.shrank": 53, "shrine.built": 3, "shrine.level": 5, "story.followers": 20,
+      "story.scar": 86, "story.wardrobe": 8, "time.phase": 26, "will.ruled": 4
+    },
+    "families": {
+      "dice": 440, "duel": 10, "earth": 16, "encounter": 50, "loot": 25, "memory": 508, "place": 227, "quest": 9,
+      "settlement": 194, "shrine": 8, "story": 114, "time": 26, "will": 4
+    },
+    "collapsed": false, "on_path": true,
+    "rolled_up_from": [
+      {"facts": 384, "from": "pl:73", "name": "Western Asia"},
+      {"facts": 292, "from": "pl:1", "name": "Australia and New Zealand"}
+    ],
+    "rollup": {
+      "beat": 50, "cites": [1617, 1616, 1615, 1614], "cites_total": 18,
+      "counts": {
+        "dice.rolled": 11, "encounter.faded": 1, "encounter.marked": 1, "loot.dropped": 1, "story.scar": 3,
+        "time.phase": 1
+      },
+      "exact": true, "facts": 18, "id": 1630, "query_key": "rollup:world:50", "rollups": 50,
+      "text": "in the world: Cyra's Right Hand's things lie on the ground after a fight; a marked hex fades, unfound; a marked hex appears near Melanesia"
+    },
+    "sample_facts": [
+      {
+        "beat": 50, "id": 1630, "kind": "memory.rollup", "place": "world", "public": true,
+        "query_key": "rollup:world:50",
+        "text": "in the world: Cyra's Right Hand's things lie on the ground after a fight; a marked hex fades, unfound; a marked hex appears near Melanesia"
+      },
+      {
+        "beat": 50, "id": 1617, "kind": "story.scar", "place": "4:people:1196642:-619111", "public": true,
+        "text": "Cyra's Right Hand is scarred: Physics hiccups: Cyra's Right Hand falls sideways 871 km"
+      }
+    ],
+    "children": [
+      {
+        "id": "pl:49", "kind": "region", "level": 1, "name": "South America", "store": "dm", "key": "pl:49",
+        "center": [-49.423865, -27.024919], "children_total": 4, "facts_total": 253, "facts_here": 50,
+        "private_facts": 6,
+        "density": {"area_m2": 8079879588319.02, "log10_per_km2": -4.5, "per_beat": 4.96, "per_million_km2": 31.31},
+        "first_beat": 1, "last_beat": 50,
+        "kinds": {
+          "dice.rolled": 93, "earth.impact": 1, "earth.omen": 1, "earth.quake": 1, "encounter.marked": 1,
+          "loot.dropped": 5, "loot.taken": 4, "memory.rollup": 70, "place.building": 1, "place.observed": 36,
+          "quest.failed": 1, "quest.given": 1, "settlement.grew": 6, "settlement.level": 3, "settlement.shrank": 3,
+          "story.followers": 6, "story.scar": 17, "story.wardrobe": 2, "will.ruled": 1
+        },
+        "families": {
+          "dice": 93, "earth": 3, "encounter": 1, "loot": 9, "memory": 70, "place": 37, "quest": 2, "settlement": 12,
+          "story": 25, "will": 1
+        },
+        "collapsed": false, "on_path": true,
+        "rolled_up_from": [
+          {"facts": 134, "from": "open:pl:49", "name": "the open country of South America"},
+          {"facts": 57, "from": "pl:50", "name": "São Paulo"}
+        ],
+        "rollup": {
+          "beat": 50, "cites": [1617, 1612, 1611, 1605], "cites_total": 6,
+          "counts": {"dice.rolled": 4, "loot.dropped": 1, "story.scar": 1}, "exact": true, "facts": 6, "id": 1626,
+          "query_key": "rollup:pl:49:50", "rollups": 41,
+          "text": "in South America: Cyra's Right Hand's things lie on the ground after a fight; Cyra's Right Hand is scarred: Physics hiccups: Cyra's Right Hand falls sideways 871 km"
+        },
+        "sample_facts": [
+          {
+            "beat": 50, "id": 1626, "kind": "memory.rollup", "place": "pl:49", "public": true,
+            "query_key": "rollup:pl:49:50",
+            "text": "in South America: Cyra's Right Hand's things lie on the ground after a fight; Cyra's Right Hand is scarred: Physics hiccups: Cyra's Right Hand falls sideways 871 km"
+          },
+          {
+            "beat": 50, "id": 1617, "kind": "story.scar", "place": "4:people:1196642:-619111", "public": true,
+            "text": "Cyra's Right Hand is scarred: Physics hiccups: Cyra's Right Hand falls sideways 871 km"
+          }
+        ],
+        "children": [
+          {
+            "id": "pl:50", "kind": "settlement", "level": 2, "name": "São Paulo", "store": "dm", "key": "pl:50",
+            "center": [-46.626966, -23.556734], "children_total": 3, "facts_total": 57, "facts_here": 29,
+            "private_facts": 1,
+            "density": {"area_m2": 11309733552.92, "log10_per_km2": -2.3, "per_beat": 1.12, "per_million_km2": 5039.91},
+            "first_beat": 1, "last_beat": 37,
+            "kinds": {
+              "dice.rolled": 20, "memory.rollup": 24, "place.observed": 8, "settlement.grew": 3, "settlement.level": 1,
+              "settlement.shrank": 1
+            },
+            "collapsed": false, "earth_line": null, "on_path": true,
+            "rolled_up_from": [{"facts": 28, "from": "4:villages:1584:-846", "name": "villages hex in São Paulo"}],
+            "rollup": {
+              "beat": 37, "cites": [1152], "cites_total": 1, "counts": {"dice.rolled": 1}, "exact": true, "facts": 1,
+              "id": 1176, "query_key": "rollup:pl:50:37", "rollups": 24, "text": "1 things happened in São Paulo"
+            },
+            "sample_facts": [
+              {
+                "beat": 37, "id": 1176, "kind": "memory.rollup", "place": "pl:50", "public": true,
+                "query_key": "rollup:pl:50:37", "text": "1 things happened in São Paulo"
+              },
+              {
+                "beat": 37, "id": 1152, "kind": "dice.rolled", "place": "4:people:1584229:-846109", "public": true,
+                "query_key": "act:357", "text": "Cyra's Left Hand rolled 19 for a strike (success)"
+              }
+            ],
+            "settlement_level": 5,
+            "children": [
+              {
+                "id": "4:villages:1584:-846", "kind": "hex", "level": 3, "name": "villages hex in São Paulo",
+                "store": "dm", "hex_level": "villages", "center": [-46.562148, -23.455751], "children_total": 1,
+                "facts_total": 28, "facts_here": 0, "private_facts": 0,
+                "density": {"area_m2": 23382685.9, "log10_per_km2": 0.08, "per_beat": 0.55, "per_million_km2": 1197467.22},
+                "first_beat": 1, "last_beat": 37, "kinds": {"dice.rolled": 20, "place.observed": 8},
+                "collapsed": false,
+                "earth_line": "The earth here, now: an open rift splits the ground after the impact 37 beats ago.",
+                "observed_beat": null, "on_path": true,
+                "rolled_up_from": [{"facts": 28, "from": "4:houses:158423:-84611", "name": "houses hex in São Paulo"}],
+                "rollup": null,
+                "sample_facts": [
+                  {
+                    "beat": 37, "id": 1152, "kind": "dice.rolled", "place": "4:people:1584229:-846109", "public": true,
+                    "query_key": "act:357", "text": "Cyra's Left Hand rolled 19 for a strike (success)"
+                  },
+                  {
+                    "beat": 36, "id": 1125, "kind": "dice.rolled", "place": "4:people:1584229:-846109", "public": true,
+                    "query_key": "act:343", "text": "Cyra's Left Hand rolled 19 for a strike (success)"
+                  }
+                ],
+                "children": [
+                  {
+                    "id": "4:houses:158423:-84611", "kind": "hex", "level": 4, "name": "houses hex in São Paulo",
+                    "store": "dm", "hex_level": "houses", "center": [-46.557837, -23.45698], "children_total": 2,
+                    "facts_total": 28, "facts_here": 0, "private_facts": 0, "density": "…", "first_beat": 1,
+                    "last_beat": 37, "kinds": "…", "collapsed": false,
+                    "earth_line": "The earth here, now: an open rift splits the ground after the impact 37 beats ago.",
+                    "observed_beat": null, "on_path": true, "rolled_up_from": "…", "rollup": null, "sample_facts": "…",
+                    "children": [
+                      {
+                        "id": "4:people:1584229:-846109", "kind": "hex", "level": 5, "name": "people hex in São Paulo",
+                        "store": "dm", "hex_level": "people", "center": [-46.557849, -23.45696], "children_total": 0,
+                        "facts_total": 25, "facts_here": 25, "private_facts": 0,
+                        "density": {
+                          "area_m2": 23.38, "log10_per_km2": 6.03, "per_beat": 0.49,
+                          "per_million_km2": 1069167165165.97
+                        },
+                        "first_beat": 1, "last_beat": 37, "kinds": {"dice.rolled": 20, "place.observed": 5},
+                        "collapsed": false,
+                        "earth_line": "The earth here, now: an open rift splits the ground after the impact 37 beats ago.",
+                        "observed_beat": 33, "on_path": true, "rolled_up_from": [], "rollup": null,
+                        "sample_facts": [
+                          {
+                            "beat": 37, "id": 1152, "kind": "dice.rolled", "place": "4:people:1584229:-846109",
+                            "public": true, "query_key": "act:357",
+                            "text": "Cyra's Left Hand rolled 19 for a strike (success)"
+                          },
+                          {
+                            "beat": 36, "id": 1125, "kind": "dice.rolled", "place": "4:people:1584229:-846109",
+                            "public": true, "query_key": "act:343",
+                            "text": "Cyra's Left Hand rolled 19 for a strike (success)"
+                          }
+                        ],
+                        "children": []
+                      },
+                      {
+                        "id": "4:people:1584230:-846109", "kind": "hex", "level": 5, "name": "people hex in São Paulo",
+                        "facts_total": 3, "private_facts": 0, "last_beat": 4, "collapsed": true,
+                        "…": "every field, no samples or children"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "pl:155", "kind": "district", "level": 3, "name": "University Quarter, São Paulo",
+                "store": "minds", "center": [-46.608, -23.392828], "children_total": 3, "facts_total": 20,
+                "facts_here": 0, "private_facts": 16,
+                "density": {"area_m2": 1017876019.76, "log10_per_km2": -1.71, "per_beat": 0.39, "per_million_km2": 19648.76},
+                "first_beat": 45, "last_beat": 50, "kinds": {"mind.did": 14, "mind.summary": 1, "mind.witnessed": 5},
+                "collapsed": false, "on_path": true,
+                "rolled_up_from": [
+                  {"facts": 17, "from": "cl:130", "name": "Shopkeepers of São Paulo"},
+                  {"facts": 3, "from": "cl:129", "name": "Archivists of São Paulo"}
+                ],
+                "rollup": null,
+                "sample_facts": [
+                  {
+                    "beat": 50, "confidence": 1.0, "id": 11209, "kind": "mind.witnessed", "owner": "ch:195",
+                    "public": true, "row": "lg:3602",
+                    "text": "It happened to me: The Third Volunteers of São Paulo for Cyra's Right Hand under Caua Freitas beats the Second Volunteers of Auckland for Dune's Right Hand under Abigail Prescott near Southern Africa: 126 and 12 fall."
+                  },
+                  {
+                    "beat": 48, "confidence": 1.0, "id": 10571, "kind": "mind.witnessed", "owner": "ch:159",
+                    "public": true, "row": "lg:3368",
+                    "text": "It happened to me: The Third Volunteers of São Paulo for Cyra's Left Hand under Mariana Barbosa beats the Second Volunteers of Auckland for Dune's Right Hand under Abigail Prescott near Southern Africa: 416 and 23 fall."
+                  }
+                ],
+                "children": [
+                  {
+                    "id": "cl:130", "kind": "crowd", "level": 4, "name": "Shopkeepers of São Paulo", "store": "minds",
+                    "children_total": 1, "facts_total": 17, "facts_here": 0, "private_facts": 16, "density": "…",
+                    "first_beat": 45, "last_beat": 50, "kinds": "…", "collapsed": false, "on_path": true,
+                    "rolled_up_from": "…", "rollup": null, "sample_facts": "…", "size": 1394111,
+                    "children": [
+                      {
+                        "id": "ce:9", "kind": "cell", "level": 5,
+                        "name": "the Red Choir of the Shopkeepers of São Paulo", "store": "minds", "children_total": 0,
+                        "facts_total": 0, "facts_here": 0, "private_facts": 0, "density": "…", "first_beat": null,
+                        "last_beat": null, "kinds": "…", "cell_kind": "gang", "collapsed": false, "on_path": true,
+                        "rolled_up_from": "…", "rollup": null, "sample_facts": "…", "size": 500, "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "id": "cl:129", "kind": "crowd", "level": 4, "name": "Archivists of São Paulo", "facts_total": 3,
+                    "private_facts": 0, "last_beat": 50, "collapsed": true, "…": "every field, no samples or children"
+                  },
+                  {"…": "1 more collapsed siblings"}
+                ]
+              },
+              {
+                "id": "pl:156", "kind": "district", "level": 3, "name": "Gravesend, São Paulo", "facts_total": 0,
+                "private_facts": 0, "last_beat": null, "collapsed": true, "…": "every field, no samples or children"
+              }
+            ]
+          },
+          {
+            "id": "open:pl:49", "kind": "open", "level": 2, "name": "the open country of South America",
+            "facts_total": 134, "private_facts": 3, "last_beat": 50, "collapsed": true,
+            "…": "every field, no samples or children"
+          },
+          {"…": "1 more collapsed siblings"}
+        ]
+      },
+      {
+        "id": "pl:73", "kind": "region", "level": 1, "name": "Western Asia", "facts_total": 384, "private_facts": 8,
+        "last_beat": 50, "collapsed": true, "…": "every field, no samples or children"
+      },
+      {"…": "1 more collapsed siblings"}
+    ]
+  },
+  "recall_paths": [
+    {
+      "fact": "d20",
+      "highlight": ["world", "pl:49", "pl:50", "4:villages:1584:-846", "4:houses:158423:-84611", "4:people:1584229:-846109"],
+      "steps": [
+        {
+          "asked_again": "the recorded roll is returned; another modifier or DC is logged as memory_conflict and dropped",
+          "derivation": "Rng::derive(match seed, [0xD20, hash_str(key)]): the first draw is the face",
+          "key": "act:357", "key_hash": "9944032960545529304", "reproduces": true, "step": "query_key"
+        },
+        {
+          "modifier": 2, "reason": "a strike", "roll": 19, "step": "stored_roll", "target_dc": 10, "total": 21,
+          "verdict": "success", "who": "dg:2", "who_name": "Cyra's Left Hand"
+        },
+        {
+          "entry": {
+            "beat": 37, "id": 1152, "kind": "dice.rolled", "place": "4:people:1584229:-846109", "public": true,
+            "query_key": "act:357", "scope": "cell", "text": "Cyra's Left Hand rolled 19 for a strike (success)",
+            "up": ["pl:50", "pl:49", "world"]
+          },
+          "step": "memory_entry"
+        },
+        {
+          "items": [
+            {
+              "beat": 37, "cites_this": true, "counted_as": "dice.rolled", "facts": 1, "id": 1176, "kind_count": 1,
+              "name": "São Paulo", "place": "pl:50", "query_key": "rollup:pl:50:37",
+              "text": "1 things happened in São Paulo"
+            },
+            {
+              "beat": 37, "cites_this": true, "counted_as": "dice.rolled", "facts": 3, "id": 1175, "kind_count": 1,
+              "name": "South America", "place": "pl:49", "query_key": "rollup:pl:49:37",
+              "text": "in South America: Cyra's Right Hand takes what Cyra's Right Hand left on the ground; Cyra's Right Hand is scarred: a slap lands"
+            },
+            {
+              "beat": 37, "cites_this": true, "counted_as": "dice.rolled", "facts": 19, "id": 1181, "kind_count": 10,
+              "name": "the world", "place": "world", "query_key": "rollup:world:37",
+              "text": "in the world: a volcano broke open in Central America; Cyra's Right Hand takes what Cyra's Right Hand left on the ground; Ash's Left Hand takes what Brix's Left Hand left on the ground"
+            }
+          ],
+          "step": "rollups"
+        },
+        {
+          "items": [
+            {
+              "included": false,
+              "lines": [
+                "beat 49: Dawn breaks on day 7",
+                "beat 49: Cyra's Right Hand takes what Cyra's Right Hand left on the ground",
+                "beat 49: Cyra's Right Hand is scarred: a slap lands",
+                "beat 50: Full day, day 7",
+                "beat 50: Cyra's Right Hand's things lie on the ground after a fight",
+                "beat 50: Cyra's Right Hand is scarred: Physics hiccups: Cyra's Right Hand falls sideways 871 km"
+              ],
+              "place": "pl:49", "prompt": "dm_memory", "reader": "the resolver and the gods acting in South America",
+              "why": "left out by rule: a roll is shown with its own act, roll-ups and observations are bookkeeping"
+            },
+            {
+              "included": false, "place": "pl:49", "prompt": "memory_summary",
+              "reader": "game.region / game.node of South America (the latest roll-up)", "rollup_id": 1626
+            },
+            {
+              "at": [-46.56, -23.46], "included": true,
+              "line": "The earth here, now: an open rift splits the ground after the impact 37 beats ago.",
+              "prompt": "earth", "reader": "every prompt that acts at this place (the earth underfoot, schema 17)"
+            }
+          ],
+          "step": "prompts"
+        }
+      ],
+      "title": "Cyra's Left Hand rolled 19 for a strike (success)"
+    },
+    {
+      "fact": "encounter", "title": "a marked hex appears near South America",
+      "highlight": ["world", "pl:49", "open:pl:49", "4:villages:1523:-952", "4:houses:152340:-95252", "4:people:1523398:-952518"],
+      "steps": [{"…": "trimmed"}]
+    },
+    {
+      "fact": "earth", "title": "a freak storm gathered over South America", "highlight": ["world", "pl:49"],
+      "steps": [{"…": "trimmed"}]
+    },
+    {
+      "fact": "settled",
+      "title": "Cyra's Right Hand is scarred: Physics hiccups: Cyra's Right Hand falls sideways 871 km",
+      "highlight": ["world", "pl:49", "open:pl:49", "4:villages:1197:-619", "4:houses:119664:-61911", "4:people:1196642:-619111"],
+      "steps": [
+        {"…": "query_key, memory_entry, rollups as above"},
+        {
+          "items": [
+            {
+              "included": true,
+              "line": "beat 50: Cyra's Right Hand is scarred: Physics hiccups: Cyra's Right Hand falls sideways 871 km",
+              "lines": [
+                "beat 49: Dawn breaks on day 7",
+                "beat 49: Cyra's Right Hand takes what Cyra's Right Hand left on the ground",
+                "beat 49: Cyra's Right Hand is scarred: a slap lands",
+                "beat 50: Full day, day 7",
+                "beat 50: Cyra's Right Hand's things lie on the ground after a fight",
+                "beat 50: Cyra's Right Hand is scarred: Physics hiccups: Cyra's Right Hand falls sideways 871 km"
+              ],
+              "place": "pl:49", "prompt": "dm_memory", "reader": "the resolver and the gods acting in South America"
+            },
+            {
+              "included": true, "place": "pl:49", "prompt": "memory_summary",
+              "reader": "game.region / game.node of South America (the latest roll-up)", "rollup_id": 1626
+            },
+            {
+              "at": [-54.11, -19.51], "included": false, "line": null, "prompt": "earth",
+              "reader": "every prompt that acts at this place (the earth underfoot, schema 17)"
+            }
+          ],
+          "step": "prompts"
+        }
+      ]
+    },
+    {
+      "fact": "person_memory",
+      "title": "It happened to me: The Third Volunteers of São Paulo for Cyra's Right Hand under Caua Freitas beats the Second Volunteers of Auckland for Dune's Right Hand under Abigail Prescott near Southern Africa: 126 and 12 fall.",
+      "highlight": ["ch:195", "cl:129", "ce:8"], "steps": [{"…": "trimmed"}]
+    }
+  ],
+  "totals": {
+    "crowds": 277,
+    "dm_memory": {
+      "by_kind": "… (as the world node's kinds)",
+      "by_scope": {"cell": 867, "region": 318, "settlement": 370, "world": 76}, "entries": 1631,
+      "families": {
+        "dice": 440, "duel": 10, "earth": 16, "encounter": 50, "loot": 25, "memory": 508, "place": 227, "quest": 9,
+        "settlement": 194, "shrine": 8, "story": 114, "time": 26, "will": 4
+      },
+      "first_beat": 1, "last_beat": 50, "private": 73, "public": 1558, "read": 1631
+    },
+    "hexes_observed": 61, "ledger_rows": 3626,
+    "minds": {
+      "by_owner": {"ag": 29, "ch": 705, "cl": 320, "dg": 312, "gd": 73, "gr": 561}, "items": 11316, "live": 1872,
+      "read": 2000
+    },
+    "observations": 222, "persons_known": 345, "places": {"districts": 125, "regions": 20, "settlements": 60},
+    "society_cells": 396,
+    "state_bytes": {
+      "estimated": true,
+      "tables": [
+        {"bytes": 2843146, "rows": 11316, "table": "memory.items"},
+        {"bytes": 2094167, "rows": 3626, "table": "ledger.rows"},
+        {"bytes": 942311, "rows": 1631, "table": "dm.memory"},
+        {"bytes": 355696, "rows": 345, "table": "characters"},
+        {"…": "more tables"}
+      ],
+      "total": 7320713
+    }
+  },
+  "visibility": {"rule": "public facts shown; private ones counted (private_facts), shown only to their own seat", "seat": null},
+  "bounds": {
+    "dm_window": {"complete": true, "entries": 1631, "from_beat": 0, "to_beat": 50}, "ledger_rows_read": 26,
+    "minds_window": {"complete": false, "from_beat": 45, "items": 2000, "to_beat": 50}, "scan_cap": 2000
+  }
+}
+```
 
 ### `game.powers`, `game.gods`
 

@@ -133,6 +133,12 @@ pub fn specs() -> Vec<QuerySpec> {
              obj(json!({ "demigod": r#ref(r"^dg:\d+$", "The challenger (usually yours)."),
                          "target": r#ref(r"^dg:\d+$", "The one it would fight."),
                          "level": { "type": "string", "description": "The board level the challenge would be issued at (regions, villages, houses, people; default regions): sets the reach." } }), &["demigod", "target"])),
+        spec("memory_tree", true,
+             "The tree of consequence: the DM's place × time memory as the exact tree it is, from the world down to a focus (default: the busiest region now): world → region → settlement → villages hex (3 km) → houses hex (30 m) → people hex (3 m), with a planet city's society branch (district → crowd → cell → person). Each node: facts_total (memory entries at it or rolled up into it), facts_here, private_facts (counted, never shown), density (per beat, per km²), first/last beat, kinds, newest sample_facts, rolled_up_from (which children rolled up into it) and its latest memory.rollup with the entries it cites. Plus recall paths (a d20's query key → its stored roll → the entry → the roll-ups citing it → the prompts carrying it now; an encounter, an earth event, a settled fact, a person's memory) and totals (entries by scope and kind, ledger rows, persons, observed hexes, the state's bytes by table). Read-only, bounded (at most 2,000 newest entries of each store); `beat`: the memory as it stood then (the society and earth are the live ones).",
+             obj(json!({ "focus": { "type": "string", "description": "A hex cell key (\"<face>:<level>:<q>:<r>\"), a place (`pl:N`: region, city or city district), a demigod (`dg:N`) or a person (`ch:N`). Default: the busiest region now." },
+                         "beat": { "type": ["integer", "string"], "minimum": 0, "description": "The memory as it stood at the end of this beat (default: now)." },
+                         "depth": { "type": ["integer", "string"], "minimum": 1, "maximum": 6, "description": "Tiers below the world to show (default and most 6)." },
+                         "per_node": { "type": ["integer", "string"], "minimum": 0, "maximum": 12, "description": "Samples, roll-up sources and collapsed siblings per node, at most (default 6, at most 12)." } }), &[])),
         spec("piles_final", true,
              "Every demigod's end-of-match pile (items, summons, stats, statue prompt). An error until the match is over.",
              obj(json!({}), &[])),
@@ -164,6 +170,7 @@ pub fn query(pantheon: &Pantheon, state: &Value, seat: Option<Seat>, name: &str,
         "fault" => crate::faults::query_fault(state, args.0),
         "faults_overview" => crate::faults::query_overview(state),
         "duel_odds" => duel_odds(state, seat, &args),
+        "memory_tree" => crate::memtree::query(state, seat, args.0),
         other => Err(format!("unknown query {other}")),
     }?;
     payload::tidy(&mut v);
@@ -176,7 +183,7 @@ pub fn query(pantheon: &Pantheon, state: &Value, seat: Option<Seat>, name: &str,
 
 /// The state tables a query may load. Anything not asked for stays empty.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum T {
+pub(crate) enum T {
     Places,
     Groups,
     Clusters,
@@ -206,7 +213,7 @@ fn table<D: serde::de::DeserializeOwned + Default>(state: &Value, key: &str, wan
 }
 
 /// A `World` with only `t` loaded (plus `meta`); the ledger, memory, intents, rewind ring and beat records stay empty.
-fn world(state: &Value, t: &[T]) -> Result<World, String> {
+pub(crate) fn world(state: &Value, t: &[T]) -> Result<World, String> {
     let has = |x: T| t.contains(&x);
     let meta = state.get("meta").ok_or("no match state")?;
     Ok(World {
@@ -305,7 +312,7 @@ fn latest_rollup(state: &Value, key: &str) -> Option<fn7_model::dm::DmEntry> {
 }
 
 /// The ledger rows, unparsed (`lg:N` is index N).
-fn rows(state: &Value) -> &[Value] {
+pub(crate) fn rows(state: &Value) -> &[Value] {
     state
         .pointer("/ledger/rows")
         .and_then(Value::as_array)
@@ -326,12 +333,12 @@ struct Head<'a> {
     actor: Ref,
 }
 
-fn is_public(w: &World, v: &Value) -> bool {
+pub(crate) fn is_public(w: &World, v: &Value) -> bool {
     Head::deserialize(v).is_ok_and(|h| payload::is_public_head(w, h.verb, h.magnitude, &h.source, h.actor))
 }
 
 /// The asking seat's demigod (`None`: a public asker, or a seat with no demigod).
-fn asker(w: &World, seat: Option<Seat>) -> Option<DemigodId> {
+pub(crate) fn asker(w: &World, seat: Option<Seat>) -> Option<DemigodId> {
     seat.and_then(|s| seat_state(w, s)).map(|s| w.lead_of_seat(s.seat).unwrap_or(s.demigod))
 }
 

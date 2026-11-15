@@ -195,7 +195,8 @@ in every snapshot and recording and replays byte for byte.
 
 "What was decided about place P (or any ancestor or descendant) at or before beat B": an entry matches when its place
 is P, or P is one of its ancestors (a fact below P), or its place is one of P's ancestors (a fact above P). Public
-entries only for clients: `game.memory {place, until_beat?}`.
+entries only for clients: `game.memory {place, until_beat?}`. The whole hierarchy at once, with its roll-ups, densities
+and how single facts are recalled into the prompts, is `game.memory_tree` (the tree of consequence, docs/CLIENT_API.md).
 
 ### 3.4 Feeding the LLM DM
 

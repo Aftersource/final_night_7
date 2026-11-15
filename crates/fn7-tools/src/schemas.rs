@@ -2036,6 +2036,7 @@ pub fn all() -> Vec<(&'static str, Value)> {
     pool.extend(wills::defs());
     pool.extend(earth::defs());
     pool.extend(faults::defs());
+    pool.extend(memtree::defs());
     let mut round_private = pool["SeatDelta"].clone();
     if let Some(props) = round_private["properties"].as_object_mut() {
         props.insert("demigods".into(), array(object("Rules 0.7.0: one of your two demigods this beat.",
@@ -2082,6 +2083,7 @@ fn query_schemas(pool: &Map<String, Value>) -> Vec<(&'static str, Value)> {
         .into_iter()
         .chain(earth::replies())
         .chain(faults::replies())
+        .chain(memtree::replies())
         .map(|(stem, name, body)| {
             let spec = specs.iter().find(|s| s.name == name).unwrap_or_else(|| panic!("no query {name}"));
             let applies = format!(
@@ -2327,6 +2329,7 @@ fn check(root: &Value, s: &Value, v: &Value, path: &str, strict: bool, errs: &mu
 
 mod earth;
 mod faults;
+mod memtree;
 mod queries;
 mod wills;
 

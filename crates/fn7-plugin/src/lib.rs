@@ -38,6 +38,7 @@ pub mod panel;
 pub mod picker;
 pub mod polish;
 pub mod scene;
+pub mod memtree;
 pub mod merge;
 pub mod payload;
 pub mod persona;
@@ -1156,6 +1157,8 @@ impl GamePlugin for FinalNight7Plugin {
 mod tests;
 #[cfg(test)]
 mod query_tests;
+#[cfg(test)]
+mod memtree_tests;
 #[cfg(test)]
 mod media_tests;
 #[cfg(test)]

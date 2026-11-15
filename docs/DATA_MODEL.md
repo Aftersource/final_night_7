@@ -115,6 +115,25 @@ merges, and "members of A ∩ B ∖ C" is a scan of clusters plus characters, wh
 **Size budget** (checked by the simulator and a test on the planet): under 4 MB of state at beat 100. `ledger` and `memory` fold old entries into
 summaries past a threshold. The folded originals stay in the recording, so nothing is lost; only the live state is trimmed.
 
+**The tree of consequence (a view, not a table).** `game.memory_tree` (`fn7-plugin/src/memtree.rs`, docs/CLIENT_API.md
+"Tree of consequence") reads the two memories as the hierarchy they form, with no state of its own and no schema change:
+
+- **`dm.memory`** (`DmEntry`) is keyed by place and beat. An entry's `place` and `up` put it on the tree: `"world"` →
+  a region (`pl:`, `up` = `["world"]`) → a settlement (`pl:` of a site, `up` = `[region, "world"]`) or, for a hex outside
+  any settlement, the region's open country (`open:pl:N` in the tree, a hex whose `up` is `[region, "world"]`) → the
+  hexes, nested by containment of their centres: villages (3 km) → houses (30 m) → people (3 m), the key a fact is
+  recorded at being the finest. `memory.rollup` entries (query `rollup:<place>:<beat>`) are the hierarchy's integration:
+  one per ancestor touched in a beat, counting the beat's public facts beneath it (`data.counts`, `data.facts`); the
+  facts a roll-up cites are exactly the eligible entries of its beat just before it that roll into its place (its
+  ancestor list, or its own place for a non-hex fact), so the tree shows them by id. Private entries (`public: false`,
+  `data.seats`) are counted, and shown only to their seat.
+- **`memory.items`** (`MemoryItem`, fn7-memory) is keyed by owner. The society's hierarchy (`places` quarter →
+  `clusters` crowd → `cells` → `characters`, by `Cluster::place`, `Character::origin` and `Life::cell`) carries a
+  person's memories up to its cell, crowd and city district. A memory is public when its ledger row is a public event.
+- **Bounded reads**: the newest 2,000 entries of each (heads only, on the unparsed state; `dm.memory` is beat-ordered,
+  so a past beat is a binary search), ledger rows by index. A past `beat` gives the DM memory exactly as it stood (append
+  only, beat-stamped); the society's structure is the live one.
+
 ## 3. Data capture: everything is recorded
 
 Recording is the Theatre core's (P1, theatre `2b2b9e3`+): with `THEATRE_RECORD=full`, every match is one run (run id =

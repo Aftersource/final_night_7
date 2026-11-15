@@ -1,5 +1,5 @@
 //! Every `game.*` query on a planet-scale state at beat 50 runs well under 5 ms (they run synchronously on the room
-//! actor). Release only: `cargo test --release -p fn7-plugin --test query_timing -- --nocapture`.
+//! actor); the tree of consequence (`memory_tree`) under ~5 ms. Release only: `cargo test --release -p fn7-plugin --test query_timing -- --nocapture`.
 
 use std::time::{Duration, Instant};
 
@@ -101,6 +101,34 @@ async fn every_query_is_cheap_at_beat_50() {
         assert!(med < Duration::from_micros(2500), "{name} {args}: median {med:?}");
         assert!(p90 < Duration::from_millis(5), "{name} {args}: p90 {p90:?}");
         worst = worst.max(med);
+    }
+    // The tree of consequence reads two stores (the newest 2,000 DM entries and minds' memories), the society and the
+    // earth line: the heaviest query, held to the brief's ~5 ms (median under 3.5 ms).
+    let tree_cases: Vec<(Option<Seat>, Value)> = vec![
+        (None, json!({})),
+        (None, json!({ "per_node": 12 })),
+        (Some(0), json!({ "focus": "dg:0", "per_node": 12 })),
+        (None, json!({ "focus": Ref::Char(person).to_string() })),
+        (None, json!({ "focus": Ref::Place(region).to_string(), "per_node": 12 })),
+        (None, json!({ "focus": fn7_model::hexgrid::people_cell(w.demigods[0].pos) })),
+        (None, json!({ "beat": 25 })),
+    ];
+    for (seat, args) in &tree_cases {
+        let mut times: Vec<Duration> = (0..40)
+            .map(|_| {
+                let t = Instant::now();
+                let v = p.query(&state, *seat, "memory_tree", args).unwrap_or_else(|e| panic!("memory_tree {args}: {e}"));
+                let d = t.elapsed();
+                std::hint::black_box(v);
+                d
+            })
+            .collect();
+        times.sort();
+        let (med, p90) = (times[times.len() / 2], times[times.len() * 9 / 10]);
+        let size = serde_json::to_vec(&p.query(&state, *seat, "memory_tree", args).unwrap()).unwrap().len();
+        eprintln!("{:>12} {:>8} {:<64} median {med:>9.3?}  p90 {p90:>9.3?}  {size:>7} B", "memory_tree", format!("{seat:?}"), args.to_string());
+        assert!(med < Duration::from_micros(3500), "memory_tree {args}: median {med:?}");
+        assert!(p90 < Duration::from_millis(5), "memory_tree {args}: p90 {p90:?}");
     }
     eprintln!("worst median {worst:?}; a full world::load alone: {:?}", {
         let t = Instant::now();
