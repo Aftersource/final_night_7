@@ -107,6 +107,8 @@ pub struct ClockIn {
 pub struct Feed {
     pub clocks: BTreeMap<u32, ClockIn>,
     pub recovered: BTreeMap<u32, Vec<Action>>,
+    /// Schema 14: the duel picks each resolve was handed (`duel_picks`, [`crate::picker`]).
+    pub picks: BTreeMap<u32, Vec<crate::picker::PickRec>>,
 }
 
 impl Feed {
@@ -126,6 +128,10 @@ impl Feed {
                     let a: Vec<Action> = serde_json::from_value(r["data"]["actions"].clone()).unwrap_or_default();
                     f.recovered.insert(round, a);
                 }
+                Some("duel_picks") => {
+                    let p: Vec<crate::picker::PickRec> = serde_json::from_value(r["data"]["picks"].clone()).unwrap_or_default();
+                    f.picks.insert(round, p);
+                }
                 _ => {}
             }
         }
@@ -133,7 +139,7 @@ impl Feed {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.clocks.is_empty() && self.recovered.is_empty()
+        self.clocks.is_empty() && self.recovered.is_empty() && self.picks.is_empty()
     }
 }
 
@@ -282,6 +288,43 @@ impl Journal {
         self.run(&mut inner, &key, w).entries.push(e);
     }
 
+    /// Schema 14: journal a duel pick ([`crate::picker`]) for the match `key` (the hook key captured when the line
+    /// arrived: a pick comes back outside any hook), stamped with its own `at_ms` and its line's `seq`.
+    pub fn note_pick(&self, key: &str, seed: u64, beat: u32, seat: u8, rec: &crate::picker::PickRec) {
+        let e = Entry { boot: self.boot, beat, seat, text: String::new(), fields: json!({ "duel_pick": rec }), seq: rec.line_seq,
+                        at_ms: rec.at_ms, seed, event: None };
+        let mut inner = self.lock();
+        if let Some(dir) = &self.dir {
+            let line = serde_json::to_string(&e).unwrap_or_default();
+            let res = std::fs::create_dir_all(dir).and_then(|_| {
+                let mut f = std::fs::OpenOptions::new().create(true).append(true).open(dir.join(file_name(key)))?;
+                writeln!(f, "{line}")
+            });
+            if let Err(err) = res {
+                eprintln!("fn7 journal: append to {} failed: {err}", dir.display());
+            }
+        }
+        let run = inner.runs.entry(key.to_string()).or_default();
+        run.seed = seed;
+        run.entries.push(e);
+    }
+
+    /// The hook key of the match `w` is in (captured by a picker before it leaves the hook).
+    pub fn key_of(w: &World) -> String {
+        Self::hook_key(w)
+    }
+
+    /// Schema 14, at a resolve: the journaled picks the state has not been handed and that are stamped at or before
+    /// `upto` (the batch's newest instant action: the mark it will set), in their order.
+    pub fn picks(&self, w: &World, upto: Option<(i64, u64)>) -> Vec<crate::picker::PickRec> {
+        let Some(upto) = upto else { return vec![] };
+        self.entries(w)
+            .iter()
+            .filter(|e| (e.at_ms, e.seq) <= upto)
+            .filter_map(|e| serde_json::from_value(e.fields.get("duel_pick")?.clone()).ok())
+            .collect()
+    }
+
     /// The last sign of life a restored state carries: its newest stamp, or a later journal entry of another boot.
     fn last_stamp(&self, run: &Run, w: &World) -> Option<i64> {
         let last = run.entries.iter().filter(|e| e.boot != self.boot).map(|e| e.at_ms).max().unwrap_or(0);
@@ -346,6 +389,8 @@ impl Journal {
         self.entries(w)
             .iter()
             .filter(|e| e.boot != boot && !actions.iter().any(|a| a.seat == e.seat && a.seq == e.seq && a.received_at_ms == e.at_ms))
+            // Picks are handed over on their own ([`Journal::picks`]).
+            .filter(|e| e.fields.get("duel_pick").is_none())
             .map(Entry::action)
             .collect()
     }
@@ -474,6 +519,11 @@ pub fn duel_json(w: &World, b: &Bout, at_ms: i64, paused: bool) -> Value {
     // Schema 12: the lines its AI fighters are typing right now (`duel.typing_script`: seek to `server_time_ms`).
     if b.ai.is_some() {
         v["typing_scripts"] = crate::duel_ai::pending_json(b).into();
+    }
+    // Schema 14: the duel sim's checkpoint and the newest panel's sim (docs/DUEL_SIM.md); `panels[]` stay bare.
+    if let Some(sim) = crate::panel::present_sim(b) {
+        v["sim"] = sim;
+        v["scene"] = crate::panel::live_scene(b).unwrap_or(Value::Null);
     }
     v
 }

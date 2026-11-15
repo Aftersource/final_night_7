@@ -203,10 +203,11 @@ fn d_panels(present: &Value, id: &str) -> Vec<Value> {
     duel(present, id)["panels"].as_array().cloned().unwrap_or_default()
 }
 
-/// A panel as it is stored (an event's `seq`, `received_at_ms` and `also` are its envelope).
+/// A panel as it is stored (an event's `seq`, `received_at_ms` and `also` are its envelope; state schema 14: the
+/// live stream's `sim` too, which `present` carries apart).
 fn strip(p: &Value) -> Value {
     let mut p = p.clone();
-    for k in ["seq", "received_at_ms", "also"] {
+    for k in ["seq", "received_at_ms", "also", "sim"] {
         p.as_object_mut().unwrap().remove(k);
     }
     p
@@ -311,7 +312,7 @@ async fn the_exact_present_survives_reconnects_a_kill_and_a_fork() {
     assert_eq!((duel(p, &id)["typing"]["a"]["len"].as_u64(), duel(p, &id)["typing"]["a"]["at_ms"].clone(), duel(p, &id)["typing"]["b"]["len"].as_u64()),
                (Some(9), k2["at_ms"].clone(), Some(0)), "only the current length of each side's unsent line");
     assert!(lock["a"]["skin"].is_string() && duel(p, &id)["a"]["skin"] == lock["a"]["skin"] && duel(p, &id)["lock"]["b"]["skin"] == lock["b"]["skin"]);
-    assert_eq!((d_scene(p, &id), d_panels(p, &id)), (scene.clone(), vec![p0.clone(), strip(&p1)]), "the scene and every panel so far");
+    assert_eq!((d_scene(p, &id), d_panels(p, &id)), (scene.clone(), vec![strip(&p0), strip(&p1)]), "the scene and every panel so far");
     for (k, e) in [&summoning, &lock, &b1].into_iter().enumerate() {
         assert_eq!((p["events"][k]["seq"].clone(), p["events"][k]["received_at_ms"].clone()), (e["seq"].clone(), e["received_at_ms"].clone()));
     }

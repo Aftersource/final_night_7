@@ -12,6 +12,7 @@ fn7-memory.workspace = true
 fn7-pantheon.workspace = true
 fn7-agents.workspace = true
 fn7-earth.workspace = true
+fn7-duelsim.workspace = true
 theatre-plugin-api.workspace = true
 theatre-toolkit.workspace = true
 theatre-trace.workspace = true

@@ -39,6 +39,8 @@ reqwest.workspace = true
 uuid.workspace = true
 serde.workspace = true
 ring = "0.17"
+rusqlite.workspace = true
+axum = "0.8"
 
 [dev-dependencies]
 tokio-tungstenite.workspace = true

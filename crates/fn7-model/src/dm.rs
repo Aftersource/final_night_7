@@ -43,6 +43,9 @@ pub const LOOK_SCHEMA: u32 = 11;
 /// built-in AI or bot fighter types a line of its own in every input window (a public typing script, then a blow).
 pub const AI_DUEL_SCHEMA: u32 = 12;
 
+/// The schema duel weapons switch on at (13 is the earth simulation's): the LLM picker's recorded picks, weapon
+/// classes and their clips, hammer-space draws, projectiles on panels, clip trims on segs (docs/DUEL_MOVES.md).
+pub const DUEL_WEAPONS_SCHEMA: u32 = 14;
 /// The schema items stop being named after entities at (13 and 14 are taken by other branches): a found or granted
 /// thing whose name is a demigod's, a person's, a player's or a god's takes its name from the object its words
 /// describe ([`crate::manifest::object_name`]), and a loadout and item art skip things that are not real objects.

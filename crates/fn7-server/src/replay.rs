@@ -166,6 +166,17 @@ impl ResolveIn {
     }
 }
 
+/// The recording's `llm_call` records in the order their calls STARTED (their `id`). The engine's recorder numbers a
+/// call when it starts but writes it when it finishes, so two identical concurrent requests (same round, actor, step
+/// and content: e.g. one player's same god invocation twice in a beat) can sit in the file in finish order, and
+/// `ReplayLlm` hands out identical keys' answers in file order: their answers swapped (recording 79b32d4b, beat 4).
+/// The plugin asks in start order, so sorting by id gives each call its own answer.
+pub fn llm_calls_in_start_order(records: &[Value]) -> Vec<Value> {
+    let mut calls: Vec<Value> = records.iter().filter(|r| r["type"] == "llm_call").cloned().collect();
+    calls.sort_by_key(|r| r["id"].as_i64().unwrap_or(i64::MAX));
+    calls
+}
+
 pub async fn verify(path: impl AsRef<Path>, mut log: impl FnMut(&str)) -> anyhow::Result<Report> {
     let records = read_records(path.as_ref())?;
     let run = records
@@ -263,7 +274,7 @@ pub async fn verify(path: impl AsRef<Path>, mut log: impl FnMut(&str)) -> anyhow
     let last = resolves.keys().max().copied().unwrap_or(0).max(last_commit);
 
     let replay = Counting {
-        inner: ReplayLlm::from_records(&records),
+        inner: ReplayLlm::from_records(&llm_calls_in_start_order(&records)),
         calls: AtomicU64::new(0),
     };
     let sink: Arc<dyn Sink> = Arc::new(NullSink(AtomicU64::new(1)));
@@ -275,6 +286,10 @@ pub async fn verify(path: impl AsRef<Path>, mut log: impl FnMut(&str)) -> anyhow
     // The side inputs the live plugin read outside its hook inputs (state schema 8: the Start's clock and pause, the
     // actions recovered from its journal after a restart) are recorded as events and fed back here.
     let p = FinalNight7Plugin::new().with_feed(fn7_plugin::present::Feed::from_records(&records));
+    // Schema 14: the duel move list the match was played with (its ruleset records it when it was not the compiled
+    // one): the mapper's reading decides classes.
+    let ruleset = records.iter().find(|r| r["type"] == "ruleset").map(|r| &r["body"]);
+    fn7_plugin::moves::install_recorded(ruleset).map_err(|e| anyhow!("run {run}: {e}"))?;
     let mut rep = Report {
         run: run.clone(),
         ..Default::default()
@@ -385,4 +400,36 @@ pub async fn verify(path: impl AsRef<Path>, mut log: impl FnMut(&str)) -> anyhow
     rep.llm_misses = misses;
     rep.llm_hits = replay.calls.load(Ordering::Relaxed).saturating_sub(misses);
     Ok(rep)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// Two identical concurrent requests written in finish order are answered in start order (recording 79b32d4b).
+    #[tokio::test]
+    async fn identical_concurrent_calls_get_their_own_answers() {
+        let ask = || LlmRequest { model: None, system: "s".into(), messages: vec![(Role::User, "same".into())], temperature: 0.8,
+                                  max_tokens: 800, json_schema: None, n: 1 };
+        let req = serde_json::to_value(ask()).unwrap();
+        let call = |id: i64, answer: &str| json!({ "type": "llm_call", "id": id, "round": 4, "actor": "gd:3", "step": "god",
+                                                   "request": req, "choices": [answer] });
+        // The later-started call finished first, so it was written first.
+        let records = vec![json!({ "type": "event" }), call(6023, "second"), call(6022, "first")];
+        let r = ReplayLlm::from_records(&llm_calls_in_start_order(&records));
+        let ctx = |n| {
+            let mut c = Ctx::new(Arc::new(NullSink(AtomicU64::new(1))), "run");
+            c.round = Some(4);
+            c.actor = Some("gd:3".into());
+            c.step = Some("god".into());
+            let _ = n;
+            c
+        };
+        let a = theatre_trace::within(ctx(0), r.complete(ask())).await;
+        let b = theatre_trace::within(ctx(1), r.complete(ask())).await;
+        let (a, b) = (a.unwrap(), b.unwrap());
+        assert_eq!((a.first(), b.first()), (Some("first"), Some("second")));
+        assert_eq!(llm_calls_in_start_order(&records).iter().map(|r| r["id"].as_i64().unwrap()).collect::<Vec<_>>(), vec![6022, 6023]);
+    }
 }

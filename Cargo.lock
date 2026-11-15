@@ -595,6 +595,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "fn7-agents",
+ "fn7-duelsim",
  "fn7-earth",
  "fn7-memory",
  "fn7-model",
@@ -637,6 +638,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "axum",
  "clap",
  "dotenvy",
  "fn7-agents",
@@ -649,6 +651,7 @@ dependencies = [
  "http-body-util",
  "reqwest",
  "ring",
+ "rusqlite",
  "serde",
  "serde_json",
  "theatre-llm",
@@ -2241,6 +2244,7 @@ dependencies = [
 [[package]]
 name = "theatre-llm"
 version = "0.1.0"
+source = "git+https://github.com/Aftersource/theatre?branch=main#352318992b90817208ae8c0262340aa6d48c4027"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2258,6 +2262,7 @@ dependencies = [
 [[package]]
 name = "theatre-plugin-api"
 version = "0.1.0"
+source = "git+https://github.com/Aftersource/theatre?branch=main#352318992b90817208ae8c0262340aa6d48c4027"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2269,6 +2274,7 @@ dependencies = [
 [[package]]
 name = "theatre-protocol"
 version = "0.1.0"
+source = "git+https://github.com/Aftersource/theatre?branch=main#352318992b90817208ae8c0262340aa6d48c4027"
 dependencies = [
  "serde",
  "serde_json",
@@ -2279,6 +2285,7 @@ dependencies = [
 [[package]]
 name = "theatre-server"
 version = "0.1.0"
+source = "git+https://github.com/Aftersource/theatre?branch=main#352318992b90817208ae8c0262340aa6d48c4027"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2307,6 +2314,7 @@ dependencies = [
 [[package]]
 name = "theatre-toolkit"
 version = "0.1.0"
+source = "git+https://github.com/Aftersource/theatre?branch=main#352318992b90817208ae8c0262340aa6d48c4027"
 dependencies = [
  "anyhow",
  "geo",
@@ -2326,6 +2334,7 @@ dependencies = [
 [[package]]
 name = "theatre-trace"
 version = "0.1.0"
+source = "git+https://github.com/Aftersource/theatre?branch=main#352318992b90817208ae8c0262340aa6d48c4027"
 dependencies = [
  "serde",
  "serde_json",

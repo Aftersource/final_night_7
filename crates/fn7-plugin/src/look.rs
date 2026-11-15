@@ -786,6 +786,12 @@ fn entry_json(w: &World, b: &LookBook, e: &Entry) -> Value {
             c.next().map(|f| f.to_uppercase().chain(c).collect::<String>()).unwrap_or(s)
         }),
     });
+    // Schema 14: how it is wielded in a duel (`weapon_class`), for what can be wielded.
+    if w.duel_weapon_rules() {
+        if let Some(wc) = crate::weapons::weapon_class(it.ext.kind, &it.name) {
+            v["weapon_class"] = wc.into();
+        }
+    }
     art_fields(w, b, it, &mut v);
     v
 }

@@ -609,6 +609,107 @@
       "use_ms": 2132
     }
   ],
+  "defaults": [
+    {
+      "class": "strike",
+      "clips": [
+        "strike_slash",
+        "strike_side",
+        "lunge",
+        "jab",
+        "kick",
+        "elbow_strike",
+        "punch_combo"
+      ]
+    },
+    {
+      "class": "heavy",
+      "clips": [
+        "heavy_hammer",
+        "heavy_charged",
+        "ground_slam",
+        "sword_judgment",
+        "axe_spin",
+        "uppercut"
+      ]
+    },
+    {
+      "class": "guard",
+      "clips": [
+        "block",
+        "block_cross",
+        "shield_push"
+      ]
+    },
+    {
+      "class": "parry",
+      "clips": [
+        "parry_high",
+        "parry_back"
+      ]
+    },
+    {
+      "class": "feint",
+      "clips": [
+        "evade_spin"
+      ]
+    },
+    {
+      "class": "evade",
+      "clips": [
+        "evade_stand",
+        "evade_roll",
+        "dodge_roll_back",
+        "evade_spin"
+      ]
+    },
+    {
+      "class": "close",
+      "clips": [
+        "lunge"
+      ]
+    },
+    {
+      "class": "retreat",
+      "clips": [
+        "evade_stand",
+        "dodge_roll_back"
+      ]
+    },
+    {
+      "class": "grapple",
+      "clips": [
+        "grapple_throw_down"
+      ]
+    },
+    {
+      "class": "throw",
+      "clips": [
+        "throw_shoulder",
+        "grapple_throw_down"
+      ]
+    },
+    {
+      "class": "invoke",
+      "clips": [
+        "invoke",
+        "mage_cast"
+      ]
+    },
+    {
+      "class": "command",
+      "clips": [
+        "command"
+      ]
+    },
+    {
+      "class": "taunt",
+      "clips": [
+        "taunt"
+      ]
+    }
+  ],
+  "draw_clip": "draw_from_nowhere",
   "paths": [
     {
       "about": "running or stepping along the ground",
@@ -651,7 +752,241 @@
       "path": "drop"
     }
   ],
-  "version": "b9bdc8d3f2f5a2e2",
+  "version": "d24da37ec8bd6819",
+  "weapons": [
+    {
+      "about": "a sword, an axe, a mace or a knife in one hand",
+      "projectile": null,
+      "sets": [
+        {
+          "class": "strike",
+          "clips": [
+            "strike_slash",
+            "lunge",
+            "blade_spin"
+          ]
+        },
+        {
+          "class": "heavy",
+          "clips": [
+            "sword_judgment",
+            "heavy_charged",
+            "axe_spin"
+          ]
+        }
+      ],
+      "weapon_class": "one_handed"
+    },
+    {
+      "about": "a greatsword, a great hammer, a war axe or a polearm in both hands",
+      "projectile": null,
+      "sets": [
+        {
+          "class": "strike",
+          "clips": [
+            "twohand_reap",
+            "twohand_chop"
+          ]
+        },
+        {
+          "class": "heavy",
+          "clips": [
+            "twohand_chop",
+            "sword_judgment",
+            "axe_spin"
+          ]
+        },
+        {
+          "class": "guard",
+          "clips": [
+            "twohand_stance"
+          ]
+        },
+        {
+          "class": "parry",
+          "clips": [
+            "twohand_stance",
+            "parry_high"
+          ]
+        }
+      ],
+      "weapon_class": "two_handed"
+    },
+    {
+      "about": "a bow or a crossbow",
+      "projectile": "arrow",
+      "sets": [
+        {
+          "class": "strike",
+          "clips": [
+            "bow_quick_shot",
+            "bow_draw_shoot"
+          ]
+        },
+        {
+          "class": "heavy",
+          "clips": [
+            "bow_draw_shoot"
+          ]
+        },
+        {
+          "class": "close",
+          "clips": [
+            "bow_aim_walk"
+          ]
+        },
+        {
+          "class": "retreat",
+          "clips": [
+            "bow_aim_walk",
+            "dodge_roll_back"
+          ]
+        }
+      ],
+      "weapon_class": "bow"
+    },
+    {
+      "about": "a gun: a rifle, a pistol, a musket",
+      "projectile": "bullet",
+      "sets": [
+        {
+          "class": "strike",
+          "clips": [
+            "gun_side_shot",
+            "gun_quick_draw",
+            "gun_run_shoot"
+          ]
+        },
+        {
+          "class": "heavy",
+          "clips": [
+            "gun_quick_draw"
+          ]
+        },
+        {
+          "class": "evade",
+          "clips": [
+            "gun_roll_fire",
+            "evade_roll"
+          ]
+        },
+        {
+          "class": "close",
+          "clips": [
+            "gun_run_shoot"
+          ]
+        },
+        {
+          "class": "guard",
+          "clips": [
+            "gun_reload",
+            "block"
+          ]
+        }
+      ],
+      "weapon_class": "rifle"
+    },
+    {
+      "about": "a rocket launcher, a cannon, anything that fires a blast",
+      "projectile": "rocket",
+      "sets": [
+        {
+          "class": "strike",
+          "clips": [
+            "launcher_fire"
+          ]
+        },
+        {
+          "class": "heavy",
+          "clips": [
+            "launcher_fire"
+          ]
+        },
+        {
+          "class": "guard",
+          "clips": [
+            "gun_reload"
+          ]
+        }
+      ],
+      "weapon_class": "launcher"
+    },
+    {
+      "about": "rocks, knives, spears, bombs: things thrown by hand",
+      "projectile": "rock",
+      "sets": [
+        {
+          "class": "strike",
+          "clips": [
+            "throw_object"
+          ]
+        },
+        {
+          "class": "heavy",
+          "clips": [
+            "throw_object"
+          ]
+        }
+      ],
+      "weapon_class": "thrown"
+    },
+    {
+      "about": "a staff, a wand, a sceptre",
+      "projectile": "orb",
+      "sets": [
+        {
+          "class": "strike",
+          "clips": [
+            "strike_side",
+            "blade_spin"
+          ]
+        },
+        {
+          "class": "heavy",
+          "clips": [
+            "ground_slam",
+            "heavy_charged"
+          ]
+        },
+        {
+          "class": "invoke",
+          "clips": [
+            "mage_cast",
+            "invoke"
+          ]
+        }
+      ],
+      "weapon_class": "staff"
+    },
+    {
+      "about": "a shield (held with a free hand)",
+      "projectile": null,
+      "sets": [
+        {
+          "class": "guard",
+          "clips": [
+            "shield_push",
+            "block_cross"
+          ]
+        },
+        {
+          "class": "strike",
+          "clips": [
+            "shield_push",
+            "strike_side"
+          ]
+        },
+        {
+          "class": "parry",
+          "clips": [
+            "block",
+            "parry_high"
+          ]
+        }
+      ],
+      "weapon_class": "shield"
+    }
+  ],
   "words": [
     {
       "class": "strike",
@@ -659,8 +994,10 @@
         "flying_kick"
       ],
       "leap": true,
+      "since": 12,
       "typos": true,
       "weak": false,
+      "weapon": false,
       "words": [
         "jumpkick",
         "flying kick",
@@ -674,8 +1011,10 @@
         "roundhouse_kick"
       ],
       "leap": false,
+      "since": 12,
       "typos": true,
       "weak": false,
+      "weapon": false,
       "words": [
         "roundhouse"
       ]
@@ -688,8 +1027,10 @@
         "high_kick"
       ],
       "leap": false,
+      "since": 12,
       "typos": true,
       "weak": false,
+      "weapon": false,
       "words": [
         "kick"
       ]
@@ -700,8 +1041,10 @@
         "leg_sweep"
       ],
       "leap": false,
+      "since": 12,
       "typos": true,
       "weak": false,
+      "weapon": false,
       "words": [
         "sweep",
         "trip"
@@ -713,8 +1056,10 @@
         "jump_attack"
       ],
       "leap": true,
+      "since": 12,
       "typos": true,
       "weak": false,
+      "weapon": false,
       "words": [
         "jump",
         "leap",
@@ -731,8 +1076,10 @@
         "strike_side"
       ],
       "leap": false,
+      "since": 12,
       "typos": true,
       "weak": false,
+      "weapon": true,
       "words": [
         "punch",
         "attack",
@@ -750,8 +1097,10 @@
         "jab"
       ],
       "leap": false,
+      "since": 12,
       "typos": true,
       "weak": false,
+      "weapon": false,
       "words": [
         "jab"
       ]
@@ -762,8 +1111,10 @@
         "uppercut"
       ],
       "leap": false,
+      "since": 12,
       "typos": true,
       "weak": false,
+      "weapon": false,
       "words": [
         "uppercut"
       ]
@@ -774,8 +1125,10 @@
         "elbow_strike"
       ],
       "leap": false,
+      "since": 12,
       "typos": true,
       "weak": true,
+      "weapon": false,
       "words": [
         "elbow"
       ]
@@ -786,8 +1139,10 @@
         "knee_strike"
       ],
       "leap": false,
+      "since": 12,
       "typos": true,
       "weak": true,
+      "weapon": false,
       "words": [
         "knee"
       ]
@@ -799,8 +1154,10 @@
         "punch_combo"
       ],
       "leap": false,
+      "since": 12,
       "typos": true,
       "weak": false,
+      "weapon": false,
       "words": [
         "flail",
         "frenzy",
@@ -815,8 +1172,10 @@
         "axe_spin"
       ],
       "leap": false,
+      "since": 12,
       "typos": true,
       "weak": false,
+      "weapon": false,
       "words": [
         "spin",
         "whirl"
@@ -829,8 +1188,10 @@
         "blade_spin"
       ],
       "leap": false,
+      "since": 12,
       "typos": true,
       "weak": false,
+      "weapon": true,
       "words": [
         "slash",
         "slice",
@@ -847,8 +1208,10 @@
         "lunge"
       ],
       "leap": false,
+      "since": 12,
       "typos": true,
       "weak": false,
+      "weapon": true,
       "words": [
         "stab",
         "pierce",
@@ -868,8 +1231,10 @@
         "sword_judgment"
       ],
       "leap": false,
+      "since": 12,
       "typos": true,
       "weak": false,
+      "weapon": true,
       "words": [
         "smash",
         "crush",
@@ -891,8 +1256,10 @@
         "shield_push"
       ],
       "leap": false,
+      "since": 12,
       "typos": true,
       "weak": false,
+      "weapon": true,
       "words": [
         "block",
         "guard",
@@ -909,8 +1276,10 @@
         "counter"
       ],
       "leap": false,
+      "since": 12,
       "typos": true,
       "weak": false,
+      "weapon": false,
       "words": [
         "parry",
         "deflect",
@@ -925,8 +1294,10 @@
         "grapple_throw_down"
       ],
       "leap": false,
+      "since": 12,
       "typos": true,
       "weak": false,
+      "weapon": false,
       "words": [
         "throw",
         "judo",
@@ -944,8 +1315,10 @@
         "grapple_throw_down"
       ],
       "leap": false,
+      "since": 12,
       "typos": true,
       "weak": false,
+      "weapon": false,
       "words": [
         "grab",
         "choke",
@@ -967,8 +1340,10 @@
         "evade_spin"
       ],
       "leap": false,
+      "since": 12,
       "typos": true,
       "weak": false,
+      "weapon": false,
       "words": [
         "tumble",
         "roll",
@@ -986,8 +1361,10 @@
         "lunge"
       ],
       "leap": false,
+      "since": 12,
       "typos": true,
       "weak": false,
+      "weapon": false,
       "words": [
         "run",
         "charge",
@@ -1006,8 +1383,10 @@
         "evade_stand"
       ],
       "leap": false,
+      "since": 12,
       "typos": true,
       "weak": false,
+      "weapon": false,
       "words": [
         "retreat",
         "withdraw",
@@ -1026,8 +1405,10 @@
         "ground_slam"
       ],
       "leap": false,
+      "since": 12,
       "typos": true,
       "weak": false,
+      "weapon": false,
       "words": [
         "summon",
         "cast",
@@ -1050,8 +1431,10 @@
         "mage_cast"
       ],
       "leap": false,
+      "since": 12,
       "typos": false,
       "weak": false,
+      "weapon": false,
       "words": [
         "time",
         "nature",
@@ -1072,8 +1455,10 @@
         "command"
       ],
       "leap": false,
+      "since": 12,
       "typos": true,
       "weak": false,
+      "weapon": false,
       "words": [
         "army",
         "armies",
@@ -1095,8 +1480,10 @@
         "bow"
       ],
       "leap": false,
+      "since": 12,
       "typos": true,
       "weak": false,
+      "weapon": false,
       "words": [
         "plead",
         "beg",
@@ -1111,8 +1498,10 @@
         "taunt"
       ],
       "leap": false,
+      "since": 12,
       "typos": true,
       "weak": false,
+      "weapon": false,
       "words": [
         "taunt",
         "mock",
@@ -1130,14 +1519,54 @@
         "evade_spin"
       ],
       "leap": false,
+      "since": 12,
       "typos": true,
       "weak": false,
+      "weapon": false,
       "words": [
         "feint",
         "fake",
         "trick",
         "bluff",
         "pretend"
+      ]
+    },
+    {
+      "class": "strike",
+      "clips": [
+        "strike_side",
+        "jab"
+      ],
+      "leap": false,
+      "since": 14,
+      "typos": false,
+      "weak": false,
+      "weapon": true,
+      "words": [
+        "shoot",
+        "snipe",
+        "open fire",
+        "fire at",
+        "loose an arrow",
+        "gun down",
+        "blast away"
+      ]
+    },
+    {
+      "class": "heavy",
+      "clips": [
+        "heavy_hammer",
+        "axe_spin"
+      ],
+      "leap": false,
+      "since": 14,
+      "typos": false,
+      "weak": false,
+      "weapon": true,
+      "words": [
+        "chop",
+        "reap",
+        "hew"
       ]
     }
   ]

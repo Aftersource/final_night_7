@@ -87,7 +87,9 @@ fn a_lock_builds_the_scene_and_panel_zero_and_the_cycle_runs_on_stamps() {
     // The same duel, the same scene (seeded by the match and the hex).
     let w = world::load(&t.state).unwrap();
     let again = duel::Duel::with_id(&w, id.clone(), 2, t.me, t.foe, "regions", Some(0), t0() + 1_000, &[]);
-    assert_eq!(&panel::scene(&w, &again), scene);
+    let mut bare = scene.clone();
+    bare.as_object_mut().unwrap().remove("sim"); // (schema 14: the live scene also carries the duel sim's stage)
+    assert_eq!(panel::scene(&w, &again), bare);
     // A line inside window 0: a blow as in 0.8.1, at once, nothing due yet.
     let b1 = submit(&t, &instant(0, line(&id, "I kick your knee into the mud"), 2, 1_500)).unwrap();
     assert_eq!((b1["event"].as_str(), b1.get("also")), (Some("duel.blow"), None));
@@ -123,7 +125,7 @@ fn a_lock_builds_the_scene_and_panel_zero_and_the_cycle_runs_on_stamps() {
     let o = resolve_at(&FinalNight7Plugin::new(), &t, 2, &acts);
     let w2 = world::load(&o.state).unwrap();
     assert_eq!(w2.dm.duels[0]["panels"].as_array().unwrap(), &live, "live and the resolve build the same panels");
-    assert_eq!(&w2.dm.duels[0]["scene"], scene);
+    assert_eq!(w2.dm.duels[0]["scene"], bare, "the state's scene has no sim");
     assert_eq!(o.public["duels_open"][0]["panels"].as_array().unwrap(), &live, "the outcome carries the panels this resolve made due");
     assert_eq!(resolve_at(&t.p, &t, 2, &acts).state, o.state);
     // Without the ticks the content is the same; only the early close moves (panel 1 would be computed at 2900).

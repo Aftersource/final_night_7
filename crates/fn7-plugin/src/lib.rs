@@ -33,6 +33,7 @@ pub mod items;
 pub mod look;
 pub mod occupancy;
 pub mod panel;
+pub mod picker;
 pub mod merge;
 pub mod payload;
 pub mod persona;
@@ -49,6 +50,7 @@ pub mod typing;
 pub mod duel_ai;
 pub mod moves;
 pub mod visual;
+pub mod weapons;
 pub mod wills;
 pub mod world;
 
@@ -267,7 +269,7 @@ pub struct FinalNight7Plugin {
     /// Rules 0.8.1: the duels shown live this beat (display only; the resolve recomputes them; see [`duel`]).
     live: duel::LiveCache,
     /// Schema 8 (exact resume): the accepted instant actions of each match since its last resolve ([`present`]).
-    journal: present::Journal,
+    journal: Arc<present::Journal>,
     /// Live typing in duels: each duellist's current line length, display only ([`typing`]).
     typing: typing::Typing,
     /// The side inputs of a recorded match (replay verification), instead of the journal and the clock.
@@ -275,6 +277,9 @@ pub struct FinalNight7Plugin {
     /// The server's media style config (`{version, hash, source, body}`), recorded in every match's ruleset as
     /// `media_style` (the plugin never reads it otherwise; images are the server's).
     media_style: Option<Value>,
+    /// Schema 14: the duel picker ([`picker`]; the server's LLM), and where the duel data rows go.
+    picker: Option<Arc<picker::Picker>>,
+    duel_data: Option<Arc<dyn picker::DuelData>>,
 }
 
 impl Default for FinalNight7Plugin {
@@ -286,6 +291,8 @@ impl Default for FinalNight7Plugin {
             typing: Default::default(),
             feed: None,
             media_style: None,
+            picker: None,
+            duel_data: None,
         }
     }
 }
@@ -299,8 +306,62 @@ impl FinalNight7Plugin {
     /// restart (the undelivered ones are handed to the first resolve), and each beat's Start reads the server's clock
     /// (pauses stop open duels' clocks). Both are recorded as events so a replay reproduces them ([`present`]).
     pub fn with_journal(mut self, dir: impl Into<std::path::PathBuf>) -> Self {
-        self.journal = present::Journal::durable(dir.into());
+        self.journal = Arc::new(present::Journal::durable(dir.into()));
         self
+    }
+
+    /// Schema 14: pick duel lines with `llm` ([`picker`]; rooms with `duel_picker: on` and the LLM on), caching
+    /// picks in (and writing duel data rows to) `data`.
+    pub fn with_picker(mut self, llm: Arc<dyn LlmProvider>, data: Option<Arc<dyn picker::DuelData>>) -> Self {
+        self.picker = Some(Arc::new(picker::Picker::new(llm, data.clone())));
+        if data.is_some() {
+            self.duel_data = data;
+        }
+        self
+    }
+
+    /// Schema 14: where each ended duel's `duel_line` rows go (the server's SQLite store).
+    pub fn with_duel_data(mut self, data: Arc<dyn picker::DuelData>) -> Self {
+        self.duel_data = Some(data);
+        self
+    }
+
+    /// The duel picker, when the server gave one.
+    pub fn picker(&self) -> Option<&Arc<picker::Picker>> {
+        self.picker.as_ref()
+    }
+
+    /// The journal (tests: wait for a pick to come back).
+    pub fn journal(&self) -> &Arc<present::Journal> {
+        &self.journal
+    }
+
+    /// Schema 14, a duel line arriving: a cached pick is journaled now, before the line (it may set the class);
+    /// returns the request for a pick to make once the line is accepted, when there is none.
+    fn pick_before(&self, w: &World, seat: Seat, action: &Action) -> Option<(fn7_agents::duel_pick::PickCtx, picker::PickRec)> {
+        let p = self.picker.as_ref()?;
+        let st = world::settings(w);
+        if !w.duel_weapon_rules() || st.duel_picker != "on" || !st.llm {
+            return None;
+        }
+        let i = actions::parse(&action.text, &action.fields).ok()?;
+        let b = i.blow?;
+        let lv = self.journal.live(w, &st);
+        let bout = lv.bouts.iter().find(|x| x.duel.id == b.duel_id && x.weapons)?;
+        let side = bout.duel.side_of(seat)?;
+        let range = serde_json::to_value(bout.flow.range).ok()?.as_str()?.to_string();
+        let key = picker::key(&b.text, &range, weapons::class_of_side(bout, side), &moves::list_version());
+        let mut rec = picker::PickRec { duel_id: b.duel_id.clone(), line_seq: action.seq, line_at_ms: action.received_at_ms, pre: false,
+                                        at_ms: action.received_at_ms, pick: None, cached: false, latency_ms: 0, tokens_in: 0, tokens_out: 0,
+                                        cost_usd: 0.0, model: fn7_agents::duel_pick::MODEL.into(), error: None, key: key.clone() };
+        if let Some(pick) = p.cached(&key) {
+            rec.pre = true;
+            rec.cached = true;
+            rec.pick = Some(pick);
+            self.journal.note_pick(&present::Journal::key_of(w), w.meta.seed, w.meta.beat, seat, &rec);
+            return None;
+        }
+        Some((duel::pick_ctx(bout, side, &b.text), rec))
     }
 
     /// Replay verification: take the side inputs (`duel_clock`, `journal_recovered`) from a recording.
@@ -539,8 +600,26 @@ impl FinalNight7Plugin {
             actions
         };
         let (turns, subs, wills) = Self::turns(w, round, actions);
-        let duels = duel::acts_of(actions, w.resume_rules());
+        let mut duels = duel::acts_of(actions, w.resume_rules());
+        // Schema 14: the duel picks journaled by the batch's newest stamp (a recorded side input: `duel_picks`).
+        if w.duel_weapon_rules() {
+            let picks = match &self.feed {
+                Some(f) => f.picks.get(&round).cloned().unwrap_or_default(),
+                None => self.journal.picks(w, duels.newest),
+            };
+            if !picks.is_empty() {
+                world::event("duel_picks", None, json!({ "beat": round, "picks": picks }));
+            }
+            duels.add_picks(&picks);
+        }
         let out = beat::resolve(w, round, turns, &subs, &duels, &wills, &ctx.windows_closed, llm, &self.pantheon).await;
+        // Schema 14: the ended duels' line rows to the server's store (never on a replay: it has no store).
+        if let (Some(d), false) = (&self.duel_data, out.lines.is_empty()) {
+            let run = theatre_trace::current().map(|c| c.run).unwrap_or_else(|| format!("seed-{}", w.meta.seed));
+            for row in &out.lines {
+                d.line(&run, row);
+            }
+        }
         if w.resume_rules() {
             // The delivery mark: the newest instant action this state contains, and the resolve's clock.
             let mut m = w.dm.mark.unwrap_or_default();
@@ -691,6 +770,12 @@ impl GamePlugin for FinalNight7Plugin {
         if let Some(m) = &self.media_style {
             body["media_style"] = m.clone();
         }
+        // Schema 14: the duel move list this server reads lines with (in full when it is not the compiled one: a
+        // replay reads the match with it) and the picker's prompt.
+        if w.duel_weapon_rules() {
+            body["duel_moves"] = moves::current().ruleset_json();
+            body["prompts"]["duel_pick_system (schema 14)"] = fn7_agents::duel_pick::system_prompt().into();
+        }
         theatre_trace::ruleset(PLUGIN_ID, RULES_VERSION, RULES_LABEL, body);
         self.journal.seen(&w);
         Ok(world::save(&w))
@@ -763,6 +848,10 @@ impl GamePlugin for FinalNight7Plugin {
     ) -> Result<(), String> {
         let w = world::load(state).map_err(|e| e.to_string())?;
         let i = actions::parse(text, fields)?;
+        // Schema 14: picks are the server's own journal entries, never a client's.
+        if i.pick.is_some() {
+            return Err("duel_pick is not an action".into());
+        }
         // Rules 0.8.1: a challenge or a duel line (instant only; checked against the live duels).
         if i.is_duel() {
             if kind != SubmitKind::Instant {
@@ -834,7 +923,44 @@ impl GamePlugin for FinalNight7Plugin {
         if typing::is_keys(action) {
             return self.typing.relay(&self.journal, &w, seat, action);
         }
+        // Schema 14: a cached pick goes into the journal before the line; otherwise one is asked for once it is in.
+        let ask = self.pick_before(&w, seat, action);
         let v = self.instant_event(&w, seat, action);
+        if let (Some((ctx, rec)), Some(p)) = (ask, &self.picker) {
+            let accepted = v.as_ref().is_some_and(|v| v["event"] == "duel.blow" && v["seq"] == action.seq && v["duel_id"] == json!(rec.duel_id));
+            if accepted {
+                let st = world::settings(&w);
+                let (journal, key, seed, beat) = (self.journal.clone(), present::Journal::key_of(&w), w.meta.seed, w.meta.beat);
+                p.spawn(moves::current().body.clone(), ctx, rec, std::time::Duration::from_millis(st.duel_picker_timeout_ms as u64), move |r| {
+                    journal.note_pick(&key, seed, beat, seat, &r);
+                });
+            }
+        }
+        // Schema 14 (`duel_picker_for_ai`): the AI lines whose typing this action started are picked too; a pick
+        // that comes back before a line's Enter chooses its class (only windows opened by an instant action: one
+        // opened by a resolve keeps its rules line).
+        if let (Some(p), Some(v)) = (&self.picker, v.as_ref()) {
+            let st = world::settings(&w);
+            if w.duel_weapon_rules() && st.duel_picker == "on" && st.duel_picker_for_ai && st.llm {
+                let scripts: Vec<Value> = std::iter::once(v).chain(v["also"].as_array().into_iter().flatten())
+                    .filter(|e| e["event"] == "duel.typing_script").cloned().collect();
+                if !scripts.is_empty() {
+                    let lv = self.journal.live(&w, &st);
+                    for sc in scripts {
+                        let (Some(id), Some(ends), Some(text)) = (sc["duel_id"].as_str(), sc["ends_at_ms"].as_i64(), sc["text"].as_str()) else { continue };
+                        let Some(bout) = lv.bouts.iter().find(|b| b.duel.id == id && b.weapons) else { continue };
+                        let side = if sc["by"] == "a" { 0 } else { 1 };
+                        let range = serde_json::to_value(bout.flow.range).ok().and_then(|r| r.as_str().map(str::to_string)).unwrap_or_default();
+                        let rec = picker::PickRec { duel_id: id.into(), line_seq: 0, line_at_ms: ends, pre: true, at_ms: ends, pick: None, cached: false,
+                                                    latency_ms: 0, tokens_in: 0, tokens_out: 0, cost_usd: 0.0, model: fn7_agents::duel_pick::MODEL.into(),
+                                                    error: None, key: picker::key(text, &range, weapons::class_of_side(bout, side), &moves::list_version()) };
+                        let (journal, key, seed, beat) = (self.journal.clone(), present::Journal::key_of(&w), w.meta.seed, w.meta.beat);
+                        p.spawn(moves::current().body.clone(), duel::pick_ctx(bout, side, text), rec,
+                                std::time::Duration::from_millis(st.duel_picker_timeout_ms as u64), move |r| journal.note_pick(&key, seed, beat, seat, &r));
+                    }
+                }
+            }
+        }
         // The line is sent: what its author was typing is gone.
         if let Some(id) = v.as_ref().filter(|v| v["event"] == "duel.blow").and_then(|v| v["duel_id"].as_str()) {
             self.typing.sent(w.meta.seed, id, seat, action.received_at_ms);
@@ -987,3 +1113,7 @@ mod look_tests;
 mod duel_ai_tests;
 #[cfg(test)]
 mod moves_tests;
+#[cfg(test)]
+mod picker_tests;
+#[cfg(test)]
+mod weapons_tests;

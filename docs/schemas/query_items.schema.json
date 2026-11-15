@@ -290,6 +290,21 @@
         "unit": {
           "description": "\"soldiers\", \"vessels\", \"creatures\" or \"\" (copies).",
           "type": "string"
+        },
+        "weapon_class": {
+          "description": "State schema 14: how it is wielded in a duel (only what can be wielded has one).",
+          "enum": [
+            "unarmed",
+            "one_handed",
+            "two_handed",
+            "bow",
+            "rifle",
+            "launcher",
+            "thrown",
+            "staff",
+            "shield"
+          ],
+          "type": "string"
         }
       },
       "required": [

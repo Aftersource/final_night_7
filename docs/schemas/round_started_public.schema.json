@@ -1241,16 +1241,40 @@
               ],
               "type": "string"
             },
+            "draw": {
+              "$ref": "#/$defs/DuelDraw"
+            },
+            "object": {
+              "description": "State schema 14: the scene object the pick's path uses.",
+              "type": "string"
+            },
             "path": {
-              "description": "`leap`: the figure leaves the ground.",
+              "description": "`leap`: the figure leaves the ground. State schema 14: a pick may also send it `vault` / `slide` / `wallkick` over, under or off `object`.",
               "enum": [
                 "leap",
+                "dash",
+                "vault",
+                "slide",
+                "wallkick",
                 null
               ],
               "type": [
                 "string",
                 "null"
               ]
+            },
+            "picker": {
+              "description": "State schema 14: the LLM picker staged it (`pre`: known at the line's arrival, it also chose the class; `used`: came before the panel's input close; `class`: its clip did not serve the class the rules resolved, `weapon`: its clip belongs to a weapon the fighter does not wield; in both only `target` was taken). Absent: the mapper's.",
+              "enum": [
+                "pre",
+                "used",
+                "class",
+                "weapon"
+              ],
+              "type": "string"
+            },
+            "prop": {
+              "$ref": "#/$defs/DuelProp"
             },
             "setup": {
               "description": "The clips of the earlier move words of the line, played first (at most two).",
@@ -1324,6 +1348,32 @@
                 "type": "string"
               },
               "type": "array"
+            },
+            "target": {
+              "description": "State schema 14: the body part the pick aimed at.",
+              "enum": [
+                "head",
+                "chest",
+                "belly",
+                "arms",
+                "legs"
+              ],
+              "type": "string"
+            },
+            "weapon_class": {
+              "description": "State schema 14: what it fights with for this strike.",
+              "enum": [
+                "unarmed",
+                "one_handed",
+                "two_handed",
+                "bow",
+                "rifle",
+                "launcher",
+                "thrown",
+                "staff",
+                "shield"
+              ],
+              "type": "string"
             },
             "word": {
               "description": "The move word read (as the table has it: `attack` for `attck`); null: none, the class's own clip.",
@@ -1512,6 +1562,75 @@
       ],
       "type": "object"
     },
+    "DuelDraw": {
+      "description": "State schema 14: a line that pulled something out (`duel.blow.move.draw`): a held item (free) or hammer-space (the item engine's odds as a d20 target, sparks).",
+      "properties": {
+        "held": {
+          "description": "A held item: drawn for free.",
+          "type": "boolean"
+        },
+        "need": {
+          "description": "What it had to reach (a 20 always works, a 1 never).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "p": {
+          "description": "The item engine's success probability for it.",
+          "type": "number"
+        },
+        "roll": {
+          "description": "The d20.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sparks": {
+          "description": "Sparks it cost (paid at the resolve).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "thing": {
+          "description": "The words drawn (\"rocket launcher\").",
+          "type": "string"
+        },
+        "tier": {
+          "description": "trinket (unpaid) | artifact (paid)",
+          "type": "string"
+        },
+        "verdict": {
+          "description": "`drawn`: a held item; `success`: the prop is in hand for the rest of the duel; `fumble`: the initiative flipped to the foe before the blow; `spent`: no draws left (`duel_draws`), the line is read without it.",
+          "enum": [
+            "drawn",
+            "success",
+            "fumble",
+            "spent"
+          ],
+          "type": "string"
+        },
+        "weapon_class": {
+          "enum": [
+            "unarmed",
+            "one_handed",
+            "two_handed",
+            "bow",
+            "rifle",
+            "launcher",
+            "thrown",
+            "staff",
+            "shield"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "thing",
+        "weapon_class",
+        "held",
+        "sparks",
+        "tier",
+        "verdict"
+      ],
+      "type": "object"
+    },
     "DuelPanel": {
       "description": "Rules 0.8.2: `duel.panel`, one comic panel of a duel: the presentation of the blows of one input window (they are decided by the 0.8.1 rules; a panel decides nothing). Sent in `also[]` of the action that made it due, as the event of a `duel_tick`, in `challenge.open` / `challenge.end`, and all of them in `present.duels[].panels`.",
       "properties": {
@@ -1572,6 +1691,10 @@
               "items": {
                 "additionalProperties": true,
                 "properties": {
+                  "at": {
+                    "description": "State schema 14: start this many ms into the clip (its trim), played at `speed`.",
+                    "type": "integer"
+                  },
                   "clip": {
                     "enum": [
                       "airborne_hit",
@@ -1682,6 +1805,9 @@
                     ],
                     "type": "string"
                   },
+                  "prop": {
+                    "$ref": "#/$defs/DuelProp"
+                  },
                   "rise": {
                     "type": "number"
                   },
@@ -1725,6 +1851,21 @@
                   "type": "null"
                 }
               ]
+            },
+            "weapon_class": {
+              "description": "State schema 14: what it has in hand at the panel's end.",
+              "enum": [
+                "unarmed",
+                "one_handed",
+                "two_handed",
+                "bow",
+                "rifle",
+                "launcher",
+                "thrown",
+                "staff",
+                "shield"
+              ],
+              "type": "string"
             }
           },
           "required": [
@@ -1816,6 +1957,10 @@
               "items": {
                 "additionalProperties": true,
                 "properties": {
+                  "at": {
+                    "description": "State schema 14: start this many ms into the clip (its trim), played at `speed`.",
+                    "type": "integer"
+                  },
                   "clip": {
                     "enum": [
                       "airborne_hit",
@@ -1926,6 +2071,9 @@
                     ],
                     "type": "string"
                   },
+                  "prop": {
+                    "$ref": "#/$defs/DuelProp"
+                  },
                   "rise": {
                     "type": "number"
                   },
@@ -1969,6 +2117,21 @@
                   "type": "null"
                 }
               ]
+            },
+            "weapon_class": {
+              "description": "State schema 14: what it has in hand at the panel's end.",
+              "enum": [
+                "unarmed",
+                "one_handed",
+                "two_handed",
+                "bow",
+                "rifle",
+                "launcher",
+                "thrown",
+                "staff",
+                "shield"
+              ],
+              "type": "string"
             }
           },
           "required": [
@@ -2151,6 +2314,13 @@
           "minimum": 0,
           "type": "integer"
         },
+        "projectiles": {
+          "description": "State schema 14: what flies in this panel (ranged weapons, invokes).",
+          "items": {
+            "$ref": "#/$defs/DuelProjectile"
+          },
+          "type": "array"
+        },
         "range": {
           "enum": [
             "far",
@@ -2179,6 +2349,11 @@
             "close_b"
           ],
           "type": "string"
+        },
+        "sim": {
+          "additionalProperties": true,
+          "description": "State schema 14, live stream only (never in challenge.open / challenge.end): the duel sim's baked physics for this panel (docs/DUEL_SIM.md).",
+          "type": "object"
         },
         "starts_at_ms": {
           "description": "Server epoch ms: the previous panel's end.",
@@ -2211,6 +2386,222 @@
         "hp",
         "range",
         "initiative"
+      ],
+      "type": "object"
+    },
+    "DuelProjectile": {
+      "description": "State schema 14: one thing that flies in a panel (`duel.panel.projectiles[]`), decided by its blow's verdict and seeded. The duel sim reads `t_fire_ms`, `t_hit_ms`, `to`, `speed`, `on_hit.impulse`, `on_hit.aoe_hexes`, `on_hit.objects`: these names are stable.",
+      "properties": {
+        "arc_h": {
+          "description": "Apex above the straight line, m.",
+          "type": "number"
+        },
+        "by": {
+          "enum": [
+            "a",
+            "b"
+          ],
+          "type": "string"
+        },
+        "deflected_by": {
+          "description": "`a` / `b`: a parry or a shield turned it aside.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "from": {
+          "enum": [
+            "a",
+            "b"
+          ],
+          "type": "string"
+        },
+        "from_hex": {
+          "description": "A stage hex [q, r].",
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "id": {
+          "description": "p<panel>.<k>",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "arrow",
+            "bullet",
+            "rocket",
+            "rock",
+            "bolt",
+            "orb"
+          ],
+          "type": "string"
+        },
+        "miss": {
+          "description": "",
+          "type": "boolean"
+        },
+        "on_hit": {
+          "description": "What the landing does.",
+          "properties": {
+            "aoe_hexes": {
+              "description": "A rocket: the landing hex and its six neighbours.",
+              "items": {
+                "description": "A stage hex [q, r].",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              },
+              "type": "array"
+            },
+            "blow": {
+              "description": "The duel.blow's n.",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "burst": {
+              "description": "The burst word.",
+              "type": "string"
+            },
+            "impulse": {
+              "description": "0..1.",
+              "type": "number"
+            },
+            "objects": {
+              "description": "A rocket: the scene objects in the blast.",
+              "items": {
+                "description": "",
+                "properties": {
+                  "id": {
+                    "description": "",
+                    "type": "string"
+                  },
+                  "impulse": {
+                    "description": "0..1",
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "id",
+                  "impulse"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "blow",
+            "impulse",
+            "burst"
+          ],
+          "type": "object"
+        },
+        "speed": {
+          "description": "m/s.",
+          "type": "number"
+        },
+        "t_fire_ms": {
+          "description": "From the panel's start: released.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "t_hit_ms": {
+          "description": "Lands (the blow's contact is at this time, `ranged: true`).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "to": {
+          "description": "`a` / `b` (a hit), a scene object's id (a miss that lands on it), or a hex [q, r]."
+        },
+        "to_hex": {
+          "description": "A stage hex [q, r].",
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "by",
+        "from",
+        "from_hex",
+        "to",
+        "to_hex",
+        "t_fire_ms",
+        "t_hit_ms",
+        "arc_h",
+        "speed",
+        "on_hit",
+        "miss",
+        "deflected_by"
+      ],
+      "type": "object"
+    },
+    "DuelProp": {
+      "description": "State schema 14: the weapon in a fighter's hand (on `duel.blow.move.prop` and on panel segs): what the client puts in the hand.",
+      "properties": {
+        "hammer": {
+          "description": "Pulled out of hammer-space.",
+          "type": "boolean"
+        },
+        "item": {
+          "description": "The world item's ref (`it:N`); null: a hammer-space prop (it exists only in the duel).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "description": "The item kind (weapon, armor, relic, artifact).",
+          "type": "string"
+        },
+        "material": {
+          "description": "",
+          "type": "string"
+        },
+        "name": {
+          "description": "",
+          "type": "string"
+        },
+        "tier": {
+          "description": "trinket | artifact | relic ...",
+          "type": "string"
+        },
+        "weapon_class": {
+          "enum": [
+            "unarmed",
+            "one_handed",
+            "two_handed",
+            "bow",
+            "rifle",
+            "launcher",
+            "thrown",
+            "staff",
+            "shield"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "item",
+        "name",
+        "kind",
+        "weapon_class",
+        "material",
+        "tier",
+        "hammer"
       ],
       "type": "object"
     },
@@ -2247,6 +2638,13 @@
           "description": "",
           "type": "string"
         },
+        "clip_fallbacks": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "State schema 14: what a client without a clip plays instead (from the list).",
+          "type": "object"
+        },
         "duel_id": {
           "description": "",
           "type": "string"
@@ -2261,6 +2659,10 @@
         },
         "level": {
           "description": "",
+          "type": "string"
+        },
+        "list_version": {
+          "description": "State schema 14: the duel move list the duel is read with (data/duel_moves.json's version).",
           "type": "string"
         },
         "objects": {
@@ -2397,6 +2799,11 @@
           "description": "",
           "minimum": 0,
           "type": "integer"
+        },
+        "sim": {
+          "additionalProperties": true,
+          "description": "State schema 14, live stream and present only: the duel sim's stage (masses, affordances, fighters; docs/DUEL_SIM.md).",
+          "type": "object"
         },
         "source": {
           "enum": [
@@ -3058,16 +3465,40 @@
               ],
               "type": "string"
             },
+            "draw": {
+              "$ref": "#/$defs/DuelDraw"
+            },
+            "object": {
+              "description": "State schema 14: the scene object the pick's path uses.",
+              "type": "string"
+            },
             "path": {
-              "description": "`leap`: the figure leaves the ground.",
+              "description": "`leap`: the figure leaves the ground. State schema 14: a pick may also send it `vault` / `slide` / `wallkick` over, under or off `object`.",
               "enum": [
                 "leap",
+                "dash",
+                "vault",
+                "slide",
+                "wallkick",
                 null
               ],
               "type": [
                 "string",
                 "null"
               ]
+            },
+            "picker": {
+              "description": "State schema 14: the LLM picker staged it (`pre`: known at the line's arrival, it also chose the class; `used`: came before the panel's input close; `class`: its clip did not serve the class the rules resolved, `weapon`: its clip belongs to a weapon the fighter does not wield; in both only `target` was taken). Absent: the mapper's.",
+              "enum": [
+                "pre",
+                "used",
+                "class",
+                "weapon"
+              ],
+              "type": "string"
+            },
+            "prop": {
+              "$ref": "#/$defs/DuelProp"
             },
             "setup": {
               "description": "The clips of the earlier move words of the line, played first (at most two).",
@@ -3141,6 +3572,32 @@
                 "type": "string"
               },
               "type": "array"
+            },
+            "target": {
+              "description": "State schema 14: the body part the pick aimed at.",
+              "enum": [
+                "head",
+                "chest",
+                "belly",
+                "arms",
+                "legs"
+              ],
+              "type": "string"
+            },
+            "weapon_class": {
+              "description": "State schema 14: what it fights with for this strike.",
+              "enum": [
+                "unarmed",
+                "one_handed",
+                "two_handed",
+                "bow",
+                "rifle",
+                "launcher",
+                "thrown",
+                "staff",
+                "shield"
+              ],
+              "type": "string"
             },
             "word": {
               "description": "The move word read (as the table has it: `attack` for `attck`); null: none, the class's own clip.",

@@ -356,6 +356,12 @@ pub fn item_json(w: &World, it: &Item) -> Value {
         "image_prompt": e.image_prompt.clone().unwrap_or_else(|| format!("{}: {}", it.name, it.description)),
         "image_kind": "item",
     });
+    // Schema 14: how it is wielded in a duel, for what can be wielded.
+    if w.duel_weapon_rules() {
+        if let Some(wc) = crate::weapons::weapon_class(e.kind, &it.name) {
+            v["weapon_class"] = wc.into();
+        }
+    }
     // Rules 0.9.0: what the item DOES (`slot`, `material`, `mods`, `power`, `blessed_by`, `does`), for gear.
     if crate::wills::on(w) {
         crate::wills::arms::item_fields(w, it, &mut v);

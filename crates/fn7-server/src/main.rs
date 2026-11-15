@@ -81,6 +81,32 @@ async fn main() -> anyhow::Result<()> {
     // `FN7_JOURNAL_DIR` (default `<THEATRE_DATA_DIR>/fn7/journal`) so a restart loses none of them; `FN7_JOURNAL=off`
     // keeps it in memory only.
     let game = FinalNight7Plugin::new().with_media_style(media.style().ruleset_json());
+    // The duel picker (docs/DUEL_MOVES.md §4.1): one structured call per typed human duel line, in rooms with
+    // `duel_picker: on`, when there is a live LLM (never a replayed one); `FN7_DUEL_PICKER=off` turns it off here.
+    // The duel move list (docs/DUEL_MOVES.md §1): FN7_DUEL_MOVES, else data/duel_moves.json, else the compiled one.
+    // Validated like the media style: a bad file stops the server.
+    let list = fn7_plugin::moves::install(fn7_plugin::moves::load_lookup(env).map_err(anyhow::Error::msg)?);
+    tracing::info!(source = %list.source, version = %list.version, compiled = list.is_compiled(), "duel moves");
+    // The duel data store (docs/DUEL_MOVES.md §2): one row per typed line, the pick cache, /api/duel/lines.
+    let duel_lines = fn7_server::duel_lines::open(&cfg.data_dir, env).unwrap_or_else(|e| {
+        tracing::error!(error = %e, "duel lines: the store could not be opened; running without it");
+        None
+    });
+    if let Some(d) = &duel_lines {
+        tracing::info!(db = %d.path.display(), lines = d.count(), "duel lines");
+    }
+    let data = duel_lines.clone().map(|d| d as Arc<dyn fn7_plugin::picker::DuelData>);
+    let picker_off = env("FN7_DUEL_PICKER").is_some_and(|v| matches!(v.trim(), "off" | "0" | "false"));
+    let game = if built.label != "none" && cfg.replay_from.is_none() && !picker_off {
+        tracing::info!(model = fn7_agents::duel_pick::MODEL, "duel picker: on");
+        game.with_picker(built.llm.clone(), data)
+    } else {
+        tracing::info!("duel picker: off");
+        match data {
+            Some(d) => game.with_duel_data(d),
+            None => game,
+        }
+    };
     let journal_off = env("FN7_JOURNAL").is_some_and(|v| matches!(v.trim(), "off" | "0" | "false"));
     let game = if journal_off {
         tracing::info!("journal: off (memory only)");
@@ -148,6 +174,9 @@ async fn main() -> anyhow::Result<()> {
         .merge(fn7_server::simapi::router(sim))
         .merge(fn7_profile::http::router(store.clone(), fn7_profile::http::HttpConfig::from_env(env)))
         .merge(fn7_server::accounts::http::router(accounts));
+    if let Some(d) = duel_lines {
+        extra = extra.merge(fn7_server::duel_lines::router(d, fn7_server::duel_lines::key_from(env, cfg.admin_token.clone())));
+    }
     if let Some((reg, _)) = assets {
         let mut http = fn7_assets::http::HttpConfig::from_env(env);
         http.admin_token = cfg.admin_token.clone().filter(|t| !t.is_empty());

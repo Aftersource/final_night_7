@@ -145,7 +145,10 @@ fn the_ai_types_a_line_and_strikes_in_every_window() {
     let shown = pr["panels"].as_array().unwrap();
     assert_eq!(shown.len(), panels.len());
     for (x, y) in shown.iter().zip(&panels) {
-        assert_eq!(x, y, "panel {}", y["n"]);
+        // (Schema 14: a live panel also carries the duel sim's `sim`; present's panels are bare, its sim apart.)
+        let mut y = y.clone();
+        y.as_object_mut().unwrap().remove("sim");
+        assert_eq!(x, &y, "panel {}", y["n"]);
     }
     assert_eq!(pr["blows"].as_array().unwrap(), &blows);
     let o = resolve_at(&FinalNight7Plugin::new(), &t, 2, &acts);

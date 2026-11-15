@@ -73,6 +73,11 @@ use serde::{Deserialize, Serialize};
 /// ([`dm::Dm::earth`], [`earth::EarthState`]; docs/EARTH_SIM.md). Rules that changed read [`World::earth_rules`], so
 /// schema-4..12 recordings replay exactly.
 ///
+/// Schema 14 (duel weapons; 13 is reserved for the earth simulation): a bout's recorded `picks` (the LLM picker's
+/// choices, ordered with the duel's actions), its fighters' `weapon` and the `wield` drawn mid-duel (hammer-space),
+/// `projectiles` and seg trims (`at`, `speed`) on panels. Rules that changed read [`World::duel_weapon_rules`], so
+/// schema-4..12 recordings replay exactly.
+///
 /// Schema 15 (item names; 13 and 14 belong to other branches): a thing made outside the item engine (a resolver's
 /// find, a god's gift, an encounter's find) whose name is an entity's (a demigod, a person, a player, a god) or empty
 /// is named after the object its words describe, and loadouts and item art skip things that are not real objects.
@@ -463,6 +468,10 @@ impl World {
     /// The Earth simulator (schema 13): the god powers act on a simulated voxel field.
     pub fn earth_rules(&self) -> bool {
         self.meta.schema >= earth::EARTH_SCHEMA
+    }
+    /// Schema 14 rules: duel weapons, hammer-space, projectiles, the picker's recorded picks.
+    pub fn duel_weapon_rules(&self) -> bool {
+        self.meta.schema >= dm::DUEL_WEAPONS_SCHEMA
     }
     /// A seat's demigods, in id order (Left then Right in schema 5).
     pub fn bodies_of_seat(&self, seat: u8) -> impl Iterator<Item = &Demigod> {
