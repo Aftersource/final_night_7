@@ -268,6 +268,54 @@ pub struct Settings {
     /// breath"); without engine holds the world keeps beating, lines after it are refused, and the duel ends at the
     /// first resolve past it (at most `ceil(duel_deadline_ms / flow_ms)` resolves from its lock).
     pub duel_deadline_ms: u32,
+    /// The Earth simulator (state schema 13, docs/EARTH_SIM.md): god powers act on a simulated voxel field of the planet whose fires, floods, quakes and lava reach demigods, crowds and settlements through the rules. Planet arenas only. Absent in settings recorded before it: off.
+    pub earth_sim_enabled: bool,
+    /// Most cells that may differ from the base terrain; past it the calmest settle back to base (remembered as `earth.settled`).
+    pub earth_max_cells: u32,
+    /// Most live phenomena; past it a newcomer replaces the weakest, or is refused.
+    pub earth_max_phenomena: u32,
+    /// Sub-steps of the field per beat at rest (Entropy 60, 80 and 100 each add one).
+    pub earth_substeps: u32,
+    /// A keyframe of the field is kept every this many beats (any beat is rebuilt by re-simulating at most this many).
+    pub earth_keyframe_beats: u32,
+    /// A drifting patch of plate moves one cell every this many beats.
+    pub earth_plate_beats: u32,
+    /// A mega's reach in cells is its radius in km over this (1 to 4 cells); a mini is one cell.
+    pub earth_km_per_cell: f32,
+    /// Multiplier on how fast fire, water and swarms spread.
+    pub earth_spread_scale: f32,
+    /// Multiplier on the odds of the world's own phenomena under Entropy (quakes, volcanoes and drifting plates on stressed faults, freak weather).
+    pub earth_spontaneous_scale: f32,
+    /// Multiplier on every phenomenon's starting power.
+    pub earth_energy_scale: f32,
+    /// A mini's starting power relative to a mega of the same magnitude.
+    pub earth_mini_scale: f32,
+    /// Multiplier on the damage the field deals demigods standing in it.
+    pub earth_damage_scale: f32,
+    /// Most damage the field deals one demigod in one beat (before `earth_damage_scale`).
+    pub earth_damage_cap: f32,
+    /// Damage per beat in a cell burning at full intensity.
+    pub earth_fire_damage: f32,
+    /// Damage per beat in a cell deep in lava.
+    pub earth_lava_damage: f32,
+    /// Damage per beat in a cell flooded to the brim, drowned, or hit by a tidal wave.
+    pub earth_flood_damage: f32,
+    /// Damage in a cell shaking at full strength.
+    pub earth_quake_damage: f32,
+    /// Damage from a lightning strike on the cell.
+    pub earth_storm_damage: f32,
+    /// Damage per beat in a blizzard.
+    pub earth_cold_damage: f32,
+    /// Damage per beat in a cell thick with a swarm.
+    pub earth_swarm_damage: f32,
+    /// Multiplier on the fear, awe and deaths the field brings crowds.
+    pub earth_crowd_scale: f32,
+    /// Most crowds the field moves in one beat (the worst hit first).
+    pub earth_crowd_effects: u32,
+    /// Multiplier on how much a cell's ruin lowers its settlements' level target.
+    pub earth_ruin_scale: f32,
+    /// Most Earth entries written to the DM's memory in one beat.
+    pub earth_events_per_beat: u32,
     /// Schema 12: a player fights one duel at a time: while one of its demigods is in an open duel, a challenge by
     /// or to any of its demigods is refused (`busy:player`) and the AI's chooser skips it.
     pub duel_one_per_player: bool,
@@ -405,6 +453,30 @@ impl Default for Settings {
             duel_min_gap_ms: 500,
             duel_followup_ms: 1500,
             duel_deadline_ms: 30_000,
+            earth_sim_enabled: true,
+            earth_max_cells: 1500,
+            earth_max_phenomena: 48,
+            earth_substeps: 1,
+            earth_keyframe_beats: 16,
+            earth_plate_beats: 3,
+            earth_km_per_cell: 400.0,
+            earth_spread_scale: 1.0,
+            earth_spontaneous_scale: 1.0,
+            earth_energy_scale: 1.0,
+            earth_mini_scale: 0.5,
+            earth_damage_scale: 1.0,
+            earth_damage_cap: 1.0,
+            earth_fire_damage: 0.6,
+            earth_lava_damage: 1.2,
+            earth_flood_damage: 0.5,
+            earth_quake_damage: 0.5,
+            earth_storm_damage: 0.4,
+            earth_cold_damage: 0.2,
+            earth_swarm_damage: 0.2,
+            earth_crowd_scale: 1.0,
+            earth_crowd_effects: 6,
+            earth_ruin_scale: 1.0,
+            earth_events_per_beat: 6,
             duel_one_per_player: true,
             duel_ai_lines_per_window: 1.0,
             duel_ai_aggression: 0.6,
@@ -433,7 +505,9 @@ const F32_KEYS: &[&str] =
       "fault_far_damage", "summon_loss_scale", "challenge_min_km", "challenge_contact_km_regions", "challenge_contact_km_villages",
       "challenge_contact_km_houses", "challenge_contact_km_people", "duel_damage_scale", "duel_ai_chance", "duel_ai_reach_km",
       "duel_ai_lines_per_window", "duel_ai_aggression",
-      "will_debt_cap", "will_debt_per_spark", "will_entropy_per_spark", "heal_token", "heal_scale", "arms_scale", "raise_years", "raise_health_fraction", "curse_entropy", "wills_ai_chance"];
+      "will_debt_cap", "will_debt_per_spark", "will_entropy_per_spark", "heal_token", "heal_scale", "arms_scale", "raise_years", "raise_health_fraction", "curse_entropy", "wills_ai_chance",
+      "earth_km_per_cell", "earth_spread_scale", "earth_spontaneous_scale", "earth_energy_scale", "earth_mini_scale", "earth_damage_scale", "earth_damage_cap", "earth_fire_damage", "earth_lava_damage", "earth_flood_damage", "earth_quake_damage", "earth_storm_damage", "earth_cold_damage", "earth_swarm_damage", "earth_crowd_scale", "earth_ruin_scale"];
+
 
 /// The shortest decimal that reads back as `x` (so `0.04f32` is `0.04`, not `0.03999999910593033`).
 fn f32_decimal(x: f32) -> f64 {
@@ -618,6 +692,30 @@ impl Settings {
             duel_min_gap_ms: int("duel_min_gap_ms", d.duel_min_gap_ms, 0, 5000)?,
             duel_followup_ms: int("duel_followup_ms", d.duel_followup_ms, 0, 10_000)?,
             duel_deadline_ms: int("duel_deadline_ms", d.duel_deadline_ms, 1000, 600_000)?,
+            earth_sim_enabled: boolean("earth_sim_enabled", d.earth_sim_enabled)?,
+            earth_max_cells: int("earth_max_cells", d.earth_max_cells, 64, 8000)?,
+            earth_max_phenomena: int("earth_max_phenomena", d.earth_max_phenomena, 4, 200)?,
+            earth_substeps: int("earth_substeps", d.earth_substeps, 1, 4)?,
+            earth_keyframe_beats: int("earth_keyframe_beats", d.earth_keyframe_beats, 1, 1000)?,
+            earth_plate_beats: int("earth_plate_beats", d.earth_plate_beats, 1, 50)?,
+            earth_km_per_cell: num("earth_km_per_cell", d.earth_km_per_cell, 50.0, 5000.0)?,
+            earth_spread_scale: num("earth_spread_scale", d.earth_spread_scale, 0.0, 4.0)?,
+            earth_spontaneous_scale: num("earth_spontaneous_scale", d.earth_spontaneous_scale, 0.0, 8.0)?,
+            earth_energy_scale: num("earth_energy_scale", d.earth_energy_scale, 0.1, 4.0)?,
+            earth_mini_scale: num("earth_mini_scale", d.earth_mini_scale, 0.0, 2.0)?,
+            earth_damage_scale: num("earth_damage_scale", d.earth_damage_scale, 0.0, 10.0)?,
+            earth_damage_cap: num("earth_damage_cap", d.earth_damage_cap, 0.0, 10.0)?,
+            earth_fire_damage: num("earth_fire_damage", d.earth_fire_damage, 0.0, 10.0)?,
+            earth_lava_damage: num("earth_lava_damage", d.earth_lava_damage, 0.0, 10.0)?,
+            earth_flood_damage: num("earth_flood_damage", d.earth_flood_damage, 0.0, 10.0)?,
+            earth_quake_damage: num("earth_quake_damage", d.earth_quake_damage, 0.0, 10.0)?,
+            earth_storm_damage: num("earth_storm_damage", d.earth_storm_damage, 0.0, 10.0)?,
+            earth_cold_damage: num("earth_cold_damage", d.earth_cold_damage, 0.0, 10.0)?,
+            earth_swarm_damage: num("earth_swarm_damage", d.earth_swarm_damage, 0.0, 10.0)?,
+            earth_crowd_scale: num("earth_crowd_scale", d.earth_crowd_scale, 0.0, 10.0)?,
+            earth_crowd_effects: int("earth_crowd_effects", d.earth_crowd_effects, 0, 100)?,
+            earth_ruin_scale: num("earth_ruin_scale", d.earth_ruin_scale, 0.0, 10.0)?,
+            earth_events_per_beat: int("earth_events_per_beat", d.earth_events_per_beat, 0, 50)?,
             duel_one_per_player: boolean("duel_one_per_player", d.duel_one_per_player)?,
             duel_ai_lines_per_window: num("duel_ai_lines_per_window", d.duel_ai_lines_per_window, 0.0, 1.0)?,
             duel_ai_aggression: num("duel_ai_aggression", d.duel_ai_aggression, 0.0, 1.0)?,
@@ -687,6 +785,10 @@ impl Settings {
         // Gear looks (schema 11): settings recorded before them have no `looks_enabled`: off.
         if v.get("looks_enabled").is_none() {
             s.looks_enabled = false;
+        }
+        // The Earth simulator (schema 13): settings recorded before it have no `earth_sim_enabled`: off.
+        if v.get("earth_sim_enabled").is_none() {
+            s.earth_sim_enabled = false;
         }
         // AI duellists type (schema 12): settings recorded before it have no `duel_ai_lines_per_window`: off.
         if v.get("duel_ai_lines_per_window").is_none() {

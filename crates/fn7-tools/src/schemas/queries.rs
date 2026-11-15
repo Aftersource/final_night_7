@@ -493,6 +493,7 @@ pub(super) fn replies() -> Vec<(&'static str, &'static str, Value)> {
               ("encounters", array(r("Encounter"), "Hidden ones only as {id, cell, marked}."))],
             &[],
         )),
+        // (the Earth simulator's replies are in earth.rs)
         ("query_piles_final", "piles_final", object(
             "`game.piles_final`: the end-of-match piles (an error until the match is over).",
             &[("beat", int("The last beat.")), ("piles", array(pile, "One per demigod, in id order (as in match.ended.summary.piles)."))],

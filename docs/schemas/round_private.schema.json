@@ -541,11 +541,18 @@
           "type": "string"
         },
         "manifestation": {
-          "description": "`mf:<n>`, the attempt that made it.",
-          "type": [
-            "string",
-            "null"
-          ]
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/Manifestation"
+            }
+          ],
+          "description": "`mf:<n>`, the attempt that made it (`game.item`: the Manifestation object itself)."
         },
         "manifestation_detail": {},
         "material": {
@@ -796,6 +803,7 @@
           "const": "item"
         },
         "image_prompt": {
+          "description": "State schema 11: absent when the item has no picture of its own yet (gear looks on).",
           "type": [
             "string",
             "null"
@@ -914,8 +922,7 @@
         "name",
         "at",
         "region",
-        "public",
-        "image_prompt"
+        "public"
       ],
       "type": "object"
     },

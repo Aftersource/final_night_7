@@ -3549,6 +3549,271 @@
       ],
       "type": "object"
     },
+    "EarthPhenomenon": {
+      "description": "State schema 13: one live phenomenon of the Earth simulator.",
+      "properties": {
+        "age": {
+          "description": "Beats since it began.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "at": {
+          "$ref": "#/$defs/LonLat"
+        },
+        "beats_left": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "born": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cause": {
+          "description": "",
+          "enum": [
+            "cast",
+            "god",
+            "ramification",
+            "entropy",
+            "interaction"
+          ],
+          "type": "string"
+        },
+        "cell": {
+          "description": "Regions-level hex key.",
+          "type": "string"
+        },
+        "cell_index": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "front_cells": {
+          "type": "integer"
+        },
+        "front_km": {
+          "type": "integer"
+        },
+        "front_speed_cells_per_beat": {
+          "type": "integer"
+        },
+        "id": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "intensity": {
+          "description": "power / 16 (a mega of magnitude 8 starts near 8).",
+          "type": "number"
+        },
+        "kind": {
+          "description": "",
+          "enum": [
+            "storm",
+            "lightning",
+            "flood",
+            "wildfire",
+            "volcano",
+            "earthquake",
+            "meteor",
+            "raise_land",
+            "sink_land",
+            "forest",
+            "swarm",
+            "blizzard",
+            "tidal_wave",
+            "plate_drift"
+          ],
+          "type": "string"
+        },
+        "moves_left": {
+          "type": "integer"
+        },
+        "next_move_in": {
+          "type": "integer"
+        },
+        "origin": {
+          "$ref": "#/$defs/LonLat"
+        },
+        "owner_seat": {
+          "description": "The seat that cast it; null = the world's own.",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "parent": {
+          "description": "The phenomenon that set it off.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "power": {
+          "type": "integer"
+        },
+        "radius_cells": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "radius_km": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ruptured_cells": {
+          "type": "integer"
+        },
+        "state": {
+          "description": "A volcano's.",
+          "enum": [
+            "erupting",
+            "dormant"
+          ],
+          "type": "string"
+        },
+        "tier": {
+          "description": "",
+          "enum": [
+            "mini",
+            "mega",
+            "god",
+            "world"
+          ],
+          "type": "string"
+        },
+        "velocity": {
+          "description": "Where it will be a beat from now (glide toward it).",
+          "properties": {
+            "cells_per_beat": {
+              "description": "",
+              "type": "number"
+            },
+            "dir": {
+              "description": "Hex direction 0..5.",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "to": {
+              "$ref": "#/$defs/LonLat"
+            },
+            "to_cell": {
+              "description": "",
+              "type": "string"
+            }
+          },
+          "required": [
+            "dir",
+            "to",
+            "to_cell",
+            "cells_per_beat"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "at",
+        "cell",
+        "cell_index",
+        "origin",
+        "radius_cells",
+        "radius_km",
+        "power",
+        "intensity",
+        "age",
+        "born",
+        "beats_left",
+        "owner_seat",
+        "cause",
+        "tier"
+      ],
+      "type": "object"
+    },
+    "EarthSummary": {
+      "description": "State schema 13: the field in short (present.earth and the PublicView's `earth`); fetch the cells with game.earth when `hash` differs from yours.",
+      "properties": {
+        "beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "dirty": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "first_beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "grid": {
+          "description": "",
+          "properties": {
+            "cells": {
+              "description": "",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "level": {
+              "description": "",
+              "type": "string"
+            }
+          },
+          "required": [
+            "level",
+            "cells"
+          ],
+          "type": "object"
+        },
+        "hash": {
+          "description": "",
+          "type": "string"
+        },
+        "keyframes": {
+          "description": "Beats with a keyframe.",
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "phenomena": {
+          "description": "",
+          "items": {
+            "$ref": "#/$defs/EarthPhenomenon"
+          },
+          "type": "array"
+        },
+        "phenomena_total": {
+          "description": "Live phenomena (`phenomena` has the 20 biggest).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tops": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "description": "Dirty cells by top material.",
+          "type": "object"
+        }
+      },
+      "required": [
+        "beat",
+        "hash",
+        "dirty",
+        "tops",
+        "phenomena",
+        "keyframes",
+        "first_beat",
+        "grid",
+        "phenomena_total"
+      ],
+      "type": "object"
+    },
     "Entropy": {
       "description": "The world's Entropy meter. Every bolt spent anywhere raises it; thresholds make the world wackier (20 weather, 40 physics, 60 riots, 80 godfall); at `max` heat death makes that beat the Final Night.",
       "properties": {
@@ -3843,11 +4108,18 @@
           "type": "string"
         },
         "manifestation": {
-          "description": "`mf:<n>`, the attempt that made it.",
-          "type": [
-            "string",
-            "null"
-          ]
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/Manifestation"
+            }
+          ],
+          "description": "`mf:<n>`, the attempt that made it (`game.item`: the Manifestation object itself)."
         },
         "manifestation_detail": {},
         "material": {
@@ -4272,6 +4544,7 @@
           "const": "item"
         },
         "image_prompt": {
+          "description": "State schema 11: absent when the item has no picture of its own yet (gear looks on).",
           "type": [
             "string",
             "null"
@@ -4390,8 +4663,7 @@
         "name",
         "at",
         "region",
-        "public",
-        "image_prompt"
+        "public"
       ],
       "type": "object"
     },
@@ -4535,6 +4807,17 @@
             "$ref": "#/$defs/PresentDuel"
           },
           "type": "array"
+        },
+        "earth": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EarthSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "State schema 13: the Earth simulator's field in short (null when it is off)."
         },
         "events": {
           "description": "The public events of the instant actions since the last resolve, in arrival order.",
@@ -6229,6 +6512,9 @@
         "type": "object"
       },
       "type": "array"
+    },
+    "earth": {
+      "$ref": "#/$defs/EarthSummary"
     },
     "entropy": {
       "$ref": "#/$defs/Entropy"

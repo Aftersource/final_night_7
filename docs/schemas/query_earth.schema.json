@@ -1,0 +1,884 @@
+{
+  "$defs": {
+    "EarthCells": {
+      "description": "State schema 13: cell columns (docs/EARTH_SIM.md §7). `enc: pack` (the default): `data` is one base64 block, per cell in index order: varint index delta, height byte (0..15), top byte (an index into `tops`), varint layer mask, then one byte per set layer (CLIENT_LAYERS order; `heat` signed). `enc: columns`: `cells` (u16 LE), `h`, `top` and `layers{name}`, one base64 array each. `enc: json`: the same columns as number arrays.",
+      "properties": {
+        "cells": {
+          "description": "Regions-grid cell indices.",
+          "type": [
+            "string",
+            "array"
+          ]
+        },
+        "data": {
+          "description": "enc pack: the base64 block.",
+          "type": "string"
+        },
+        "enc": {
+          "description": "",
+          "enum": [
+            "pack",
+            "columns",
+            "json"
+          ],
+          "type": "string"
+        },
+        "h": {
+          "description": "Heights 0..15 (8 = sea level).",
+          "type": [
+            "string",
+            "array"
+          ]
+        },
+        "layers": {
+          "additionalProperties": {
+            "type": [
+              "string",
+              "array"
+            ]
+          },
+          "description": "A column per non-zero layer.",
+          "type": "object"
+        },
+        "n": {
+          "description": "Cells.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "top": {
+          "description": "Top material indices (into `tops`).",
+          "type": [
+            "string",
+            "array"
+          ]
+        }
+      },
+      "required": [
+        "n",
+        "enc"
+      ],
+      "type": "object"
+    },
+    "EarthPhenomenon": {
+      "description": "State schema 13: one live phenomenon of the Earth simulator.",
+      "properties": {
+        "age": {
+          "description": "Beats since it began.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "at": {
+          "$ref": "#/$defs/LonLat"
+        },
+        "beats_left": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "born": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cause": {
+          "description": "",
+          "enum": [
+            "cast",
+            "god",
+            "ramification",
+            "entropy",
+            "interaction"
+          ],
+          "type": "string"
+        },
+        "cell": {
+          "description": "Regions-level hex key.",
+          "type": "string"
+        },
+        "cell_index": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "front_cells": {
+          "type": "integer"
+        },
+        "front_km": {
+          "type": "integer"
+        },
+        "front_speed_cells_per_beat": {
+          "type": "integer"
+        },
+        "id": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "intensity": {
+          "description": "power / 16 (a mega of magnitude 8 starts near 8).",
+          "type": "number"
+        },
+        "kind": {
+          "description": "",
+          "enum": [
+            "storm",
+            "lightning",
+            "flood",
+            "wildfire",
+            "volcano",
+            "earthquake",
+            "meteor",
+            "raise_land",
+            "sink_land",
+            "forest",
+            "swarm",
+            "blizzard",
+            "tidal_wave",
+            "plate_drift"
+          ],
+          "type": "string"
+        },
+        "moves_left": {
+          "type": "integer"
+        },
+        "next_move_in": {
+          "type": "integer"
+        },
+        "origin": {
+          "$ref": "#/$defs/LonLat"
+        },
+        "owner_seat": {
+          "description": "The seat that cast it; null = the world's own.",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "parent": {
+          "description": "The phenomenon that set it off.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "power": {
+          "type": "integer"
+        },
+        "radius_cells": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "radius_km": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ruptured_cells": {
+          "type": "integer"
+        },
+        "state": {
+          "description": "A volcano's.",
+          "enum": [
+            "erupting",
+            "dormant"
+          ],
+          "type": "string"
+        },
+        "tier": {
+          "description": "",
+          "enum": [
+            "mini",
+            "mega",
+            "god",
+            "world"
+          ],
+          "type": "string"
+        },
+        "velocity": {
+          "description": "Where it will be a beat from now (glide toward it).",
+          "properties": {
+            "cells_per_beat": {
+              "description": "",
+              "type": "number"
+            },
+            "dir": {
+              "description": "Hex direction 0..5.",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "to": {
+              "$ref": "#/$defs/LonLat"
+            },
+            "to_cell": {
+              "description": "",
+              "type": "string"
+            }
+          },
+          "required": [
+            "dir",
+            "to",
+            "to_cell",
+            "cells_per_beat"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "at",
+        "cell",
+        "cell_index",
+        "origin",
+        "radius_cells",
+        "radius_km",
+        "power",
+        "intensity",
+        "age",
+        "born",
+        "beats_left",
+        "owner_seat",
+        "cause",
+        "tier"
+      ],
+      "type": "object"
+    },
+    "LonLat": {
+      "description": "[longitude, latitude] in degrees (WGS84). Note the order: longitude first.",
+      "items": {
+        "type": "number"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+    }
+  },
+  "$id": "query_earth.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "`game.earth` (state schema 13): the voxel field for a view (docs/EARTH_SIM.md).",
+  "properties": {
+    "beat": {
+      "description": "The beat shown.",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "board": {
+      "description": "State schema 13: the client's board: 9 bytes per hex (`fields`) in ring order (ring 0, then each ring as the shared hex formula walks it), base64.",
+      "properties": {
+        "center": {
+          "description": "The centre hex key.",
+          "type": "string"
+        },
+        "changed": {
+          "description": "With `since`: the ring positions (u16 LE) whose records are in `data`.",
+          "type": "string"
+        },
+        "coarse": {
+          "description": "With `coarse`: the regions cell index under each hex (u16 LE).",
+          "type": "string"
+        },
+        "data": {
+          "description": "",
+          "type": "string"
+        },
+        "enc": {
+          "const": "b64"
+        },
+        "fields": {
+          "description": "h16 (height in 256ths, 128 = sea level), top, water, lava, ash, fire, snow, heat (signed), crack.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "level": {
+          "description": "",
+          "type": "string"
+        },
+        "n": {
+          "description": "Records in `data`.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rings": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "since": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "level",
+        "center",
+        "rings",
+        "n",
+        "fields",
+        "enc",
+        "data"
+      ],
+      "type": "object"
+    },
+    "center_cell": {
+      "description": "",
+      "type": "string"
+    },
+    "derived": {
+      "description": "",
+      "type": "boolean"
+    },
+    "dirty": {
+      "description": "",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "field": {
+      "$ref": "#/$defs/EarthCells"
+    },
+    "from_keyframe": {
+      "description": "",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "globe": {
+      "description": "`base: true`: every cell's height, top and fuel now, in index order.",
+      "properties": {
+        "enc": {
+          "description": "",
+          "type": "string"
+        },
+        "fuel": {
+          "description": "",
+          "type": [
+            "string",
+            "array"
+          ]
+        },
+        "h": {
+          "description": "",
+          "type": [
+            "string",
+            "array"
+          ]
+        },
+        "n": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "top": {
+          "description": "",
+          "type": [
+            "string",
+            "array"
+          ]
+        }
+      },
+      "required": [
+        "n",
+        "enc",
+        "h",
+        "top",
+        "fuel"
+      ],
+      "type": "object"
+    },
+    "grid": {
+      "description": "`grid: true`: the regions grid (face, q, r of every cell, signed bytes, base64).",
+      "properties": {
+        "cells": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "face": {
+          "description": "",
+          "type": "string"
+        },
+        "hex_size_m": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "level": {
+          "description": "",
+          "type": "string"
+        },
+        "q": {
+          "description": "",
+          "type": "string"
+        },
+        "r": {
+          "description": "",
+          "type": "string"
+        }
+      },
+      "required": [
+        "level",
+        "hex_size_m",
+        "cells",
+        "face",
+        "q",
+        "r"
+      ],
+      "type": "object"
+    },
+    "hash": {
+      "description": "",
+      "type": "string"
+    },
+    "hexes": {
+      "description": "Below regions: derived hexes.",
+      "items": {
+        "anyOf": [
+          {
+            "description": "",
+            "properties": {
+              "ash": {
+                "type": "integer"
+              },
+              "base_h": {
+                "description": "",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "cell": {
+                "description": "",
+                "type": "string"
+              },
+              "charge": {
+                "type": "integer"
+              },
+              "cloud": {
+                "type": "integer"
+              },
+              "coarse": {
+                "description": "The regions cell it is derived from.",
+                "type": "string"
+              },
+              "coarse_index": {
+                "description": "",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "coast_hops": {
+                "description": "",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "crack": {
+                "type": "integer"
+              },
+              "derived": {
+                "description": "",
+                "type": "boolean"
+              },
+              "dfuel": {
+                "type": "integer"
+              },
+              "dh": {
+                "type": "integer"
+              },
+              "fault_hops": {
+                "description": "",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "fire": {
+                "type": "integer"
+              },
+              "forest": {
+                "description": "",
+                "type": "boolean"
+              },
+              "fuel": {
+                "description": "",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "h": {
+                "description": "",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "h16": {
+                "description": "Height in 256ths.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "heat": {
+                "type": "integer"
+              },
+              "index": {
+                "description": "",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "lava": {
+                "type": "integer"
+              },
+              "level": {
+                "description": "",
+                "type": "string"
+              },
+              "material": {
+                "description": "",
+                "enum": [
+                  "water",
+                  "rock",
+                  "soil",
+                  "sand",
+                  "ice",
+                  "forest",
+                  "lava",
+                  "fire",
+                  "ash",
+                  "snow",
+                  "flood",
+                  "rift",
+                  "swarm"
+                ],
+                "type": "string"
+              },
+              "plume": {
+                "type": "integer"
+              },
+              "ruin": {
+                "type": "integer"
+              },
+              "shake": {
+                "type": "integer"
+              },
+              "snow": {
+                "type": "integer"
+              },
+              "stress": {
+                "type": "integer"
+              },
+              "swarm": {
+                "type": "integer"
+              },
+              "top": {
+                "description": "",
+                "enum": [
+                  "water",
+                  "rock",
+                  "soil",
+                  "sand",
+                  "ice",
+                  "forest",
+                  "lava",
+                  "fire",
+                  "ash",
+                  "snow",
+                  "flood",
+                  "rift",
+                  "swarm"
+                ],
+                "type": "string"
+              },
+              "water": {
+                "type": "integer"
+              },
+              "weather": {
+                "description": "",
+                "type": "string"
+              }
+            },
+            "required": [
+              "cell",
+              "level",
+              "derived",
+              "h",
+              "h16",
+              "top",
+              "material",
+              "weather"
+            ],
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "type": "array"
+    },
+    "layers": {
+      "description": "CLIENT_LAYERS: layer names by bit (absent in a board or tiles answer).",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "level": {
+      "description": "",
+      "enum": [
+        "regions",
+        "villages",
+        "houses",
+        "people"
+      ],
+      "type": "string"
+    },
+    "now": {
+      "description": "The last beat stepped.",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "phenomena": {
+      "description": "",
+      "items": {
+        "$ref": "#/$defs/EarthPhenomenon"
+      },
+      "type": "array"
+    },
+    "rebuilt": {
+      "description": "Re-simulated from a keyframe (a past beat).",
+      "type": "boolean"
+    },
+    "resimulated_beats": {
+      "description": "",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "rings": {
+      "description": "",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "tiles": {
+      "description": "State schema 13: the globe in tiles: rows of latitude from the north down, west to east in each; 9 bytes per tile (`fields`), base64.",
+      "properties": {
+        "changed": {
+          "description": "With `since`: the tile indices (u16 LE) whose records are in `data`.",
+          "type": "string"
+        },
+        "data": {
+          "description": "",
+          "type": "string"
+        },
+        "deg": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "enc": {
+          "const": "b64"
+        },
+        "fields": {
+          "description": "",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "layout": {
+          "description": "",
+          "enum": [
+            "rings",
+            "grid"
+          ],
+          "type": "string"
+        },
+        "n": {
+          "description": "Records in `data`.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "row_cols": {
+          "description": "Tiles in each row.",
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "rows": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "since": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tiles": {
+          "description": "Tiles in all.",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "deg",
+        "layout",
+        "rows",
+        "row_cols",
+        "tiles",
+        "n",
+        "fields",
+        "enc",
+        "data"
+      ],
+      "type": "object"
+    },
+    "tops": {
+      "description": "Top material names by index.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "beat",
+    "now",
+    "hash",
+    "dirty",
+    "phenomena",
+    "rebuilt",
+    "from_keyframe",
+    "resimulated_beats",
+    "tops",
+    "level"
+  ],
+  "title": "game.earth",
+  "type": "object",
+  "x-applies-to": "game.earth reply (WebSocket), GET /api/rooms/{code}/query/earth",
+  "x-args": {
+    "additionalProperties": true,
+    "description": "Over HTTP every arg is a query-string parameter (numbers as numeric strings). Unknown args are ignored.",
+    "properties": {
+      "base": {
+        "description": "true: add `globe` (h, top and fuel of every regions cell of the globe, about 27,000, in index order).",
+        "type": [
+          "boolean",
+          "string"
+        ]
+      },
+      "bbox": {
+        "description": "[west, south, east, north] in degrees (regions level).",
+        "type": [
+          "array",
+          "string"
+        ]
+      },
+      "beat": {
+        "description": "A past beat (default: now).",
+        "minimum": 0,
+        "type": [
+          "integer",
+          "string"
+        ]
+      },
+      "cell": {
+        "description": "A hex cell key (\"<face>:<level>:<q>:<r>\"): the board's centre.",
+        "type": "string"
+      },
+      "coarse": {
+        "description": "Board: add the regions cell index under each hex (u16 LE, base64).",
+        "type": [
+          "boolean",
+          "string"
+        ]
+      },
+      "field": {
+        "description": "With a centre at regions: the cells as columns instead of the board.",
+        "type": [
+          "boolean",
+          "string"
+        ]
+      },
+      "format": {
+        "description": "Cell encoding of `field` (default pack).",
+        "enum": [
+          "pack",
+          "columns",
+          "json"
+        ],
+        "type": "string"
+      },
+      "grid": {
+        "description": "true: add the grid (face, q, r of every cell in index order).",
+        "type": [
+          "boolean",
+          "string"
+        ]
+      },
+      "hexes": {
+        "description": "With a centre below regions: verbose JSON hexes instead of the board.",
+        "type": [
+          "boolean",
+          "string"
+        ]
+      },
+      "layout": {
+        "description": "Tiles: rings of latitude of about equal tiles (default) or a full raster.",
+        "enum": [
+          "rings",
+          "grid"
+        ],
+        "type": "string"
+      },
+      "level": {
+        "description": "The zoom level (default: the cell key's, else regions).",
+        "enum": [
+          "regions",
+          "villages",
+          "houses",
+          "people"
+        ],
+        "type": "string"
+      },
+      "max_phenomena": {
+        "description": "Phenomena sent at most (default 20).",
+        "minimum": 0,
+        "type": [
+          "integer",
+          "string"
+        ]
+      },
+      "region": {
+        "description": "A region (or any place): the board's centre.",
+        "pattern": "^pl:\\d+$",
+        "type": "string"
+      },
+      "rings": {
+        "description": "Board rings (default and most 22).",
+        "maximum": 22,
+        "minimum": 0,
+        "type": [
+          "integer",
+          "string"
+        ]
+      },
+      "since": {
+        "description": "With a board or tiles: only what changed since this beat.",
+        "minimum": 0,
+        "type": [
+          "integer",
+          "string"
+        ]
+      },
+      "tiles": {
+        "description": "The globe in tiles of this many degrees.",
+        "maximum": 10,
+        "minimum": 2,
+        "type": [
+          "integer",
+          "string"
+        ]
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "x-description": "The Earth simulator (state schema 13): the voxel field for a view. `cell` (a hex key of any level: the board's centre and, unless `level` says otherwise, its level) or `region` (a `pl:` ref): the client's BOARD, `board` = 22 rings (`rings` fewer) = 1,519 records of 9 bytes (h16, top, water, lava, ash, fire, snow, heat, crack) in ring order, base64; `since` (a beat): only the records that changed since then. `tiles` (degrees, 4 = the client's globe): the whole planet as rings of latitude, 9 bytes a tile (2,578 at 4°; `layout: \"grid\"` for a full raster); `since` works here too. No args: every regions cell that differs from base (`field`, packed); `bbox`: a box of regions cells; `base: true` adds `globe` (every cell's h, top, fuel); `grid: true` adds the grid. `hexes: true` / `field: true` with a centre: the verbose JSON hexes / regions columns. `beat`: the field as it stood then. `phenomena`: at most 20 (`max_phenomena`), the nearest to a board's centre first, else the biggest. See docs/EARTH_SIM.md.",
+  "x-public": true
+}

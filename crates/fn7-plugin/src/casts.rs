@@ -395,6 +395,8 @@ pub fn process(
                 out.lines.push(v);
                 continue;
             }
+            // The Earth simulator (schema 13): the cast as it landed feeds a phenomenon in this beat's step.
+            crate::earth::rules::note_cast(w, beat, st, &p, o.text.as_deref(), at, scale, d);
             out.lines.push(v);
             by_region.entry(region).or_default().push((
                 CastLine {

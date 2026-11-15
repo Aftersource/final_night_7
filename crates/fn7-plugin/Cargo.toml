@@ -11,6 +11,7 @@ fn7-society.workspace = true
 fn7-memory.workspace = true
 fn7-pantheon.workspace = true
 fn7-agents.workspace = true
+fn7-earth.workspace = true
 theatre-plugin-api.workspace = true
 theatre-toolkit.workspace = true
 theatre-trace.workspace = true
@@ -22,6 +23,7 @@ serde_json.workspace = true
 anyhow.workspace = true
 sha2 = "0.10"
 hex = "0.4"
+base64 = "0.22"
 
 [dev-dependencies]
 theatre-llm.workspace = true

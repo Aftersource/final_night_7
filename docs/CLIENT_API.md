@@ -1675,6 +1675,26 @@ demigod's look) and a caption like "Chris's Left Hand, portrait with Butterfly W
 `looks_enabled` (true), `look_extra_items` (2), `look_items_shown` (3), `look_images_per_demigod` (4),
 `look_debounce_beats` (3), `item_art_per_match` (12): [settings](schemas/settings.schema.json), `GET /sim/settings`.
 
+## The Earth simulator (state schema 13)
+
+God powers act on a server-side voxel field of the planet; the full model, numbers and a worked frame are in
+[`EARTH_SIM.md`](EARTH_SIM.md) §7. Room setting `earth_sim_enabled` (on for new planet matches).
+
+| Where | What |
+|---|---|
+| `round.outcome.public.earth` | per beat: `delta` (the regions cells whose drawn values changed, one packed base64 block), `phenomena` (the 20 biggest, stable `id`, `velocity` / `front_km` for interpolating across the beat), `phenomena_total`, `ended`, `strikes`, `did`, `hash` |
+| `present.earth`, PublicView `earth` | the field in short: `hash` (compare after a reconnect), `dirty`, `tops`, `phenomena`, `keyframes` |
+| `game.earth {cell, level?, rings?, since?, coarse?}` | **the board**: 22 rings around the hex (1,519 hexes) at its level, 9 bytes a hex (`h16, top, water, lava, ash, fire, snow, heat, crack`) in ring order, base64 (18.2 KB); `since: <beat>` only the changed hexes (`changed` = ring positions) |
+| `game.earth {tiles: 4, since?}` | **the globe**: rings of latitude every 4° (2,578 tiles, row counts in `row_cols`), the same 9-byte record per tile (38 KB; `since` only the changed tiles) |
+| `game.earth {}` / `{bbox}` / `{base, grid}` | the regions field: every cell that differs from base, a box, the whole globe's heights and the grid's keys |
+| `game.earth_at {beat}` | the whole field at a past beat, rebuilt from a keyframe |
+| `game.node {cell}` | an observed hex's `earth` (its field values) and the field's weather |
+| `dm_events` | `earth.*` entries (quake, eruption, drowned, land_rose, plate_moved, impact, wave, omen, road_cut, shrine_toppled, settled) |
+| Settings | `earth_*` (EARTH_SIM.md §8) |
+
+Schemas: `query_earth`, `query_earth_at`, and `EarthBeat` / `EarthSummary` / `EarthPhenomenon` / `EarthCells` in
+`outcome_public`, `public_view` and `query_present`.
+
 ## Message flow for one beat
 
 One Theatre **round** is one **beat**, so `round` and `beat` are always the same number. There are no choices: `round.private.choices`

@@ -21,10 +21,15 @@ path = "src/bin/schemas.rs"
 name = "fn7-duel-lines"
 path = "src/bin/duel_lines.rs"
 
+[[bin]]
+name = "fn7-earth-view"
+path = "src/bin/earth_view.rs"
+
 [dependencies]
 fn7-pantheon.workspace = true
 fn7-model = { workspace = true, features = ["schema"] }
 fn7-plugin.workspace = true
+fn7-earth.workspace = true
 schemars.workspace = true
 theatre-trace.workspace = true
 theatre-protocol.workspace = true

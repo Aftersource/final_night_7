@@ -1728,6 +1728,7 @@ pub async fn resolve(
                 // Rules 0.8.0: a god-tier power's signature effect, unless the god refused.
                 if ctx.intent.how == crate::godtier::HOW && ruling.verdict != Verdict::Refuse {
                     props.extend(crate::godtier::signature(w, pantheon, &ruling, &ctx.intent));
+                    crate::earth::rules::note_god_ruling(w, beat, &st, pantheon, &ruling, &ctx.intent);
                 }
                 // Time, asked to put off a debt, delays the invoker's open debts (a Delay beats a Collect).
                 let text = format!("{} {} {}", ctx.intent.verb, ctx.intent.span, ctx.intent.how)
@@ -2008,6 +2009,9 @@ pub async fn resolve(
     if st.wills_enabled {
         crate::wills::arms::last_stand(w, beat, &alive_at_start, pantheon, &st);
     }
+    // The Earth simulator (schema 13): the field steps once and what it did reaches demigods, crowds, roads and
+    // shrines through the rules (before the DM's step, which drops the fallen's loot and steps the settlements).
+    let earth_beat = crate::earth::rules::step(w, beat, pantheon, &st);
     // Rules 0.8.0: the Dungeon Master's step (encounters, shrines, loot, story pieces, settlements, roads).
     if w.dm_rules() {
         let start = crate::dm::Start {
@@ -2287,6 +2291,10 @@ pub async fn resolve(
             }
         }
         public["looks"] = looks.into();
+    }
+    // The Earth simulator: the cells that changed this beat and every live phenomenon.
+    if let Some(eb) = &earth_beat {
+        public["earth"] = crate::earth::view::beat_json(eb);
     }
     // Rules 0.9.0: the public one-liners of this beat's wills, the curses' public faces and the public quests.
     if st.wills_enabled {

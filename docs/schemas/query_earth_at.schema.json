@@ -1,0 +1,380 @@
+{
+  "$defs": {
+    "EarthCells": {
+      "description": "State schema 13: cell columns (docs/EARTH_SIM.md §7). `enc: pack` (the default): `data` is one base64 block, per cell in index order: varint index delta, height byte (0..15), top byte (an index into `tops`), varint layer mask, then one byte per set layer (CLIENT_LAYERS order; `heat` signed). `enc: columns`: `cells` (u16 LE), `h`, `top` and `layers{name}`, one base64 array each. `enc: json`: the same columns as number arrays.",
+      "properties": {
+        "cells": {
+          "description": "Regions-grid cell indices.",
+          "type": [
+            "string",
+            "array"
+          ]
+        },
+        "data": {
+          "description": "enc pack: the base64 block.",
+          "type": "string"
+        },
+        "enc": {
+          "description": "",
+          "enum": [
+            "pack",
+            "columns",
+            "json"
+          ],
+          "type": "string"
+        },
+        "h": {
+          "description": "Heights 0..15 (8 = sea level).",
+          "type": [
+            "string",
+            "array"
+          ]
+        },
+        "layers": {
+          "additionalProperties": {
+            "type": [
+              "string",
+              "array"
+            ]
+          },
+          "description": "A column per non-zero layer.",
+          "type": "object"
+        },
+        "n": {
+          "description": "Cells.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "top": {
+          "description": "Top material indices (into `tops`).",
+          "type": [
+            "string",
+            "array"
+          ]
+        }
+      },
+      "required": [
+        "n",
+        "enc"
+      ],
+      "type": "object"
+    },
+    "EarthPhenomenon": {
+      "description": "State schema 13: one live phenomenon of the Earth simulator.",
+      "properties": {
+        "age": {
+          "description": "Beats since it began.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "at": {
+          "$ref": "#/$defs/LonLat"
+        },
+        "beats_left": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "born": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cause": {
+          "description": "",
+          "enum": [
+            "cast",
+            "god",
+            "ramification",
+            "entropy",
+            "interaction"
+          ],
+          "type": "string"
+        },
+        "cell": {
+          "description": "Regions-level hex key.",
+          "type": "string"
+        },
+        "cell_index": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "front_cells": {
+          "type": "integer"
+        },
+        "front_km": {
+          "type": "integer"
+        },
+        "front_speed_cells_per_beat": {
+          "type": "integer"
+        },
+        "id": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "intensity": {
+          "description": "power / 16 (a mega of magnitude 8 starts near 8).",
+          "type": "number"
+        },
+        "kind": {
+          "description": "",
+          "enum": [
+            "storm",
+            "lightning",
+            "flood",
+            "wildfire",
+            "volcano",
+            "earthquake",
+            "meteor",
+            "raise_land",
+            "sink_land",
+            "forest",
+            "swarm",
+            "blizzard",
+            "tidal_wave",
+            "plate_drift"
+          ],
+          "type": "string"
+        },
+        "moves_left": {
+          "type": "integer"
+        },
+        "next_move_in": {
+          "type": "integer"
+        },
+        "origin": {
+          "$ref": "#/$defs/LonLat"
+        },
+        "owner_seat": {
+          "description": "The seat that cast it; null = the world's own.",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "parent": {
+          "description": "The phenomenon that set it off.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "power": {
+          "type": "integer"
+        },
+        "radius_cells": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "radius_km": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ruptured_cells": {
+          "type": "integer"
+        },
+        "state": {
+          "description": "A volcano's.",
+          "enum": [
+            "erupting",
+            "dormant"
+          ],
+          "type": "string"
+        },
+        "tier": {
+          "description": "",
+          "enum": [
+            "mini",
+            "mega",
+            "god",
+            "world"
+          ],
+          "type": "string"
+        },
+        "velocity": {
+          "description": "Where it will be a beat from now (glide toward it).",
+          "properties": {
+            "cells_per_beat": {
+              "description": "",
+              "type": "number"
+            },
+            "dir": {
+              "description": "Hex direction 0..5.",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "to": {
+              "$ref": "#/$defs/LonLat"
+            },
+            "to_cell": {
+              "description": "",
+              "type": "string"
+            }
+          },
+          "required": [
+            "dir",
+            "to",
+            "to_cell",
+            "cells_per_beat"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "at",
+        "cell",
+        "cell_index",
+        "origin",
+        "radius_cells",
+        "radius_km",
+        "power",
+        "intensity",
+        "age",
+        "born",
+        "beats_left",
+        "owner_seat",
+        "cause",
+        "tier"
+      ],
+      "type": "object"
+    },
+    "LonLat": {
+      "description": "[longitude, latitude] in degrees (WGS84). Note the order: longitude first.",
+      "items": {
+        "type": "number"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+    }
+  },
+  "$id": "query_earth_at.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "`game.earth_at` (state schema 13): the whole field at the end of a past beat, rebuilt from a keyframe.",
+  "properties": {
+    "beat": {
+      "description": "The beat shown.",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "dirty": {
+      "description": "",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "field": {
+      "$ref": "#/$defs/EarthCells"
+    },
+    "from_keyframe": {
+      "description": "",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "hash": {
+      "description": "",
+      "type": "string"
+    },
+    "inputs": {
+      "description": "Inputs up to that beat.",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "keyframes": {
+      "description": "",
+      "items": {
+        "type": "integer"
+      },
+      "type": "array"
+    },
+    "layers": {
+      "description": "CLIENT_LAYERS: layer names by bit (absent in a board or tiles answer).",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "now": {
+      "description": "The last beat stepped.",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "phenomena": {
+      "description": "",
+      "items": {
+        "$ref": "#/$defs/EarthPhenomenon"
+      },
+      "type": "array"
+    },
+    "rebuilt": {
+      "description": "Re-simulated from a keyframe (a past beat).",
+      "type": "boolean"
+    },
+    "resimulated_beats": {
+      "description": "",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "tops": {
+      "description": "Top material names by index.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "beat",
+    "now",
+    "hash",
+    "dirty",
+    "phenomena",
+    "rebuilt",
+    "from_keyframe",
+    "resimulated_beats",
+    "tops",
+    "layers",
+    "field",
+    "keyframes",
+    "inputs"
+  ],
+  "title": "game.earth_at",
+  "type": "object",
+  "x-applies-to": "game.earth_at reply (WebSocket), GET /api/rooms/{code}/query/earth_at",
+  "x-args": {
+    "additionalProperties": true,
+    "description": "Over HTTP every arg is a query-string parameter (numbers as numeric strings). Unknown args are ignored.",
+    "properties": {
+      "beat": {
+        "description": "The beat.",
+        "minimum": 0,
+        "type": [
+          "integer",
+          "string"
+        ]
+      },
+      "format": {
+        "description": "Cell encoding (default pack).",
+        "enum": [
+          "pack",
+          "columns",
+          "json"
+        ],
+        "type": "string"
+      }
+    },
+    "required": [
+      "beat"
+    ],
+    "type": "object"
+  },
+  "x-description": "The Earth simulator, time travel: the whole field (every cell that differs from base, and the phenomena) as it stood at the end of a past beat, rebuilt from the newest keyframe at or before it by re-simulating at most `earth_keyframe_beats` beats of the recorded inputs.",
+  "x-public": true
+}

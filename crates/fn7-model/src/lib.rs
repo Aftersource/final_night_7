@@ -11,6 +11,7 @@
 pub mod agents;
 pub mod beat;
 pub mod dm;
+pub mod earth;
 pub mod gods;
 pub mod hexgrid;
 pub mod hier;
@@ -67,6 +68,10 @@ use serde::{Deserialize, Serialize};
 /// Schema 12 (AI duellists type): in a duel with a clock an AI fighter types a line in every input window: a bout's
 /// `ai` (the typing scripts not yet entered), blows marked `ai`, panels with `typing_script` and a `play_ms` that
 /// fits the line. Rules that changed read [`World::ai_duel_rules`], so schema-4..11 recordings replay exactly.
+///
+/// Schema 13 (the Earth simulator, room setting `earth_sim_enabled`): the voxel field the god powers act on
+/// ([`dm::Dm::earth`], [`earth::EarthState`]; docs/EARTH_SIM.md). Rules that changed read [`World::earth_rules`], so
+/// schema-4..12 recordings replay exactly.
 ///
 /// Schema 15 (item names; 13 and 14 belong to other branches): a thing made outside the item engine (a resolver's
 /// find, a god's gift, an encounter's find) whose name is an entity's (a demigod, a person, a player, a god) or empty
@@ -454,6 +459,10 @@ impl World {
             || self.seats.iter().any(|s| is(&s.display_name))
             || self.characters.iter().any(|c| is(&c.name))
             || self.gods.iter().any(|g| is(&g.name))
+    }
+    /// The Earth simulator (schema 13): the god powers act on a simulated voxel field.
+    pub fn earth_rules(&self) -> bool {
+        self.meta.schema >= earth::EARTH_SCHEMA
     }
     /// A seat's demigods, in id order (Left then Right in schema 5).
     pub fn bodies_of_seat(&self, seat: u8) -> impl Iterator<Item = &Demigod> {

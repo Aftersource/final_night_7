@@ -98,6 +98,28 @@ pub fn specs() -> Vec<QuerySpec> {
         spec("encounters", true,
              "Rules 0.8.0: the encounter hexes on the board: hidden ones only as {id, cell, marked}; revealed ones with their type and outcome. Optionally one region's.",
              obj(json!({ "region": r#ref(r"^pl:\d+$", "Only encounters in this region.") }), &[])),
+        spec("earth", true,
+             "The Earth simulator (state schema 13): the voxel field for a view. `cell` (a hex key of any level: the board's centre and, unless `level` says otherwise, its level) or `region` (a `pl:` ref): the client's BOARD, `board` = 22 rings (`rings` fewer) = 1,519 records of 9 bytes (h16, top, water, lava, ash, fire, snow, heat, crack) in ring order, base64; `since` (a beat): only the records that changed since then. `tiles` (degrees, 4 = the client's globe): the whole planet as rings of latitude, 9 bytes a tile (2,578 at 4°; `layout: \"grid\"` for a full raster); `since` works here too. No args: every regions cell that differs from base (`field`, packed); `bbox`: a box of regions cells; `base: true` adds `globe` (every cell's h, top, fuel); `grid: true` adds the grid. `hexes: true` / `field: true` with a centre: the verbose JSON hexes / regions columns. `beat`: the field as it stood then. `phenomena`: at most 20 (`max_phenomena`), the nearest to a board's centre first, else the biggest. See docs/EARTH_SIM.md.",
+             obj(json!({ "cell": { "type": "string", "description": "A hex cell key (\"<face>:<level>:<q>:<r>\"): the board's centre." },
+                         "region": r#ref(r"^pl:\d+$", "A region (or any place): the board's centre."),
+                         "bbox": { "type": ["array", "string"], "description": "[west, south, east, north] in degrees (regions level)." },
+                         "level": { "type": "string", "enum": ["regions", "villages", "houses", "people"], "description": "The zoom level (default: the cell key's, else regions)." },
+                         "rings": { "type": ["integer", "string"], "minimum": 0, "maximum": 22, "description": "Board rings (default and most 22)." },
+                         "since": { "type": ["integer", "string"], "minimum": 0, "description": "With a board or tiles: only what changed since this beat." },
+                         "tiles": { "type": ["integer", "string"], "minimum": 2, "maximum": 10, "description": "The globe in tiles of this many degrees." },
+                         "layout": { "type": "string", "enum": ["rings", "grid"], "description": "Tiles: rings of latitude of about equal tiles (default) or a full raster." },
+                         "coarse": { "type": ["boolean", "string"], "description": "Board: add the regions cell index under each hex (u16 LE, base64)." },
+                         "hexes": { "type": ["boolean", "string"], "description": "With a centre below regions: verbose JSON hexes instead of the board." },
+                         "field": { "type": ["boolean", "string"], "description": "With a centre at regions: the cells as columns instead of the board." },
+                         "max_phenomena": { "type": ["integer", "string"], "minimum": 0, "description": "Phenomena sent at most (default 20)." },
+                         "beat": { "type": ["integer", "string"], "minimum": 0, "description": "A past beat (default: now)." },
+                         "base": { "type": ["boolean", "string"], "description": "true: add `globe` (h, top and fuel of every regions cell of the globe, about 27,000, in index order)." },
+                         "grid": { "type": ["boolean", "string"], "description": "true: add the grid (face, q, r of every cell in index order)." },
+                         "format": { "type": "string", "enum": ["pack", "columns", "json"], "description": "Cell encoding of `field` (default pack)." } }), &[])),
+        spec("earth_at", true,
+             "The Earth simulator, time travel: the whole field (every cell that differs from base, and the phenomena) as it stood at the end of a past beat, rebuilt from the newest keyframe at or before it by re-simulating at most `earth_keyframe_beats` beats of the recorded inputs.",
+             obj(json!({ "beat": { "type": ["integer", "string"], "minimum": 0, "description": "The beat." },
+                         "format": { "type": "string", "enum": ["pack", "columns", "json"], "description": "Cell encoding (default pack)." } }), &["beat"])),
         spec("piles_final", true,
              "Every demigod's end-of-match pile (items, summons, stats, statue prompt). An error until the match is over.",
              obj(json!({}), &[])),
@@ -124,6 +146,8 @@ pub fn query(pantheon: &Pantheon, state: &Value, seat: Option<Seat>, name: &str,
         "media" => media(state, seat, &args),
         "memory" => memory(state, &args),
         "encounters" => encounters(state, &args),
+        "earth" => crate::earth::view::query_earth(state, args.0),
+        "earth_at" => crate::earth::view::query_earth_at(state, args.0),
         other => Err(format!("unknown query {other}")),
     }?;
     payload::tidy(&mut v);
@@ -220,10 +244,13 @@ fn dm_lite(state: &Value, want: bool) -> Result<fn7_model::dm::Dm, String> {
         wills: Value,
         /// Schema 11: the look records and the item art (small).
         looks: Value,
+        /// Schema 13: the Earth simulator's state (tens of KB at most).
+        earth: Option<Box<fn7_model::earth::EarthState>>,
     }
     let l: Lite = table(state, "dm", want)?;
     Ok(fn7_model::dm::Dm { memory: vec![], settlements: l.settlements, stories: l.stories, encounters: l.encounters,
-                           loot: l.loot, trails: l.trails, shrines: l.shrines, duels: vec![], wills: l.wills, looks: l.looks, mark: None })
+                           loot: l.loot, trails: l.trails, shrines: l.shrines, duels: vec![], wills: l.wills, looks: l.looks, mark: None,
+                           earth: l.earth })
 }
 
 /// Memory entries passing `keep` (tested on the unparsed entry), oldest first: only those are deserialized.

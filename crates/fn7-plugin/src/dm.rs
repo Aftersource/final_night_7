@@ -667,7 +667,7 @@ pub fn cell_state(w: &World, key: &str, beat: u32) -> Result<(Value, Option<u32>
     let (day, phase, light, _) = phase_of(beat, st.beats_per_day);
     let weather = WEATHER[Rng::derive(w.meta.seed, &[OBS_SALT, wh.region.0 as u64, beat as u64]).below(WEATHER.len() as u64) as usize];
     let round6 = |x: f64| (x * 1e6).round() / 1e6;
-    let state = json!({
+    let mut state = json!({
         "cell": key, "level": c.level.as_str(), "center": [round6(center[0]), round6(center[1])],
         "settlement": wh.settlement.map(Ref::Place), "region": Ref::Place(wh.region),
         "people": people, "buildings": buildings, "parent_population": pop_now, "settlement_level": level_now,
@@ -675,6 +675,15 @@ pub fn cell_state(w: &World, key: &str, beat: u32) -> Result<(Value, Option<u32>
         "on_road": on_road, "weather": weather, "time_of_day": { "day": day, "phase": phase, "light": light },
         "changes_since": changes,
     });
+    // The Earth simulator (schema 13): the hex as the field has it now (a fine hex is derived from its coarse cell:
+    // docs/EARTH_SIM.md), and the weather the field really has there. Once observed it is part of the record.
+    if let Some(e) = crate::earth::rules::sim_of(w, &st).filter(|e| e.beat == beat) {
+        let cellv = crate::earth::view::hex_json(&e, &c);
+        if let Some(wx) = cellv["weather"].as_str() {
+            state["weather"] = wx.into();
+        }
+        state["earth"] = cellv;
+    }
     Ok((state, last.map(|e| e.beat), true))
 }
 
@@ -961,6 +970,8 @@ fn settlements_step(w: &mut World, beat: u32, s: &Start, st: &Settings) {
                                           text, data: json!({ "place": Ref::Place(*p), "acts": n }) });
     }
     let since = beat.saturating_sub(8);
+    // The Earth simulator (schema 13): what a settlement's cell has suffered pushes its target down.
+    let earth = crate::earth::rules::sim_of(w, st);
     for k in 0..w.dm.settlements.len() {
         let p = w.dm.settlements[k].place;
         let size = settlement_pop(w, p);
@@ -987,6 +998,8 @@ fn settlements_step(w: &mut World, beat: u32, s: &Start, st: &Settings) {
         if shrine || top_alleg >= 0.5 {
             target += 1;
         }
+        let ruined = earth.as_ref().map(|e| crate::earth::rules::ruin_levels(e, st, w.places[p.ix()].center)).unwrap_or(0);
+        target -= ruined;
         let target = target.clamp(1, 7) as u8;
         let s0 = &w.dm.settlements[k];
         let (level, since_beat, held) = (s0.level, s0.since_beat, s0.target == target);
@@ -1138,6 +1151,30 @@ fn place_encounters(w: &mut World, beat: u32, st: &Settings) {
                                           data: json!({ "id": id, "cell": wh.cell, "marked": true }) });
         event("encounter_placed", None, json!({ "beat": beat, "id": id, "kind": kind, "cell": wh.cell, "at": at }));
     }
+}
+
+/// The Earth simulator (schema 13): a rupture, a crater or risen land uncovers something at `at`: a marked hex like
+/// any other (within the live cap, never where one already lies within reach). Returns the memory entry's id.
+pub(crate) fn uncover_encounter(w: &mut World, beat: u32, at: LonLat, why: &str, st: &Settings) -> Option<u32> {
+    if st.dm_encounters_max == 0 || live_hidden(w).count() >= st.dm_encounters_max as usize {
+        return None;
+    }
+    let reach = reach_km(w, st);
+    if w.dm.encounters.iter().any(|e| e.faded_beat.is_none() && distance_km(e.at, at) <= reach * 4.0) {
+        return None;
+    }
+    let mut rng = Rng::derive(w.meta.seed, &[ENC_SALT, hash_str("uncovered"), beat as u64]);
+    let kind = [EncounterKind::Treasure, EncounterKind::Monster, EncounterKind::Treasure, EncounterKind::Trap][rng.below(4) as usize];
+    let wh = locate(w, at, HexLevel::Houses);
+    let id = w.dm.encounters.len() as u32;
+    w.dm.encounters.push(Encounter { id, kind, cell: wh.cell.clone(), at, region: wh.region, settlement: wh.settlement,
+                                     placed_beat: beat, night: false, faded_beat: None, outcome: None });
+    let near = w.name_of(Ref::Place(wh.region));
+    let entry = remember(w, beat, &wh, Decision { scope: Scope::Cell, kind: "encounter.marked", query: Some(format!("encounter:{id}:placed")),
+                                                  public: true, text: format!("{why} uncovers a marked hex in {near}"),
+                                                  data: json!({ "id": id, "cell": wh.cell, "marked": true, "uncovered_by": why }) });
+    event("encounter_placed", None, json!({ "beat": beat, "id": id, "kind": kind, "cell": wh.cell, "at": at, "uncovered_by": why }));
+    Some(entry)
 }
 
 fn fade_encounters(w: &mut World, beat: u32, st: &Settings) {

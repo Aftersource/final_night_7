@@ -24,6 +24,7 @@ pub mod choreo;
 pub mod dm;
 pub mod duel;
 pub mod driver;
+pub mod earth;
 pub mod faults;
 pub mod godtier;
 pub mod flow;

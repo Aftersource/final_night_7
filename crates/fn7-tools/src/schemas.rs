@@ -841,6 +841,7 @@ fn settings_schema() -> Value {
     p("duel_ai_aggression", f(0.0, 1.0, 0.6, "State schema 12: how often the typing AI attacks rather than sets a defence, repositions or taunts."));
     p("duel_ai_handicap", i(0, 10, json!(5), "State schema 12: subtracted from the d20 modifier of the lines an AI types against a human (waived against a human silent for 12 s, and between two AIs)."));
     p("duel_deadline_ms", i(1000, 600000, json!(30000), "Rules 0.8.1: the longest a duel runs after its lock (the engine hold's deadline; without a hold the world keeps beating and the duel lasts at most ceil(duel_deadline_ms / flow_ms) resolves)."));
+    earth::settings(&mut p);
     p(
         "memory_per_owner",
         i(
@@ -1217,6 +1218,7 @@ fn outcome_public() -> Value {
             ("wills", array(r("WillLine"), "Rules 0.9.0: public one-liners of this beat's wills (raisings, curses landing; never who cursed).")),
             ("curses", array(r("Curse"), "Rules 0.9.0: every curse holding now (public faces).")),
             ("quests", array(r("Quest"), "Rules 0.9.0: the open public quests (raisings, seals' counters).")),
+            ("earth", r("EarthBeat")),
         ],
     )
 }
@@ -1302,6 +1304,7 @@ fn public_view() -> Value {
           ("quests", array(r("Quest"), "Rules 0.9.0: the open public quests (raisings, seals' counters).")),
           ("time_of_day", r("TimeOfDay")),
           ("time_of_day_phase", r("DayPhase")),
+          ("earth", r("EarthSummary")),
           ("rules", object("The rules this match runs on.", &[("version", string("The match's rules version (e.g. \"0.8.1\").")),
               ("state_schema", int("The match's state schema.")), ("server", string("The server's current rules version (new matches start on it)."))], &[])),
           ("present", r("Present"))],
@@ -1741,7 +1744,7 @@ fn v08_defs() -> Map<String, Value> {
               "description": "A phase.event.public payload (cast streak, summoning, god_power, challenge.lock, duel.blow) with its `seq`, `received_at_ms` and `beat`." }),
               "The public events of the instant actions since the last resolve, in arrival order.")),
           ("duels", array(r("PresentDuel"), "Every open duel in full."))],
-        &[],
+        &[("earth", json!({ "anyOf": [r("EarthSummary"), { "type": "null" }], "description": "State schema 13: the Earth simulator's field in short (null when it is off)." }))],
     ));
     d.insert("ChallengeOpen".into(), object(
         "Rules 0.8.1: a duel still under way after this resolve (`round.outcome.public.duels_open[]`; the damage so far is applied).",
@@ -1863,7 +1866,7 @@ fn v07_defs() -> Map<String, Value> {
             ("holder", json!({ "anyOf": [{ "$ref": "#/$defs/Ref" }, { "type": "null" }] })),
             ("holder_name", json!({ "type": ["string", "null"] })),
             ("created_beat", int("")),
-            ("manifestation", json!({ "type": ["string", "null"], "description": "`mf:<n>`, the attempt that made it." })),
+            ("manifestation", json!({ "anyOf": [{ "type": "string" }, { "type": "null" }, { "$ref": "#/$defs/Manifestation" }], "description": "`mf:<n>`, the attempt that made it (`game.item`: the Manifestation object itself)." })),
             ("at", nullable(r("LonLat"))),
             ("banner", json!({ "anyOf": [{ "type": "null" }, object("A host's banner.", &[("device", string("")), ("colors", array(json!({"type": "string"}), ""))], &[("motto", string(""))])] })),
         ],
@@ -1885,9 +1888,9 @@ fn v07_defs() -> Map<String, Value> {
             ("item", json!({ "anyOf": [{ "$ref": "#/$defs/Ref" }, { "type": "null" }] })),
             ("name", json!({ "type": ["string", "null"] })), ("at", nullable(r("LonLat"))),
             ("region", json!({ "type": ["string", "null"] })), ("public", boolean("")),
-            ("image_prompt", json!({ "type": ["string", "null"] })),
         ],
-        &[("image_kind", json!({ "const": "item" })), ("art", string("State schema 11: the made item's picture key (with image_prompt).")),
+        &[("image_prompt", json!({ "type": ["string", "null"], "description": "State schema 11: absent when the item has no picture of its own yet (gear looks on)." })),
+          ("image_kind", json!({ "const": "item" })), ("art", string("State schema 11: the made item's picture key (with image_prompt).")),
           ("verdict", json!({ "type": "object", "additionalProperties": true, "description": "Your own only: outcome, tier, odds {success, twist, partial, backfire, terms}, roll, cost {required, bolts, extra, missing, debt}, god, favor, entropy, reasons, flavor." })),
           ("request", json!({ "type": "object", "additionalProperties": true, "description": "Your own only: kind, count, magnitude." })),
           ("image", r("ImageObject"))],
@@ -1932,6 +1935,7 @@ pub fn all() -> Vec<(&'static str, Value)> {
     pool.extend(v08_defs());
     pool.extend(queries::defs());
     pool.extend(wills::defs());
+    pool.extend(earth::defs());
     let mut round_private = pool["SeatDelta"].clone();
     if let Some(props) = round_private["properties"].as_object_mut() {
         props.insert("demigods".into(), array(object("Rules 0.7.0: one of your two demigods this beat.",
@@ -1976,6 +1980,7 @@ fn query_schemas(pool: &Map<String, Value>) -> Vec<(&'static str, Value)> {
     let specs = fn7_plugin::queries::specs();
     queries::replies()
         .into_iter()
+        .chain(earth::replies())
         .map(|(stem, name, body)| {
             let spec = specs.iter().find(|s| s.name == name).unwrap_or_else(|| panic!("no query {name}"));
             let applies = format!(
@@ -2219,6 +2224,7 @@ fn check(root: &Value, s: &Value, v: &Value, path: &str, strict: bool, errs: &mu
     }
 }
 
+mod earth;
 mod queries;
 mod wills;
 

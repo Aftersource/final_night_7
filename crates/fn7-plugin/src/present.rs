@@ -397,6 +397,7 @@ impl Journal {
                 Some(v)
             })
             .collect();
+        let earth = crate::earth::view::summary_of(w, &st);
         json!({
             "server_time_ms": now_ms,
             "beat": w.meta.beat,
@@ -407,6 +408,9 @@ impl Journal {
             "paused_since_ms": idle,
             "events": events,
             "duels": lv.bouts.iter().map(|b| duel_json(w, b, at, idle.is_some())).collect::<Vec<_>>(),
+            // The Earth simulator (schema 13; `null` when off): the field's beat, hash, dirty count and phenomena. A
+            // reconnecting client compares the hash with its own and fetches the cells with `game.earth` if they differ.
+            "earth": earth,
         })
     }
 }
