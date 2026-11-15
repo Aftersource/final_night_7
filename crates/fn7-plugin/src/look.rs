@@ -165,6 +165,7 @@ pub fn loadout(w: &World, d: DemigodId, extras: usize) -> Vec<Entry> {
         .items
         .iter()
         .filter(|i| i.holders.last() == Some(&me) && matches!(i.ext.state, ItemState::Held | ItemState::Deployed) && !on_ground(i.id))
+        .filter(|i| real_object(w, i))
         .collect();
     let mut best: Vec<(&'static str, &Item)> = vec![];
     for it in mine.iter().filter(|i| i.ext.state == ItemState::Held) {
@@ -200,6 +201,12 @@ pub fn loadout(w: &World, d: DemigodId, extras: usize) -> Vec<Entry> {
     ex.sort_by(|a, b| b.gear.tier.cmp(&a.gear.tier).then_with(|| a.gear.key().cmp(&b.gear.key())).then(a.item.cmp(&b.item)));
     out.extend(ex);
     out
+}
+
+/// Is `it` a real object a picture can show? Schema 15: not when its name is empty or names an entity (a demigod, a
+/// person, a player, a god: a resolver's "Bot Kestrel's Right Hand" was once a belt item). Always before.
+pub fn real_object(w: &World, it: &Item) -> bool {
+    !w.item_name_rules() || (!stem_of(&it.name).is_empty() && !w.names_entity(&it.name))
 }
 
 /// The hash of a loadout: sha256 of [`LOADOUT_VERSION`] and each line `role|kind|material|tier|stem|blessing`, in
@@ -656,6 +663,7 @@ fn notable(w: &World, it: &Item) -> bool {
         x.id < it.id
             && x.ext.kind == it.ext.kind
             && x.ext.state != ItemState::Destroyed
+            && real_object(w, x)
             && matches!(x.holders.last(), Some(Ref::Demigod(h)) if w.same_player(*h, d))
     })
 }
@@ -668,7 +676,7 @@ fn grant_art(w: &World, b: &mut LookBook, st: &Settings) {
         if b.art.len() >= cap {
             break;
         }
-        if it.ext.state == ItemState::Destroyed {
+        if it.ext.state == ItemState::Destroyed || !real_object(w, it) {
             continue;
         }
         let on_ground = w.dm.loot.iter().any(|l| l.taken_beat.is_none() && l.items.contains(&it.id));

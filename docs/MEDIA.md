@@ -201,7 +201,13 @@ A demigod's **loadout** is its notable gear right now, in a stable order:
 2. up to `look_extra_items` (2) other major items, role `extra`: relic tier and up or god-blessed first (highest tier
    first), then the first item of each kind not listed yet. Extras are ordered by tier, then by descriptor.
 
-Items lying in a loot pile and destroyed things never count; a deployed host (an army in the field) does.
+Items lying in a loot pile and destroyed things never count; a deployed host (an army in the field) does. State
+schema 15: neither does a thing that is not a real object, one whose name is empty or is a demigod's, a person's, a
+player's or a god's (`look::real_object`, `World::names_entity`; such a thing gets no item art either). The live case
+(match ae54b0af): the resolver wrote a find as "Bot Kestrel's Right Hand: finds a rusted fish-gutting knife among the
+trout", the finder's name became the item's name, and Chris's Left Hand later wore "tucked into the belt, a bot
+kestrel right hand". From schema 15 such a find is named after its object instead ("Rusted Fish-Gutting Knife";
+`fn7_society::effects::thing_name`), see DEMIGODS_AND_ITEMS.md.
 
 Each item is reduced to a **descriptor**: `kind | material | tier | name stem | blessing` (the arms rule's material for
 gear, `""` otherwise; the stem is the name lowercased, possessives and punctuation dropped, leading articles dropped,

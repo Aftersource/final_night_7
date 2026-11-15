@@ -1161,6 +1161,60 @@ pub fn rules_name_for(kind: ItemKind, tier: Tier, count: f64, span: &str) -> Str
     }
 }
 
+/// A name as a comparable key: lowercased, possessives (`'s`) and punctuation dropped, leading articles dropped, words
+/// joined by one space. `"Bot Kestrel's Right Hand"` and `"a bot kestrel right hand"` are the same key.
+pub fn name_key(name: &str) -> String {
+    let lower = name.to_lowercase().replace('\u{2019}', "'");
+    let words: Vec<String> = lower
+        .split_whitespace()
+        .map(|w| {
+            let w = w.trim_matches(|c: char| !c.is_alphanumeric() && c != '\'');
+            w.strip_suffix("'s").unwrap_or(w).to_string()
+        })
+        .collect();
+    let clean: String = words.join(" ").chars().map(|c| if c.is_alphanumeric() { c } else { ' ' }).collect();
+    clean.split_whitespace().skip_while(|w| matches!(*w, "the" | "a" | "an")).collect::<Vec<_>>().join(" ")
+}
+
+/// Words that end an object's noun phrase in a sentence ("a rusted knife AMONG the trout").
+const PHRASE_STOPS: &[&str] = &[
+    "among", "amongst", "in", "inside", "at", "on", "onto", "upon", "from", "with", "without", "into", "to", "toward",
+    "towards", "near", "by", "under", "over", "beneath", "below", "above", "behind", "beside", "between", "for",
+    "and", "or", "but", "that", "which", "who", "whom", "while", "as", "where", "when", "then", "after", "before",
+    "is", "was", "are", "were", "lies", "lay", "lying", "left", "half", "out", "off", "up", "down", "around", "through",
+];
+
+/// The name of the object `text` describes: the first noun phrase after an article or a possessive ("finds a rusted
+/// fish-gutting knife among the trout." → `"Rusted Fish-Gutting Knife"`), at most five words, in title case. `None`
+/// when the words name no object.
+pub fn object_name(text: &str) -> Option<String> {
+    let lower = text.to_lowercase().replace('\u{2019}', "'");
+    let mut words: Vec<(String, bool)> = vec![];
+    for raw in lower.split_whitespace() {
+        let ends = raw.ends_with(['.', ',', ';', ':', '!', '?', ')', '"']);
+        let w: String = raw.trim_matches(|c: char| !c.is_alphanumeric()).chars().filter(|c| c.is_alphanumeric() || *c == '-' || *c == '\'').collect();
+        words.push((w, ends));
+    }
+    let start = words.iter().position(|(w, _)| matches!(w.as_str(), "a" | "an" | "the" | "some" | "his" | "her" | "their" | "its" | "my" | "your"))?;
+    let mut out: Vec<&str> = vec![];
+    for (w, ends) in &words[start + 1..] {
+        if w.is_empty() || PHRASE_STOPS.contains(&w.as_str()) || matches!(w.as_str(), "a" | "an" | "the") {
+            break;
+        }
+        out.push(w);
+        if *ends || out.len() >= 5 {
+            break;
+        }
+    }
+    while out.last().is_some_and(|w| matches!(*w, "of" | "the" | "and")) {
+        out.pop();
+    }
+    if out.is_empty() {
+        return None;
+    }
+    Some(out.iter().enumerate().map(|(i, w)| if i > 0 && *w == "of" { w.to_string() } else { title(w) }).collect::<Vec<_>>().join(" "))
+}
+
 fn title(s: &str) -> String {
     s.split(['-', ' '])
         .map(|w| {
@@ -1198,6 +1252,20 @@ mod tests {
             entropy: 0.0,
             recent: 0,
         }
+    }
+
+    #[test]
+    fn name_keys_and_object_names() {
+        assert_eq!(name_key("Bot Kestrel's Right Hand"), "bot kestrel right hand");
+        assert_eq!(name_key("a bot kestrel right hand"), name_key("Bot Kestrel\u{2019}s Right Hand"));
+        assert_eq!(name_key("  "), "");
+        // The live case (match ae54b0af): the object, not the finder.
+        assert_eq!(object_name("finds a rusted fish-gutting knife among the trout.").as_deref(), Some("Rusted Fish-Gutting Knife"));
+        assert_eq!(object_name("pulls the vial of salt from the river").as_deref(), Some("Vial of Salt"));
+        assert_eq!(object_name("lifts her mother's ring, then runs").as_deref(), Some("Mother's Ring"));
+        assert_eq!(object_name("a sword").as_deref(), Some("Sword"));
+        assert_eq!(object_name("wanders and wonders"), None);
+        assert_eq!(object_name("finds the"), None);
     }
 
     #[test]

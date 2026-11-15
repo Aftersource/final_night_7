@@ -102,7 +102,7 @@ fn changes(o: &RoundOutcome) -> Vec<Value> {
 fn a_new_match_is_schema_11_and_looks_are_on() {
     let t = table(3, json!({}));
     let w = t.w();
-    assert_eq!((w.meta.schema, w.look_rules(), look::on(&w)), (12, true, true));
+    assert_eq!((w.meta.schema, w.look_rules(), look::on(&w)), (STATE_SCHEMA, true, true));
     assert!(w.dm.looks.is_null(), "nothing is stored until someone holds something");
     // Everyone has a look: an empty loadout and the base images.
     for d in t.public()["demigods"].as_array().unwrap() {
@@ -502,4 +502,86 @@ fn the_designers_own_words_arm_their_demigods() {
     let held: Vec<&Item> = w.items.iter().filter(|i| matches!(i.holders.last(), Some(Ref::Demigod(d)) if w.demigods[d.ix()].seat == 0)).collect();
     assert_eq!(held.len(), 2, "gear for both demigods: {:?}", w.items.iter().map(|i| &i.name).collect::<Vec<_>>());
     assert_eq!(changes(&o).len(), 2, "and both looks change");
+}
+
+/// A resolver's find, as the live resolver wrote it (match ae54b0af, beat 17): "<actor>: <what happened>", so the
+/// actor's name became the item's name.
+fn resolver_find(w: &mut World, holder: DemigodId, name: &str, description: &str) -> ItemId {
+    let p = Proposal {
+        source: Source::Rules,
+        intent: None,
+        effect: Effect::CreateItem { name: name.into(), description: description.into(), holder: Ref::Demigod(holder) },
+        act: format!("{name}: {description}"),
+        actor: Ref::Demigod(holder),
+        magnitude: 2,
+        valence: 1,
+        witnesses: vec![Ref::Demigod(holder)],
+        cause: None,
+    };
+    let before = w.items.len();
+    crate::merge::run(w, vec![p], &fn7_pantheon::load(), 3, 8);
+    assert_eq!(w.items.len(), before + 1, "the find was made");
+    ItemId::from_ix(before)
+}
+
+/// The live case (match ae54b0af): Bot Kestrel's Right Hand "finds a rusted fish-gutting knife among the trout"; the
+/// resolver named the find after the finder ("Bot Kestrel's Right Hand"), it passed to Chris's Left Hand and showed in
+/// its loadout and gear portrait as "tucked into the belt, a bot kestrel right hand". From schema 15 the find is named
+/// after the object ("Rusted Fish-Gutting Knife") and a thing named after an entity never enters a loadout or item
+/// art; a schema-12 state keeps both as recorded.
+#[test]
+fn a_thing_is_never_named_after_an_entity_and_never_pictured_as_one() {
+    let mut t = table(21, json!({}));
+    let (a, bot) = (mine(&t.w(), 0)[0], mine(&t.w(), 2)[1]);
+    t.edit(|w| {
+        w.demigods[bot.ix()].name = "Bot Kestrel's Right Hand".into();
+        w.demigods[bot.ix()].player = "Bot Kestrel".into();
+        w.seats[2].display_name = "Bot Kestrel".into();
+    });
+    assert_eq!(t.w().meta.schema, 15);
+    // The source: the find takes the object's name.
+    let mut w = t.w();
+    let it = resolver_find(&mut w, bot, "Bot Kestrel's Right Hand", "finds a rusted fish-gutting knife among the trout.");
+    assert_eq!(w.items[it.ix()].name, "Rusted Fish-Gutting Knife");
+    // A schema-12 state replays the find as it was recorded.
+    let mut old = t.w();
+    old.meta.schema = 12;
+    let it_old = resolver_find(&mut old, bot, "Bot Kestrel's Right Hand", "finds a rusted fish-gutting knife among the trout.");
+    assert_eq!(old.items[it_old.ix()].name, "Bot Kestrel's Right Hand");
+
+    // The loadout: Chris's Left Hand holds the obsidian blade and the junk item (made under the old rules, carried on).
+    t.give(a, ItemKind::Weapon, Tier::Trinket, "Obsidian Blade", None);
+    t.edit(|w| {
+        let mut old = w.clone();
+        old.meta.schema = 12;
+        let j = resolver_find(&mut old, a, "Bot Kestrel's Right Hand", "finds a rusted fish-gutting knife among the trout.");
+        *w = World { meta: w.meta.clone(), ..old };
+        assert_eq!(w.items[j.ix()].name, "Bot Kestrel's Right Hand");
+        assert_eq!(w.items[j.ix()].ext.kind, ItemKind::Other);
+    });
+    let w = t.w();
+    let junk = w.items.iter().find(|i| i.name == "Bot Kestrel's Right Hand").unwrap();
+    assert!(!look::real_object(&w, junk) && look::real_object(&w, &w.items[0]));
+    let names: Vec<String> = loadout(&w, a, 2).iter().map(|e| e.gear.name.clone()).collect();
+    assert_eq!(names, vec!["Obsidian Blade".to_string()], "the junk item is not in the loadout");
+    let mut w12 = w.clone();
+    w12.meta.schema = 12;
+    assert_eq!(loadout(&w12, a, 2).len(), 2, "a schema-12 state keeps its recorded loadout");
+    // Empty names and every kind of entity name are not objects; real things are.
+    for n in ["", "  ", "Bot Kestrel's Right Hand", "bot kestrel right hand", "Bot Kestrel", "Chris's Left Hand", "Death"] {
+        assert!(w.names_entity(n), "{n:?} names an entity");
+    }
+    for n in ["Obsidian Blade", "Rusted Fish-Gutting Knife", "Right Hand of Glory", "Kestrel Feather"] {
+        assert!(!w.names_entity(n), "{n:?} is a thing");
+    }
+
+    // The picture: no belt item, no item art for it.
+    t.beat("");
+    let l = t.look(a);
+    let ps = l["portrait_subject"].as_str().unwrap();
+    assert!(!ps.contains("kestrel"), "{ps}");
+    assert!(l["loadout"].as_array().unwrap().iter().all(|e| e["name"] != "Bot Kestrel's Right Hand"), "{l}");
+    let w = t.w();
+    let junk = w.items.iter().find(|i| i.name == "Bot Kestrel's Right Hand").unwrap();
+    assert!(!look::book(&w).art.contains(&look::gear_of(&w, junk).art_key()), "no item art for it");
 }

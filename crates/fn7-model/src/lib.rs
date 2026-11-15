@@ -67,7 +67,12 @@ use serde::{Deserialize, Serialize};
 /// Schema 12 (AI duellists type): in a duel with a clock an AI fighter types a line in every input window: a bout's
 /// `ai` (the typing scripts not yet entered), blows marked `ai`, panels with `typing_script` and a `play_ms` that
 /// fits the line. Rules that changed read [`World::ai_duel_rules`], so schema-4..11 recordings replay exactly.
-pub const STATE_SCHEMA: u32 = 12;
+///
+/// Schema 15 (item names; 13 and 14 belong to other branches): a thing made outside the item engine (a resolver's
+/// find, a god's gift, an encounter's find) whose name is an entity's (a demigod, a person, a player, a god) or empty
+/// is named after the object its words describe, and loadouts and item art skip things that are not real objects.
+/// Rules that changed read [`World::item_name_rules`], so schema-4..12 recordings replay exactly.
+pub const STATE_SCHEMA: u32 = 15;
 
 /// Match-wide settings and clocks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -425,6 +430,30 @@ impl World {
     /// Schema 12 rules may be on (AI duellists type; the room setting `duel_ai_lines_per_window` decides).
     pub fn ai_duel_rules(&self) -> bool {
         self.meta.schema >= dm::AI_DUEL_SCHEMA
+    }
+    /// Schema 15 rules are on (items are never named after entities).
+    pub fn item_name_rules(&self) -> bool {
+        self.meta.schema >= dm::ITEM_NAME_SCHEMA
+    }
+    /// Does `name` name an entity of this world rather than a thing: a demigod (with or without a `" (n)"` suffix),
+    /// a named person, a player or a god, compared as name keys ([`manifest::name_key`]); an empty name too.
+    pub fn names_entity(&self, name: &str) -> bool {
+        let k = manifest::name_key(name);
+        if k.is_empty() {
+            return true;
+        }
+        let is = |n: &str| !n.trim().is_empty() && manifest::name_key(n) == k;
+        let strip = |n: &str| -> String {
+            let t = n.trim();
+            match t.strip_suffix(')').and_then(|x| x.rfind(" (").map(|i| (i, x))) {
+                Some((i, x)) if x[i + 2..].chars().all(|c| c.is_ascii_digit()) && i + 2 < x.len() => x[..i].to_string(),
+                _ => t.to_string(),
+            }
+        };
+        self.demigods.iter().any(|d| is(&d.name) || is(&strip(&d.name)) || is(d.player_name()))
+            || self.seats.iter().any(|s| is(&s.display_name))
+            || self.characters.iter().any(|c| is(&c.name))
+            || self.gods.iter().any(|g| is(&g.name))
     }
     /// A seat's demigods, in id order (Left then Right in schema 5).
     pub fn bodies_of_seat(&self, seat: u8) -> impl Iterator<Item = &Demigod> {
