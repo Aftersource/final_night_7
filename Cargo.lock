@@ -676,6 +676,7 @@ dependencies = [
  "anyhow",
  "clap",
  "dotenvy",
+ "fn7-earth",
  "fn7-model",
  "fn7-pantheon",
  "fn7-plugin",
