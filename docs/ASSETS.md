@@ -496,10 +496,13 @@ fn7-assets $A stats
 fn7-assets $A verify
 ```
 
-Run from a copy of the live directories on 2026-11-14, steps 1 and 2 gave 4,013 assets (1,188 with files: 1,182 images
-and the 6 style references; 2,781 refusals, 42 failures, 2 still pending) and $18.967 of recorded image cost; run again,
-no row changed. Order matters only for completeness, not correctness: the profile library step links what the
-registry already knows, so it runs last (each `ingest` runs it after its other steps).
+Run from a copy of the live directories on the evening of 2026-11-14 (22 raw and 66 archived recordings, a media cache
+of 1,221 images), steps 1 and 2 took about 30 s and gave 4,185 assets: 1,227 with files (1,221 images and the 6 style
+references), 2,912 refusals (moment-card cap, budget), 44 failures and 2 requests with no outcome; $19.96 of recorded
+image cost over 864 paid calls (604 priced from their recorded token usage, 106 flat table prices from before reference
+mode, 154 with only the sidecar's number); 5,091 `uses` rows over 84 matches. Run again, no row changed (the full
+table dumps hash the same). Order matters only for completeness, not correctness: the profile library step links what
+the registry already knows, so it runs last (each `ingest` runs it after its other steps).
 
 The new server writes live rows from its first image on; the backfill fills in everything before that.
 
