@@ -63,6 +63,8 @@ pub struct StepCtx {
     /// Rules 0.7.0 (state schema 5): the rules fallback never makes an item (the item engine does); see
     /// `ResolverCtx::items_by_engine`.
     pub items_by_engine: bool,
+    /// Schema 17: what the ground holds where this agent acts now (the earth underfoot; empty before, or calm).
+    pub earth: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -198,6 +200,10 @@ pub fn user_prompt(ctx: &StepCtx) -> String {
         },
         l.render()
     ));
+    if !ctx.earth.is_empty() {
+        u.push('\n');
+        push_earth(&mut u, &ctx.earth);
+    }
     if !ctx.memory.trim().is_empty() {
         u.push_str(&format!(
             "\nWhat you remember:\n{}\n",

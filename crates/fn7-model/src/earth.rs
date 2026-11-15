@@ -11,6 +11,10 @@ use serde::{Deserialize, Serialize};
 /// The state schema the Earth simulator is gated on ([`crate::World::earth_rules`]).
 pub const EARTH_SCHEMA: u32 = 13;
 
+/// The state schema the earth underfoot is gated on ([`crate::World::earth_prompt_rules`]): from it, every LLM prompt
+/// that acts in a place carries one short line of what the field holds there now (docs/EARTH_SIM.md §12).
+pub const EARTH_PROMPT_SCHEMA: u32 = 17;
+
 /// One live phenomenon. Stored as a 16-element array (in the order of the fields) to keep snapshots small.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(from = "PhenomenonRow", into = "PhenomenonRow")]

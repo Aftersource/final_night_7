@@ -458,6 +458,8 @@ pub fn process(
         }
     }
     let world = fn7_society::entropy_prose(w);
+    // Schema 17 (the earth underfoot): the field as it stands before this beat's step (the casts above are only logged).
+    let ground = crate::earth::here::Ground::of(w, st);
     for (region, casts) in by_region {
         let n = ramifications_for(&casts.iter().map(|(c, _)| (c.cost, c.magnitude)).collect::<Vec<_>>());
         let first = &casts[0];
@@ -479,6 +481,21 @@ pub fn process(
             .take(6)
             .map(|m| format!("- {} (x{}): {}", m.name, m.stacks, m.description))
             .collect();
+        let earth = ground
+            .as_ref()
+            .map(|g| {
+                let at: Vec<(String, Option<u8>, LonLat)> = casts
+                    .iter()
+                    .map(|(c, _)| {
+                        let text = c.custom.then_some(c.blurb.as_str());
+                        // (A custom power's own words stay inside the prompt's untrusted fence: here it is just "the power".)
+                        let what = if c.custom { format!("{}'s power", c.by_name) } else { format!("{}'s {}", c.by_name, c.power_name) };
+                        (what, crate::earth::rules::kind_for(&c.power, text), c.at)
+                    })
+                    .collect();
+                g.cast_lines(&at)
+            })
+            .unwrap_or_default();
         out.ramify_intents.push((first.1, first.0.by, first.0.at));
         out.ramify.push(RamifyCtx {
             lens: w.dm_rules(),
@@ -493,6 +510,7 @@ pub fn process(
             present,
             mods,
             world: world.clone(),
+            earth,
         });
     }
     out

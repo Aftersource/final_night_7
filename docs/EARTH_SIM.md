@@ -20,6 +20,7 @@ schema 13, so every older recording replays unchanged). Code:
 |---|---|
 | `crates/fn7-earth` (`grid.rs`, `sim.rs`, `codec.rs`) | the pure core: grid, base terrain, the field, the phenomena, one beat's step, keyframes. Knows nothing of a match |
 | `crates/fn7-plugin/src/earth/rules.rs` | the hooks: casts / god powers / ramifications feed it; it steps once a beat; the consequences go back through the rules |
+| `crates/fn7-plugin/src/earth/here.rs` | the earth underfoot (schema 17, §12): one short line of what the field holds at a place, for every prompt that acts there; a duel stage's ground |
 | `crates/fn7-plugin/src/earth/view.rs` | what clients get: `earth` per beat, `game.earth`, `game.earth_at`, the board, the globe tiles, finer levels, the ASCII map |
 | `crates/fn7-model/src/earth.rs` | what is stored (`dm.earth`: `EarthState`) |
 | `crates/fn7-tools/src/bin/earth_view.rs` | `fn7-earth-view`, the ASCII viewer |
@@ -29,6 +30,7 @@ schema 13, so every older recording replays unchanged). Code:
 Hooks (each a line or two): `casts::process` (a landed cast → an input), `beat::resolve` (a god-tier signature → an
 input; the step, after the society and before the DM; `public.earth`), `dm::settlements_step` (ruin lowers a target),
 `dm::cell_state` (an observed hex carries its field values and the field's weather), `phases`/`present` (the summary).
+From schema 17 every LLM prompt that acts in a place reads the field there (§12).
 
 ## 1. The field
 
@@ -348,3 +350,77 @@ is Entropy's own rule, not the field's.
 Real: plate boundaries (PB2002), land and sea (1° mask), fault-aware ruptures, downhill flow, wind bands, every number
 above. Approximated: the heightmap (derived, no elevation data), materials and vegetation (latitude bands + noise),
 the sea's depth (hops from the coast), fine levels (seeded, consistent, not simulated), the globe tiles (aggregates).
+
+## 12. The earth underfoot: the field in every prompt (state schema 17)
+
+> "for the weather effects on the board raising lowering all of that ... it's like populous right? real-time change,
+> and then the effects of that change radically altering the prompt for that area if anyone is in it, and so on? i
+> don't quite get how it's going to perfectly integrate" (Chris, BUILDLOG)
+
+Yes: the field changes in real time (one step a beat, §2–4), and from schema 17 every LLM prompt that **acts in a
+place** is told what the field holds there, so the model's narration and choices change with the ground. The line is
+built deterministically from the stored field (`crates/fn7-plugin/src/earth/here.rs`): the cells as they stood at the
+end of the last stepped beat, the live phenomena and the input log, integer thresholds only, no draw. Prompts are
+asked before the beat's own step, so "now" is the beat being played; "N beats ago" counts from it.
+
+**One place's line**: at most 3 clauses, worst first, each cut to a few words; nothing at all when the cell is base or
+every layer is under its threshold (a calm prompt is byte for byte what it was). In order:
+
+| Clause | When | Words |
+|---|---|---|
+| lava | lava ≥ 8 | "molten lava running" (≥ 64) / "cooling black lava, still glowing", + "steam hissing off it" (water, snow or sea) or "smoke"; "the eruption began N beats ago" (a volcano that reached the cell) or "the rift opened ..." |
+| drowned | base land, now under sea level | "the sea has swallowed this land", "the wave came / it sank / the impact ..." |
+| fire | fire ≥ 32 | "a wildfire roaring through" (≥ 128) / "fires burning", "started / lit by lightning / lit by the impact N beats ago" |
+| flood | land, water ≥ 48 | "knee-deep" (48) / "waist-deep" (96) / "floodwater over a man's head" (160) / "floodwater frozen solid" (heat ≤ −48), "the flood came / the wave struck / the storm's rain began / the land sank N beats ago" |
+| quake | crack ≥ 48 or shake ≥ 32 | "an open rift splits the ground" (≥ 128) / "the ground is cracked", "and still shaking" (shake ≥ 16 or a live quake within 4 cells), "after the quake N beats ago" |
+| snow | land, snow ≥ 48 | "snow on the ground" / "deep snow" (96) / "snowed in, drifts deep" (160), "bitter cold" (heat ≤ −32), "the blizzard came ..." |
+| swarm | swarm ≥ 64 | "a swarm thick in the air, eating everything green" |
+| height | dh ≠ 0 (not a rift) | "the land here rose N levels" / "sank N levels" / "a crater N levels deep", "since beat B" (the first raise, volcano, plate, sink or impact that reached it) |
+| ash | ash ≥ 48 or plume ≥ 96 | "grey ash lying thick" / "ash falling from a dark sky" |
+| ruin | ruin ≥ 96 | "the buildings around here in ruins" |
+| vegetation | dfuel ≤ −48 / ≥ 48 | "burnt black, nothing green left" / "a forest grown up out of nowhere" |
+| sky | cloud ≥ 112, or heat ≥ 48 | "a thunderstorm overhead" (charge ≥ 96) / "a blizzard blowing" / "snow falling" / "heavy rain" / "rain"; "scorching heat" |
+| volcano | a live volcano within 2 cells | "a volcano erupting nearby" |
+
+"Since" and "ago" come from the live phenomenon or the logged input of the right kind whose reach (radius + 1; a
+quake + 3, along its fault) covers the cell; the newest one for "ago", the first for "since". Ground the field has
+carried far from any cast (a fire that spread, water that ran downhill) gets no time.
+
+**Who gets which line** (at most 2 earth lines per prompt, ≤ 200 characters each; a line names who stands there when
+the people in one prompt stand in different cells):
+
+| Prompt | Where it reads | Line |
+|---|---|---|
+| a hand's orders (`hand`) | the demigod | "The earth here, now: waist-deep floodwater, the flood came last beat." |
+| the act resolver (`resolve`) | each acting body's cell (in the world lines, after Entropy and the lasting mods) | "The earth here, now: ..." or "The earth where Ash's Left Hand stands, now: ..." |
+| a subagent's step (`step`) | its body, else its demigod | "The earth here, now: ..." |
+| a god's ruling (`god`) | the invoker, and the ruling's first target with a place (else the place it names) | "The earth where Ash stands, now: ...", "The earth where Brix stands, now: ..." |
+| Entropy's ramifications (`ramify`) | where each cast lands, with what the cast **meets** there by §3's rules | "Where Brix's Left Hand's Volcano lands, the earth now: waist-deep floodwater, the flood came last beat; it meets: lava into this water will boil it to steam and make new rock." |
+| a general (`general`) | its army | "The earth where your army stands, now: a wildfire roaring through." |
+| the narrator (`narrate`) | the standing demigods | "The earth under Ash's Left Hand, now: ..." |
+| a duel's deed (`duel`) | the duel's hex (the stage's ground at the lock) | "The ground they fought on: the ground is cracked and still shaking after the quake last beat." |
+
+What a cast meets (`Ground::meets`): water (flood, storm, tidal wave) on lava → steam and rock; water on fire → the
+fires drown in steam; a blizzard on floodwater → it freezes, on lava → steam; fire on floodwater → it drowns; under
+heavy rain → it can't spread; on burnt ground → little to catch; on grown forest → it burns fast; a volcano or meteor
+into water or snow → steam and new rock; a volcano on an open rift → magma pours up it; a quake within 2 cells of a
+volcano → it can wake it; a quake on cracked ground → it splits wider; a swarm into fire → it burns, on burnt ground →
+nothing to eat; raised land under floodwater → sheds it; sunk land on the coast → lets the sea in; forest on ash → fed.
+
+**The duel's stage** (`duel.scene`, built at the lock): when the duel's hex is not calm the scene gains `ground`
+(`{line, floor, hazards, slippery}`: floor one of `lava burning frozen flooded rift cracked snow ash ruins shaken`;
+`slippery` for floodwater, ice, the sea or deep snow), the backstory ends "The ground: <line>.", and up to 4 hazard
+props are added after every other object (so the rest of the stage is where it was): `lava` (a glowing pool; two when
+molten), `fire`, `floodwater`, `ice`, `fissure`, `snowdrift` (vaultable), `rubble` (vaultable). They are ordinary scene
+objects (lab primitives and materials: obsidian, clay, cloth, glass, ice, stone, with `color` and `glow`), so the
+duel sim, the picker and the AI's typed lines ("I throw you into the lava") use them as they use a crate. The physics'
+floor friction is unchanged (`slippery` is for the client's look and the minds).
+
+Not given a line: the item engine's namer, the manifestation and summon minds, the picker (it sees the hazard props
+in the scene's objects but its cache key is the line, not the ground) and the moderation pass; none of them acts in a
+place. Encounters are resolved by the rules (and told by the resolver, which has the line).
+
+**Replay**: everything above reads `World::earth_prompt_rules()` (schema ≥ `EARTH_PROMPT_SCHEMA` = 17); a schema-13..16
+state builds the prompts and scenes it always did, byte for byte (tests in `earth/here_tests.rs`; release
+`fn7-sim --replay` of schema-12 server recordings and a schema-16 earth-on sim recording: 0 differences).
+

@@ -52,6 +52,9 @@ pub struct GodCtx {
     pub dm: bool,
     /// Settled memory lines about the invoker's region (rules 0.8.0; empty before).
     pub dm_memory: Vec<String>,
+    /// Schema 17: what the ground holds where the invoker stands and at the ruling's target now (the earth underfoot;
+    /// empty before, or calm).
+    pub earth: Vec<String>,
 }
 
 impl GodCtx {
@@ -228,6 +231,10 @@ Magnitude of the request: {mag}/10. Lightning bolts they hold: {bolts}; this cos
         table = l.render(),
         pal = if pal.is_empty() { "(none yet; one can be raised for you)".into() } else { pal.join(", ") },
     );
+    if !ctx.earth.is_empty() {
+        u.push('\n');
+        push_earth(&mut u, &ctx.earth);
+    }
     if !ctx.context.trim().is_empty() {
         u.push_str(&format!(
             "\nRecently:\n{}\n",

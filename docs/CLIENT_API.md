@@ -935,6 +935,14 @@ at one resolve as in 0.8.1.
   come from the place's words (harbour, forest, desert, hills), else a town (settlement level 2+) or the wild.
 - `affords`: the paths that may name the object (`vault`, `slide`, `wallrun`, `wallkick`, `mantle`).
 - An LLM-authored scene (`source: "llm"`) will use the same shape; not built yet.
+- Schema 17 (the earth underfoot, docs/EARTH_SIM.md §12): when the Earth simulator's field is not calm on the duel's
+  hex, the scene also carries `ground`: `{ "line": "molten lava running, smoke, the eruption began last beat",
+  "floor": "lava", "hazards": ["lava"], "slippery": false }` (`floor` one of `lava`, `burning`, `frozen`, `flooded`,
+  `rift`, `cracked`, `snow`, `ash`, `ruins`, `shaken`; `hazards` from `lava`, `fire`, `flood`, `ice`, `sea`, `rift`,
+  `cracks`, `quake`, `snow`, `swarm`, `ash`, `ruins`), the backstory ends "The ground: <line>.", and up to 4 hazard
+  objects follow the others: `lava`, `fire`, `floodwater`, `ice`, `fissure` (flat patches, `affords: []`),
+  `snowdrift` and `rubble` (`affords: ["vault"]`); their parts use the lab materials `obsidian`, `clay`, `cloth`,
+  `glass`, `ice`, `stone` with `color` and `glow`. Absent on calm ground and in older states; nothing else changes.
 
 ### `duel.panel`
 

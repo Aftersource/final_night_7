@@ -70,6 +70,8 @@ pub struct HandCtx {
     /// Rules 0.9.0 ("wills that matter"): the prompt asks for one intent per part of a will (heal, bless, arm, revive,
     /// curse, ask, offer). False for older matches (their recordings replay request for request).
     pub wills: bool,
+    /// Schema 17: what the ground holds where the demigod stands now (the earth underfoot; empty before, or calm).
+    pub earth: Vec<String>,
 }
 
 /// Rules 0.9.0: the hand's rule for wills (in its system prompt when `HandCtx::wills`).
@@ -236,6 +238,10 @@ pub fn user_prompt(ctx: &HandCtx) -> String {
                 mine.join(", ")
             ));
         }
+    }
+    if !ctx.earth.is_empty() {
+        u.push('\n');
+        push_earth(&mut u, &ctx.earth);
     }
     if ctx.final_wish {
         u.push_str(

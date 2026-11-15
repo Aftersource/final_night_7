@@ -224,6 +224,11 @@ fn narrator_world(w: &World, b: u32) -> Vec<String> {
     if w.meta.heat_death == Some(b) {
         v.push("HEAT DEATH: Entropy hit its maximum; this is the Final Night, all debts fall due, one survives.".into());
     }
+    // Schema 17 (the earth underfoot): what the ground holds under the standing demigods now (at most two lines).
+    if let Some(g) = crate::earth::here::Ground::of(w, &crate::world::settings(w)) {
+        let who: Vec<(String, LonLat)> = w.demigods.iter().filter(|d| d.alive).map(|d| (d.name.clone(), d.pos)).collect();
+        v.extend(g.lines_under(&who));
+    }
     v
 }
 
@@ -972,6 +977,10 @@ pub async fn resolve(
     // Rules 0.8.0: god-tier powers are paid now and become invocations the route sends to their gods.
     let god_tier = if w.dm_rules() { crate::godtier::process(w, beat, &turns, pantheon, &st) } else { vec![] };
     let llm_all = llm;
+    // Schema 17 (the earth underfoot): the field as it stands this beat (it steps after the acts), read by every prompt
+    // below that acts in a place. `None` (no line anywhere) before schema 17 or without the simulator.
+    let ground = crate::earth::here::Ground::of(w, &st);
+    let earth_at = |who: &[(String, LonLat)]| ground.as_ref().map(|g| g.lines_for(who)).unwrap_or_default();
 
     // ---- (0b) background: last beat's narrator and this beat's LLM folds, alongside everything until the narrate stage
     let narrate = beat
@@ -1084,6 +1093,7 @@ pub async fn resolve(
                 own: if st.rules_0_8_1 { w.bodies_of_seat(dg.seat).map(|x| x.id).collect() } else { vec![] },
                 rules_081: st.rules_0_8_1,
                 wills: st.wills_enabled,
+                earth: earth_at(&[(dg.name.clone(), dg.pos)]),
             }));
         }
     }
@@ -1329,6 +1339,24 @@ pub async fn resolve(
                     .map(|r| r.act.clone())
                     .collect();
                 let ruling = RulingId::from_ix(w.rulings.len() + god_calls.len());
+                // Schema 17: the ground where the invoker stands and where the ruling lands (its first target that has a
+                // place, else the place it names).
+                let earth = if ground.is_some() {
+                    let mut who = vec![(me.name.clone(), me.pos)];
+                    let aim = intent
+                        .targets
+                        .iter()
+                        .filter_map(|t| match t {
+                            Target::Known(r) if *r != invoker => fn7_society::geo::pos_of(w, *r).map(|p| (w.name_of(*r), p)),
+                            _ => None,
+                        })
+                        .next()
+                        .or_else(|| intent.place.and_then(|p| w.places.get(p.ix()).map(|x| (x.name.clone(), x.center))));
+                    who.extend(aim);
+                    earth_at(&who)
+                } else {
+                    vec![]
+                };
                 god_calls.push(MindCall::God(GodCtx {
                     god: *god,
                     def: def.clone(),
@@ -1358,6 +1386,7 @@ pub async fn resolve(
                     } else {
                         vec![]
                     },
+                    earth,
                 }));
                 let g = &mut w.gods[god.ix()];
                 g.attention = 1.0;
@@ -1550,6 +1579,13 @@ pub async fn resolve(
             orders,
             memory: recall(w, Ref::Agent(a.id), &a.scope, 6),
             items_by_engine: w.two_bodies(),
+            // Schema 17: the ground where it acts (its body, else its demigod).
+            earth: body
+                .map(Ref::Char)
+                .or(demigod.map(Ref::Demigod))
+                .and_then(|r| fn7_society::geo::pos_of(w, r).map(|p| (w.name_of(r), p)))
+                .map(|x| earth_at(&[x]))
+                .unwrap_or_default(),
         }));
     }
     let eliminated_names: Vec<String> = w
@@ -1577,6 +1613,14 @@ pub async fn resolve(
                 .take(4)
                 .map(|m| format!("Lasting here: {} (x{}): {}", m.name, m.stacks, m.description)),
         );
+        // Schema 17: the ground where the acts happen (each actor's cell; at most two lines).
+        if ground.is_some() {
+            let who: Vec<(String, LonLat)> = acts
+                .iter()
+                .filter_map(|a| fn7_society::geo::pos_of(w, a.actor).map(|p| (w.name_of(a.actor), p)))
+                .collect();
+            world_lines.extend(earth_at(&who));
+        }
         let p = &w.places[place.ix()];
         let mut present = present_in(w, place);
         present.truncate(30);

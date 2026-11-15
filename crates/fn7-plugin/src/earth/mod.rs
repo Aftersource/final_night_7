@@ -7,13 +7,18 @@
 //! - [`codec`]: how cells are packed in the state and in keyframes.
 //! - [`rules`]: the simulator inside a match: casts feed it, it steps each beat, and what it did goes back through
 //!   the rules (damage, crowds, settlements, roads, shrines, encounters, the DM's memory, public events).
+//! - [`here`]: the earth underfoot (schema 17): one short line of what the field holds at a place, for the prompts
+//!   that act there, and the ground of a duel's stage.
 //! - [`view`]: what clients get (`earth.delta`, `earth.phenomena`, `game.earth`, `game.earth_at`), finer zoom levels
 //!   derived from the coarse truth, and the ASCII map.
 
 pub use fn7_earth::{codec, grid, sim};
+pub mod here;
 pub mod rules;
 pub mod view;
 
+#[cfg(test)]
+mod here_tests;
 #[cfg(test)]
 mod rules_tests;
 #[cfg(test)]

@@ -59,6 +59,9 @@ pub struct RamifyCtx {
     pub mods: Vec<String>,
     /// The Entropy line ("Entropy 42/100 (physics): ...").
     pub world: String,
+    /// Schema 17: what is already on the ground where the casts land, and what each cast meets there (the earth
+    /// underfoot; empty before, or calm).
+    pub earth: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -186,6 +189,10 @@ pub fn user_prompt(ctx: &RamifyCtx) -> String {
     );
     if !ctx.mods.is_empty() {
         u.push_str(&format!("\nAlready lasting here:\n{}\n", ctx.mods.join("\n")));
+    }
+    if !ctx.earth.is_empty() {
+        u.push('\n');
+        push_earth(&mut u, &ctx.earth);
     }
     u.push_str("\nReply with JSON: your speech and the ramifications.");
     u
@@ -526,6 +533,7 @@ mod tests {
             present: vec![Entity::new(Ref::Cluster(fn7_model::ClusterId(2)), "Dockworkers of Lagos", "~4000")],
             mods: vec![],
             world: "Entropy 10/100 (calm)".into(),
+            earth: vec![],
         }
     }
 
