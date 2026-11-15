@@ -1,0 +1,1527 @@
+{
+  "$defs": {
+    "LonLat": {
+      "description": "[longitude, latitude] in degrees (WGS84). Note the order: longitude first.",
+      "items": {
+        "type": "number"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+    },
+    "RecallPath": {
+      "description": "How one granular fact is recalled: its key, its stored answer, its entry, the roll-ups citing it, the prompts carrying it now.",
+      "properties": {
+        "fact": {
+          "description": "",
+          "enum": [
+            "d20",
+            "encounter",
+            "earth",
+            "settled",
+            "person_memory"
+          ],
+          "type": "string"
+        },
+        "highlight": {
+          "description": "Tree node ids to light up.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "steps": {
+          "description": "",
+          "items": {
+            "$ref": "#/$defs/RecallStep"
+          },
+          "type": "array"
+        },
+        "title": {
+          "description": "",
+          "type": "string"
+        }
+      },
+      "required": [
+        "fact",
+        "title",
+        "highlight",
+        "steps"
+      ],
+      "type": "object"
+    },
+    "RecallStep": {
+      "description": "One step of a recall path. `step` says which; the fields are those of that step.",
+      "properties": {
+        "about": {
+          "description": "",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "type": "array"
+        },
+        "asked_again": {
+          "description": "",
+          "type": "string"
+        },
+        "at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LonLat"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": ""
+        },
+        "beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cell": {
+          "description": "",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cells": {
+          "description": "",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "confidence": {
+          "description": "",
+          "type": "number"
+        },
+        "derivation": {
+          "description": "",
+          "type": "string"
+        },
+        "entries": {
+          "description": "chain: the entries under one encounter, oldest first.",
+          "items": {
+            "$ref": "#/$defs/TreeEntry"
+          },
+          "type": "array"
+        },
+        "entry": {
+          "$ref": "#/$defs/TreeEntry"
+        },
+        "hedge": {
+          "description": "",
+          "type": "string"
+        },
+        "items": {
+          "description": "rollups: the roll-ups citing it; prompts: each prompt.",
+          "items": {
+            "anyOf": [
+              {
+                "description": "One prompt or reader and whether it carries the fact now.",
+                "properties": {
+                  "at": {
+                    "$ref": "#/$defs/LonLat"
+                  },
+                  "included": {
+                    "description": "",
+                    "type": "boolean"
+                  },
+                  "line": {
+                    "description": "The fact's own line in it.",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "lines": {
+                    "description": "dm_memory: the exact lines (dm::prompt_lines), oldest first.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "of": {
+                    "description": "",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "place": {
+                    "description": "",
+                    "type": "string"
+                  },
+                  "prompt": {
+                    "description": "",
+                    "enum": [
+                      "dm_memory",
+                      "memory_summary",
+                      "earth",
+                      "recall",
+                      "game.person",
+                      "fold"
+                    ],
+                    "type": "string"
+                  },
+                  "rank": {
+                    "description": "recall: its rank among its owner's memories.",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "reader": {
+                    "description": "Who reads it.",
+                    "type": "string"
+                  },
+                  "rollup_id": {
+                    "description": "",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "why": {
+                    "description": "Why it is not there.",
+                    "type": "string"
+                  },
+                  "window_complete": {
+                    "description": "recall: the ranking saw the whole store.",
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "prompt",
+                  "reader",
+                  "included"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "A roll-up that cites it (DM), or a society node it counts in (minds).",
+                "properties": {
+                  "beat": {
+                    "description": "",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "cites_this": {
+                    "description": "",
+                    "type": "boolean"
+                  },
+                  "counted_as": {
+                    "description": "",
+                    "type": "string"
+                  },
+                  "facts": {
+                    "description": "",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "how": {
+                    "description": "",
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": [
+                      "integer",
+                      "string"
+                    ]
+                  },
+                  "kind_count": {
+                    "description": "",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "name": {
+                    "description": "",
+                    "type": "string"
+                  },
+                  "place": {
+                    "description": "",
+                    "type": "string"
+                  },
+                  "query_key": {
+                    "description": "",
+                    "type": "string"
+                  },
+                  "text": {
+                    "description": "",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "type": "array"
+        },
+        "key": {
+          "description": "query_key: the question's key.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "key_hash": {
+          "description": "query_key (d20): hash_str(key), the second seed of the die.",
+          "type": "string"
+        },
+        "keys": {
+          "description": "query_key (encounter): every key of its chain.",
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": "array"
+        },
+        "kind": {
+          "description": "",
+          "type": "string"
+        },
+        "memory": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "modifier": {
+          "description": "",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "owner": {
+          "$ref": "#/$defs/Ref"
+        },
+        "owner_name": {
+          "description": "",
+          "type": "string"
+        },
+        "phenomenon": {
+          "description": "",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "public": {
+          "description": "",
+          "type": "boolean"
+        },
+        "reason": {
+          "description": "",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reproduces": {
+          "description": "query_key (d20): the seeded die gives the stored face again.",
+          "type": "boolean"
+        },
+        "roll": {
+          "description": "",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "row": {
+          "$ref": "#/$defs/Ref"
+        },
+        "salience": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "source": {
+          "description": "",
+          "type": "string"
+        },
+        "step": {
+          "description": "",
+          "enum": [
+            "query_key",
+            "stored_roll",
+            "memory_entry",
+            "rollups",
+            "prompts",
+            "chain",
+            "field",
+            "ledger_row",
+            "mind_memory"
+          ],
+          "type": "string"
+        },
+        "target_dc": {
+          "description": "",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "text": {
+          "description": "",
+          "type": "string"
+        },
+        "total": {
+          "description": "",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "verb": {
+          "description": "",
+          "type": "string"
+        },
+        "verdict": {
+          "description": "",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "who": {
+          "description": "",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "who_name": {
+          "description": "",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "why": {
+          "description": "",
+          "type": "string"
+        }
+      },
+      "required": [
+        "step"
+      ],
+      "type": "object"
+    },
+    "Ref": {
+      "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row, ce cell, mb mob. Stable for the whole match.",
+      "examples": [
+        "ch:12"
+      ],
+      "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg|ce|mb):\\d+$",
+      "type": "string"
+    },
+    "Role": {
+      "description": "A person's part in the society.",
+      "enum": [
+        "commoner",
+        "notable",
+        "ringleader",
+        "general",
+        "captain",
+        "soldier",
+        "hero",
+        "coward",
+        "witness",
+        "prophet",
+        "paladin",
+        "deserter",
+        "avenger"
+      ],
+      "type": "string"
+    },
+    "TreeEntry": {
+      "description": "A DM memory entry in full (as `game.memory` gives it, without `data`), or a hidden one as {id, beat, kind, public: false, hidden: true}.",
+      "properties": {
+        "beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "hidden": {
+          "description": "A private entry, counted only.",
+          "type": "boolean"
+        },
+        "id": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "description": "",
+          "type": "string"
+        },
+        "place": {
+          "description": "",
+          "type": "string"
+        },
+        "public": {
+          "description": "",
+          "type": "boolean"
+        },
+        "query_key": {
+          "description": "",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scope": {
+          "description": "",
+          "enum": [
+            "cell",
+            "settlement",
+            "region",
+            "world"
+          ],
+          "type": "string"
+        },
+        "text": {
+          "description": "",
+          "type": "string"
+        },
+        "up": {
+          "description": "Its ancestors' keys, nearest first.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "beat",
+        "kind",
+        "public"
+      ],
+      "type": "object"
+    },
+    "TreeFact": {
+      "description": "One fact as a node shows it (newest first): a DM memory entry (`store: dm`) or a mind's memory (`store: minds`, kind `mind.<kind>`).",
+      "properties": {
+        "beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "confidence": {
+          "description": "A memory's confidence (1 = true memory; rumors less).",
+          "type": "number"
+        },
+        "id": {
+          "description": "The entry's id (`dm.memory[id]`) or the memory's id.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "description": "`dice.rolled`, `encounter.marked`, `earth.quake`, `memory.rollup`, `place.observed`, `story.scar`, `mind.witnessed` ...",
+          "type": "string"
+        },
+        "owner": {
+          "$ref": "#/$defs/Ref"
+        },
+        "place": {
+          "description": "The entry's place key (a hex key, a `pl:` ref or \"world\").",
+          "type": "string"
+        },
+        "public": {
+          "description": "false only for a private fact shown to its own seat.",
+          "type": "boolean"
+        },
+        "query_key": {
+          "description": "The question it answers, when it is one the DM may be asked again.",
+          "type": "string"
+        },
+        "row": {
+          "$ref": "#/$defs/Ref"
+        },
+        "text": {
+          "description": "The entry's line (an observation, which has none: what was seen).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "beat",
+        "kind",
+        "text",
+        "public"
+      ],
+      "type": "object"
+    },
+    "TreeNode": {
+      "description": "One node of the tree of consequence. Draw levels as tiers, size by facts_total, glow by last_beat, edges as roll-ups.",
+      "properties": {
+        "alive": {
+          "description": "",
+          "type": "boolean"
+        },
+        "cell_kind": {
+          "description": "gang, squad, congregation, crew, militia.",
+          "type": "string"
+        },
+        "center": {
+          "$ref": "#/$defs/LonLat"
+        },
+        "children": {
+          "description": "The path child and up to per_node busiest siblings, busiest first.",
+          "items": {
+            "$ref": "#/$defs/TreeNode"
+          },
+          "type": "array"
+        },
+        "children_total": {
+          "description": "Children it has (regions; settlements + open country; hexes the memory knows + a city's districts; crowds; cells; people; who stands on a people hex).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "collapsed": {
+          "description": "A sibling shown by its counts only.",
+          "type": "boolean"
+        },
+        "density": {
+          "description": "How dense the record is.",
+          "properties": {
+            "area_m2": {
+              "description": "The node's area in m² (null: no area).",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "log10_per_km2": {
+              "description": "log10 of facts per km² (the planet ~ -5.5, a 3 m hex ~ +6): one scale for every tier.",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "per_beat": {
+              "description": "facts_total per beat of the window.",
+              "type": "number"
+            },
+            "per_million_km2": {
+              "description": "facts_total per million km² (null: no area).",
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "per_beat",
+            "per_million_km2",
+            "log10_per_km2",
+            "area_m2"
+          ],
+          "type": "object"
+        },
+        "earth_line": {
+          "description": "The earth line the prompts acting here carry now (null: calm, or a past beat).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "facts_here": {
+          "description": "Facts at the node itself.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "facts_total": {
+          "description": "Facts at it or rolled up into it (public and private).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "families": {
+          "additionalProperties": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "description": "Facts by family (the kind before its dot: earth, encounter, settlement, dice, mind ...).",
+          "type": "object"
+        },
+        "first_beat": {
+          "description": "",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "hex_level": {
+          "description": "3 km, 30 m, 3 m.",
+          "enum": [
+            "villages",
+            "houses",
+            "people"
+          ],
+          "type": "string"
+        },
+        "id": {
+          "description": "The node: \"world\", a `pl:` ref (region, settlement, city district), `open:pl:N` (a region's open country), a hex key, `cl:`, `ce:`, `ch:` or `dg:`.",
+          "type": "string"
+        },
+        "key": {
+          "description": "Its memory place key.",
+          "type": "string"
+        },
+        "kind": {
+          "description": "",
+          "enum": [
+            "world",
+            "region",
+            "settlement",
+            "open",
+            "hex",
+            "district",
+            "crowd",
+            "cell",
+            "person",
+            "demigod"
+          ],
+          "type": "string"
+        },
+        "kinds": {
+          "additionalProperties": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "description": "Facts by kind.",
+          "type": "object"
+        },
+        "last_beat": {
+          "description": "The newest fact's beat (glow = recency).",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "level": {
+          "description": "The tier (see `levels`).",
+          "maximum": 6,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "description": "",
+          "type": "string"
+        },
+        "observed_beat": {
+          "description": "A hex: when the DM last recorded it (`place.observed`), null: never.",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "on_path": {
+          "description": "On the path to the focus (expanded).",
+          "type": "boolean"
+        },
+        "private_facts": {
+          "description": "Facts that are not public: counted, never shown (except to their own seat).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Role"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rolled_up_from": {
+          "description": "Busiest first (only on the path).",
+          "items": {
+            "description": "A child whose facts rolled up here.",
+            "properties": {
+              "facts": {
+                "description": "",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "from": {
+                "description": "The child's id.",
+                "type": "string"
+              },
+              "name": {
+                "description": "",
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "name",
+              "facts"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "rollup": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TreeRollup"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sample_facts": {
+          "description": "The newest facts shown here or below (at most per_node; only on the path).",
+          "items": {
+            "$ref": "#/$defs/TreeFact"
+          },
+          "type": "array"
+        },
+        "settlement_level": {
+          "description": "A settlement's level now.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "size": {
+          "description": "A crowd's or cell's people.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "store": {
+          "description": "dm: the DM's place × time memory; minds: the minds' memories (fn7-memory).",
+          "enum": [
+            "dm",
+            "minds"
+          ],
+          "type": "string"
+        },
+        "story": {
+          "description": "A demigod's story piece now.",
+          "properties": {
+            "followers": {
+              "description": "",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "scars": {
+              "description": "",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "wardrobe": {
+              "description": "",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "followers",
+            "wardrobe",
+            "scars"
+          ],
+          "type": "object"
+        },
+        "title": {
+          "description": "",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "level",
+        "name",
+        "store",
+        "children_total",
+        "facts_total",
+        "facts_here",
+        "private_facts",
+        "density",
+        "first_beat",
+        "last_beat",
+        "kinds",
+        "families",
+        "sample_facts",
+        "rolled_up_from",
+        "rollup",
+        "on_path",
+        "collapsed",
+        "children"
+      ],
+      "type": "object"
+    },
+    "TreeRollup": {
+      "description": "The node's latest `memory.rollup` (dm::integrate rolls every beat's public facts up the hierarchy), and the exact entries it cites.",
+      "properties": {
+        "beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cites": {
+          "description": "Entry ids it cites, newest first (at most 2 × per_node).",
+          "items": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "cites_total": {
+          "description": "Entries it cites.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "counts": {
+          "additionalProperties": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "description": "Facts it counted, by kind.",
+          "type": "object"
+        },
+        "exact": {
+          "description": "All of them found in the window (cites_total = facts).",
+          "type": "boolean"
+        },
+        "facts": {
+          "description": "Facts it counted.",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "id": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "query_key": {
+          "description": "`rollup:<place>:<beat>`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rollups": {
+          "description": "Roll-ups at this place in the window.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "text": {
+          "description": "",
+          "type": "string"
+        }
+      },
+      "required": [
+        "rollups",
+        "id",
+        "beat",
+        "query_key",
+        "text",
+        "counts",
+        "facts",
+        "cites",
+        "cites_total",
+        "exact"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "query_memory_tree.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "`game.memory_tree`: the tree of consequence, the DM's place × time memory as the exact tree it is (docs/CLIENT_API.md \"Tree of consequence\"). Read-only, bounded, deterministic.",
+  "properties": {
+    "as_of": {
+      "description": "What `beat` shows: the memory exactly as it stood; the society and the earth now (or omitted) for a past beat.",
+      "properties": {
+        "beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "earth": {
+          "description": "",
+          "enum": [
+            "exact",
+            "omitted"
+          ],
+          "type": "string"
+        },
+        "memory": {
+          "description": "",
+          "enum": [
+            "exact"
+          ],
+          "type": "string"
+        },
+        "society": {
+          "description": "",
+          "enum": [
+            "exact",
+            "now"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "beat",
+        "memory",
+        "society",
+        "earth"
+      ],
+      "type": "object"
+    },
+    "beat": {
+      "description": "Now.",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "bounds": {
+      "description": "What one call read.",
+      "properties": {
+        "dm_window": {
+          "description": "",
+          "properties": {
+            "complete": {
+              "description": "Everything was read.",
+              "type": "boolean"
+            },
+            "entries": {
+              "description": "",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "from_beat": {
+              "description": "",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "to_beat": {
+              "description": "",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "from_beat",
+            "to_beat",
+            "entries",
+            "complete"
+          ],
+          "type": "object"
+        },
+        "ledger_rows_read": {
+          "description": "Ledger rows looked up by index.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "minds_window": {
+          "description": "",
+          "properties": {
+            "complete": {
+              "description": "Everything was read.",
+              "type": "boolean"
+            },
+            "from_beat": {
+              "description": "",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "items": {
+              "description": "",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "to_beat": {
+              "description": "",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "from_beat",
+            "to_beat",
+            "items",
+            "complete"
+          ],
+          "type": "object"
+        },
+        "scan_cap": {
+          "description": "At most this many newest entries of each store.",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "scan_cap",
+        "dm_window",
+        "minds_window",
+        "ledger_rows_read"
+      ],
+      "type": "object"
+    },
+    "depth": {
+      "description": "",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "focus": {
+      "description": "The focus as asked (or the default: the busiest region now).",
+      "properties": {
+        "arg": {
+          "description": "",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "default": {
+          "description": "",
+          "type": "boolean"
+        },
+        "id": {
+          "description": "",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "description": "",
+          "enum": [
+            "region",
+            "hex",
+            "place",
+            "demigod",
+            "person"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "description": "",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "why": {
+          "description": "",
+          "type": "string"
+        }
+      },
+      "required": [
+        "arg",
+        "default",
+        "kind",
+        "id",
+        "name"
+      ],
+      "type": "object"
+    },
+    "levels": {
+      "description": "",
+      "items": {
+        "description": "One tier, for the legend.",
+        "properties": {
+          "kinds": {
+            "description": "",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "level": {
+            "description": "",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "name": {
+            "description": "",
+            "type": "string"
+          },
+          "scale": {
+            "description": "",
+            "type": "string"
+          },
+          "store": {
+            "description": "",
+            "type": "string"
+          }
+        },
+        "required": [
+          "level",
+          "kinds",
+          "name",
+          "scale",
+          "store"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "per_node": {
+      "description": "",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "recall_paths": {
+      "description": "3-5 examples near the focus: a d20, an encounter, an earth event, a settled fact in the DM's prompt, a person's memory.",
+      "items": {
+        "$ref": "#/$defs/RecallPath"
+      },
+      "type": "array"
+    },
+    "totals": {
+      "description": "The whole state's record.",
+      "properties": {
+        "crowds": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "dm_memory": {
+          "description": "The DM's memory (`dm.memory`).",
+          "properties": {
+            "by_kind": {
+              "additionalProperties": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "description": "",
+              "type": "object"
+            },
+            "by_scope": {
+              "additionalProperties": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "description": "",
+              "type": "object"
+            },
+            "entries": {
+              "description": "All entries.",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "families": {
+              "additionalProperties": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "description": "",
+              "type": "object"
+            },
+            "first_beat": {
+              "description": "",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "last_beat": {
+              "description": "",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "private": {
+              "description": "",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "public": {
+              "description": "",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "read": {
+              "description": "Entries read (the window).",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "entries",
+            "read",
+            "public",
+            "private",
+            "by_scope",
+            "by_kind",
+            "families",
+            "first_beat",
+            "last_beat"
+          ],
+          "type": "object"
+        },
+        "hexes_observed": {
+          "description": "Distinct hexes with a `place.observed` entry in the window.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ledger_rows": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "minds": {
+          "description": "The minds' memories (`memory.items`).",
+          "properties": {
+            "by_owner": {
+              "additionalProperties": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "description": "Read items by owner prefix (ch, gr, dg, cl, gd, ag).",
+              "type": "object"
+            },
+            "items": {
+              "description": "All items.",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "live": {
+              "description": "Neither folded nor forgotten, with text.",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "read": {
+              "description": "Items read (the window).",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "items",
+            "read",
+            "live",
+            "by_owner"
+          ],
+          "type": "object"
+        },
+        "observations": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "persons_known": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "places": {
+          "description": "",
+          "properties": {
+            "districts": {
+              "description": "",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "regions": {
+              "description": "",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "settlements": {
+              "description": "",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "regions",
+            "settlements",
+            "districts"
+          ],
+          "type": "object"
+        },
+        "society_cells": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "state_bytes": {
+          "description": "The state's JSON size by table, estimated cheaply (lists sampled).",
+          "properties": {
+            "estimated": {
+              "description": "",
+              "type": "boolean"
+            },
+            "tables": {
+              "description": "Biggest first.",
+              "items": {
+                "description": "",
+                "properties": {
+                  "bytes": {
+                    "description": "",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "rows": {
+                    "description": "",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "table": {
+                    "description": "",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "table",
+                  "bytes",
+                  "rows"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "total": {
+              "description": "",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "total",
+            "tables"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "dm_memory",
+        "minds",
+        "ledger_rows",
+        "persons_known",
+        "society_cells",
+        "crowds",
+        "hexes_observed",
+        "observations",
+        "places",
+        "state_bytes"
+      ],
+      "type": "object"
+    },
+    "tree": {
+      "$ref": "#/$defs/TreeNode"
+    },
+    "visibility": {
+      "description": "",
+      "properties": {
+        "rule": {
+          "description": "",
+          "type": "string"
+        },
+        "seat": {
+          "description": "The asking seat (null: public).",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "seat",
+        "rule"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "beat",
+    "as_of",
+    "depth",
+    "per_node",
+    "visibility",
+    "bounds",
+    "focus",
+    "levels",
+    "tree",
+    "recall_paths",
+    "totals"
+  ],
+  "title": "game.memory_tree",
+  "type": "object",
+  "x-applies-to": "game.memory_tree reply (WebSocket), GET /api/rooms/{code}/query/memory_tree",
+  "x-args": {
+    "additionalProperties": true,
+    "description": "Over HTTP every arg is a query-string parameter (numbers as numeric strings). Unknown args are ignored.",
+    "properties": {
+      "beat": {
+        "description": "The memory as it stood at the end of this beat (default: now).",
+        "minimum": 0,
+        "type": [
+          "integer",
+          "string"
+        ]
+      },
+      "depth": {
+        "description": "Tiers below the world to show (default and most 6).",
+        "maximum": 6,
+        "minimum": 1,
+        "type": [
+          "integer",
+          "string"
+        ]
+      },
+      "focus": {
+        "description": "A hex cell key (\"<face>:<level>:<q>:<r>\"), a place (`pl:N`: region, city or city district), a demigod (`dg:N`) or a person (`ch:N`). Default: the busiest region now.",
+        "type": "string"
+      },
+      "per_node": {
+        "description": "Samples, roll-up sources and collapsed siblings per node, at most (default 6, at most 12).",
+        "maximum": 12,
+        "minimum": 0,
+        "type": [
+          "integer",
+          "string"
+        ]
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "x-description": "The tree of consequence: the DM's place × time memory as the exact tree it is, from the world down to a focus (default: the busiest region now): world → region → settlement → villages hex (3 km) → houses hex (30 m) → people hex (3 m), with a planet city's society branch (district → crowd → cell → person). Each node: facts_total (memory entries at it or rolled up into it), facts_here, private_facts (counted, never shown), density (per beat, per km²), first/last beat, kinds, newest sample_facts, rolled_up_from (which children rolled up into it) and its latest memory.rollup with the entries it cites. Plus recall paths (a d20's query key → its stored roll → the entry → the roll-ups citing it → the prompts carrying it now; an encounter, an earth event, a settled fact, a person's memory) and totals (entries by scope and kind, ledger rows, persons, observed hexes, the state's bytes by table). Read-only, bounded (at most 2,000 newest entries of each store); `beat`: the memory as it stood then (the society and earth are the live ones).",
+  "x-public": true
+}
