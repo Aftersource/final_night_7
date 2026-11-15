@@ -194,3 +194,37 @@ fn size_and_time_budgets() {
     let total = t.elapsed().as_millis();
     assert!(total < 1500 && worst < 250_000, "the whole duel {total} ms, worst panel {worst} us");
 }
+
+/// A duel in the shapes the rules stream today (`duel.scene` with `a_start` / `b_start`, `duel.panel` with
+/// `contacts[].on = "b"`, a zone in `at`, `impulse` 0..1), through the live seam.
+#[test]
+fn a_server_shaped_duel_through_the_live_seam() {
+    let scene = serde_json::json!({ "event": "duel.scene", "duel_id": "duel:t:1", "a_start": [-1, 0], "b_start": [2, 0], "objects": [
+        { "id": "crate_a", "kind": "crate", "at": [2, 1], "parts": [{ "shape": "box", "size": [0.8, 0.8, 0.8], "offset": [0, 0.4, 0], "material": "wood", "fill": 0.15 }] }] });
+    let fighter = |segs: serde_json::Value| serde_json::json!({ "at": [0, 0], "segs": segs });
+    let panels = vec![
+        serde_json::json!({ "event": "duel.panel", "n": 0, "kind": "intro", "play_ms": 2600, "a": fighter(serde_json::json!([{ "clip": "idle_guard", "ms": 2600 }])), "b": fighter(serde_json::json!([{ "clip": "idle_guard", "ms": 2600 }])), "contacts": [] }),
+        serde_json::json!({ "event": "duel.panel", "n": 1, "kind": "exchange", "play_ms": 2600,
+            "a": fighter(serde_json::json!([{ "clip": "run", "loop": true, "ms": 390, "path": "dash", "to": [0, 0], "face": "foe" }, { "clip": "strike_side", "ms": 910, "face": "foe" }, { "clip": "idle_guard", "ms": 1300 }])),
+            "b": fighter(serde_json::json!([{ "clip": "idle_guard", "ms": 2600 }])),
+            "contacts": [{ "at": "belly", "by": "a", "impulse": 0.25, "kind": "hand", "limb": "hand_r", "miss": false, "on": "b", "ranged": false, "t_ms": 715 },
+                         { "at": null, "by": "b", "impulse": 0.5, "kind": "kick", "limb": "foot_r", "miss": false, "on": "crate_a", "ranged": false, "t_ms": 1800 }] }),
+        serde_json::json!({ "event": "duel.panel", "n": 2, "kind": "outro", "play_ms": 2600, "a": fighter(serde_json::json!([])), "b": fighter(serde_json::json!([])), "contacts": [] }),
+    ];
+    let skins = ["obsidian", "gold"];
+    let live = fn7_duelsim::live_with_sims("duel:t:1", &scene, skins, 42, &panels, 0);
+    let f = fn7_duelsim::fighters_of(&scene, skins[0], skins[1]);
+    let plain = with_sims(&scene, &f, fn7_duelsim::seed32(42), &panels, 0);
+    assert_eq!(live, plain, "the cache gives the same bytes");
+    let sim = &live[1]["sim"];
+    // a's punch: a strike target on b's belly anchor (1.04 m up), on "b", from 200 ms before the contact
+    let la = &sim["fighters"]["a"]["limbs"].as_array().unwrap().iter().find(|l| l[5] == "strike").expect("a strike target").clone();
+    assert_eq!((la[0].as_i64(), la[4].as_str(), la[12].as_str(), la[13].as_str()), (Some(515), Some("hand_r"), Some("b"), Some("belly")));
+    assert_eq!(la[7].as_i64(), Some(1040), "y in mm");
+    // b's kick on the crate: the crate moves, so it has a keyframe track and a hit event by b
+    assert!(sim["events"].as_array().unwrap().iter().any(|e| e["e"] == "hit" && e["obj"] == "crate_a" && e["by"] == "b"));
+    assert!(sim["bodies"].as_array().unwrap().iter().any(|b| b["obj"] == "crate_a"));
+    let pr = fn7_duelsim::live_present("duel:t:1", &scene, skins, 42, &panels[..2]);
+    assert_eq!(pr["sim"], live[1]["sim"]);
+    assert_eq!(pr["at"]["n"], 1);
+}

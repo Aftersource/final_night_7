@@ -1,22 +1,30 @@
 //! The seam between the duel rules and the simulation, and the JSON a client gets.
 //!
-//! **What the lead wires** (after `backend/ai-duel-typing` merges; nothing in `fn7-plugin` calls this crate yet):
+//! **What the lead wires** once `backend/duel-weapons` has merged (nothing in `fn7-plugin` calls this crate yet; the
+//! crate is already a workspace member):
 //!
 //! ```text
-//! // Cargo.toml (workspace): members += "crates/fn7-duelsim"; [workspace.dependencies] fn7-duelsim = { path = "crates/fn7-duelsim" }
 //! // crates/fn7-plugin/Cargo.toml: fn7-duelsim.workspace = true
-//! // panel.rs, `since()` (the one place panels leave the bout for `also[]` and the outcomes), 3 lines:
-//! let f = fn7_duelsim::fighters_of(&b.scene[0], skin_a, skin_b);          // the skins as of the lock
-//! let sims = fn7_duelsim::with_sims(&b.scene[0], &f, fn7_duelsim::seed32(b.duel.seed), &b.panels, from);
-//! out.extend(sims);                                                        // instead of b.panels.iter().skip(from).cloned()
-//! // present.rs, next to `"scene": b.scene, "panels": b.panels`:
-//! "sim": fn7_duelsim::present_sim(&b.scene[0], &f, fn7_duelsim::seed32(b.duel.seed), &b.panels),
-//! // duel.scene (once, at the lock): scene["sim"] = fn7_duelsim::scene_sim(&scene, &f);
+//! // 1. panel.rs, `since()`: give it the skins as of the lock (lock_json(w, d)["a"/"b"]["skin"]) and replace
+//! //    `out.extend(b.panels.iter().skip(from).cloned());` with:
+//! let scene = b.scene.as_ref().unwrap_or(&Value::Null);
+//! out.extend(fn7_duelsim::live_with_sims(&b.duel.id, scene, [skin_a, skin_b], b.duel.seed, &b.panels, from));
+//! // 2. present.rs `duel_json`, next to `"scene": b.scene, "panels": b.panels` (panels there get no sim; this is the
+//! //    stage as the newest panel starts plus that panel's sim, for a reconnect):
+//! "sim": fn7_duelsim::live_present(&d.id, b.scene.as_ref().unwrap_or(&Value::Null), [skin_a, skin_b], d.seed, &b.panels),
+//! // 3. duel.scene (once, at the lock), for the masses, anchors and affordances: scene["sim"] = fn7_duelsim::scene_sim(&scene, &f);
 //! ```
 //!
-//! The `sim` objects are **computed when a payload is built and never stored**: the bout keeps its panels exactly as
-//! today, so the state schema, the snapshots and every recording are untouched. They are a pure function of
-//! (scene, the two skins, the panels so far, the seed).
+//! **Never stored, never recorded.** The `sim` objects are a pure function of (scene, the two skins, the panels so far,
+//! the duel's seed), computed when a payload is built. The bout keeps its panels exactly as today, so the state
+//! schema, the snapshots and every recording are untouched. Attach them only to what is *sent* (the `duel.panel`
+//! stream, `present.duels[]`), not to a recorded outcome, or gate that on a new state schema: a recording made before
+//! the wiring must still replay with 0 differences.
+//!
+//! **Cost.** The live functions keep the newest simulation of up to 16 duels in a process-wide [`SimCache`], so a
+//! duel streaming panel by panel bakes each panel once (0.4 to 50 ms in release on the lab duel; docs/DUEL_SIM.md).
+//! A miss (a restart, a replay, a fork, a rewind) re-bakes from the panels and gives the same bytes: about 150 ms for
+//! the whole 11-panel lab duel.
 
 use crate::bake::{FighterSpec, On, PanelBake, Sim};
 use crate::materials::{figure, table};
@@ -260,4 +268,24 @@ impl SimCache {
         let (sims, at) = self.sims(key, scene, fighters, seed, panels);
         json!({ "at": at, "sim": sims[sims.len() - 1] })
     }
+}
+
+fn live() -> &'static std::sync::Mutex<SimCache> {
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<SimCache>> = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| std::sync::Mutex::new(SimCache::new(16)))
+}
+/// THE SEAM for `panel.rs`: `panels[from..]`, each with its `sim`, through the process-wide cache. `scene`: the
+/// duel's `duel.scene` (`a_start`, `b_start`, `objects`); `skins`: the two fighters' skins as of the lock; `seed`: the
+/// duel's seed. Deterministic: the same arguments give the same bytes whether the cache hits or not.
+pub fn live_with_sims(duel_id: &str, scene: &Value, skins: [&str; 2], seed: u64, panels: &[Value], from: usize) -> Vec<Value> {
+    let f = fighters_of(scene, skins[0], skins[1]);
+    let mut c = live().lock().unwrap_or_else(|e| e.into_inner());
+    c.with_sims(duel_id, scene, &f, seed32(seed), panels, from)
+}
+/// For `present.duels[].sim`: `{ at, sim }` (the stage as the newest panel starts, that panel's sim); null before
+/// the first panel. Through the process-wide cache.
+pub fn live_present(duel_id: &str, scene: &Value, skins: [&str; 2], seed: u64, panels: &[Value]) -> Value {
+    let f = fighters_of(scene, skins[0], skins[1]);
+    let mut c = live().lock().unwrap_or_else(|e| e.into_inner());
+    c.present(duel_id, scene, &f, seed32(seed), panels)
 }
