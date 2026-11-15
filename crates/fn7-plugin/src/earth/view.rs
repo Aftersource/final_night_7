@@ -488,6 +488,13 @@ fn load(state: &Value, beat: Option<u32>) -> Result<Loaded, String> {
     }
 }
 
+/// The field of a match state (a `World` as JSON) at `beat` (None: now), rebuilt from a keyframe when it is a past
+/// beat, with the simulator's stored state. For tools (the `fn7-earth-view` CLI).
+pub fn field_at(state: &Value, beat: Option<u32>) -> Result<(Sim, EarthState), String> {
+    let l = load(state, beat)?;
+    Ok((l.sim, l.state))
+}
+
 fn uint(a: &Value, k: &str) -> Result<Option<u64>, String> {
     match a.get(k) {
         None | Some(Value::Null) => Ok(None),
