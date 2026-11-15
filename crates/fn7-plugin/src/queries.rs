@@ -139,6 +139,15 @@ pub fn specs() -> Vec<QuerySpec> {
                          "beat": { "type": ["integer", "string"], "minimum": 0, "description": "The memory as it stood at the end of this beat (default: now)." },
                          "depth": { "type": ["integer", "string"], "minimum": 1, "maximum": 6, "description": "Tiers below the world to show (default and most 6)." },
                          "per_node": { "type": ["integer", "string"], "minimum": 0, "maximum": 12, "description": "Samples, roll-up sources and collapsed siblings per node, at most (default 6, at most 12)." } }), &[])),
+        spec("people", true,
+             "People and houses: every living person in the board disc (22 rings at `level`) around `cell`, nearest first (at most `limit`, default 100, most 300): name, sprite role (16) and look (3) with its library picture (`sprite`), and what they are doing now (`doing`, `activity`, `moving`, `to_cell`: an event reaction, else a routine by role and time of day), their home and work hexes and a small `group` id for people doing the same thing at the same spot. Read-only, deterministic, cheap.",
+             obj(json!({ "cell": { "type": "string", "description": "A hex cell key (\"<face>:<level>:<q>:<r>\"): the board's centre." },
+                         "level": { "type": "string", "enum": ["regions", "villages", "houses", "people"], "description": "The board's level (default: the cell key's)." },
+                         "limit": limit(100, 300) }), &["cell"])),
+        spec("buildings", true,
+             "People and houses: every settlement house hex in the board disc (22 rings at `level`) around `cell`: its building kind (hut, cottage, longhouse, manor, temple, market_stall, dock, tower), look (poor, common, rich) and library picture (`sprite`). Read-only, deterministic, cheap.",
+             obj(json!({ "cell": { "type": "string", "description": "A hex cell key (\"<face>:<level>:<q>:<r>\"): the board's centre." },
+                         "level": { "type": "string", "enum": ["regions", "villages", "houses", "people"], "description": "The board's level (default: the cell key's)." } }), &["cell"])),
         spec("piles_final", true,
              "Every demigod's end-of-match pile (items, summons, stats, statue prompt). An error until the match is over.",
              obj(json!({}), &[])),
@@ -171,6 +180,8 @@ pub fn query(pantheon: &Pantheon, state: &Value, seat: Option<Seat>, name: &str,
         "faults_overview" => crate::faults::query_overview(state),
         "duel_odds" => duel_odds(state, seat, &args),
         "memory_tree" => crate::memtree::query(state, seat, args.0),
+        "people" => crate::people::query_people(state, args.0),
+        "buildings" => crate::people::query_buildings(state, args.0),
         other => Err(format!("unknown query {other}")),
     }?;
     payload::tidy(&mut v);
@@ -563,7 +574,7 @@ fn crowds_under(w: &World, p: PlaceId) -> Vec<&Cluster> {
 fn region(state: &Value, a: &Args) -> Result<Value, String> {
     let w = world(
         state,
-        &[T::Places, T::Nodes, T::Clusters, T::Characters, T::Cells, T::Mobs, T::Demigods, T::Gods, T::Mods, T::Seats, T::Items, T::Manifests, T::Battles, T::DmLite],
+        &[T::Places, T::Groups, T::Nodes, T::Clusters, T::Characters, T::Cells, T::Mobs, T::Demigods, T::Gods, T::Mods, T::Seats, T::Items, T::Manifests, T::Battles, T::DmLite],
     )?;
     let p = region_ref(&w, a.need_ref("ref")?)?;
     let hotspot = crate::hotspots::hotspots(&w, &recent_rows(&w, state)).get(&p).map(|h| h.to_json());
@@ -593,8 +604,39 @@ fn region(state: &Value, a: &Args) -> Result<Value, String> {
         "influence": payload::influence_json(&w).into_iter().filter(|m| m["region_ref"] == reg.as_str()).collect::<Vec<_>>(),
         "events": event_page(&w, state, None, 10, Some(p)),
     });
+    v["people"] = people_page(&w, state, people_near(&w, pl.center, |c| fn7_society::sim::hier::under(&w, c.place, p)),
+                              a.uint("cursor")?.unwrap_or(0), a.limit(10, 50)?);
     add_dm(&w, state, &mut v, Some(p), true);
     Ok(v)
+}
+
+/// The living people passing `keep`, nearest to `at` first (then by id).
+fn people_near(w: &World, at: LonLat, keep: impl Fn(&Character) -> bool) -> Vec<CharId> {
+    let mut v: Vec<(f64, CharId)> =
+        w.characters.iter().filter(|c| c.alive && keep(c)).map(|c| (fn7_society::geo::distance_km(c.pos, at), c.id)).collect();
+    v.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+    v.into_iter().map(|x| x.1).collect()
+}
+
+/// A page of people (`{items, next_cursor, total}` of `Who`), each with `live`: the person as `game.people` lists
+/// them (sprite, what they are doing, home, work, group within the page).
+fn people_page(w: &World, state: &Value, ids: Vec<CharId>, cursor: usize, limit: usize) -> Value {
+    let total = ids.len();
+    let end = (cursor + limit).min(total);
+    let slice: Vec<CharId> = ids.into_iter().skip(cursor).take(limit).collect();
+    let cx = crate::people::Ctx::new(w, state);
+    let xs: Vec<&Character> = slice.iter().map(|c| &w.characters[c.ix()]).collect();
+    let live = crate::people::items(&cx, &xs);
+    let items: Vec<Value> = slice
+        .iter()
+        .zip(live)
+        .map(|(c, l)| {
+            let mut v = who_json(w, Some(*c));
+            v["live"] = l;
+            v
+        })
+        .collect();
+    json!({ "items": items, "next_cursor": (end < total).then_some(end), "total": total })
 }
 
 /// Rules 0.8.0: the DM's pieces under a place (`None`: the whole board): encounters, loot, shrines and (with
@@ -697,17 +739,23 @@ fn encounters(state: &Value, a: &Args) -> Result<Value, String> {
 
 fn node(state: &Value, a: &Args) -> Result<Value, String> {
     if let Some(Value::String(key)) = a.get("cell") {
-        let mut w = world(state, &[T::Places, T::Nodes, T::Demigods, T::Items, T::Manifests, T::DmLite])?;
+        let mut w = world(state, &[T::Places, T::Groups, T::Nodes, T::Clusters, T::Characters, T::Mobs, T::Demigods, T::Items, T::Manifests, T::DmLite])?;
         hex_memory(&mut w, state, key.trim());
-        return cell_node(&w, key.trim());
+        let mut v = cell_node(&w, key.trim())?;
+        // The people standing in this hex now, as `game.people` lists them.
+        if let Some(c) = fn7_model::hexgrid::HexCell::parse(key.trim()) {
+            let ids = people_near(&w, c.center(), |x| fn7_model::hexgrid::cell_at(x.pos, c.level) == c);
+            v["people"] = people_page(&w, state, ids, a.uint("cursor")?.unwrap_or(0), a.limit(20, 100)?);
+        }
+        return Ok(v);
     }
-    let w = world(state, &[T::Places, T::Nodes, T::Clusters, T::Characters, T::Cells, T::Mobs, T::Demigods, T::Gods, T::DmLite, T::Items, T::Manifests])?;
+    let w = world(state, &[T::Places, T::Groups, T::Nodes, T::Clusters, T::Characters, T::Cells, T::Mobs, T::Demigods, T::Gods, T::DmLite, T::Items, T::Manifests])?;
     let r = a.need_ref("ref")?;
     let cursor = a.uint("cursor")?.unwrap_or(0);
     let limit = a.limit(20, 100)?;
     let people = |f: &dyn Fn(&Character) -> bool| -> Value {
         let ids: Vec<CharId> = w.characters.iter().filter(|c| f(c)).map(|c| c.id).collect();
-        page(ids, cursor, limit, |c| who_json(&w, Some(c)))
+        people_page(&w, state, ids, cursor, limit)
     };
     match r {
         Ref::Place(p) if p.ix() < w.places.len() => {
@@ -719,6 +767,11 @@ fn node(state: &Value, a: &Args) -> Result<Value, String> {
                 .collect();
             let crowds = page(crowds_under(&w, p), cursor, limit, |c| crowd_json(&w, c.id));
             let mut v = json!({ "kind": "place", "ref": r, "node": node_json(&w, p), "children": children, "crowds": crowds });
+            // The people under it (not for the whole arena: ask game.people for a board there).
+            if w.places[p.ix()].kind != PlaceKind::Arena {
+                let at = w.places[p.ix()].center;
+                v["people"] = people_page(&w, state, people_near(&w, at, |c| fn7_society::sim::hier::under(&w, c.place, p)), cursor, limit);
+            }
             add_dm(&w, state, &mut v, Some(p), true);
             Ok(v)
         }

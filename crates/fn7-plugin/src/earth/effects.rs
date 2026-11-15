@@ -446,18 +446,17 @@ pub struct Site {
 /// The shelters of the match: every planet city's buildings, 3 + its level of them (at most 9), picked by seeded hash
 /// among the houses-level hexes within two rings of its centre. A pure function of the world's places and levels.
 pub fn sites(w: &World) -> Vec<Site> {
-    w.places
-        .iter()
-        .filter(|p| p.kind == PlaceKind::Site)
-        .map(|p| {
-            let level = w.dm.settlement(p.id).map(|s| s.level).unwrap_or(2) as usize;
-            let c0 = cell_at(p.center, HexLevel::Houses);
-            let mut hexes: Vec<(u64, HexCell)> =
-                (0..=2).flat_map(|k| c0.ring(k)).map(|c| (mix(w.meta.seed ^ hash_str(&c.key()) ^ 0x5E17), c)).collect();
-            hexes.sort();
-            Site { place: p.id, level: level as u8, center: p.center, buildings: hexes.into_iter().take((3 + level).min(9)).map(|x| x.1).collect() }
-        })
-        .collect()
+    w.places.iter().filter(|p| p.kind == PlaceKind::Site).map(|p| site(w, p)).collect()
+}
+
+/// One planet city's buildings ([`sites`]): also what `game.buildings` draws on its house hexes.
+pub fn site(w: &World, p: &Place) -> Site {
+    let level = w.dm.settlement(p.id).map(|s| s.level).unwrap_or(2) as usize;
+    let c0 = cell_at(p.center, HexLevel::Houses);
+    let mut hexes: Vec<(u64, HexCell)> =
+        (0..=2).flat_map(|k| c0.ring(k)).map(|c| (mix(w.meta.seed ^ hash_str(&c.key()) ^ 0x5E17), c)).collect();
+    hexes.sort();
+    Site { place: p.id, level: level as u8, center: p.center, buildings: hexes.into_iter().take((3 + level).min(9)).map(|x| x.1).collect() }
 }
 
 /// One beat's effects as they are found.
