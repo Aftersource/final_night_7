@@ -248,6 +248,10 @@ pub struct MediaStyle {
     /// Appended to a prompt drawn on a base image (gear portraits and dioramas; `base_note`, default
     /// [`DEFAULT_BASE_NOTE`]).
     pub base_note: String,
+    /// Said of the base image in a gear PORTRAIT, before the style text (`portrait_base_note`, default
+    /// [`DEFAULT_PORTRAIT_BASE_NOTE`]): unlike [`MediaStyle::base_note`] it lets the hands change, since the new gear
+    /// replaces what the base portrait's hands held.
+    pub portrait_base_note: String,
     /// sha256 (hex) of the parsed JSON.
     pub hash: String,
     /// Where it came from: a path, or `builtin`.
@@ -280,10 +284,15 @@ struct Raw {
     event_selection: EventSelection,
     #[serde(default)]
     base_note: Option<String>,
+    #[serde(default)]
+    portrait_base_note: Option<String>,
 }
 
 /// What a prompt drawn on a base image says about it when the style file has no `base_note`.
 pub const DEFAULT_BASE_NOTE: &str = "The first reference image is this same character: keep its face, build, clothes, colours and pose family exactly as they are there and add only the gear described; the other reference images set the art style.";
+
+/// What a gear portrait says about its base image when the style file has no `portrait_base_note`.
+pub const DEFAULT_PORTRAIT_BASE_NOTE: &str = "The first reference image is this same character before the new gear: keep its face, build, clothes and colours exactly as they are there, but not what its hands hold or its pose: the hands now hold the new gear described, which must be clearly visible and in focus; the other reference images set the art style.";
 
 /// The most reference images one request may carry (OpenAI's edits endpoint takes up to 16).
 pub const MAX_REFS_PER_REQUEST: usize = 16;
@@ -496,6 +505,11 @@ impl MediaStyle {
                 Some(s) if s.is_empty() => return Err(err("base_note is empty".into())),
                 Some(s) => s,
                 None => DEFAULT_BASE_NOTE.to_string(),
+            },
+            portrait_base_note: match raw.portrait_base_note.map(|s| s.trim().to_string()) {
+                Some(s) if s.is_empty() => return Err(err("portrait_base_note is empty".into())),
+                Some(s) => s,
+                None => DEFAULT_PORTRAIT_BASE_NOTE.to_string(),
             },
             hash,
             source: source.into(),

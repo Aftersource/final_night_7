@@ -14,6 +14,18 @@ use crate::style::{MediaStyle, RefImage};
 /// format). The style config's hash is part of the key too.
 pub const PROMPT_VERSION: &str = "fn7-media/3";
 
+/// The gear-look template version of a picture drawn on a base image, by kind (part of its image key, so a gear
+/// picture drawn from an older template is never reused; identity pictures and items are unaffected). Gear portraits
+/// are at 2 (the gear is the subject of the shot, the hands hold it instead of their old props: live match ae54b0af
+/// showed the base portrait's abacus and fire and no blade); gear dioramas keep their template (`None`: keys as
+/// before, so their cached pictures are still used).
+pub fn gear_version(kind: ImageKind) -> Option<&'static str> {
+    match kind {
+        ImageKind::Portrait => Some("fn7-gear-portrait/2"),
+        _ => None,
+    }
+}
+
 /// Longest subject kept (characters); the rest is cut at a word boundary.
 pub const MAX_SUBJECT_CHARS: usize = 1200;
 
@@ -163,6 +175,23 @@ impl ImagePrompt {
         let note = note.trim();
         if !note.is_empty() {
             self.text = format!("{} {note}", self.text);
+        }
+        self
+    }
+
+    /// This gear PORTRAIT drawn on a base image (its key): like [`ImagePrompt::on_base`], but `note` goes right after
+    /// the subject, before the style text (`style`'s suffix for this kind), so what the hands now hold is said before
+    /// anything about the look of the world.
+    pub fn on_base_before_style(mut self, base_key: &str, note: &str, style: &MediaStyle) -> Self {
+        self.base = Some(base_key.to_string());
+        let note = note.trim();
+        if note.is_empty() {
+            return self;
+        }
+        let suffix = style.suffix_for(self.kind);
+        match self.text.strip_suffix(suffix.as_str()) {
+            Some(head) => self.text = format!("{head}{note} {suffix}"),
+            None => self.text = format!("{} {note}", self.text),
         }
         self
     }

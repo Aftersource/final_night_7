@@ -44,7 +44,7 @@ pub use generator::{
 };
 pub use annotate::LookSeen;
 pub use observe::{HttpCall, MediaEvent, MediaObserver, Stage};
-pub use prompt::{ImageKind, ImagePrompt, PROMPT_VERSION};
+pub use prompt::{gear_version, ImageKind, ImagePrompt, PROMPT_VERSION};
 pub use style::{EventSelection, KindStyle, MediaStyle, RefImage, References, RefsSpec};
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -442,7 +442,12 @@ impl Media {
     /// ([`Media::request`]); the picture is generated once the base exists.
     pub fn prompt_on(&self, kind: ImageKind, subject: &str, base: &ImagePrompt) -> Option<ImagePrompt> {
         let key = self.key_for(base);
-        self.prompt(kind, subject).map(|p| p.on_base(&key, &self.style().base_note))
+        let st = self.style();
+        self.prompt(kind, subject).map(|p| match kind {
+            // A gear portrait: the hands change (they hold the new gear), said before the style text.
+            ImageKind::Portrait => p.on_base_before_style(&key, &st.portrait_base_note, st),
+            _ => p.on_base(&key, &st.base_note),
+        })
     }
 
     /// Where an image stands without asking for it: `None` when this process never queued it and it is not on disk.
@@ -767,7 +772,7 @@ impl Media {
 }
 
 /// sha256(`PROMPT_VERSION` \n label \n size \n prompt text [\n ref:<sha256 of each reference image, in order>]
-/// [\n base:<the base image's key>]), hex. The prompt text carries the kind's house style and reference note; the reference hashes pin the exact files.
+/// [\n base:<the base image's key> [\n gear:<the kind's gear version, [`prompt::gear_version`]>]]), hex. The prompt text carries the kind's house style and reference note; the reference hashes pin the exact files.
 pub fn image_key(label: &str, prompt: &ImagePrompt) -> String {
     let mut h = Sha256::new();
     h.update(PROMPT_VERSION.as_bytes());
@@ -784,6 +789,10 @@ pub fn image_key(label: &str, prompt: &ImagePrompt) -> String {
     if let Some(b) = &prompt.base {
         h.update(b"\nbase:");
         h.update(b.as_bytes());
+        if let Some(v) = prompt::gear_version(prompt.kind) {
+            h.update(b"\ngear:");
+            h.update(v.as_bytes());
+        }
     }
     hex::encode(h.finalize())
 }

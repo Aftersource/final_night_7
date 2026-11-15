@@ -614,7 +614,9 @@ async fn a_gear_look_is_drawn_on_its_base_and_swaps_in_when_ready() {
     let (gear_p, gear_d) = (l["pending"]["portrait_image"]["hash"].as_str().unwrap().to_string(), l["pending"]["diorama_image"]["hash"].as_str().unwrap().to_string());
     assert_eq!((l["pending"]["portrait_image"]["status"].as_str(), l["pending"]["loadout_hash"].as_str()), (Some("pending"), Some("h1")));
     assert!(gear_p != base_p && gear_d != base_d && gear_p != gear_d);
-    assert!(l["pending"]["portrait_image"]["prompt"].as_str().unwrap().ends_with(style::DEFAULT_BASE_NOTE), "the base note closes the prompt");
+    let pp = l["pending"]["portrait_image"]["prompt"].as_str().unwrap();
+    assert!(pp.find(style::DEFAULT_PORTRAIT_BASE_NOTE).unwrap() < pp.find("Style:").unwrap(), "a gear portrait's note comes before the style: {pp}");
+    assert!(l["pending"]["diorama_image"]["prompt"].as_str().unwrap().ends_with(style::DEFAULT_BASE_NOTE), "the base note closes a gear diorama's prompt");
     assert_eq!(v["portrait_image"]["hash"], base_p.as_str(), "the identity image stays for older clients");
     assert_eq!((seen[0].loadout_hash.as_str(), seen[0].since_beat, seen[0].loadout.clone()), ("h1", Some(4), vec!["Butterfly Wing Blade".to_string()]));
     assert_eq!(seen[0].portrait.as_ref().map(|p| p.hash.clone()), Some(gear_p.clone()));
@@ -704,5 +706,41 @@ async fn a_look_changed_event_is_annotated_like_a_look_and_the_key_names_its_bas
     poor.annotate_seen(&mut x, Some("m1"));
     assert_eq!(x["look"]["portrait_image"]["status"], "off");
     assert!(x["look"].get("pending").is_none(), "nothing will come: nothing is pending");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// A gear portrait (match ae54b0af kept the base portrait's hands and never showed the blade): the portrait base note
+/// lets the hands change and comes right after the subject, BEFORE the style text; its key carries the gear-portrait
+/// version, so a picture from the old template is never reused. A gear diorama is unchanged (its note at the end, its
+/// key as before); identity portraits never carry a gear version.
+#[tokio::test]
+async fn a_gear_portrait_says_the_hands_change_before_the_style() {
+    let dir = temp_dir();
+    let media = Media::start(cfg(&dir, 0.0, 0.0), Some(spy(30) as Arc<dyn ImageGenerator>));
+    let st = media.style().clone();
+    let subject = "Chris's Left Hand, a demigod, newly geared: waist-up, the new gear is the subject of this shot: raised in the right hand and held up across the chest, a blade of black volcanic obsidian glass with razor facets, plain and battered";
+    let base = media.prompt(ImageKind::Portrait, BASE_P).unwrap();
+    let p = media.prompt_on(ImageKind::Portrait, subject, &base).unwrap();
+    let t = &p.text;
+    let (g, note, style) = (t.find("raised in the right hand").unwrap(), t.find(&st.portrait_base_note).unwrap(), t.find("Style:").unwrap());
+    assert!(g < note && note < style, "the gear, the note, then the style: {t}");
+    assert!(t.ends_with(&st.suffix_for(ImageKind::Portrait)), "{t}");
+    assert!(st.portrait_base_note.contains("but not what its hands hold") && !st.portrait_base_note.contains("pose family exactly"));
+    // The key carries the gear-portrait version: the same request as another kind (no gear version) keys differently.
+    assert_eq!(gear_version(ImageKind::Portrait), Some("fn7-gear-portrait/2"));
+    assert_eq!(gear_version(ImageKind::Diorama), None);
+    let mut same = p.clone();
+    same.kind = ImageKind::Diorama;
+    assert_ne!(media.key_for(&p), media.key_for(&same));
+    // Identity portraits (no base) key exactly as before: no gear version.
+    assert_eq!(media.key_for(&base), image_key(&media.inner.label, &base));
+    let mut id = base.clone();
+    id.kind = ImageKind::Diorama;
+    assert_eq!(image_key("x", &base), image_key("x", &id), "without a base the kind adds nothing to the key");
+    // A gear diorama: the shared base note at the end, as before.
+    let dbase = media.prompt(ImageKind::Diorama, BASE_P).unwrap();
+    let d = media.prompt_on(ImageKind::Diorama, "a subject", &dbase).unwrap();
+    assert!(d.text.ends_with(&st.base_note), "{}", d.text);
+    assert!(!d.text.contains(&st.portrait_base_note));
     let _ = std::fs::remove_dir_all(dir);
 }
