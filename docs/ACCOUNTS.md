@@ -462,3 +462,40 @@ Screens and calls, in order. Every call is in CLIENT_API.md with its request, an
   guard, and a recorded match with a signed-in seat that replays with zero differences.
 - The scripted client (`docs/clients/fn7_accounts_e2e.mjs`) against a private server on another port, twice: with no
   LLM (the rules fallback), and with its own fake gateway answering `ok` / `rephrase` / `refuse`.
+
+## 14. The god form (designed 2026-11-14; not built yet)
+
+Chris's words (verbatim):
+
+> Custom gods will be handled later, likely in a separate characterization tab in player settings where the player types what they want for their god avatar.
+
+> The statues should look like stone or marble figures seated or posed, such as The Thinker or Michelangelo's David.
+
+> Make sure the player login or setup screen notes that this must be selectable: an entry box where people choose how their stone god form looks, possibly textured.
+
+What it is: each player's god sits at their seat as a stone statue. The player chooses how it looks.
+
+**The screen** (the setup screen after sign-in, a "Characterization" tab beside the two demigod sheets):
+
+- An **entry box**: "How does your stone godform look?" Free text, the player's own words (up to 600 characters): the
+  figure, the pose, what it holds.
+- A **stone / texture choice**: white marble (the default), black onyx, granite, sandstone, jade, bronze, gold leaf,
+  or their own words.
+- A **pose** picker with classical poses as shortcuts that fill the box (The Thinker, David, Moses seated, the Discus
+  Thrower, Atlas, Winged Victory, the Boxer at Rest), still editable.
+- **Preview and accept**: the server draws a reference image first (cheap). The player accepts it or edits and tries
+  again (rate limited). Only an accepted image becomes a 3D statue.
+- Until a player has made one, their seat shows the default: a marble statue with the likeness of their Left Hand in
+  a classical pose (as made for Chris, Benito and the AI players on 2026-11-14).
+
+**The server** (to build): `GET/PUT /api/me/god` `{description, stone, pose}`; the same one-pass moderation as the
+demigod sheets (the player's words verbatim unless they break the content rules; `ok` / `rephrase` / `refuse`);
+`POST /api/me/god/preview` makes the reference image (OpenAI, the marble statue prompt in
+`final_night_7_unreal/production_assets/meshy/figures/*/provenance.json`); `POST /api/me/god/accept` queues the statue
+(Meshy image-to-3D, about 30 credits) and registers it in the asset registry as kind `god`, keyed by the account.
+Cached: one statue per accepted description; a new description is a new statue and the old ones stay in the library.
+Budgets: previews per day and statues per account are capped by settings; a statue costs real credits, so the cap
+defaults low. `GET /api/assets/figures?name=` serves the current one to every client at the table.
+
+**The client** (to build): the tab above; the seat pedestal shows the statue from the figures endpoint, cached by
+sha256, with the player's colour as the aura.
