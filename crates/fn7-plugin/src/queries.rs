@@ -128,6 +128,11 @@ pub fn specs() -> Vec<QuerySpec> {
         spec("faults_overview", true,
              "State schema 16, for the globe overlay while a mega is armed: every plate-boundary junction (`{lon, lat, name?, kind: triple|knot, strength 0..1, plates}`, strongest first), the tier thresholds and the curve's settings. The same for the whole match: ask once.",
              obj(json!({}), &[])),
+        spec("duel_odds", true,
+             "State schema 18: how a duel between `demigod` and `target` would likely go, from the duel rules (DM_RULEBOOK 21.2): `win_pct` (you type a line every exchange), `idle_win_pct` (you type nothing), each side's health (exact where the asker sees it: its own demigods, an open duel's hp; else a band hale|hurt|near death, and the odds use the band), modifiers and DCs, `reach_ok` (+ `too_far_km`) and short `why` reasons. Seeded trials: the same state gives the same odds. Read-only, cheap.",
+             obj(json!({ "demigod": r#ref(r"^dg:\d+$", "The challenger (usually yours)."),
+                         "target": r#ref(r"^dg:\d+$", "The one it would fight."),
+                         "level": { "type": "string", "description": "The board level the challenge would be issued at (regions, villages, houses, people; default regions): sets the reach." } }), &["demigod", "target"])),
         spec("piles_final", true,
              "Every demigod's end-of-match pile (items, summons, stats, statue prompt). An error until the match is over.",
              obj(json!({}), &[])),
@@ -158,6 +163,7 @@ pub fn query(pantheon: &Pantheon, state: &Value, seat: Option<Seat>, name: &str,
         "earth_at" => crate::earth::view::query_earth_at(state, args.0),
         "fault" => crate::faults::query_fault(state, args.0),
         "faults_overview" => crate::faults::query_overview(state),
+        "duel_odds" => duel_odds(state, seat, &args),
         other => Err(format!("unknown query {other}")),
     }?;
     payload::tidy(&mut v);
@@ -256,10 +262,12 @@ fn dm_lite(state: &Value, want: bool) -> Result<fn7_model::dm::Dm, String> {
         looks: Value,
         /// Schema 13: the Earth simulator's state (tens of KB at most).
         earth: Option<Box<fn7_model::earth::EarthState>>,
+        /// The open duels (a few at most): `me`'s next-move hint reads them (schema 18).
+        duels: Vec<Value>,
     }
     let l: Lite = table(state, "dm", want)?;
     Ok(fn7_model::dm::Dm { memory: vec![], settlements: l.settlements, stories: l.stories, encounters: l.encounters,
-                           loot: l.loot, trails: l.trails, shrines: l.shrines, duels: vec![], wills: l.wills, looks: l.looks, mark: None,
+                           loot: l.loot, trails: l.trails, shrines: l.shrines, duels: l.duels, wills: l.wills, looks: l.looks, mark: None,
                            earth: l.earth })
 }
 
@@ -867,6 +875,17 @@ fn me(state: &Value, seat: Option<Seat>) -> Result<Value, String> {
     kept.extend(all[tail..].iter().filter_map(row));
     w.ledger.rows = kept;
     Ok(crate::phases::seat_view(&w, seat))
+}
+
+fn duel_odds(state: &Value, seat: Option<Seat>, a: &Args) -> Result<Value, String> {
+    let w = world(state, &[T::Places, T::Demigods, T::Items, T::Seats, T::Clusters, T::Manifests])?;
+    let pick = |k: &str| match a.need_ref(k)? {
+        Ref::Demigod(d) => Ok(d),
+        _ => Err(format!("`{k}` must be a demigod (`dg:N`)")),
+    };
+    let (x, y) = (pick("demigod")?, pick("target")?);
+    let seat = seat.filter(|s| seat_state(&w, *s).is_some());
+    crate::odds::duel_odds(&w, seat, x, y, a.get("level").and_then(Value::as_str))
 }
 
 fn gods(state: &Value, pantheon: &Pantheon) -> Result<Value, String> {

@@ -901,6 +901,13 @@ pub fn seat_view(w: &World, seat: Seat) -> Value {
             v[k] = book[k].clone();
         }
     }
+    // Schema 18: the next move (human seats only; derived from the state, never stored).
+    if let Some(h) = crate::hint::for_seat(w, s.seat) {
+        v["hint"] = h.json();
+    }
+    if let Some(g) = crate::hint::goal(w, s.seat, w.meta.beat.max(1)) {
+        v["goal"] = g.into();
+    }
     tidied(v)
 }
 

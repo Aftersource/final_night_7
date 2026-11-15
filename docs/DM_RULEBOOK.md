@@ -1221,3 +1221,46 @@ reads the field; it never invents it.
   engine's answer: the DM never contradicts it and makes the rest fit, Rube Goldberg style (chapter 0): the punch
   landed only because the floodwater had carried the rival's boots off at dawn; Entropy's flood on fresh lava is told
   as steam and new black rock because that is what the field will do with it (docs/EARTH_SIM.md §12).
+
+## 29. The next move (state schema 18)
+
+Benito asked that the screen always state the player's next move and why it matters, rather than leaving them unsure what to do. Every beat the DM gives
+each human seat one private hint (a line, why it matters, a gesture, a target; docs/CLIENT_API.md "Next move hint") and
+a goal line ("Last standing wins. You: 2 alive, 3 rivals. Beat 41 of 60."). Rules pick it from the state, never an LLM,
+first match wins (`fn7-plugin/src/hint.rs`):
+
+0. **In a duel** (`duel`, `duel_type`, urgency 3): one of yours is in an open duel: "You're in a duel with Vex's Right
+   Hand: TYPE NOW", because the AI's counters land every `duel_counter_ms` whether you type or not.
+1. **About to fall** (`danger`, urgency 3): one of yours at 40% of its health cap or less with a threat at hand, the
+   weakest first. Threats, in order: the earth field's hazard on its cell (lava, fire, flood, the sea, a rift, a quake,
+   a swarm: drag it to the nearest calm cell, or order it out when summoning is refused); Time's circle closing past it
+   next beat; a rival (or rogue) army within 600 km, or hunting it within 1,500 km; a rival demigod within 300 km (a
+   city arena: a hundredth). With a bolt: cast a power on the threat; without: heal it by will; withered: flee.
+2. **The fallen** (urgency 2): one of yours under a seal of no resurrection names the counter-quest's current step
+   (`break_curse`); one with an open raising quest names its step; otherwise, while Death's cap allows, "raise it",
+   with Death's price against the purse (`resurrect`).
+3. **Spectators** (`watch`): no demigod standing and none to raise: an open duel, else the biggest public event of the
+   last two beats, else Time's circle.
+4. **A rival in your hex** (`challenge`, urgency 2): a rival standing in the people-level hex of one of yours, or within
+   `challenge_min_km`, neither in a duel.
+5. **A world event near you** (`event`, urgency 1, 2 at magnitude 7+): a public cast, happening, raised army, fall,
+   return, wounded god or Entropy strike of the last two beats within 800 km of one of yours, not your own: react by will.
+6. **A mega at a junction** (`mega`, urgency 1): a bolt in the purse and a rival standing where a mega lands in the
+   `junction` tier (chapter 13; without the junction rule, the `fault` tier): the strongest multiplier.
+7. **No gear** (`gear`, urgency 1): one of yours carries nothing: the nearest marked encounter hex (never what hides
+   there) or loot pile; with none, a will to arm it.
+8. **A quest step** (`quest`, or `break_curse` for a curse's counter, urgency 1): the seat's oldest open quest for its
+   own demigods (then those it took up), its current step, the action by the step (stand somewhere: summon; hold or win:
+   seek gear; a duel: challenge), the effect of finishing it.
+9. **A will** (`will`, urgency 0): heal the most hurt of yours (below 70%); with no army, raise one where it stands;
+   else march on the nearest rival; with no rival, explore.
+
+The hint reads only what the seat sees: its own demigods and book in full; rivals' positions and names (never their
+health or standing orders); armies' public fields (never orders); the earth field; public events; encounters as the
+public sees them. It is derived and never stored; schema ≤ 17 states carry none, so their recordings replay exactly.
+
+**Duel odds** (`game.duel_odds`): the §21.2 blow, played out in 600 seeded trials of `duel_deadline_ms /
+duel_counter_ms` exchanges (you type a line, they answer), wit assumed +1 for both, a knockout or the lesser damage
+taken deciding it; `idle_win_pct` is the same with you silent. Health outside a duel shows as a band (hale 7+, hurt,
+near death 3 or less) and the odds use the band's middle.
+

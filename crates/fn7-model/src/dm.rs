@@ -51,6 +51,11 @@ pub const DUEL_WEAPONS_SCHEMA: u32 = 14;
 /// describe ([`crate::manifest::object_name`]), and a loadout and item art skip things that are not real objects.
 pub const ITEM_NAME_SCHEMA: u32 = 15;
 
+/// The schema the next-move hint switches on at ([`crate::World::hint_rules`]): every human seat's SeatView carries a
+/// private `hint` (one line, an action, a target), picked by rules from the state each beat. Derived, never stored:
+/// the state itself is unchanged; only the payloads (`round.brief.private`, `round.private_state`, `game.me`) grow.
+pub const HINT_SCHEMA: u32 = 18;
+
 /// Scars kept per demigod (the newest).
 pub const SCARS_KEPT: usize = 12;
 

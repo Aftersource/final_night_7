@@ -27,11 +27,13 @@ pub mod driver;
 pub mod earth;
 pub mod faults;
 pub mod godtier;
+pub mod hint;
 pub mod flow;
 pub mod hotspots;
 pub mod items;
 pub mod look;
 pub mod occupancy;
+pub mod odds;
 pub mod panel;
 pub mod picker;
 pub mod merge;
@@ -832,6 +834,9 @@ impl GamePlugin for FinalNight7Plugin {
             .map(|s| {
                 let mut v = phases::seat_view(&w, s.seat);
                 v["beat"] = round.into();
+                if let Some(g) = hint::goal(&w, s.seat, round) {
+                    v["goal"] = g.into();
+                }
                 (s.seat, v)
             })
             .collect();

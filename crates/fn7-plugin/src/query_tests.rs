@@ -67,7 +67,7 @@ fn manifest_lists_every_query_with_an_args_schema() {
     assert_eq!(
         names,
         ["globe", "region", "node", "person", "army", "events", "me", "powers", "gods", "standings", "present", "media", "items", "item", "memory",
-         "encounters", "earth", "earth_at", "fault", "faults_overview", "piles_final"]
+         "encounters", "earth", "earth_at", "fault", "faults_overview", "duel_odds", "piles_final"]
     );
     for s in &specs {
         assert_eq!(s.args_schema["type"], "object", "{}", s.name);

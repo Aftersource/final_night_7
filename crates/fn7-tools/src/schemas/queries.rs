@@ -413,6 +413,22 @@ pub(super) fn replies() -> Vec<(&'static str, &'static str, Value)> {
             "description": "`game.events`: a page of public events.",
             "allOf": [ r("EventPage"), object("", &[("beat", int("Last beat started."))], &[]) ]
         })),
+        ("query_duel_odds", "duel_odds", object(
+            "`game.duel_odds` (state schema 18): how a duel between `demigod` and `target` would likely go (DM_RULEBOOK 21.2), from seeded trials: the same state gives the same odds.",
+            &[("demigod", r("Ref")), ("target", r("Ref")),
+              ("win_pct", num("0..100: the demigod's chance to win, typing a line every exchange (wit assumed +1).")),
+              ("idle_win_pct", num("0..100: its chance if its player types nothing (the AI's counters still land).")),
+              ("my_health", json!({ "type": ["number", "string"], "description": "Exact where the asker sees it (its own demigod, an open duel's hp), else a band: hale (7+), hurt, near death (3 or less)." })),
+              ("their_health", json!({ "type": ["number", "string"], "description": "As my_health: a rival's exact health only inside an open duel." })),
+              ("my_mod", json!({ "type": "integer", "description": "The demigod's blow modifier (wit +1, health, wardrobe, items, gear, home turf)." })),
+              ("their_mod", json!({ "type": "integer", "description": "The target's (its private kit not counted)." })),
+              ("my_dc", int("The DC the demigod's blows roll against.")), ("their_dc", int("The DC the target's blows roll against.")),
+              ("exchanges", int("duel_deadline_ms / duel_counter_ms.")), ("trials", int("Seeded trials.")),
+              ("reach_ok", boolean("Both stand and the target is within the challenge's reach at `level`.")),
+              ("reach_km", num("")), ("distance_km", num("")),
+              ("why", array(string(""), "Short reasons, in plain words."))],
+            &[("too_far_km", num("How far beyond the reach the target stands."))],
+        )),
         ("query_me", "me", seat_view_body("`game.me`: your seat view now (the SeatView, as in round.private_state).")),
         ("query_powers", "powers", object("`game.powers`.", &[("powers", array(power, "The palette, then the custom entry."))], &[])),
         ("query_gods", "gods", object(

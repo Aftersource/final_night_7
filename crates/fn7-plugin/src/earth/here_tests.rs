@@ -135,7 +135,7 @@ fn lines_name_the_place_or_who_stands_there() {
 #[test]
 fn the_gate_is_schema_17_and_the_simulator() {
     let mut w = crate::testkit::world(4, 5);
-    assert_eq!(w.meta.schema, 17);
+    assert!(w.meta.schema >= 17);
     let at: Vec<LonLat> = w.demigods.iter().map(|d| d.pos).collect();
     paint(&mut w, &at, None, |c| c.fire = 150);
     let st = settings(&w);
