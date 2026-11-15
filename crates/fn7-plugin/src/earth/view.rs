@@ -284,7 +284,7 @@ pub fn beat_json(eb: &EarthBeat) -> Value {
     let r = &eb.report;
     let g = sim.grid();
     let keys = |c: &[u16]| c.iter().map(|&i| g.key(i)).collect::<Vec<_>>();
-    json!({
+    let mut v = json!({
         "beat": sim.beat,
         "hash": hash_hex(sim),
         "dirty": sim.list.len(),
@@ -299,7 +299,12 @@ pub fn beat_json(eb: &EarthBeat) -> Value {
             "steamed": r.steamed, "rock_made": r.rock_made, "melted": r.melted, "land_rose": keys(&r.land_rose),
             "drowned": keys(&r.drowned), "woke": r.woke, "evicted": r.evicted.len(), "refused": r.refused,
         },
-    })
+    });
+    // Schema 20: what the earth did, thing by thing.
+    if let (Some(fx), Some(o)) = (&eb.effects, v.as_object_mut()) {
+        o.extend(super::effects::beat_fields(&fx.rows, fx.total, &fx.counts));
+    }
+    v
 }
 
 /// The field in short (for `present` and the PublicView): enough to know whether a client's copy is current.
@@ -325,7 +330,14 @@ pub fn summary(sim: &Sim, s: &EarthState) -> Value {
 /// The summary straight from a match state (`None` when the simulator is off or has not begun).
 pub fn summary_of(w: &fn7_model::World, st: &Settings) -> Option<Value> {
     let s = w.dm.earth.as_deref()?;
-    Some(summary(&super::rules::sim_of(w, st)?, s))
+    let mut v = summary(&super::rules::sim_of(w, st)?, s);
+    // Schema 20: the last stepped beat's effects (a reconnecting client replays them once).
+    if w.earth_effects_rules() {
+        if let Some(o) = v.as_object_mut() {
+            o.extend(super::effects::stored_fields(s, s.beat));
+        }
+    }
+    Some(v)
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -484,6 +496,8 @@ pub fn weather_word(c: &Cell, cold: bool) -> &'static str {
 pub const QUERY_CELLS_MAX: usize = 4000;
 
 struct Loaded {
+    /// Schema 20 (the effects and the scars are answered).
+    fx: bool,
     sim: Sim,
     state: EarthState,
     resimulated: u32,
@@ -500,14 +514,15 @@ fn load(state: &Value, beat: Option<u32>) -> Result<Loaded, String> {
     };
     let seed = state.pointer("/meta/seed").and_then(Value::as_u64).unwrap_or(0);
     let c = cfg(&st);
+    let fx = schema >= fn7_model::earth::EARTH_EFFECTS_SCHEMA;
     match beat.filter(|b| *b != s.beat) {
-        None => Ok(Loaded { sim: Sim::from_state(seed, c, &s), state: s, resimulated: 0, from_keyframe: None }),
+        None => Ok(Loaded { fx, sim: Sim::from_state(seed, c, &s), state: s, resimulated: 0, from_keyframe: None }),
         Some(b) => {
             let kf = s.keyframes.iter().rev().find(|k| k.beat <= b).map(|k| k.beat);
             let sim = Sim::at_beat(seed, c, &s, b)
                 .ok_or_else(|| format!("no field at beat {b}: the simulator ran from beat {} to {}", s.first_beat, s.beat))?;
             let from = kf.unwrap_or(s.first_beat.saturating_sub(1));
-            Ok(Loaded { sim, resimulated: b - from, from_keyframe: kf, state: s })
+            Ok(Loaded { fx, sim, resimulated: b - from, from_keyframe: kf, state: s })
         }
     }
 }
@@ -580,6 +595,15 @@ pub fn query_earth(state: &Value, a: &Value) -> Result<Value, String> {
         }
         _ => None,
     };
+    // Schema 20: `scars: true` answers what lasts, over the whole planet, at the beat.
+    if l.fx && truthy(a, "scars") && center.is_none() {
+        out["scars"] = super::effects::scars_json(sim, &l.state, None);
+        if let Some(o) = out.as_object_mut() {
+            o.extend(super::effects::stored_fields(&l.state, sim.beat));
+        }
+        strip_lists(&mut out);
+        return Ok(out);
+    }
     let verbose = truthy(a, "hexes") || truthy(a, "field");
     if let Some(center) = center.filter(|_| !verbose) {
         let c0 = match a.get("cell").and_then(Value::as_str).and_then(HexCell::parse) {
@@ -594,6 +618,10 @@ pub fn query_earth(state: &Value, a: &Value) -> Result<Value, String> {
         out["board"] = board_json(sim, then.as_ref(), &c0, rings, truthy(a, "coarse"));
         strip_lists(&mut out);
         let reach_km = level.size_m() * 1.732 * rings as f64 / 1000.0;
+        // Schema 20, `scars: true`: what lasts on the board (burnt, mud, ruins, wrecks, people sheltering, the fallen).
+        if l.fx && truthy(a, "scars") {
+            out["scars"] = super::effects::scars_json(sim, &l.state, Some((c0.center(), reach_km + 120.0)));
+        }
         out["phenomena"] = ranked(sim, Some((c0.center(), reach_km)), uint(a, "max_phenomena")?.unwrap_or(PHENOMENA_SENT as u64) as usize).into();
         return Ok(out);
     }
@@ -677,6 +705,13 @@ pub fn query_earth_at(state: &Value, a: &Value) -> Result<Value, String> {
     out["field"] = columns(&l.sim, &l.sim.list, enc);
     out["keyframes"] = l.state.keyframes.iter().map(|k| k.beat).collect::<Vec<_>>().into();
     out["inputs"] = l.state.inputs.iter().filter(|i| i.beat <= beat).count().into();
+    // Schema 20: that beat's effects, thing by thing, and what lasted at its end.
+    if l.fx {
+        if let Some(o) = out.as_object_mut() {
+            o.extend(super::effects::stored_fields(&l.state, beat));
+        }
+        out["scars"] = super::effects::scars_json(&l.sim, &l.state, None);
+    }
     Ok(out)
 }
 

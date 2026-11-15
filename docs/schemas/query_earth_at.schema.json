@@ -59,6 +59,125 @@
       ],
       "type": "object"
     },
+    "EarthEffect": {
+      "description": "State schema 20: one thing the earth did (docs/EARTH_SIM.md §13). `cell` is at the thing's level: houses for buildings, people for demigods, persons and shrines, villages for settlements and crowds, regions for forests, roads and armies.",
+      "properties": {
+        "amount": {
+          "description": "Damage (demigod, person); share of vegetation gone as the front crossed (forest); ruin share (building); levels lost / 3 (settlement).",
+          "type": "number"
+        },
+        "cause": {
+          "description": "The phenomenon's id (0: none named).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cell": {
+          "description": "Hex key `face:level:q:r`.",
+          "type": "string"
+        },
+        "count": {
+          "description": "People.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "level": {
+          "description": "",
+          "enum": [
+            "regions",
+            "villages",
+            "houses",
+            "people"
+          ],
+          "type": "string"
+        },
+        "phenomenon": {
+          "description": "The cause's kind.",
+          "enum": [
+            "storm",
+            "lightning",
+            "flood",
+            "wildfire",
+            "volcano",
+            "earthquake",
+            "meteor",
+            "raise_land",
+            "sink_land",
+            "forest",
+            "swarm",
+            "blizzard",
+            "tidal_wave",
+            "plate_drift"
+          ],
+          "type": "string"
+        },
+        "power": {
+          "description": "The cast's magnitude, 1..10.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "seat": {
+          "description": "The caster's seat.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "thing": {
+          "description": "",
+          "properties": {
+            "kind": {
+              "description": "",
+              "enum": [
+                "building",
+                "forest",
+                "crowd",
+                "road",
+                "shrine",
+                "demigod",
+                "person",
+                "army",
+                "settlement"
+              ],
+              "type": "string"
+            },
+            "ref": {
+              "description": "cl:N (crowd, army), dg:N, ch:N (person), pl:N (settlement; a building's settlement), shrine:ID, pl:A~pl:B (road).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        "to_cell": {
+          "description": "Where they went (fled: the shelter; returned: home).",
+          "type": "string"
+        },
+        "what": {
+          "description": "",
+          "enum": [
+            "burned",
+            "flooded",
+            "destroyed",
+            "damaged",
+            "fled",
+            "died",
+            "sheltered",
+            "buried",
+            "swept",
+            "returned"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "cell",
+        "level",
+        "thing",
+        "what",
+        "cause"
+      ],
+      "type": "object"
+    },
     "EarthPhenomenon": {
       "description": "State schema 13: one live phenomenon of the Earth simulator.",
       "properties": {
@@ -243,6 +362,236 @@
       ],
       "type": "object"
     },
+    "EarthScars": {
+      "description": "State schema 20: what the earth left, per cell, at a beat (docs/EARTH_SIM.md §13): draw lasting damage at any zoom.",
+      "properties": {
+        "beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "burnt": {
+          "description": "Land burned off, regrowing.",
+          "items": {
+            "description": "",
+            "properties": {
+              "base": {
+                "description": "Vegetation at rest.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "cell": {
+                "description": "",
+                "type": "string"
+              },
+              "fuel": {
+                "description": "Vegetation now.",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "cell",
+              "fuel",
+              "base"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "fallen": {
+          "description": "The dead of the last 12 beats, per cell.",
+          "items": {
+            "description": "",
+            "properties": {
+              "beat": {
+                "description": "The latest beat.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "cell": {
+                "description": "",
+                "type": "string"
+              },
+              "count": {
+                "description": "",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "level": {
+                "description": "",
+                "enum": [
+                  "regions",
+                  "villages",
+                  "houses",
+                  "people"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "cell",
+              "level",
+              "count",
+              "beat"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "mud": {
+          "description": "A flood drying.",
+          "items": {
+            "description": "",
+            "properties": {
+              "cell": {
+                "description": "",
+                "type": "string"
+              },
+              "water": {
+                "description": "1..23 left.",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "cell",
+              "water"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "ruins": {
+          "description": "Ruin ≥ 96.",
+          "items": {
+            "description": "",
+            "properties": {
+              "cell": {
+                "description": "",
+                "type": "string"
+              },
+              "ruin": {
+                "description": "",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "cell",
+              "ruin"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "sheltering": {
+          "description": "People in shelters then.",
+          "items": {
+            "description": "",
+            "properties": {
+              "at": {
+                "description": "Houses-level shelter.",
+                "type": "string"
+              },
+              "cause": {
+                "description": "",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "count": {
+                "description": "",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "crowd": {
+                "description": "",
+                "type": "string"
+              },
+              "from": {
+                "description": "Villages-level home.",
+                "type": "string"
+              },
+              "settlement": {
+                "description": "",
+                "type": "string"
+              },
+              "since": {
+                "description": "",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "crowd",
+              "from",
+              "at",
+              "settlement",
+              "count",
+              "since",
+              "cause"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "wrecks": {
+          "description": "Buildings destroyed.",
+          "items": {
+            "description": "",
+            "properties": {
+              "beat": {
+                "description": "",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "cause": {
+                "description": "",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "cell": {
+                "description": "Houses-level hex.",
+                "type": "string"
+              },
+              "how": {
+                "description": "",
+                "enum": [
+                  "destroyed",
+                  "burned",
+                  "buried",
+                  "swept"
+                ],
+                "type": "string"
+              },
+              "settlement": {
+                "description": "",
+                "type": "string"
+              }
+            },
+            "required": [
+              "cell",
+              "settlement",
+              "beat",
+              "how",
+              "cause"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "beat",
+        "burnt",
+        "mud",
+        "ruins",
+        "wrecks",
+        "sheltering",
+        "fallen"
+      ],
+      "type": "object"
+    },
     "LonLat": {
       "description": "[longitude, latitude] in degrees (WGS84). Note the order: longitude first.",
       "items": {
@@ -264,6 +613,25 @@
     },
     "dirty": {
       "description": "",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "effects": {
+      "description": "State schema 20: what the earth did this beat, thing by thing, worst first, at most `earth_effects_max` (docs/EARTH_SIM.md §13).",
+      "items": {
+        "$ref": "#/$defs/EarthEffect"
+      },
+      "type": "array"
+    },
+    "effects_counts": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "description": "State schema 20: effects per `what`, before the cap.",
+      "type": "object"
+    },
+    "effects_total": {
+      "description": "State schema 20: effects before the cap.",
       "minimum": 0,
       "type": "integer"
     },
@@ -321,6 +689,9 @@
       "description": "",
       "minimum": 0,
       "type": "integer"
+    },
+    "scars": {
+      "$ref": "#/$defs/EarthScars"
     },
     "tops": {
       "description": "Top material names by index.",

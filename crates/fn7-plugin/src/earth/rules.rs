@@ -174,6 +174,8 @@ pub struct EarthBeat {
     pub entries: Vec<u32>,
     pub damaged: u32,
     pub micros: u64,
+    /// Schema 20: what the earth did this beat, thing by thing (`earth.effects`).
+    pub effects: Option<super::effects::BeatFx>,
 }
 
 impl EarthBeat {
@@ -208,7 +210,7 @@ pub fn step(w: &mut World, beat: u32, pantheon: &Pantheon, st: &Settings) -> Opt
     let started = std::time::Instant::now();
     let (sim, report, before) = Sim::advance(seed, c, state_mut(w), beat, entropy);
     let micros = started.elapsed().as_micros() as u64;
-    let mut eb = EarthBeat { before, sim, report, entries: vec![], damaged: 0, micros };
+    let mut eb = EarthBeat { before, sim, report, entries: vec![], damaged: 0, micros, effects: None };
     consequences(w, beat, pantheon, st, &mut eb);
     let r = &eb.report;
     event("earth_step", None, json!({
@@ -284,7 +286,7 @@ fn round2(x: f32) -> f32 {
     (x * 100.0).round() / 100.0
 }
 
-fn rules_prop(effect: Effect, act: String, actor: Ref, magnitude: u8, valence: i8, witnesses: Vec<Ref>) -> Proposal {
+pub(crate) fn rules_prop(effect: Effect, act: String, actor: Ref, magnitude: u8, valence: i8, witnesses: Vec<Ref>) -> Proposal {
     Proposal { source: Source::Rules, intent: None, effect, act, actor, magnitude, valence, witnesses, cause: None }
 }
 
@@ -292,6 +294,9 @@ fn consequences(w: &mut World, beat: u32, pantheon: &Pantheon, st: &Settings, eb
     let g = grid();
     let (sim, rep) = (&eb.sim, &eb.report);
     let mut props = vec![];
+    // Schema 20: what the earth did, thing by thing (`earth.effects`), and crowds to shelters.
+    let field = super::effects::Field::new(sim, rep);
+    let mut book = w.earth_effects_rules().then(|| super::effects::Book::new(w, beat, sim, rep));
     // ---- demigods standing in it: one bounded hit, named for its worst part (so gear that resists it applies) -------
     for d in w.demigods.iter().filter(|d| d.alive) {
         let i = g.index_of(d.pos);
@@ -314,6 +319,10 @@ fn consequences(w: &mut World, beat: u32, pantheon: &Pantheon, st: &Settings, eb
             continue;
         }
         let cause = parts.iter().fold((0.0f32, ""), |a, p| if p.0 > a.0 { *p } else { a }).1;
+        if let Some(b) = book.as_mut() {
+            let part = parts.iter().position(|p| p.1 == cause).unwrap_or(0);
+            b.demigod(d.id, amount, part, i);
+        }
         let region = locate(w, d.pos, HexLevel::Regions).region;
         props.push(rules_prop(
             Effect::Damage { who: Ref::Demigod(d.id), amount, cause: cause.into() },
@@ -368,8 +377,19 @@ fn consequences(w: &mut World, beat: u32, pantheon: &Pantheon, st: &Settings, eb
             }
         }
     }
+    if let Some(b) = book.as_mut() {
+        props.extend(b.extra_props(w, &field));
+    }
     if !props.is_empty() {
         crate::merge::run(w, props, pantheon, beat, st.max_witnesses as usize);
+    }
+    let before = book.as_ref().map(|_| eb.before_sim());
+    if let (Some(b), Some(before)) = (book.as_mut(), before.as_ref()) {
+        b.after_damage(w, &field);
+        let deaths = b.shelters(w, &field, before);
+        if !deaths.is_empty() {
+            crate::merge::run(w, deaths, pantheon, beat, st.max_witnesses as usize);
+        }
     }
     // ---- roads: a rift, lava, deep water or the sea over either end cuts the road (it fades by the rules' own step) --
     let blocked = |at: LonLat| {
@@ -389,9 +409,14 @@ fn consequences(w: &mut World, beat: u32, pantheon: &Pantheon, st: &Settings, eb
     }
     let mut budget = st.earth_events_per_beat as usize;
     for k in cut {
-        let (a, b) = (w.dm.trails[k].a, w.dm.trails[k].b);
+        let (a, b_) = (w.dm.trails[k].a, w.dm.trails[k].b);
+        let b = b_;
         w.dm.trails[k].wear = (threshold / 2.0 - 0.01).max(0.0);
         w.dm.trails[k].last_used = 0;
+        if let Some(b) = book.as_mut() {
+            let (pa, pb) = (w.places[a.ix()].center, w.places[b_.ix()].center);
+            b.road(&field, a, b_, if blocked(pa) { pa } else { pb });
+        }
         if budget > 0 {
             budget -= 1;
             let at = w.places[a.ix()].center;
@@ -414,6 +439,9 @@ fn consequences(w: &mut World, beat: u32, pantheon: &Pantheon, st: &Settings, eb
             continue;
         }
         let (id, name, at, left) = (sh.id, sh.name.clone(), sh.at, sh.worshippers / 2);
+        if let Some(b) = book.as_mut() {
+            b.shrine(&field, id, &sh.cell, at);
+        }
         w.dm.shrines[k].worshippers = left;
         if budget > 0 {
             budget -= 1;
@@ -532,6 +560,11 @@ fn consequences(w: &mut World, beat: u32, pantheon: &Pantheon, st: &Settings, eb
         if let Some(id) = crate::dm::uncover_encounter(w, beat, g.center[i as usize], why, st) {
             eb.entries.push(id);
         }
+    }
+    // ---- schema 20: what the field itself shows changed, then the beat's effects, worst first, kept ----------------
+    if let (Some(mut b), Some(before)) = (book, before) {
+        b.field(w, st, &field, &before);
+        eb.effects = Some(b.finish(w, st));
     }
 }
 

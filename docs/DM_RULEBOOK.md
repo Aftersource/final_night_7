@@ -1221,3 +1221,12 @@ reads the field; it never invents it.
   engine's answer: the DM never contradicts it and makes the rest fit, Rube Goldberg style (chapter 0): the punch
   landed only because the floodwater had carried the rival's boots off at dawn; Entropy's flood on fresh lava is told
   as steam and new black rock because that is what the field will do with it (docs/EARTH_SIM.md §12).
+- **What the earth did, thing by thing (state schema 20).** The DM does not narrate a disaster as a number: every beat
+  names what happened to which thing where (docs/EARTH_SIM.md §13). Forests burn down cell by cell and stay burnt
+  until they regrow; people run from fire, flood, lava and quakes to the nearest standing shelter out of it, and take
+  cover from storms, blizzards, lightning and swarms in the nearest building; a strong hazard breaks shelters (the
+  wreck stays), and the people in a falling shelter die or run on; armies and the people standing in it are hurt;
+  settlements, roads and shrines are ruined, cut and toppled. Every one of these is an effect with a place at the
+  thing's own scale (houses, people, villages, regions), a count of people where people are involved, and the
+  phenomenon and caster that did it. Moves and deaths are real: the shelters and wrecks are in the state, deaths go
+  through the rules, and time travel shows them. When the DM tells of a flood, the numbers it tells are these.

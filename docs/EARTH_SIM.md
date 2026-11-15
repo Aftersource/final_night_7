@@ -20,12 +20,13 @@ schema 13, so every older recording replays unchanged). Code:
 |---|---|
 | `crates/fn7-earth` (`grid.rs`, `sim.rs`, `codec.rs`) | the pure core: grid, base terrain, the field, the phenomena, one beat's step, keyframes. Knows nothing of a match |
 | `crates/fn7-plugin/src/earth/rules.rs` | the hooks: casts / god powers / ramifications feed it; it steps once a beat; the consequences go back through the rules |
+| `crates/fn7-plugin/src/earth/effects.rs` | what the earth did, thing by thing (schema 20, §13): `earth.effects[]`, crowds to shelters, shelters destroyed, wrecks, the scars a client draws at any zoom |
 | `crates/fn7-plugin/src/earth/here.rs` | the earth underfoot (schema 17, §12): one short line of what the field holds at a place, for every prompt that acts there; a duel stage's ground |
 | `crates/fn7-plugin/src/earth/view.rs` | what clients get: `earth` per beat, `game.earth`, `game.earth_at`, the board, the globe tiles, finer levels, the ASCII map |
 | `crates/fn7-model/src/earth.rs` | what is stored (`dm.earth`: `EarthState`) |
 | `crates/fn7-tools/src/bin/earth_view.rs` | `fn7-earth-view`, the ASCII viewer |
 | `crates/fn7-server/tests/earth_balance.rs` | the balance harness (ignored; release) |
-| tests | `fn7-plugin/src/earth/tests.rs` (the core), `earth/rules_tests.rs` (in a match), `fn7-tools` schema tests |
+| tests | `fn7-plugin/src/earth/tests.rs` (the core), `earth/rules_tests.rs` (in a match), `earth/effects_tests.rs` (§13), `fn7-tools` schema tests |
 
 Hooks (each a line or two): `casts::process` (a landed cast → an input), `beat::resolve` (a god-tier signature → an
 input; the step, after the society and before the DM; `public.earth`), `dm::settlements_step` (ruin lowers a target),
@@ -315,7 +316,7 @@ All under `earth_*` (docs/schemas/settings.schema.json; `GET /sim/settings`): `e
 (0.5), `earth_damage_scale` (1), `earth_damage_cap` (1), `earth_fire_damage` (0.6), `earth_lava_damage` (1.2),
 `earth_flood_damage` (0.5), `earth_quake_damage` (0.5), `earth_storm_damage` (0.4), `earth_cold_damage` (0.2),
 `earth_swarm_damage` (0.2), `earth_crowd_scale` (1), `earth_crowd_effects` (6), `earth_ruin_scale` (1),
-`earth_events_per_beat` (6).
+`earth_events_per_beat` (6), `earth_effects_max` (200, schema 20: §13).
 
 ## 9. Balance
 
@@ -424,3 +425,113 @@ place. Encounters are resolved by the rules (and told by the resolver, which has
 state builds the prompts and scenes it always did, byte for byte (tests in `earth/here_tests.rs`; release
 `fn7-sim --replay` of schema-12 server recordings and a schema-16 earth-on sim recording: 0 differences).
 
+
+## 13. What the earth did, thing by thing (state schema 20)
+
+> "ineedlikeeverythingtohappenwhenidropafloodsomewhereineeditineveryscaleucouldlookattocreateafloodorwhateverlikeifidropaloodonsomeoneineedtoseeitifisetwildfiretoforrestsiwannaseethemburndownandhavenothingleftorhoevermuchwasaffetcedifitossahurricaneatavillagepeopleshouldberunningtoshelterandsheltersshouldgetdestroyed..."
+> (Benito, BUILDLOG; the approved client design is `final_night_7_unreal/docs/design/EVENTS_IN_THE_WORLD.md`)
+
+From schema 20, after each beat's step and its consequences (§5), the server names **what happened to which thing
+where**, at the level the thing lives at, with the phenomenon that did it: `earth.effects[]` in the beat's public
+`earth`, in `present.earth`, and for any past beat in `game.earth_at`. The changes to the world (people who ran to
+shelters, shelters that fell) are **state**, so time travel shows them, and what lasts (burnt forest, drying mud,
+ruins, wrecks, people sheltering, the fallen) is answered per cell as `scars`. Code: `crates/fn7-plugin/src/earth/effects.rs`.
+
+### An effect
+
+`{cell, level, thing: {kind, ref?}, what, to_cell?, count?, amount?, cause, phenomenon?, power?, seat?}`
+
+| Field | Meaning |
+|---|---|
+| `cell`, `level` | the hex key (`face:level:q:r`, the keys `game.earth` uses) at the thing's level: **houses** for buildings, **people** for demigods, persons and shrines, **villages** for settlements and crowds at home, **regions** for forests, roads and armies. People in a shelter are at the building's houses hex |
+| `thing.kind` | `building`, `forest`, `crowd`, `road`, `shrine`, `demigod`, `person`, `army`, `settlement` |
+| `thing.ref` | `cl:N` (crowd, army), `dg:N`, `ch:N` (person), `pl:N` (settlement; for a building, the settlement it belongs to), `shrine:ID`, `pl:A~pl:B` (a road) |
+| `what` | `burned`, `flooded`, `destroyed`, `damaged`, `fled`, `died`, `sheltered`, `buried`, `swept`, `returned` (people going home when the hazard has left) |
+| `to_cell` | where they went (`fled`: the shelter's houses hex; `returned`: home) |
+| `count` | people (fled, sheltered, died, returned): the client draws that many tokens at people scale and scales down per level |
+| `amount` | a demigod's or person's damage (health points); a forest's share of its vegetation gone when the front crossed it (it burns on: `scars.burnt` has what is left); a damaged building's ruin share; a settlement's levels lost / 3 |
+| `cause` | the phenomenon's `id` (as in `phenomena[]`; 0 when none could be named), `phenomenon` its kind |
+| `power`, `seat` | the cast's magnitude (1..10) and the caster's seat, when a seat cast it (absent for the world's own) |
+
+**Attribution**: the nearest phenomenon (great-circle distance from its cell, then the lower id) of a kind that makes
+the hazard, among those live, ended this beat or ended in the last `ENDED_BEATS` (32) beats (`EarthState::ended`), so a
+fire that spread long after its wildfire ended is still its caster's. Fire: wildfire, lightning, meteor, volcano;
+lava: volcano, plate; flood: flood, tidal wave, storm, sink land, blizzard; quake: earthquake, meteor, plate, volcano;
+storm: storm, blizzard; cold: blizzard; strike: lightning, storm; swarm: swarm.
+
+### The hazard, in integers
+
+A regions cell's hazard is 0..255 and one kind, the worst of: fire (≥ 32: its value), lava (≥ 8: 64 + 2 × lava), flood
+(land, water ≥ 48: its value; drowned 255; a wave 192), quake (the beat's shaking; an open rift 200), storm (a storm's or
+blizzard's power at the cell, halving per ring, ≥ 16: × 2), lightning strike 160, blizzard cold (snow ≥ 96, heat ≤ −32)
+128, swarm (≥ 64: its value). **Mild** = 64 (people act), **strong** = 160 (shelters can fall: floodwater over a man's
+head, a fire of 160, an open rift or shrine-toppling shaking, a storm of power 80 at the cell). People **run from**
+fire, lava, flood and quakes and **take cover from** storms, blizzards, lightning and swarms.
+
+### What happens, each beat, in this order
+
+1. **Demigods, persons, armies** (through the rules, §5): a demigod's hit is `damaged` with `amount`, `died` if it fell.
+   Schema 20 adds: an army in a mild hazard takes damage 4 × hazard/255 (its deaths are `died`, count, regions); the 16
+   worst-placed persons (characters) take 0.5 × hazard/255 (`damaged`/`died`, people level). Crowds' deaths from §5's
+   fear and toll are `died` with the count at the crowd's villages hex.
+2. **Going home**: people sheltering whose home hex is no longer in a mild hazard go back (`returned`, count, to home).
+3. **Shelters**: every planet city has **3 + level (≤ 9) buildings**: houses-level hexes within two rings of its centre,
+   picked by a seeded hash (the same every look). A standing building in a strong hazard falls with odds
+   (hazard − 128) × 256 / 65,536 a beat (seeded by the building and the beat: 12 % at 160, 50 % at 255); one whose
+   cell's ruin crosses its own threshold (96 + hash mod 160) this beat falls too. It becomes a **wreck** (state, never
+   rebuilt): `destroyed` (`burned` by fire, `buried` by lava, `swept` by a flood). The people in it: ⌈count × max(hazard,
+   128) / 512⌉ die (`died` at the building, through the rules as a `Shrink`), the rest run to the next shelters
+   with room (`fled` from the building, `sheltered` there) and whoever finds none scatters home (`fled`, to_cell home). A standing building whose
+   ruin rose by ≥ 24 is `damaged`; one whose houses hex newly shows floodwater is `flooded`.
+4. **Crowds run**: a crowd (not an army) whose home (its quarter's centre) is in a mild hazard sends
+   max(1, available × hazard / 512) people (available = its size less those already sheltering) to the **nearest
+   standing shelter with room** (a building holds 250 × (1 + its city's level) people; one group spreads over at most
+   6 buildings; those who find no room stay home and suffer): its own city first, then other cities by distance within
+   2,500 km. From fire, lava, flood or a
+   quake a building counts only out of it (its cell under mild, or under strong with its own houses hex clear of fire,
+   floodwater, lava and rifts by the fine-level derivation, §1); from a storm, blizzard, lightning or swarm any standing
+   building is cover (so a hurricane on a village sends people into its houses, which the storm can then break). One
+   city's acceptable buildings are tried from one picked by a seeded hash. `fled` (villages hex → the building) and `sheltered` (the building),
+   with the same count.
+5. **Roads** cut (§5) are `destroyed` at the regions hex of the blocked end; **shrines** toppled are `destroyed` at
+   their people hex.
+6. **What the field shows**: a forest (vegetation ≥ 64) whose vegetation fell under 64 this beat with fire on it is
+   `burned` (under lava, `buried`), once per regions cell as the front crosses it; it burns on to nothing (fire dies
+   under 16) unless rain or a flood stops it, and regrows a point a beat when quiet. A settlement whose ruin levels
+   (§5) rose is `damaged` (`destroyed` at 3, `swept` if the sea took it); one whose villages hex newly shows water is
+   `flooded`.
+
+**Bounds**: at most `earth_effects_max` (200) a beat, **worst first** (deaths by count, then settlements, shrines, roads
+and buildings destroyed, demigods and persons hurt by amount, flight by count, forests by share, people going home,
+damage, floods; ties in the order found, which is deterministic), with `effects_total` (before the cap) and
+`effects_counts` (per `what`, before the cap). Every draw is a seeded hash of (match seed, beat, the thing's key): no
+shared stream, no floats in a threshold (distances only order candidates).
+
+### What is stored (`dm.earth`, schema 20 only; empty lists are not serialized)
+
+| Field | What |
+|---|---|
+| `effects[]` | `{beat, total, counts[10], rows}`: the kept list of each beat with any, packed (per row: what, thing, levels, cell face + zigzag-varint q, r, [to], count, amount in hundredths, ref tag + ids, cause id, kind, power, seat; base64) |
+| `refuges[]` | `{crowd, count, home, at, place, since, until?, cause}`: people in a shelter; never deleted, `until` closes it, so the shelters open at any past beat are known |
+| `wrecks[]` | `{at, place, beat, how, cause}`: buildings destroyed |
+| `ended[]` | `[id, kind, cell, power, seat, beat]`: phenomena ended in the last 32 beats (for attribution) |
+
+The people in shelters stay members of their crowd (its `size` is unchanged by moving); deaths go through the rules.
+
+### What the client gets
+
+- `round.outcome.public.earth.effects`, `effects_total`, `effects_counts` (every beat on a schema-20 match; an empty
+  list on a quiet beat).
+- `present.earth` and the PublicView's `earth`: the last stepped beat's `effects`, `effects_total`, `effects_counts`.
+- `game.earth_at {beat}`: that beat's `effects` exactly as the beat carried them, and `scars` at its end.
+- `game.earth {scars: true}`: the scars over the whole planet now (and this beat's effects); a board answer
+  with `scars: true` (`game.earth {cell, scars: true, ...}`) carries the `scars` within its reach.
+- **`scars`** (`effects::scars_json`): `{beat, burnt: [{cell, fuel, base}], mud: [{cell, water}], ruins: [{cell, ruin}],
+  wrecks: [{cell, settlement, beat, how, cause}], sheltering: [{crowd, from, at, settlement, count, since, cause}],
+  fallen: [{cell, level, count, beat}]}` (≤ 600 each). `burnt` = land whose vegetation is ≥ 24 under base (regrowing:
+  `fuel` now of `base`); `mud` = land with 1..23 water left (a flood drying); `ruins` = ruin ≥ 96; `fallen` = the
+  `died` counts of the last 12 beats per cell (the dead lie where they fell for 12 beats). Burnt, mud and ruins come
+  from the field, so a past beat's are rebuilt with it.
+
+**Replay**: everything above reads `World::earth_effects_rules()` (schema ≥ `EARTH_EFFECTS_SCHEMA` = 20; 18 and 19 are
+taken on other branches). A schema-13..17 state steps, damages and serializes exactly as before.

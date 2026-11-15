@@ -15,6 +15,66 @@ pub const EARTH_SCHEMA: u32 = 13;
 /// that acts in a place carries one short line of what the field holds there now (docs/EARTH_SIM.md §12).
 pub const EARTH_PROMPT_SCHEMA: u32 = 17;
 
+/// The state schema what the earth did, thing by thing, is gated on ([`crate::World::earth_effects_rules`]): from it
+/// each beat's step names what happened to which thing where (`earth.effects[]`: forests burned, crowds fled to
+/// shelters, shelters destroyed, people died ...), crowds really move to shelters and shelters really fall, and the
+/// state keeps them (docs/EARTH_SIM.md §13). 18 and 19 are taken by other branches.
+pub const EARTH_EFFECTS_SCHEMA: u32 = 20;
+
+/// One beat's effects (schema 20): the list the beat's `earth.effects` carried, worst first, capped, packed
+/// (`fn7-plugin::earth::effects`), with how many there were before the cap and how many of each `what`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct EarthEffects {
+    pub beat: u32,
+    /// Effects before the cap.
+    pub total: u32,
+    /// Per `what` (in `fn7-plugin::earth::effects::WHATS` order), before the cap.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub counts: Vec<u32>,
+    /// The kept effects, packed (base64).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub rows: String,
+}
+
+/// People of a crowd who fled to a shelter (schema 20). Never deleted: `until` closes it (they went home, the shelter
+/// fell, they moved on), so the shelters at any past beat are the entries open then.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct Refuge {
+    /// The crowd (cluster index).
+    pub crowd: u32,
+    pub count: u32,
+    /// The villages-level hex they fled from.
+    pub home: String,
+    /// The houses-level hex of the building they shelter in.
+    pub at: String,
+    /// The settlement (place index) the building belongs to.
+    pub place: u32,
+    pub since: u32,
+    /// The beat they left it (0: still there).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub until: u32,
+    /// The phenomenon they fled from.
+    pub cause: u32,
+}
+
+fn is_zero(x: &u32) -> bool {
+    *x == 0
+}
+
+/// A building the field destroyed (schema 20): the wreck stays.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct Wreck {
+    /// The houses-level hex.
+    pub at: String,
+    /// The settlement (place index).
+    pub place: u32,
+    pub beat: u32,
+    /// How it fell: `destroyed`, `burned`, `buried` or `swept`.
+    pub how: String,
+    /// The phenomenon that did it (0: ruin with no live cause).
+    pub cause: u32,
+}
+
 /// One live phenomenon. Stored as a 16-element array (in the order of the fields) to keep snapshots small.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(from = "PhenomenonRow", into = "PhenomenonRow")]
@@ -141,4 +201,17 @@ pub struct EarthState {
     /// Cells settled back to base by the cap so far.
     #[serde(default)]
     pub evicted: u32,
+    /// Schema 20: what the earth did each beat, thing by thing (beats with nothing are absent).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effects: Vec<EarthEffects>,
+    /// Schema 20: crowds' people in shelters, past and present.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub refuges: Vec<Refuge>,
+    /// Schema 20: buildings the field destroyed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub wrecks: Vec<Wreck>,
+    /// Schema 20: phenomena that ended in the last 32 beats, `[id, kind, cell, cast magnitude, seat, beat ended]`, so
+    /// what they left behind (a fire that spread on) is still theirs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ended: Vec<(u32, u8, u16, u8, u8, u32)>,
 }

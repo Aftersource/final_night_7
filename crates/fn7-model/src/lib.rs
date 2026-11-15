@@ -93,7 +93,12 @@ use serde::{Deserialize, Serialize};
 /// step, a god's ruling, Entropy's ramifications, a general, the narrator, a duel's deed) carries a short line of what
 /// the Earth simulator's field holds there now, and a duel's scene carries the ground (`ground`, hazard props). Rules
 /// that changed read [`World::earth_prompt_rules`], so schema-4..16 recordings replay exactly.
-pub const STATE_SCHEMA: u32 = 17;
+///
+/// Schema 20 (what the earth did, thing by thing; 18 and 19 are taken on other branches): each beat's Earth step names
+/// what happened to which thing where (`earth.effects[]`), crowds flee to shelters that the field can destroy, armies and
+/// people standing in it are hurt, and the state keeps the shelters and the wrecks. Rules that changed read
+/// [`World::earth_effects_rules`], so schema-4..17 recordings replay exactly.
+pub const STATE_SCHEMA: u32 = 20;
 
 /// Match-wide settings and clocks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -483,6 +488,10 @@ impl World {
     /// Schema 17 rules: the earth underfoot reaches the prompts that act in a place (and a duel's scene).
     pub fn earth_prompt_rules(&self) -> bool {
         self.meta.schema >= earth::EARTH_PROMPT_SCHEMA
+    }
+    /// Schema 20 rules: the Earth's effects, thing by thing (crowds to shelters, shelters destroyed, wrecks kept).
+    pub fn earth_effects_rules(&self) -> bool {
+        self.meta.schema >= earth::EARTH_EFFECTS_SCHEMA
     }
     /// Schema 14 rules: duel weapons, hammer-space, projectiles, the picker's recorded picks.
     pub fn duel_weapon_rules(&self) -> bool {
