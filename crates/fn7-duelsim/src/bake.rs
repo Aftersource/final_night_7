@@ -361,8 +361,14 @@ impl Sim {
                 } else if limb_name.is_some() && !ranged && !miss {
                     // a blow on the foe: the target is the body part's anchor on the foe as it stands at that moment
                     let foe = side_of(&c["on"]).filter(|s| *s != by).unwrap_or(1 - by);
-                    let part = c["at"].as_str().filter(|a| ["head", "chest", "belly", "legs"].contains(a)).unwrap_or("chest");
-                    let anchor = figure(&self.fb[foe].figure).anchors.iter().find(|a| a.0 == part).map(|a| a.1).unwrap_or([0.0, 1.3, 0.1]);
+                    let part = c["at"].as_str().filter(|a| ["head", "neck", "chest", "belly", "legs"].contains(a)).unwrap_or("chest");
+                    let fig = figure(&self.fb[foe].figure);
+                    let anchor_of = |n: &str| fig.anchors.iter().find(|a| a.0 == n).map(|a| a.1);
+                    // State schema 21: the neck, between the head and the chest anchors.
+                    let anchor = match (part, anchor_of("head"), anchor_of("chest")) {
+                        ("neck", Some(h), Some(c)) => [(h[0] + c[0]) / 2.0, (h[1] + c[1]) / 2.0, (h[2] + c[2]) / 2.0],
+                        _ => anchor_of(part).unwrap_or([0.0, 1.3, 0.1]),
+                    };
                     let (sy, cy) = sincos(yaws[foe]); let fp = sts[foe].0.p;
                     let p = [fp[0] + cy * anchor[0] + sy * anchor[2], fp[1] + anchor[1], fp[2] - sy * anchor[0] + cy * anchor[2]];
                     let n = norm(flat(sub(st.p, fp)));

@@ -1452,16 +1452,102 @@
               },
               "type": "array"
             },
+            "steps": {
+              "description": "State schema 21: the line staged as up to 4 steps (the panel plays them in order; the d20 and the matrix still decide the blow). Present when the line has more than one step or one that moves or uses a thing.",
+              "items": {
+                "$ref": "#/$defs/DuelStep"
+              },
+              "type": "array"
+            },
             "target": {
-              "description": "State schema 14: the body part the pick aimed at.",
+              "description": "State schema 14: the body part the pick aimed at (state schema 21: or the line's words; `neck` for a throat).",
               "enum": [
                 "head",
+                "neck",
                 "chest",
                 "belly",
                 "arms",
                 "legs"
               ],
               "type": "string"
+            },
+            "throw": {
+              "description": "State schema 21: what the line throws (it flies as a projectile with `thing`).",
+              "properties": {
+                "ground": {
+                  "description": "The ground kind.",
+                  "type": "string"
+                },
+                "item": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "kind": {
+                  "enum": [
+                    "rock",
+                    "dirt",
+                    "sand",
+                    "mud",
+                    "snow",
+                    "ash",
+                    "gravel",
+                    "leaves",
+                    "water"
+                  ],
+                  "type": "string"
+                },
+                "name": {
+                  "description": "",
+                  "type": "string"
+                },
+                "object_id": {
+                  "description": "A board object's id.",
+                  "type": "string"
+                },
+                "object_kind": {
+                  "description": "",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            "uses": {
+              "description": "State schema 21: what the line uses of what its fighter can use.",
+              "properties": {
+                "ground": {
+                  "description": "",
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": [
+                    "item",
+                    "board",
+                    "ground"
+                  ],
+                  "type": "string"
+                },
+                "name": {
+                  "description": "",
+                  "type": "string"
+                },
+                "object_id": {
+                  "description": "",
+                  "type": "string"
+                },
+                "object_kind": {
+                  "description": "",
+                  "type": "string"
+                },
+                "ref": {
+                  "$ref": "#/$defs/Ref"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
             },
             "weapon_class": {
               "description": "State schema 14: what it fights with for this strike.",
@@ -1477,6 +1563,28 @@
                 "shield"
               ],
               "type": "string"
+            },
+            "whiff": {
+              "description": "State schema 21: the line named a thing that is not there (not held, not on the board, not this ground): the blow fails, `unavailable` costs 2 wit.",
+              "properties": {
+                "named": {
+                  "description": "The words (\"pistol\").",
+                  "type": "string"
+                },
+                "where": {
+                  "enum": [
+                    "held",
+                    "board",
+                    "ground"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "named",
+                "where"
+              ],
+              "type": "object"
             },
             "word": {
               "description": "The move word read (as the table has it: `attack` for `attck`); null: none, the class's own clip.",
@@ -1515,6 +1623,13 @@
           "description": "",
           "minimum": 0,
           "type": "integer"
+        },
+        "stage": {
+          "description": "State schema 21: what to play AT ONCE on Enter (the keyword fallback, no model, no panel wait): the line's steps, or its move as one step; a whiff is one `stagger_waist` step with `whiff: true`. The panel may refine it later.",
+          "items": {
+            "$ref": "#/$defs/DuelStep"
+          },
+          "type": "array"
         },
         "tags": {
           "description": "What the wit saw: verb, combo, body, item, terrain, story, repeat, echo, short, spam, empty, rate_limit.",
@@ -2179,9 +2294,10 @@
             "additionalProperties": true,
             "properties": {
               "at": {
-                "description": "On a fighter: where.",
+                "description": "On a fighter: where (`neck`: state schema 21).",
                 "enum": [
                   "head",
+                  "neck",
                   "chest",
                   "belly",
                   "legs",
@@ -2453,7 +2569,8 @@
             "rocket",
             "rock",
             "bolt",
-            "orb"
+            "orb",
+            "dirt"
           ],
           "type": "string"
         },
@@ -2534,6 +2651,11 @@
           "minimum": 0,
           "type": "integer"
         },
+        "thing": {
+          "additionalProperties": true,
+          "description": "State schema 21: what was thrown (the blow's `move.throw`: a board object, a handful of ground, a held thing).",
+          "type": "object"
+        },
         "to": {
           "description": "`a` / `b` (a hit), a scene object's id (a miss that lands on it), or a hex [q, r]."
         },
@@ -2568,6 +2690,14 @@
     "DuelProp": {
       "description": "State schema 14: the weapon in a fighter's hand (on `duel.blow.move.prop` and on panel segs): what the client puts in the hand.",
       "properties": {
+        "colour": {
+          "description": "State schema 21: the colour its name gives (obsidian: black, golden: gold, ...).",
+          "type": "string"
+        },
+        "colour_hex": {
+          "description": "State schema 21: that colour as #rrggbb.",
+          "type": "string"
+        },
         "hammer": {
           "description": "Pulled out of hammer-space.",
           "type": "boolean"
@@ -2618,6 +2748,123 @@
         "material",
         "tier",
         "hammer"
+      ],
+      "type": "object"
+    },
+    "DuelStep": {
+      "description": "State schema 21: one staged step of a line (`duel.blow.stage[]`, `move.steps[]`).",
+      "properties": {
+        "clip": {
+          "enum": [
+            "airborne_hit",
+            "block",
+            "block_cross",
+            "bow",
+            "combo_triple",
+            "command",
+            "counter",
+            "defeat",
+            "downed",
+            "evade_roll",
+            "evade_spin",
+            "evade_stand",
+            "grapple_throw_down",
+            "ground_slam",
+            "heavy_charged",
+            "heavy_hammer",
+            "idle_guard",
+            "invoke",
+            "jump_attack",
+            "kick",
+            "kneel",
+            "lunge",
+            "parry_back",
+            "parry_high",
+            "rise",
+            "run",
+            "shield_push",
+            "stagger_back",
+            "stagger_waist",
+            "strike_side",
+            "strike_slash",
+            "taunt",
+            "throw_shoulder",
+            "victory",
+            "walk",
+            "flying_kick",
+            "roundhouse_kick",
+            "high_kick",
+            "leg_sweep",
+            "elbow_strike",
+            "uppercut",
+            "jab",
+            "punch_combo",
+            "blade_spin",
+            "axe_spin",
+            "spin_rise",
+            "mage_cast",
+            "dodge_roll_back",
+            "knee_strike",
+            "sword_judgment",
+            "bow_draw_shoot",
+            "bow_quick_shot",
+            "bow_aim_walk",
+            "gun_side_shot",
+            "gun_run_shoot",
+            "gun_quick_draw",
+            "gun_roll_fire",
+            "gun_reload",
+            "launcher_fire",
+            "twohand_chop",
+            "twohand_reap",
+            "twohand_stance",
+            "throw_object",
+            "draw_from_nowhere"
+          ],
+          "type": "string"
+        },
+        "ground": {
+          "description": "The ground the step picks up.",
+          "type": "string"
+        },
+        "object_id": {
+          "description": "The board object the step uses.",
+          "type": "string"
+        },
+        "path": {
+          "description": "cover: to the far side of `object_id` from the foe; left / right: a hex to that side as it faces the foe; back: a hex away; in: to the foe; leap: a jump on the spot; circle: a run round the six hexes about it. Absent: in place.",
+          "enum": [
+            "cover",
+            "left",
+            "right",
+            "back",
+            "in",
+            "leap",
+            "circle"
+          ],
+          "type": "string"
+        },
+        "prop": {
+          "$ref": "#/$defs/DuelProp"
+        },
+        "target_part": {
+          "enum": [
+            "head",
+            "neck",
+            "chest",
+            "belly",
+            "arms",
+            "legs"
+          ],
+          "type": "string"
+        },
+        "whiff": {
+          "description": "The line named a thing that is not there.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "clip"
       ],
       "type": "object"
     },
@@ -3358,16 +3605,102 @@
               },
               "type": "array"
             },
+            "steps": {
+              "description": "State schema 21: the line staged as up to 4 steps (the panel plays them in order; the d20 and the matrix still decide the blow). Present when the line has more than one step or one that moves or uses a thing.",
+              "items": {
+                "$ref": "#/$defs/DuelStep"
+              },
+              "type": "array"
+            },
             "target": {
-              "description": "State schema 14: the body part the pick aimed at.",
+              "description": "State schema 14: the body part the pick aimed at (state schema 21: or the line's words; `neck` for a throat).",
               "enum": [
                 "head",
+                "neck",
                 "chest",
                 "belly",
                 "arms",
                 "legs"
               ],
               "type": "string"
+            },
+            "throw": {
+              "description": "State schema 21: what the line throws (it flies as a projectile with `thing`).",
+              "properties": {
+                "ground": {
+                  "description": "The ground kind.",
+                  "type": "string"
+                },
+                "item": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "kind": {
+                  "enum": [
+                    "rock",
+                    "dirt",
+                    "sand",
+                    "mud",
+                    "snow",
+                    "ash",
+                    "gravel",
+                    "leaves",
+                    "water"
+                  ],
+                  "type": "string"
+                },
+                "name": {
+                  "description": "",
+                  "type": "string"
+                },
+                "object_id": {
+                  "description": "A board object's id.",
+                  "type": "string"
+                },
+                "object_kind": {
+                  "description": "",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            "uses": {
+              "description": "State schema 21: what the line uses of what its fighter can use.",
+              "properties": {
+                "ground": {
+                  "description": "",
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": [
+                    "item",
+                    "board",
+                    "ground"
+                  ],
+                  "type": "string"
+                },
+                "name": {
+                  "description": "",
+                  "type": "string"
+                },
+                "object_id": {
+                  "description": "",
+                  "type": "string"
+                },
+                "object_kind": {
+                  "description": "",
+                  "type": "string"
+                },
+                "ref": {
+                  "$ref": "#/$defs/Ref"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
             },
             "weapon_class": {
               "description": "State schema 14: what it fights with for this strike.",
@@ -3383,6 +3716,28 @@
                 "shield"
               ],
               "type": "string"
+            },
+            "whiff": {
+              "description": "State schema 21: the line named a thing that is not there (not held, not on the board, not this ground): the blow fails, `unavailable` costs 2 wit.",
+              "properties": {
+                "named": {
+                  "description": "The words (\"pistol\").",
+                  "type": "string"
+                },
+                "where": {
+                  "enum": [
+                    "held",
+                    "board",
+                    "ground"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "named",
+                "where"
+              ],
+              "type": "object"
             },
             "word": {
               "description": "The move word read (as the table has it: `attack` for `attck`); null: none, the class's own clip.",
@@ -3408,6 +3763,13 @@
         "self_damage": {
           "description": "A penalty's cost to its author.",
           "type": "number"
+        },
+        "stage": {
+          "description": "State schema 21: what to play AT ONCE on Enter (the keyword fallback, no model, no panel wait): the line's steps, or its move as one step; a whiff is one `stagger_waist` step with `whiff: true`. The panel may refine it later.",
+          "items": {
+            "$ref": "#/$defs/DuelStep"
+          },
+          "type": "array"
         },
         "tags": {
           "description": "What the wit saw: verb, combo, body, item, terrain, story, repeat, echo, short, spam, empty, rate_limit.",

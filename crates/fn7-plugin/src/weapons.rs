@@ -112,13 +112,23 @@ pub struct Wieldable {
     /// Pulled out of hammer-space.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hammer: bool,
+    /// Schema 21: the colour its name gives (`obsidian` → black: [`crate::duel_words::colour_of`]) and its hex.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub colour: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub colour_hex: Option<String>,
 }
 
 impl Wieldable {
     /// The seg `prop` (docs/CLIENT_API.md "Duel weapons"): what the client puts in the hand.
     pub fn prop(&self) -> Value {
-        json!({ "item": self.item.map(Ref::Item), "name": self.name, "kind": self.kind, "weapon_class": self.weapon_class,
-                "material": self.material, "tier": self.tier, "hammer": self.hammer })
+        let mut v = json!({ "item": self.item.map(Ref::Item), "name": self.name, "kind": self.kind, "weapon_class": self.weapon_class,
+                "material": self.material, "tier": self.tier, "hammer": self.hammer });
+        if let Some(c) = &self.colour {
+            v["colour"] = c.clone().into();
+            v["colour_hex"] = self.colour_hex.clone().into();
+        }
+        v
     }
     pub fn ranged(&self) -> bool {
         RANGED.contains(&self.weapon_class.as_str())
@@ -135,9 +145,15 @@ pub fn held(w: &World, d: DemigodId) -> Vec<Wieldable> {
         .filter_map(|i| {
             let wc = weapon_class(i.ext.kind, &i.name)?;
             let kind = serde_json::to_value(i.ext.kind).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
-            let material = crate::wills::arms::material_of(w.meta.seed, &i.name).0.to_string();
+            let mut material = crate::wills::arms::material_of(w.meta.seed, &i.name).0.to_string();
+            // Schema 21: the colour (and a lab material) its name gives.
+            let c = w.duel_words_rules().then(|| crate::duel_words::colour_of(&i.name)).flatten();
+            if let Some(c) = c {
+                material = c.0.to_string();
+            }
             Some((i.ext.tier.index(), rank(wc), Wieldable { item: Some(i.id), name: i.name.clone(), kind, weapon_class: wc.into(), material,
-                                                            tier: i.ext.tier.as_str().into(), hammer: false }))
+                                                            tier: i.ext.tier.as_str().into(), hammer: false,
+                                                            colour: c.map(|c| c.1.to_string()), colour_hex: c.map(|c| c.2.to_string()) }))
         })
         .collect();
     out.sort_by(|a, b| (b.0, b.1).cmp(&(a.0, a.1)));
@@ -276,6 +292,8 @@ pub fn missile(kind: &str) -> (f64, f64) {
         "rocket" => (24.0, 0.3),
         "rock" => (14.0, 1.0),
         "orb" => (12.0, 0.2),
+        // Schema 21: a handful of the ground (dirt, sand, mud, snow, ash) flung at the face.
+        "dirt" => (10.0, 0.4),
         _ => (200.0, 0.0), // bolt
     }
 }

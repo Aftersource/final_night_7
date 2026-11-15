@@ -265,6 +265,11 @@ pub fn scene(w: &World, d: &Duel) -> Value {
         v["clip_fallbacks"] = l.clips.iter().filter_map(|c| Some((c.clip.to_string(), Value::String(c.fallback.clone()?))))
             .collect::<serde_json::Map<String, Value>>().into();
     }
+    // Schema 21: each fighter's look (to dress the mannequin) and what it can use (its items, the board, the ground).
+    if w.duel_words_rules() {
+        let sc = v.clone();
+        v["fighters"] = json!({ "a": crate::duel::fighter_card(w, &d.f[0], Some(&sc)), "b": crate::duel::fighter_card(w, &d.f[1], Some(&sc)) });
+    }
     v
 }
 
@@ -484,7 +489,13 @@ fn exchange(b: &mut Bout, st: &Settings, starts: i64, typing: bool) {
     let mut r = Rng::derive(b.duel.seed, &[PANEL_SALT, hash_str(&b.duel.id), n as u64]);
     let objects: Vec<Value> = b.scene.as_ref().and_then(|s| s["objects"].as_array().cloned()).unwrap_or_default();
     let shown = strikes.len().min(3);
-    let base = if shown == 0 { IDLE_MS } else { (600 + 1000 * shown as i64).clamp(2400, 3600) };
+    // Schema 21: a line staged as several steps plays longer (350 ms a step beyond the first, up to 4800 a panel).
+    let extra: i64 = if b.words {
+        strikes.iter().take(shown).map(|x| x.ev["move"]["steps"].as_array().map(|a| a.len().saturating_sub(1)).unwrap_or(0) as i64).sum()
+    } else {
+        0
+    };
+    let base = if shown == 0 { IDLE_MS } else if extra > 0 { (600 + 1000 * shown as i64 + 350 * extra).clamp(2400, 4800) } else { (600 + 1000 * shown as i64).clamp(2400, 3600) };
     let slot = if shown == 0 { base } else { base / shown as i64 };
     // Schema 12: the AI's lines for the window this panel opens, and the play time that fits them (the strikes are
     // staged in `base`; the rest is guard). None after a knockout or when the slot reaches the deadline.
@@ -557,6 +568,8 @@ fn exchange(b: &mut Bout, st: &Settings, starts: i64, typing: bool) {
             let zone = match mv["target"].as_str() {
                 // Schema 14: the part the pick aimed at.
                 Some("head") => "head",
+                // Schema 21: a slit throat lands at the neck.
+                Some("neck") => "neck",
                 Some("legs") => "legs",
                 Some("chest" | "arms") => "chest",
                 Some(_) => "belly",
@@ -589,11 +602,20 @@ fn exchange(b: &mut Bout, st: &Settings, starts: i64, typing: bool) {
             }
             // Schema 14: a ranged weapon's blow (or an invoke) flies: a projectile, and the contact lands when it does.
             let wc = mv["weapon_class"].as_str().unwrap_or("unarmed");
-            if let Some(kind) = crate::weapons::kind_for(wc, cls).filter(|_| b.weapons) {
+            // Schema 21: a thrown board object, handful of ground or held thing flies as its own projectile.
+            let thrown = mv["throw"]["kind"].as_str().filter(|_| b.words && matches!(cls, "strike" | "heavy"));
+            let kind_for = match thrown {
+                Some(k) => Some(if k == "rock" { "rock" } else { "dirt" }),
+                None => crate::weapons::kind_for(wc, cls),
+            };
+            if let Some(kind) = kind_for.filter(|_| b.weapons) {
                 let foe_shield = prop_at(b, foe, fed0 + s.k + 1)["weapon_class"] == "shield";
                 let shot = crate::weapons::Shot { id: format!("p{n}.{}", projectiles.len() + 1), kind, by: me, blow: s.ev["n"].as_u64().unwrap_or(0) as u32,
                                                   from: pos[me], foe: foe_before, t_fire_ms: t_ms, damage: dmg, result, foe_shield, burst: text };
-                let p = crate::weapons::projectile(&shot, &objects, &mut r);
+                let mut p = crate::weapons::projectile(&shot, &objects, &mut r);
+                if thrown.is_some() {
+                    p["thing"] = mv["throw"].clone();
+                }
                 if let Some(last) = contacts.last_mut().filter(|x| x["by"] == side_name(me) && x["t_ms"] == t_ms) {
                     last["t_ms"] = p["t_hit_ms"].clone();
                     last["ranged"] = true.into();
@@ -809,13 +831,17 @@ fn stage(r: &mut Rng, objects: &[Value], pos: &mut [[i32; 2]; 2], me: usize, cls
          range_after: Range, ms: i64, mv: &Value, trims: bool) -> (Vec<Value>, Vec<Value>, Option<i64>) {
     let foe = 1 - me;
     let mut mine: Vec<Value> = vec![];
-    let mut theirs: Vec<Value> = vec![];
     // Schema 12 (`duel.blow.move`): the clip the line's words picked, its setups and its leap.
     let word_clip = mv["clip"].as_str();
     let leaps = mv["path"] == "leap";
     let want = sep(range_after);
     let dir = if pos[me][0] <= pos[foe][0] { -1 } else { 1 }; // my side of the foe along q
     let spot = |p: [i32; 2], k: i32| [p[0] + dir * k, p[1]];
+    // Schema 21: a line staged as steps plays them in order; the rules' result still decides the defender's reaction.
+    if let Some(steps) = mv["steps"].as_array().filter(|a| !a.is_empty()) {
+        let (mine, contact) = stage_steps(objects, pos, me, cls, steps, want, dir, ms, trims);
+        return defend(r, objects, pos, me, cls, true, result, dmg, down, ms, ms, dir, mine, contact);
+    }
     // The run-in (or the step back): end the slot at the range the rules left them at.
     let mut left = ms;
     // The setups first ("plead! jump": the kneel, then the jump): a short beat each.
@@ -889,6 +915,15 @@ fn stage(r: &mut Rng, objects: &[Value], pos: &mut [[i32; 2]; 2], me: usize, cls
     } else {
         None
     };
+    defend(r, objects, pos, me, cls, word_clip.is_some(), result, dmg, down, ms, left, dir, mine, contact)
+}
+
+/// The defender's track for a staged strike (wait for the contact, then react), given the attacker's.
+#[allow(clippy::too_many_arguments)]
+fn defend(r: &mut Rng, objects: &[Value], pos: &mut [[i32; 2]; 2], me: usize, cls: &str, worded: bool, result: &str, dmg: f64, down: bool, ms: i64,
+          left: i64, dir: i32, mine: Vec<Value>, contact: Option<i64>) -> (Vec<Value>, Vec<Value>, Option<i64>) {
+    let foe = 1 - me;
+    let mut theirs: Vec<Value> = vec![];
     // A move that attacks nobody (a guard, a step, a taunt, a failed dodge): the other just holds.
     if !matches!(cls, "strike" | "heavy" | "grapple" | "throw" | "invoke" | "command" | "feint") {
         theirs.push(json!({ "clip": "idle_guard", "ms": ms, "loop": true, "face": "foe" }));
@@ -913,7 +948,7 @@ fn stage(r: &mut Rng, objects: &[Value], pos: &mut [[i32; 2]; 2], me: usize, cls
             pos[foe] = to;
         }
         // Schema 12: a hard hit lifts it off its feet and it gets up again.
-        "landed" if word_clip.is_some() && dmg >= 3.0 && react >= 900 => {
+        "landed" if worded && dmg >= 3.0 && react >= 900 => {
             let to = away(pos[foe], 1);
             let (fly, lie) = (react * 4 / 10, react * 25 / 100);
             theirs.push(json!({ "clip": "airborne_hit", "ms": fly, "to": to, "path": "knock", "h": 1.0, "spin": true }));
@@ -963,6 +998,132 @@ fn stage(r: &mut Rng, objects: &[Value], pos: &mut [[i32; 2]; 2], me: usize, cls
         _ => theirs.push(json!({ "clip": "idle_guard", "ms": react, "loop": true, "face": "foe" })),
     }
     (mine, theirs, contact)
+}
+
+/// Schema 21: the attacker's track for a line staged as steps (`move.steps`: `{clip, path?, object_id?, target_part?,
+/// prop?}`), in a slot of `ms`, moving `pos[me]`: `cover` runs to the far side of the object from the foe, `left` /
+/// `right` a hex to that side (as the figure faces the foe), `back` a hex away, `in` to the range the rules left them
+/// at, `leap` a jump on the spot, `circle` a run round the six hexes about it. The last attacking step closes in first
+/// when the rules' range asks for it, and its contact frame is the blow's. Returns the segs (summing to `ms`) and the
+/// contact's offset.
+#[allow(clippy::too_many_arguments)]
+fn stage_steps(objects: &[Value], pos: &mut [[i32; 2]; 2], me: usize, cls: &str, steps: &[Value], want: i32, dir: i32, ms: i64, trims: bool)
+               -> (Vec<Value>, Option<i64>) {
+    let foe = 1 - me;
+    let attacks = matches!(cls, "strike" | "heavy" | "grapple" | "throw" | "invoke" | "command");
+    let melee = matches!(cls, "strike" | "heavy" | "grapple" | "throw");
+    let is_attack = |c: &str| c == "throw_object" || ["strike", "heavy", "throw", "grapple", "invoke", "command"].iter().any(|k| crate::picker::serves(c, k)) && !matches!(c, "run" | "lunge");
+    let hit_at = if attacks { steps.iter().rposition(|s| is_attack(s["clip"].as_str().unwrap_or("")) && s["path"].is_null()) } else { None };
+    let ranged_hit = hit_at.is_some_and(|k| steps[k]["clip"] == "throw_object") || matches!(cls, "invoke" | "command");
+    let free = |h: [i32; 2], pos: &[[i32; 2]; 2]| hex_dist(h, [0, 0]) <= 5 && h != pos[foe] && !objects.iter().any(|o| obj_at(o) == h);
+    // Weights: an attack 2, a move 1.5, anything else 1.
+    let weight = |k: usize| if Some(k) == hit_at { 4 } else if steps[k]["path"].is_string() { 3 } else { 2 };
+    let total: i64 = (0..steps.len()).map(weight).sum::<i64>().max(1);
+    let mut out: Vec<Value> = vec![];
+    let mut contact = None;
+    let mut used = 0;
+    for (k, st) in steps.iter().enumerate() {
+        let share = if k + 1 == steps.len() { ms - used } else { (ms * weight(k) / total).max(120) };
+        used += share;
+        let clip = st["clip"].as_str().unwrap_or("idle_guard").to_string();
+        let tag = |mut v: Value| {
+            v["step"] = (k + 1).into();
+            if st["prop"].is_object() {
+                v["prop"] = st["prop"].clone();
+            }
+            v
+        };
+        let lat = |side: &str| -> [i32; 2] {
+            // Facing the foe along +q (dir < 0: the foe is to the right), left is -r; facing -q, left is +r.
+            let face = if dir < 0 { 1 } else { -1 };
+            let dr = if side == "left" { -face } else { face };
+            [pos[me][0], pos[me][1] + dr]
+        };
+        match st["path"].as_str() {
+            Some("cover") => {
+                let o = st["object_id"].as_str().and_then(|id| objects.iter().find(|o| o["id"] == id));
+                let to = o.map(|o| {
+                    let at = obj_at(o);
+                    // The neighbour of the object farthest from the foe (behind it), nearest to the figure.
+                    let mut best: Option<([i32; 2], (i32, i32))> = None;
+                    for d in [[1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]] {
+                        let h = [at[0] + d[0], at[1] + d[1]];
+                        if !free(h, pos) {
+                            continue;
+                        }
+                        let key = (-hex_dist(h, pos[foe]), hex_dist(h, pos[me]));
+                        if best.is_none_or(|b| key < b.1) {
+                            best = Some((h, key));
+                        }
+                    }
+                    best.map(|b| b.0).unwrap_or(pos[me])
+                });
+                let to = to.unwrap_or(pos[me]);
+                let mut seg = json!({ "clip": "run", "ms": share, "loop": true, "to": to, "path": "dash" });
+                if let Some(o) = o {
+                    seg["behind"] = o["id"].clone();
+                }
+                pos[me] = to;
+                out.push(tag(seg));
+            }
+            Some(side @ ("left" | "right" | "back")) => {
+                let to = if side == "back" { [pos[me][0] + dir, pos[me][1]] } else { lat(side) };
+                let to = if free(to, pos) { to } else { pos[me] };
+                pos[me] = to;
+                out.push(tag(json!({ "clip": clip, "ms": share, "to": to, "path": "dash", "face": "foe" })));
+            }
+            Some("leap") => out.push(tag(json!({ "clip": clip, "ms": share, "to": pos[me], "path": "leap", "h": 1.2, "face": "foe" }))),
+            Some("circle") => {
+                // Round the six hexes about where it stands, and back.
+                let c0 = pos[me];
+                let ring: Vec<[i32; 2]> = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]].iter().map(|d| [c0[0] + d[0], c0[1] + d[1]])
+                    .filter(|h| free(*h, pos)).chain([c0]).collect();
+                let n = ring.len() as i64;
+                let mut t = 0;
+                for (i, h) in ring.iter().enumerate() {
+                    let part = if i as i64 + 1 == n { share - t } else { share / n };
+                    t += part;
+                    out.push(tag(json!({ "clip": "run", "ms": part, "loop": true, "to": h, "path": "dash", "circle": true })));
+                }
+                pos[me] = c0;
+            }
+            Some("in") => {
+                let to = [pos[foe][0] + dir * want.max(1), pos[foe][1]];
+                pos[me] = to;
+                out.push(tag(json!({ "clip": clip, "ms": share, "loop": clip == "run", "to": to, "path": "dash", "face": "foe" })));
+            }
+            _ if Some(k) == hit_at => {
+                let mut left = share;
+                // The rules' range: a melee blow closes in first.
+                if melee && !ranged_hit && hex_dist(pos[me], pos[foe]) > want {
+                    let run = share / 2;
+                    let to = [pos[foe][0] + dir * want.max(1), pos[foe][1]];
+                    out.push(tag(json!({ "clip": "run", "ms": run, "loop": true, "to": to, "path": "dash", "face": "foe" })));
+                    pos[me] = to;
+                    left -= run;
+                }
+                let start: i64 = out.iter().map(|x| x["ms"].as_i64().unwrap_or(0)).sum();
+                let mut seg = tag(json!({ "clip": clip, "ms": left, "face": "foe" }));
+                if st["object_id"].is_string() {
+                    seg["at_object"] = st["object_id"].clone();
+                }
+                let hit = if trims { trim_seg(&mut seg) } else { None };
+                contact = Some((start + hit.unwrap_or(left * 55 / 100)).clamp(1, ms - 1));
+                out.push(seg);
+            }
+            _ => {
+                let mut seg = tag(json!({ "clip": clip, "ms": share, "face": "foe" }));
+                if let Some(id) = st["object_id"].as_str() {
+                    seg["at_object"] = id.into();
+                }
+                if let Some(g) = st["ground"].as_str() {
+                    seg["ground"] = g.into();
+                }
+                out.push(seg);
+            }
+        }
+    }
+    (out, contact)
 }
 
 /// Schema 14: a seg plays its clip's trim (the list's `at_ms`, `use_ms`, `hit_ms`): it starts `at` ms into the clip

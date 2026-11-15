@@ -60,6 +60,11 @@ pub const HINT_SCHEMA: u32 = 18;
 /// played out by the tokens on the people-level board (`scene.play`, kept in [`Dm::scenes`]).
 pub const TOKEN_PLAY_SCHEMA: u32 = 19;
 
+/// The schema a duel line's words reach the stage at (docs/DUEL_MOVES.md §5): what a line names is pulled out
+/// (hammer-space, with its colour), the cover it names is summoned into the scene, a line plays as up to 4 staged
+/// steps (`move.steps`, the instant `stage` on `duel.blow`), and each fighter carries its `look`.
+pub const DUEL_WORDS_SCHEMA: u32 = 21;
+
 /// Token-play scenes kept in the state (the newest).
 pub const SCENES_KEPT: usize = 24;
 
