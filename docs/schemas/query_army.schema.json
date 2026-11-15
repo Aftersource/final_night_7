@@ -82,6 +82,54 @@
       ],
       "type": "object"
     },
+    "LibrarySprite": {
+      "description": "A picture from the people-and-houses library (docs/MEDIA.md \"Sprites and buildings\"): one per key, generated once and cached forever. The bare plugin sends `status: off` with null `hash` and `url`; the server's media layer fills them (`pending`, then `ready` via GET /media/index; `off` = images off, refused by the budget or failed: draw your placeholder).",
+      "properties": {
+        "hash": {
+          "description": "The media key (null from the bare plugin or with images off).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "key": {
+          "description": "`sprite/<role>/<look>` or `building/<kind>/<look>`: the stable library key.",
+          "type": "string"
+        },
+        "kind": {
+          "description": "",
+          "enum": [
+            "sprite",
+            "building"
+          ],
+          "type": "string"
+        },
+        "status": {
+          "description": "",
+          "enum": [
+            "pending",
+            "ready",
+            "off"
+          ],
+          "type": "string"
+        },
+        "url": {
+          "description": "`/media/<hash>.<ext>` once ready.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "key",
+        "kind",
+        "status",
+        "url",
+        "hash"
+      ],
+      "type": "object"
+    },
     "LonLat": {
       "description": "[longitude, latitude] in degrees (WGS84). Note the order: longitude first.",
       "items": {
@@ -90,6 +138,206 @@
       "maxItems": 2,
       "minItems": 2,
       "type": "array"
+    },
+    "PersonLive": {
+      "description": "One person as `game.people` lists them: who they are (a sprite role and look), and what they are doing now.",
+      "properties": {
+        "activity": {
+          "description": "The animation to play.",
+          "enum": [
+            "training",
+            "fishing",
+            "farming",
+            "trading",
+            "praying",
+            "brewing",
+            "strolling",
+            "storytelling",
+            "playing",
+            "patrolling",
+            "holding_court",
+            "begging",
+            "sailing",
+            "smithing",
+            "hunting",
+            "healing",
+            "resting",
+            "sleeping",
+            "chatting",
+            "going_to_work",
+            "going_home",
+            "fleeing",
+            "sheltering",
+            "rioting",
+            "fighting",
+            "marching",
+            "cheering",
+            "acting"
+          ],
+          "type": "string"
+        },
+        "cell": {
+          "description": "Their people-level hex now.",
+          "type": "string"
+        },
+        "doing": {
+          "description": "What they are doing, in a few words (\"fishing off the dock\", \"asleep\", \"cheering Ash's Host\").",
+          "type": "string"
+        },
+        "group": {
+          "description": "People doing the same thing at the same spot in this reply share a small id (null: alone).",
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "home_cell": {
+          "description": "Their house (a houses-level hex of their settlement).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "look": {
+          "description": "Which of the role's three looks.",
+          "maximum": 3,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "moving": {
+          "description": "A hint: they walk about doing it (toward `to_cell` when set).",
+          "type": "boolean"
+        },
+        "name": {
+          "description": "Their name; a resident: \"<role> of the <crowd>, who lives in the <house>\".",
+          "type": "string"
+        },
+        "pos": {
+          "$ref": "#/$defs/LonLat"
+        },
+        "ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The person (`ch:`); null for a house's resident (not yet in the story)."
+        },
+        "resident": {
+          "description": "One of the people living in a house, drawn from a crowd of its settlement (no `ch:` ref until the story names them).",
+          "type": "boolean"
+        },
+        "role": {
+          "description": "Their sprite role.",
+          "enum": [
+            "warrior",
+            "fisherman",
+            "farmer",
+            "merchant",
+            "priest",
+            "witch",
+            "beauty",
+            "elder",
+            "child",
+            "soldier",
+            "noble",
+            "beggar",
+            "sailor",
+            "smith",
+            "hunter",
+            "healer"
+          ],
+          "type": "string"
+        },
+        "settlement": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The settlement they live in."
+        },
+        "sprite": {
+          "$ref": "#/$defs/LibrarySprite"
+        },
+        "title": {
+          "description": "Their rank title, when they have one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "to_cell": {
+          "description": "Where they are heading or gathering (a hex key, any level).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "why": {
+          "description": "What set it: their routine (role and time of day), or an event (an earth refuge, a mob, their own public act this beat, an army, their crowd's stance, fear).",
+          "enum": [
+            "routine",
+            "earth",
+            "mob",
+            "act",
+            "army",
+            "crowd",
+            "goal"
+          ],
+          "type": "string"
+        },
+        "work": {
+          "description": "What kind of place they work at.",
+          "enum": [
+            "wall",
+            "dock",
+            "field",
+            "market",
+            "temple",
+            "home",
+            "manor",
+            "forge"
+          ],
+          "type": "string"
+        },
+        "work_cell": {
+          "description": "Where they work (a houses-level hex: the dock, the market, the temple, a field …).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "ref",
+        "name",
+        "resident",
+        "title",
+        "role",
+        "look",
+        "sprite",
+        "cell",
+        "pos",
+        "doing",
+        "activity",
+        "why",
+        "moving",
+        "to_cell",
+        "home_cell",
+        "work_cell",
+        "work",
+        "settlement",
+        "group"
+      ],
+      "type": "object"
     },
     "Ref": {
       "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row, ce cell, mb mob. Stable for the whole match.",
@@ -146,6 +394,9 @@
         "cell": {
           "description": "Rules 0.7.0: their people-level hex cell (`<face>:people:<q>:<r>`).",
           "type": "string"
+        },
+        "live": {
+          "$ref": "#/$defs/PersonLive"
         },
         "name": {
           "description": "",

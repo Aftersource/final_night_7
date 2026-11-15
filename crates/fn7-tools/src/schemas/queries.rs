@@ -76,7 +76,8 @@ pub(super) fn defs() -> Map<String, Value> {
                 ("role", nullable(r("Role"))),
                 ("title", json!({ "type": ["string", "null"], "description": "\"General of Ash's Host of Cairo\"." })),
             ],
-            &[("pos", r("LonLat")), ("cell", string("Rules 0.7.0: their people-level hex cell (`<face>:people:<q>:<r>`)."))],
+            &[("pos", r("LonLat")), ("cell", string("Rules 0.7.0: their people-level hex cell (`<face>:people:<q>:<r>`).")),
+              ("live", r("PersonLive"))],
         ),
     );
     d.insert(
@@ -231,6 +232,49 @@ pub(super) fn defs() -> Map<String, Value> {
             &[],
         ),
     );
+    let opt_str = |desc: &str| json!({ "type": ["string", "null"], "description": desc });
+    d.insert(
+        "LibrarySprite".into(),
+        object(
+            "A picture from the people-and-houses library (docs/MEDIA.md \"Sprites and buildings\"): one per key, generated once and cached forever. The bare plugin sends `status: off` with null `hash` and `url`; the server's media layer fills them (`pending`, then `ready` via GET /media/index; `off` = images off, refused by the budget or failed: draw your placeholder).",
+            &[
+                ("key", string("`sprite/<role>/<look>` or `building/<kind>/<look>`: the stable library key.")),
+                ("kind", e(&["sprite", "building"], "")),
+                ("status", e(&["pending", "ready", "off"], "")),
+                ("url", opt_str("`/media/<hash>.<ext>` once ready.")),
+                ("hash", opt_str("The media key (null from the bare plugin or with images off).")),
+            ],
+            &[],
+        ),
+    );
+    d.insert(
+        "PersonLive".into(),
+        object(
+            "One person as `game.people` lists them: who they are (a sprite role and look), and what they are doing now.",
+            &[
+                ("ref", json!({ "anyOf": [{ "$ref": "#/$defs/Ref" }, { "type": "null" }], "description": "The person (`ch:`); null for a house's resident (not yet in the story)." })),
+                ("name", string("Their name; a resident: \"<role> of the <crowd>, who lives in the <house>\".")),
+                ("resident", boolean("One of the people living in a house, drawn from a crowd of its settlement (no `ch:` ref until the story names them).")),
+                ("title", opt_str("Their rank title, when they have one.")),
+                ("role", e(&["warrior", "fisherman", "farmer", "merchant", "priest", "witch", "beauty", "elder", "child", "soldier", "noble", "beggar", "sailor", "smith", "hunter", "healer"], "Their sprite role.")),
+                ("look", json!({ "type": "integer", "minimum": 1, "maximum": 3, "description": "Which of the role's three looks." })),
+                ("sprite", r("LibrarySprite")),
+                ("cell", string("Their people-level hex now.")),
+                ("pos", r("LonLat")),
+                ("doing", string("What they are doing, in a few words (\"fishing off the dock\", \"asleep\", \"cheering Ash's Host\").")),
+                ("activity", e(&["training", "fishing", "farming", "trading", "praying", "brewing", "strolling", "storytelling", "playing", "patrolling", "holding_court", "begging", "sailing", "smithing", "hunting", "healing", "resting", "sleeping", "chatting", "going_to_work", "going_home", "fleeing", "sheltering", "rioting", "fighting", "marching", "cheering", "acting"], "The animation to play.")),
+                ("why", e(&["routine", "earth", "mob", "act", "army", "crowd", "goal"], "What set it: their routine (role and time of day), or an event (an earth refuge, a mob, their own public act this beat, an army, their crowd's stance, fear).")),
+                ("moving", boolean("A hint: they walk about doing it (toward `to_cell` when set).")),
+                ("to_cell", opt_str("Where they are heading or gathering (a hex key, any level).")),
+                ("home_cell", opt_str("Their house (a houses-level hex of their settlement).")),
+                ("work_cell", opt_str("Where they work (a houses-level hex: the dock, the market, the temple, a field …).")),
+                ("work", e(&["wall", "dock", "field", "market", "temple", "home", "manor", "forge"], "What kind of place they work at.")),
+                ("settlement", opt_ref("The settlement they live in.")),
+                ("group", json!({ "type": ["integer", "null"], "minimum": 1, "description": "People doing the same thing at the same spot in this reply share a small id (null: alone)." })),
+            ],
+            &[],
+        ),
+    );
     d
 }
 
@@ -368,6 +412,7 @@ pub(super) fn replies() -> Vec<(&'static str, &'static str, Value)> {
                 ("mods", array(r("WorldMod"), "Live mods centered in it.")),
                 ("influence", array(r("Influence"), "Shares of this region.")),
                 ("events", r("EventPage")),
+                ("people", page(r("Who"), "People and houses: the living people of the region, nearest its centre first (`cursor`, `limit` page it), each with `live`.")),
             ],
             &[("hotspot", json!({ "anyOf": [{ "$ref": "#/$defs/Hotspot" }, { "type": "null" }], "description": "Rules 0.7.0: its most dynamic area." })),
             ("encounters", array(r("Encounter"), "Rules 0.8.0: encounter hexes here (hidden ones only as marked).")),
@@ -403,10 +448,34 @@ pub(super) fn replies() -> Vec<(&'static str, &'static str, Value)> {
                 ("time_of_day_phase", r("DayPhase")),
                 ("children", array(r("Node"), "place only: the places below.")),
                 ("crowds", page(r("Crowd"), "place only: crowds living under it, biggest first.")),
-                ("people", page(r("Who"), "crowd, cell, mob: people known there (came from the crowd, members, in the mob).")),
+                ("people", page(r("Who"), "crowd, cell, mob: people known there (came from the crowd, members, in the mob); place (not the arena): the living people under it, nearest its centre first; hex: the living people standing in it. Each with `live` (as `game.people` lists them).")),
             ],
         )),
         ("query_person", "person", person()),
+        ("query_people", "people", object(
+            "`game.people`: every living person in the board disc around `cell` (named people and the residents of the houses), nearest first, each with their sprite and what they are doing now. Read-only and deterministic.",
+            &[("cell", string("The board's centre at `level`.")), ("level", e(&["regions", "villages", "houses", "people"], "")),
+              ("rings", int("The disc's rings (22).")), ("beat", int("")), ("phase", e(&["dawn", "day", "dusk", "night"], "The time of day (the routines follow it).")),
+              ("total", int("People in the disc (before `limit`).")), ("named", int("Of them, named people (`ch:`).")),
+              ("residents", int("Of them, residents of houses.")), ("moving", int("Listed people with `moving` true.")),
+              ("people", array(r("PersonLive"), "Nearest first, at most `limit`."))],
+            &[],
+        )),
+        ("query_buildings", "buildings", object(
+            "`game.buildings`: every settlement house hex in the board disc around `cell`, nearest first, with its building kind, look and library picture.",
+            &[("cell", string("The board's centre at `level`.")), ("level", e(&["regions", "villages", "houses", "people"], "")),
+              ("rings", int("")), ("beat", int("")),
+              ("buildings", array(object("One house hex.", &[
+                  ("cell", string("Its houses-level hex.")),
+                  ("kind", e(&["hut", "cottage", "longhouse", "manor", "temple", "market_stall", "dock", "tower"], "")),
+                  ("look", e(&["poor", "common", "rich"], "The settlement's wealth band.")),
+                  ("settlement", r("Ref")), ("settlement_name", string("")),
+                  ("settlement_level", opt_int("1 hamlet .. 5 great city; null before the DM founded it.")),
+                  ("wrecked", boolean("The earth sim destroyed it (draw the wreck).")),
+                  ("sprite", r("LibrarySprite")),
+              ], &[]), "Nearest first."))],
+            &[],
+        )),
         ("query_army", "army", army()),
         ("query_events", "events", json!({
             "type": "object",

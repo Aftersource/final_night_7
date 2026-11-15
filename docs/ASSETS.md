@@ -27,6 +27,8 @@ build) the server logs the error and runs without it: the game and `/media` neve
   assets.sqlite  (+ assets.sqlite-wal, assets.sqlite-shm while open)
   images/portrait/<sha256>.png        a demigod's or person's portrait
   images/diorama/<sha256>.png         the table piece
+  images/sprite/<sha256>.png          a library sprite (one person: role × look)
+  images/building/<sha256>.png        a library building (kind × look)
   images/event/<sha256>.png           moment cards, storyboard shots
   images/item/<sha256>.png
   images/statue/<sha256>.png          the end-of-match statue PICTURE (the media layer's `statue` kind)
@@ -63,9 +65,9 @@ step, and refuses a database from a newer build. Times are unix milliseconds (UT
 | `id` | TEXT PK | `ast_` + 24 hex. Derived from the asset's identity, so re-ingesting gives the same id: for a media-layer image `sha256("media:" + media hash)`; for an imported file `sha256("file:<sha256>:<kind>/<subkind>:<subject kind>:<subject key>:<variant>")`; for a recorded result with no file, from its task |
 | `sha256` | TEXT | sha256 of the file's bytes. NULL until there is a file |
 | `kind` | TEXT | `image` \| `model` \| `texture` \| `animation` |
-| `subkind` | TEXT | `portrait` \| `diorama` \| `event` \| `item` \| `statue` \| `place` \| `army` \| `reference` \| `preview` \| `god_preview` (images); `statue` \| `figure` \| `mannequin` (models); `skin` (textures); `clip` (animations) |
+| `subkind` | TEXT | `portrait` \| `diorama` \| `event` \| `item` \| `statue` \| `place` \| `army` \| `sprite` \| `building` \| `reference` \| `preview` \| `god_preview` (images); `statue` \| `figure` \| `mannequin` (models); `skin` (textures); `clip` (animations) |
 | `subject_kind` | TEXT | `demigod` \| `god` \| `item` \| `place` \| `match` \| `shared` \| `person` |
-| `subject_key` | TEXT | Who or what it shows. A demigod, god or person: the **normalized name** (the profile rule: NFKC, invisibles dropped, whitespace collapsed, lowercased, 40 characters; a trailing ` (2)` counter dropped first, as the visual sheet does). An item: its normalized descriptor. `match`: the match id (moment cards, armies). `shared`: a fixed key (`mannequin`, `style_ref:img_3751.jpg`, `unknown`) |
+| `subject_key` | TEXT | Who or what it shows. A demigod, god or person: the **normalized name** (the profile rule: NFKC, invisibles dropped, whitespace collapsed, lowercased, 40 characters; a trailing ` (2)` counter dropped first, as the visual sheet does). An item: its normalized descriptor. `match`: the match id (moment cards, armies). `shared`: a fixed key (`mannequin`, `style_ref:img_3751.jpg`, `unknown`; a people-and-houses library picture: its library key, `sprite/<role>/<look>` or `building/<kind>/<look>`, read from the prompt's head `<role> (look <n> of 3):`) |
 | `variant` | TEXT | Which one of several for the subject: `heroic` / `apose` / `style` (reference images), `wood/base_color` (skin and map), a clip name, `rigged` / `mesh`, `fbx`. Empty for the default |
 | `display_name` | TEXT | The subject as written (`Chris's Left Hand`), or the start of a moment card's subject |
 | `path` | TEXT | The file, relative to the assets root (`images/portrait/<sha256>.png`). NULL until there is a file |
@@ -109,7 +111,7 @@ Indexes: `media_hash` (unique), `(subject_kind, subject_key, kind, subkind, vari
 | `usage` | JSON | The provider's usage object (tokens), when kept |
 | `status` | TEXT | `pending` \| `ok` \| `failed` \| `refused` |
 | `error` | TEXT | The failure or the refusal's reason |
-| `requested_by` | TEXT | `match:<id>` \| `prewarm` \| `operator` \| `unknown` |
+| `requested_by` | TEXT | `match:<id>` \| `prewarm` \| `library` (a sprite or building of the people-and-houses library, MEDIA.md) \| `operator` \| `unknown` |
 | `requested_match`, `requested_beat` | TEXT, INTEGER | The match (the recording's run id) and beat whose hook asked |
 | `requested_seat`, `requested_account` | INTEGER, TEXT | The seat that asked (`game.media`, a seat's view) and its account, when the request came from one |
 | `source` | TEXT | `live` \| `sidecar` \| `recording` \| `provenance` \| `job` \| `operator` |

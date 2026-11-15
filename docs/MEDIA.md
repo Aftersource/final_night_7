@@ -30,7 +30,7 @@ config's `event_selection` picks it (below). Storyboard shots (`match.ended.summ
 ```json
 "statue_image": {
   "hash": "3f9c…64 hex…",
-  "kind": "statue",                 // "portrait" | "item" | "event" | "statue" | "place" | "army" | "diorama"
+  "kind": "statue",                 // "portrait" | "item" | "event" | "statue" | "place" | "army" | "diorama" ("sprite" | "building": the library, below)
   "status": "pending",              // "pending" | "ready" | "off"
   "url": null,                      // "/media/<hash>.<ext>" once ready
   "prompt": "A slightly larger faceted low-poly figure of the demigod on a raised hexagonal plinth …: the demigod Rook (…), … Style: Final Night 7's tabletop world: …. Match the reference images' palette, …. No words or letters in the picture, no gore, no real people."
@@ -421,6 +421,40 @@ prewarm: N queued, M already cached`. It spends from a `prewarm` budget bucket, 
 `FN7_IMAGE_BUDGET_USD` must both cover it (about $1.31 reserved for the roster with `gpt-image-1-mini` medium, see
 the costs; about $0.16 per extra name).
 
+## Sprites and buildings: the people-and-houses library
+
+Benito said he needs a separate sprite for each individual person, because without them characters cannot be told apart, for example a witch from another figure or a
+warrior from a fisherman?" and "why do the houses look so boring and blocky they should be interesting and unique".
+Code: `crates/fn7-plugin/src/people.rs` (the catalogue, the assignment, `game.people` / `game.buildings`),
+`crates/fn7-server/src/media.rs` (`MediaPlugin::library_pass`, `prewarm_library`). Payload shapes in CLIENT_API.md
+"People and houses".
+
+- **Two kinds**, both in the style config: `sprite` (one full-body character, standing, three-quarter view, the whole
+  figure in frame, a clear silhouette readable at a small size, on a plain flat background) and `building` (one building
+  as a chunky low-poly miniature on one hex tile, on a plain flat background). Each has its own `style` (the house
+  style's palette and mood, PS2-era dark fantasy, cobalt and violet with orange candlelight, but a detailed individual
+  instead of the tabletop's white pillars) and its own `references` (the same four mood pictures, with a note that takes
+  their palette and mood and none of their scenery). Both ask for a transparent background (`background=transparent`;
+  the model may refuse it and the call is repeated opaque). 1024x1024, queue priority 2 (with army, place, item).
+- **The library is fixed**: 16 roles × 3 looks = 48 sprites (warrior, fisherman, farmer, merchant, priest, witch,
+  beauty, elder, child, soldier, noble, beggar, sailor, smith, hunter, healer; each look a distinct person: the witch's
+  looks are "an ugly old witch with a hooked nose, warts …", "a pale young witch … with a raven on her shoulder", "a
+  hunched hedge witch …"; beauty's are "a strikingly beautiful young woman …", "a gorgeous golden-haired maiden …", "a
+  dashing handsome young man …"), and 8 kinds × 3 looks = 24 buildings (hut, cottage, longhouse, manor, temple,
+  market_stall, dock, tower × poor, common, rich). Each picture has a stable **key** (`sprite/<role>/<look>`,
+  `building/<kind>/<look>`) and a fixed subject `<role> (look <n> of 3): <who they are>`; the prompt is that subject in
+  the kind's framing and style, so the image key (the media hash) is stable too: **one picture per key, generated once,
+  cached forever** (a new style text or reference file makes a new key, as for every kind).
+- **When**: lazily, the first time a payload carries a `sprite` object with that key (the server's media wrapper fills
+  `hash`, `status`, `url` in place; images off: the plugin's stub goes out untouched, `status: "off"`); and, with
+  `FN7_SPRITES_PREWARM=on`, all 72 at startup. Both go through the normal queue and budgets, in the budget bucket
+  (match id) `library`: the global `FN7_IMAGE_BUDGET_USD` applies; a refusal marks that picture `refused` in the manifest
+  (reason "image budget reached …") and its payloads keep `status: "off"` (the client keeps its placeholder; asking
+  again within the process spends nothing). Tests use `FN7_IMAGES=mock` only.
+- **Registry**: every library picture is an asset row like the others (`subkind` `sprite` / `building`, subject
+  `shared` with the library key, e.g. `sprite/witch/1`; the generation row has the exact prompt, the cost and
+  `requested_by: "library"`).
+
 ## Images by reference: `game.media`
 
 `game.media {kind: "portrait"|"diorama"|"place"|"event"|"army", ref}` (`diorama`: a `dg:` ref only) (WebSocket for a seat; `GET
@@ -459,6 +493,7 @@ the champion's is its portrait. Video clips per shot (phase 2) are not built: th
 | `FN7_IMAGE_CONCURRENCY` | `6` | Generations in flight. Waiting jobs start by priority: portrait and diorama, then statue, then army/place/item, then event (first come, first served within a priority), so portraits never wait behind moment cards |
 | `FN7_MEDIA_PREWARM` | on | `0`/`off`/`false` turns the startup prewarm off |
 | `FN7_MEDIA_PREWARM_NAMES` | | Extra names to prewarm, comma-separated (e.g. `Chris,Benito`) |
+| `FN7_SPRITES_PREWARM` | off | `on`/`1`/`true`/`yes`: at startup ask once for all 72 library pictures (48 sprites, 24 buildings; about $1.80 at `gpt-image-1-mini` medium with 4 references). Otherwise each is asked for the first time a payload shows it |
 | `FN7_IMAGE_QUEUE` | `256` | Queued generations; beyond it requests are refused |
 | `FN7_IMAGE_TIMEOUT_S` | `120` | Per request |
 | `FN7_MEDIA_DIR` | `runs/media` | The cache: `<hash>.<ext>` + `<hash>.json` |

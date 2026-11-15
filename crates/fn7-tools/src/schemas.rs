@@ -1951,7 +1951,7 @@ fn v08_defs() -> Map<String, Value> {
           ("on_road", boolean("")), ("weather", string("")),
           ("time_of_day", object("", &[("day", int("")), ("phase", r("DayPhase")), ("light", num(""))], &[])),
           ("changes_since", array(json!({ "type": "string" }), "Its parent's notable changes since it was last observed."))],
-        &[],
+        &[("earth", json!({ "type": "object", "additionalProperties": true, "description": "State schema 13: the hex as the Earth simulator has it now (the shape of a `game.earth` derived hex, docs/EARTH_SIM.md)." }))],
     ));
     d
 }

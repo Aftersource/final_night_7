@@ -186,6 +186,11 @@
           },
           "type": "array"
         },
+        "earth": {
+          "additionalProperties": true,
+          "description": "State schema 13: the hex as the Earth simulator has it now (the shape of a `game.earth` derived hex, docs/EARTH_SIM.md).",
+          "type": "object"
+        },
         "encounters": {
           "description": "",
           "items": {

@@ -228,6 +228,17 @@ fn query_replies_validate() {
         cases.push(("fault", None, a, &state));
     }
     cases.push(("faults_overview", None, json!({}), &state));
+    // People and houses: the people and the buildings around a city at each level (HTTP-style string limit), and a
+    // hex zoomed into (its people).
+    let c0 = w.places[city.ix()].center;
+    for level in [fn7_model::hexgrid::HexLevel::Villages, fn7_model::hexgrid::HexLevel::Houses, fn7_model::hexgrid::HexLevel::People] {
+        let k = fn7_model::hexgrid::cell_at(c0, level).key();
+        cases.push(("people", None, json!({ "cell": k, "limit": "300" }), &state));
+        cases.push(("buildings", None, json!({ "cell": k }), &state));
+    }
+    let pk = fn7_model::hexgrid::people_cell(w.characters.iter().find(|c| c.alive).unwrap().pos);
+    cases.push(("people", Some(0), json!({ "cell": pk, "level": "villages" }), &state));
+    cases.push(("node", None, json!({ "cell": pk }), &state));
     // State schema 18: duel odds, as a seat and in public.
     cases.push(("duel_odds", Some(0), json!({ "demigod": "dg:0", "target": "dg:1" }), &state));
     cases.push(("duel_odds", None, json!({ "demigod": "dg:0", "target": "dg:1" }), &state));
