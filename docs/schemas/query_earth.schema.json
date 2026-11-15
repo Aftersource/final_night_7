@@ -756,7 +756,7 @@
     "description": "Over HTTP every arg is a query-string parameter (numbers as numeric strings). Unknown args are ignored.",
     "properties": {
       "base": {
-        "description": "true: add `globe` (h, top and fuel of every regions cell of the globe, about 26,000, in index order).",
+        "description": "true: add `globe` (h, top and fuel of every regions cell of the globe, about 27,000, in index order).",
         "type": [
           "boolean",
           "string"

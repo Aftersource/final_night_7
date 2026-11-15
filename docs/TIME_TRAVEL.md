@@ -41,6 +41,7 @@ One JSON value, opaque to the core (`fn7_model::World`; tables in docs/DATA_MODE
 | `dm.duels[]` | the duels under way: one **bout** each (below) |
 | `dm.mark` | schema 8: `{at_ms, seq, resolved_ms, round_ms}` (below) |
 | `dm.looks` | schema 11: each demigod's loadout and the image identity it shows; the item art granted (below) |
+| `dm.earth` | schema 13: the Earth simulator: its input log, the Entropy meter per beat, the field now (phenomena + sparse dirty cells) and a keyframe every 16 beats (below) |
 
 ### The look (`dm.looks`, `fn7_plugin::look::LookBook`; schema 11)
 
@@ -104,6 +105,18 @@ on when it was computed. So the live view, the resolve, a restart's recovery, a 
 | `at_ms`, `seq` | each resolve | the newest **instant** action a resolve has been handed. An instant action stamped later, in `(at_ms, seq)` order, is not in this state yet |
 | `resolved_ms` | each resolve | the newest receive stamp of any action in the last resolve's batch (its only clock) |
 | `round_ms` | each Start, server only | the server's clock at this beat's Start (a recorded side input; absent in simulations). An AI's challenge takes it as its lock stamp |
+
+### The Earth (`dm.earth`, `fn7_model::earth::EarthState`; schema 13)
+
+The field is a **pure function of (seed, settings, the ordered inputs with their beats, the Entropy meter at each
+beat)**, integer arithmetic only, so the state keeps just enough to restart it: `inputs[]` (35 bytes each), `entropy[]`
+(a byte a beat), the phenomena and the dirty cells now (sparse, packed), and **keyframes** every
+`earth_keyframe_beats` (16), delta-encoded against the previous one. Any beat is rebuilt from the newest keyframe at or
+before it by re-simulating at most 16 beats (`game.earth_at {beat}`; 38 µs calm to 6.9 ms in a heat-death match,
+release). Tested: a beat from its keyframe equals the same beat from beat 1 bit for bit; a fork continues identically
+until its own casts; every beat's published `hash` is what `earth_at` rebuilds; matches recorded with the simulator on
+replay with 0 differences. Size: 0.8 KB per snapshot calm, 22 KB busy, 42 KB (88 KB at the end) in a heat-death match,
+about 2 % of a live recording at worst. See [`EARTH_SIM.md`](EARTH_SIM.md) §6.
 
 ## 3. The journal (layer 2)
 
@@ -218,7 +231,7 @@ pauses are the `duel_clock` events. The test asserts the rebuilt list equals the
 5. **Replays are exact.** A match that was killed and resumed, paused, joined mid-match or forked replays with 0
    differences: the two side inputs are recorded and fed back.
 6. **Older recordings replay unchanged.** Everything above is gated on `meta.schema >= 8`, the panels on `>= 9`,
-   the looks on `>= 11`.
+   the looks on `>= 11`, the Earth on `>= 13` (and its setting, absent from older settings, is off there).
 7. **Ids stay unique across restarts.** The core's `seq` restarts at 1 with the process; a challenge whose
    `duel:s<seq>:<a>:<b>` already names a duel of the match gets `seq + 1000000` (repeated until free). Duel input is
    ordered by `(received_at_ms, seq)`.

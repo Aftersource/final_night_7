@@ -1093,3 +1093,35 @@ yet", and the quest is the absurd chain of causes that would make it "yes".
 Strait, burned at dawn on the shrine of the one who cursed you; only then will the hex lift." Ash wills "catch a
 butterfly and take its wings"; walks to the shrine; at noon the step says "you stand there, but it is day, not dawn";
 at the next dawn the wings burn, and everyone sees `curse.broken`.
+
+## 28. The Earth (state schema 13)
+
+The god powers no longer only hit what they are aimed at: every cast, god-tier power and physical ramification
+starts a **phenomenon** on a simulated voxel field of the whole planet (docs/EARTH_SIM.md has every number). The DM
+reads the field; it never invents it.
+
+- **The field.** One column per regions hex (120 km): height in 16 levels (sea level 8), a material, and what is on
+  it (water, lava, ash, fire, snow, cloud, heat, cracks, ruin ...). The base terrain is the same in every match (the
+  land mask, the plate boundaries of chapter 13 and a fixed hash); only what differs is stored.
+- **Phenomena.** Storm, lightning, flood, wildfire, volcano, earthquake, meteor, tidal wave, raise and sink land,
+  forest, swarm, blizzard and a drifting plate. A quake ruptures **along the nearest fault**; a volcano's cooled lava
+  **raises the land** (an island from the sea); a plate patch drifts along its boundary with a rift behind and a ridge
+  ahead. They meet in the cells they share: a flood quenches a fire into steam, lava in water turns to rock and steam,
+  a quake near a volcano wakes it, a storm feeds a flood, a fire feeds a storm, ash cools the air.
+- **Entropy** (chapter 12.4) quickens every spread, adds sub-steps (the timeline runs faster as the world comes apart),
+  stresses every fault until the world starts its own quakes, eruptions and drifting plates, and at heat death makes
+  everything live flare each beat.
+- **Consequences go through the rules.** A demigod in a burning, flooded, shaking or lava-filled cell takes one bounded
+  hit a beat, named for its worst part, so armour that resists the element halves it (chapter 14). The worst-hit crowds
+  fear the gods (and some die). Ruin pushes a settlement's level target down (one level per 96 points, three if the sea
+  took it) and the settlement steps down one level at a time (chapter 6). A rift, lava or deep water over a road's end
+  cuts the road (chapter 10); hard shaking, lava, drowning or an impact topples a shrine (half its worshippers leave,
+  chapter 11). A rupture, a crater or new land uncovers a marked hex (chapter 8).
+- **Memory** (chapter 3). The DM remembers the field's events by place and beat: `earth.quake`, `earth.eruption`,
+  `earth.drowned` ("the coast of Sumatra drowned at beat 31"), `earth.land_rose`, `earth.plate_moved`, `earth.impact`,
+  `earth.wave`, `earth.omen` (the world's own), `earth.road_cut`, `earth.shrine_toppled`, and `earth.settled` when old
+  quiet scars return to base under the cap. At most `earth_events_per_beat` (6) a beat, public.
+- **Zooming in** (chapter 4.3). A hex below the regions level is derived from the coarse cell under it, seeded by the
+  hex: the same hexes burn every time anyone looks. An observed hex records its field values and the field's weather.
+- **Time.** The field is a pure function of the seed, the settings, the casts with their beats and the Entropy meter;
+  a keyframe every 16 beats lets any past beat be rebuilt by re-simulating at most 16 beats. A fork continues the same.

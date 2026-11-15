@@ -113,7 +113,7 @@ pub fn specs() -> Vec<QuerySpec> {
                          "field": { "type": ["boolean", "string"], "description": "With a centre at regions: the cells as columns instead of the board." },
                          "max_phenomena": { "type": ["integer", "string"], "minimum": 0, "description": "Phenomena sent at most (default 20)." },
                          "beat": { "type": ["integer", "string"], "minimum": 0, "description": "A past beat (default: now)." },
-                         "base": { "type": ["boolean", "string"], "description": "true: add `globe` (h, top and fuel of every regions cell of the globe, about 26,000, in index order)." },
+                         "base": { "type": ["boolean", "string"], "description": "true: add `globe` (h, top and fuel of every regions cell of the globe, about 27,000, in index order)." },
                          "grid": { "type": ["boolean", "string"], "description": "true: add the grid (face, q, r of every cell in index order)." },
                          "format": { "type": "string", "enum": ["pack", "columns", "json"], "description": "Cell encoding of `field` (default pack)." } }), &[])),
         spec("earth_at", true,
