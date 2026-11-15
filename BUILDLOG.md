@@ -1256,3 +1256,12 @@ Chris is she/her. Chris's words since the last entry are relayed verbatim by the
 **Deadline:** packaged build due Nov 15, 8:59 PM EST; after 12:00 PM EST only blocking fixes. Zip 338 MB (limit 1 GB). docs/PACKAGING.md in the Unreal repo.
 
 **Machine:** disk ~4.6 GB free with four agents building; clear finished worktrees' target/ folders as branches merge; recordings are archived with runs/lan/recordings_tool.sh.
+
+## 2026-11-15: addendum to the session log (~02:30 UTC)
+
+- Fault scaling settings are live in the house (start_stable.sh; next house match).
+- Unreal main fc2765d: Benito's height hook merged (AFNStudio::BoardHeightAt / HexStateAt / SetHexOverride / ClearHexOverrides / RebuildBoard / BoardCellKey; every board height in his layer goes through it). The Mac must make FN7Board::GroundTop / BoardPointFor use it.
+- Benito is relaunched on a fresh EDITOR build (main 89069a9 + height-hook), proven by his log: "FN7 HUD: mounting the kit HUD (default)" at 02:22:24 UTC. His zoom proof lines follow when he tries them. Rule for his PC: after every merge build BOTH targets (FinalNightEditor and FinalNight) and prove the newest feature from his own log.
+- The Mac is on mac/zoom-smooth: the zoom regression (level switches rebuild the board at once) and the rebuild storm (the wheel near a demigod calls FocusBoard -> BuildTable every notch: 1,872 rebuilds in Benito's log).
+- Disk: dropped to 2.7 GB with four agents building; freed fn7_accounts/target and archived all recordings except the newest 8 (lossless, verified; restore with runs/lan/recordings_tool.sh). The engine's theatre/target (10 GB, another session's) is untouched.
+- Agents running (Opus 5.5): backend/duel-weapons (final_night_7), backend/earth-sim (fn7_quests), backend/item-fixes (fn7_items), backend/fault-junctions (fn7_faults). Each: report -> merge -> test -> replay -> announce -> deploy.
