@@ -732,6 +732,27 @@ fighter also steps into the ring in one of five skins: wood, obsidian, gold, dra
 picks it (the same name is always the same skin, in every match and on every client), unless it carries a thing a god
 granted (dragonscale) or a thing of gold (gold).
 
+### 21.8 The AI types too, words pick moves, one duel at a time (state schema 12)
+
+An AI duellist used to strike only as an automatic counter and nobody saw it type. From state schema 12, in any duel
+with a clock, **the AI acts in every input window**: when the window opens the rules pick its move (from the range,
+the initiative, the stances, the defence its opponent has set and the opponent's last move; `duel_ai_aggression`
+0.6) and write it a line of its own, a sentence of 20 characters or more in its voice. The line is published at once
+as a typing script (the text, a speed of 6 to 9 characters a second seeded per demigod, a pause or two, and the
+moment it presses Enter, at least 400 ms before the window closes), which every client plays back as masked typing;
+the panel that opens the window lasts as long as the line needs. At its Enter the line is a blow by the same d20 and
+matrix as anyone's, with its wit capped at 2 and `duel_ai_handicap` (5) off its modifier against a human, because it
+strikes in every window and no human can; the handicap is waived against a human silent for 12 s and between two
+AIs. An AI that typed in a window does not also counter in it, and its line never draws an automatic counter for an
+idle human: who types nothing only gets hit. Measured over 400 simulated duels a row at the defaults, a human typing
+good lines wins about 9 in 10 at 84 words a minute, 2 in 3 at 60 and 1 in 3 at 42; one who types nothing loses
+every time (`docs/CLIENT_API.md`, "AI duellists"; `duel_ai_lines_per_window` 0.5 lifts the slow typist to about
+half). Two AIs type their duel out window by window to a knockout or the deadline. In the same schema a line's words
+choose its move class and its clip, typos and one-word commands included ("atack!!", "jimpkick!", "plead! jump": the
+last move word is the move, the earlier ones are setups; a throw works from close range), a player fights one duel
+at a time (`busy:player`), and a duel closes at the first action stamped past its deadline, which shows the outro
+and a provisional `challenge.end` at once; the resolve applies it as before.
+
 ## 22. Appendix: the DM's settings
 
 Room settings (validated in `crates/fn7-plugin/src/settings.rs`, listed by `GET /sim/settings`). The 0.8.0 and 0.8.1 ones:

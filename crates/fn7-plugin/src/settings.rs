@@ -408,7 +408,7 @@ impl Default for Settings {
             duel_one_per_player: true,
             duel_ai_lines_per_window: 1.0,
             duel_ai_aggression: 0.6,
-            duel_ai_handicap: 6,
+            duel_ai_handicap: 5,
         }
     }
 }

@@ -1852,7 +1852,7 @@ pub fn end_json(p: &Pending, deed: &str) -> Value {
 }
 
 /// Schema 12: the `challenge.end` shown at once when a duel action closes the duel (a knockout's outro, or the
-/// first action stamped past the deadline): who won and the healths, `provisional: true`, no deed and no log yet.
+/// first action stamped past the deadline): who won and the healths, `provisional: true`, an empty deed and log.
 /// The next resolve applies the result and sends the full `challenge.end` (the same `duel_id`) as before.
 pub fn end_live_json(b: &Bout) -> Value {
     let d = &b.duel;
@@ -1863,8 +1863,8 @@ pub fn end_live_json(b: &Bout) -> Value {
             "winner": r.map(|x| Ref::Demigod(d.f[x.0].id)), "loser": r.map(|x| Ref::Demigod(d.f[x.1].id)),
             "ko": b.ko.is_some(), "reason": if b.ko.is_some() { "ko" } else { "deadline" },
             "damage": { "a": n1(t[0]), "b": n1(t[1]) }, "hp": { "a": n1(b.hp[0]), "b": n1(b.hp[1]) },
-            "blows": b.n, "typed": b.typed, "deed": null, "at": d.at, "pos": d.at, "cell": d.cell, "level": d.level, "place": d.place,
-            "locked_beat": d.beat, "panels_total": b.panels.len() })
+            "blows": b.n, "typed": b.typed, "deed": "", "at": d.at, "pos": d.at, "cell": d.cell, "level": d.level, "place": d.place,
+            "locked_beat": d.beat, "log": [], "panels_total": b.panels.len() })
 }
 
 /// Record the told deeds: `duel.end` in the memory at the duel's hex, a tale for both duellists. Returns the public

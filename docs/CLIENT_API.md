@@ -525,6 +525,7 @@ sends it:
 |---|---|
 | `too_far:<distance_km>:<allowed_km>` | beyond the reach, e.g. `too_far:450.123:120` (split on `:`; the toast can say "450 km apart, 120 km allowed") |
 | `busy` | either demigod is already in a duel (duels last up to 30 s, across beats) |
+| `busy:player` | state schema 12: either player already has a demigod in a duel (one duel per player: see "One duel per player") |
 | `cooldown` | that demigod challenged under `duel_cooldown_beats` ago |
 | `fallen` | either demigod has fallen |
 | `not_yours` | `demigod` isn't one of yours |
@@ -800,7 +801,8 @@ challenge may follow immediately (during or after the teleport) with the loss al
 `challenge_enabled` (true), `challenge_min_km` (120), `challenge_contact_km_regions` (600), `_villages` (15),
 `_houses` (0.15), `_people` (0.015), `duel_cooldown_beats` (1),
 `duel_deadline_ms` (30000), `duel_damage_scale` (1), `duel_min_gap_ms` (500), `duel_followup_ms` (1500),
-`duel_counter_ms` (3000), `duel_ai_chance` (0.02), `duel_ai_reach_km` (2000), `duel_auto_rounds` (2). Ranges in
+`duel_counter_ms` (3000), `duel_ai_chance` (0.02), `duel_ai_reach_km` (2000), `duel_auto_rounds` (2); state schema 12:
+`duel_one_per_player` (true), `duel_ai_lines_per_window` (1), `duel_ai_aggression` (0.6), `duel_ai_handicap` (5). Ranges in
 `docs/schemas/settings.schema.json` and the rulebook's appendix.
 
 ## Duel panels (0.8.2)
@@ -823,7 +825,8 @@ it decides nothing and can always be rebuilt from them. A 0.8.1 client that igno
 | `ko` | same | the window with the knockout; no input |
 | `outro` | right after a `ko`; or the first slot at or past the deadline | who stood. The last panel |
 
-- `play_ms`: 2400 for an idle panel; 600 + 1000 per staged strike (at most 3), so 2400..3600.
+- `play_ms`: 2400 for an idle panel; 600 + 1000 per staged strike (at most 3), so 2400..3600. (State schema 12: a
+  panel that opens a window an AI types in plays as long as its line needs, up to about 6000: see "AI duellists".)
 - `input_closes_ms = starts_at_ms + play_ms − 700`. Always before the panel ends: the 700 ms is the **render lead**,
   the time you have panel n+1 before it starts. `input_opens_ms` is the previous close.
 - A line stamped by the server at or before `input_closes_ms` (and after the previous close) is in panel n+1. A later
@@ -935,6 +938,7 @@ at one resolve as in 0.8.1.
 | `input_opens_ms`, `input_closes_ms` | the typing window whose blows make panel n+1; both null when the panel takes no input (`ko`, the last slot before the deadline, `outro`) |
 | `caption` | the decisive blow's `flavor` line (rules-templated); a fixed line for idle, intro and outro |
 | `shot` | `wide`, `side`, `low`, `over_a`, `over_b`, `close_a`, `close_b` |
+| `a.typing_script`, `b.typing_script` | state schema 12, a duel whose AI types: the `duel.typing_script` that side types in the window this panel opens (null: none) |
 | `a`, `b` | each fighter's track: `line` (the last line it typed in the window; null: none) and `line_masked_len` (its length: show dots while you don't want the words), `lines` (how many it typed), `move_class` (of its last move), `default` (`guard` / `circle` / null), `auto` (an automatic counter is staged), `at` (the hex it ends on), `segs[]` |
 | `segs[]` | in order; their `ms` sum to `play_ms`. `clip`: one of the lab's 35 clips (`airborne_hit block block_cross bow combo_triple command counter defeat downed evade_roll evade_spin evade_stand grapple_throw_down ground_slam heavy_charged heavy_hammer idle_guard invoke jump_attack kick kneel lunge parry_back parry_high rise run shield_push stagger_back stagger_waist strike_side strike_slash taunt throw_shoulder victory walk`). `loop`, `speed`, `face` (`foe`). A moving seg has `to` (the hex) and `path` |
 | `path` | the vocabulary is `dash leap flip knock vault wallrun wallkick mantle drop slide`. The rules fallback emits `dash` (run-ins, steps, side-steps), `leap` (`h`: a heavy from a range band away), `knock` (`h`, `spin`: a landed heavy blow, a throw, a knockout), `vault` (`over: <object id>`), `slide` (`under: <object id>`) and `wallkick` (`on: <object id>`, `h`) for evasions next to an object that affords them. `flip`, `wallrun`, `mantle`, `drop` are reserved for authored panels |
@@ -1031,6 +1035,177 @@ The relay itself is fast: from the sender's `send` to the viewer's receipt, medi
 Either way: **never retry a limited `duel_keys`** (the next one supersedes it), and always send lines and ticks
 first. At these rates a fast typist (more than about 10 characters per second) outruns the 8-character `tail`: some
 letters only ever show as stars. That is the design's "otherwise, you're winging it"; `len` is always exact.
+
+### AI duellists: typing scripts (state schema 12)
+
+A duel against an AI reads like a duel against a human: **the AI types a line of its own in every input window**,
+you watch it arrive as masked letters on the opponent's line (top: the opponent's `*****p`, bottom: your words, Enter
+to enter), and at its Enter the line is a blow like yours. Gated on `rules.state_schema >= 12` and the room setting
+`duel_ai_lines_per_window` (1; 0 = off, the 0.8.2 duel); only in a duel with a clock (every duel on the server).
+Schemas: `DuelTypingScript`, `DuelBlow.ai` / `.window`, `DuelPanel.a|b.typing_script`, `PresentDuel.typing_scripts`.
+
+An AI fighter has no client and the server has no timer, so the server sends no typing frames. When a window opens
+it computes the AI's whole line for that window and publishes a **typing script**; every client plays it back
+against the server clock, so every duellist and viewer sees the same letters at the same moments.
+
+```json
+{ "event": "duel.typing_script", "duel_id": "duel:s1:0:1", "by": "b", "demigod": "dg:1", "window": 1,
+  "text": "I headbutt your jaw.", "len": 20, "starts_at_ms": 1794702111472, "cps": 6.6, "key_ms": 152,
+  "pauses": [ { "after": 11, "ms": 161 } ], "ends_at_ms": 1794702114901, "input_closes_ms": 1794702115608 }
+```
+
+| Field | Meaning |
+|---|---|
+| `by`, `demigod` | the side typing (`a` = the challenger) and its ref |
+| `window` | the panel (`n`) whose input window the line is typed in |
+| `text`, `len` | the whole line, 20 to 70 characters (in practice 20 to about 36: what the typist's speed fits). **Public by design**: a fast reader may read the opponent. Mask it yourself |
+| `starts_at_ms` | server epoch ms: it starts typing (120 to 300 ms after the window opens) |
+| `cps`, `key_ms` | its speed: 6.0 to 9.0 characters a second, seeded per demigod and match; `key_ms = round(1000 / cps)` |
+| `pauses[]` | 0 to 2 pauses between words: once `after` characters are out, the next one comes `ms` (80 to 180) later |
+| `ends_at_ms` | Enter. Always at least 400 ms before `input_closes_ms` |
+| `input_closes_ms` | its window's close (the panel's) |
+
+**Where it arrives** (the same object every time; key it by `(duel_id, by, window)`):
+
+| Where | When |
+|---|---|
+| `challenge.lock.also[]`, after `duel.scene` and `duel.panel` 0 | the lock: the script of window 0 (also on each AI lock in `round.started.public.challenges[]`) |
+| `also[]` of the `duel_tick` / `duel.blow` that closed a window, right after the `duel.panel` that opens the next one | every window close |
+| `duel.panel.a.typing_script` / `.b.typing_script` | on the panel that opens the window (null: that side types nothing in it; the key is on both fighters of every panel of a duel whose AI types, and absent otherwise) |
+| `present.duels[].typing_scripts[]` | the scripts being typed **now** (a reconnect or a viewer joining mid-line) |
+| `challenge.open.panels[]` / `challenge.end.panels[]` | on those panels, when no client ticked and a resolve closed the windows |
+
+**What the client does:**
+
+1. Keep `offset = server clock − local clock` (from `sys.pong.server_time` or `present.server_time_ms`).
+2. At server time `t`, the script has `shown(t)` characters out: the largest `k` with
+   `starts_at_ms + k * key_ms + (sum of pauses[].ms with after < k) <= t` (0 before the first, `len` after the last).
+3. Draw side `by`'s line exactly as you draw `duel.typing`: `shown(t)` characters, stars, with the newest ones
+   readable for a moment (`text[shown-1]`, or the last few: your `tail`). Older letters turn into stars.
+4. At `ends_at_ms` show its Enter (clear the line, flash it): the line is now a blow. The `duel.blow` itself
+   (`ai: true`, `window`, `text` = the script's, `at_ms` = `ends_at_ms`, no `seq`, `auto: false`) reaches you with the
+   next thing the server computes: in `also[]` of your own next line if you type one after its Enter (the AI's blow
+   has the lower `n`), else in `also[]` of the tick at the window's close, before the panel that stages it. You may
+   send one extra `duel_tick` right at `ends_at_ms` to get it at once (it is a normal tick: it costs a token of your
+   instant-action bucket; if nothing else is due the reply is just `accepted`).
+5. A reconnect mid-line: take `present.duels[].typing_scripts[]` and seek with step 2 at `present.server_time_ms`.
+6. `present.duels[].typing.{a|b}` stays `{len: 0, at_ms: null}` for an AI side: its typing is the script.
+
+**What changes in the duel** (all of it only when the AI types):
+
+- **The panel fits the line.** A panel that opens a window an AI types in plays as long as the line needs:
+  `play_ms` is 2400..3600 as before or longer, up to about 6000 (typically 3900 to 5200). `input_closes_ms =
+  starts_at_ms + play_ms − 700` still holds. The staged strikes keep their timing at the start of the panel; the rest
+  is footwork and guard. The intro (panel 0) is longer too. So against an AI a window is about 4 to 5 s: time to
+  type a line of your own in each.
+- **Its blow** is resolved by the same d20 and matrix as a human's line, from the text (the class is the line's:
+  "Words to moves" below). Its wit is capped at 2 (like an automatic line) and `duel_ai_handicap` (5) comes off its
+  modifier against a human (`modifiers.handicap: -5`): it strikes in every window, which no human can. The handicap
+  is waived against a human who has entered no line for 12 s, and between two AIs.
+- **No double strike.** An AI that typed a line for a window does not also counter automatically in it (your blow
+  has no `counter`), and the AI's typed line never triggers an automatic counter for you. Type nothing and you only
+  get hit.
+- **A window too close to the deadline** to hold a line has no script (`typing_script: null`); there the 0.8.1
+  automatic counter still answers your lines.
+- **Two AIs** (an AI's challenge to another AI) no longer end at one resolve: both type in every window until a
+  knockout or the deadline, and each resolve closes the windows its clock has passed (`challenge.open.log` has their
+  blows, `.panels` their panels with scripts whose times may already be past: play them at once).
+- **Nobody ticks:** nothing is lost. The next duel line, tick or resolve enters every AI line whose `ends_at_ms` its
+  stamp has passed and closes every window, exactly as panels are computed today.
+- The line is written by rules (its move class from the range, the initiative, the stances, your set defence and
+  your last move; a sentence in one of four voices naming a body part, a scene object or your demigod), seeded: the
+  same duel always gets the same lines. An LLM-authored line can replace it later behind the same shape.
+
+Settings: `duel_ai_lines_per_window` (1.0: the chance it types in a window), `duel_ai_aggression` (0.6),
+`duel_ai_handicap` (5).
+
+### Words to moves and `clip_fallbacks` (state schema 12)
+
+In a schema-12 match a line's **words** pick its move class and the clip its figure plays, typos and one-word
+commands included. Every `duel.blow` (and its `counter`) carries:
+
+```json
+"move": { "clip": "flying_kick", "word": "jumpkick", "setup": [], "path": "leap" }
+```
+
+- `clip`: the clip of this strike (the panel's `segs[]` play it; you need nothing else). `word`: the move word read
+  (as the table has it: `attack` for `attck`; null: no move word, the class's own clip). `setup[]`: the clips of
+  the earlier move words of the line, played first as short beats (`plead! jump`: `kneel`, then the jump).
+  `path: "leap"`: the figure leaves the ground (the seg has `path: "leap"`).
+- A word matches exactly, inflected (`kicks`, `running`), as the start of a longer word (`tumblefight`), or, in a
+  command of at most four words, within one edit (words of 4 or 5 letters) or two (6 or more), first letter kept:
+  `atack`, `attck`, `jimpkick`, `gaurd`, `thorw`. The **last** move word is the move; an invoke or a command wins
+  wherever it stands. A line with no move word is read as in 0.8.1.
+- The rules still decide: the class is gated by range, bolts and armies (a throw works from close range now and is
+  a step in from farther; an invoke with no bolt is a taunt that still shows its casting), and the d20 and the
+  matrix decide what happens.
+
+| Words | Class | Clips |
+|---|---|---|
+| block, guard, shield, brace, defend | guard | `block`, `block_cross`, `shield_push` |
+| parry, deflect, counter, riposte | parry | `parry_high`, `parry_back`, `counter` |
+| throw, judo, toss, slam, hurl, suplex, flip | throw | `throw_shoulder`, `grapple_throw_down` |
+| grab, choke, wrestle, clinch, seize, pin | grapple | `grapple_throw_down` |
+| jumpkick, flying kick, dropkick | strike, leap | `flying_kick` |
+| kick; roundhouse | strike | `kick`, `roundhouse_kick`, `high_kick` |
+| sweep, trip | strike | `leg_sweep` |
+| jump, leap, vault, pounce, dive | strike, leap | `jump_attack` |
+| punch, attack, strike, fight, hit, bash | strike | `jab`, `punch_combo`, `strike_side` |
+| jab; elbow; knee (when not the target) | strike | `jab`; `elbow_strike`; `knee_strike` |
+| flail, frenzy, combo, flurry | strike | `combo_triple`, `punch_combo` |
+| spin, whirl | strike | `blade_spin`, `axe_spin` |
+| slash, slice, cut, whip, claw | strike | `strike_slash`, `blade_spin` |
+| stab, pierce, lunge, thrust | strike | `lunge` |
+| uppercut | heavy | `uppercut` |
+| smash, crush, cleave, overhead, haymaker, headbutt | heavy | `heavy_hammer`, `heavy_charged`, `ground_slam`, `sword_judgment` |
+| tumble, roll, dodge, duck, sidestep, evade, weave | evade | `evade_roll`, `dodge_roll_back`, `evade_spin` |
+| run, charge, rush, advance, dash | close | `run` + dash, then `lunge` |
+| retreat, withdraw, flee, back off, step back | retreat | `dodge_roll_back`, `evade_stand` |
+| summon, cast, spell, magic, (the) force, curse, hex, a god's name | invoke | `invoke`, `mage_cast`, `ground_slam` |
+| army, legion, troops, soldiers, followers, faithful | command | `command` |
+| plead, beg, pray, mercy | taunt (an appeal) | `kneel`, `bow` |
+| taunt, mock, laugh, insult, sneer, yawn | taunt | `taunt` |
+| feint, fake, trick, bluff | feint | `evade_spin` |
+
+**Variety.** A fighter never plays the same move clip twice in a row when its list has a choice. Idle time is no
+longer one held guard: steps to a neighbouring hex at the same distance from the foe (`walk` + `dash`), guard
+shuffles (`block`), `evade_stand`, `idle_guard`. A hit reaction goes by damage: `stagger_waist` / `stagger_back`
+(under 2), `stagger_back` knocked a hex back (2+), `airborne_hit` + `downed` + `rise` / `spin_rise` (3+). A fighter
+left `downed` gets up when the panel has time.
+
+**New clips** (15, for the same rig; the vocabulary is now 50). A client that does not have one plays its fallback:
+
+```json
+"clip_fallbacks": { "flying_kick": "kick", "roundhouse_kick": "kick", "high_kick": "kick", "leg_sweep": "kick",
+  "elbow_strike": "strike_side", "uppercut": "strike_side", "jab": "strike_side", "punch_combo": "combo_triple",
+  "blade_spin": "strike_slash", "axe_spin": "heavy_hammer", "spin_rise": "rise", "mage_cast": "invoke",
+  "dodge_roll_back": "evade_roll", "knee_strike": "kick", "sword_judgment": "heavy_charged" }
+```
+
+(The table is fixed and lives here and in `fn7_plugin::panel::CLIP_FALLBACKS`; it is not sent on the wire.)
+
+### One duel per player, and the duel ends at its deadline (state schema 12)
+
+- **One duel per player** (`duel_one_per_player`, true): you can only type in one duel. While one of a player's
+  demigods is in an open duel, a challenge **by or to any** of that player's demigods is refused with
+  `busy:player` (match `busy` by its prefix), whoever challenges; the built-in AI's chooser skips such players, and
+  an AI player also fights one duel at a time.
+- **The duel ends at `deadline_ms`,** not a beat later. The first duel action stamped past the deadline (a
+  `duel_tick`, or a line: it is accepted but is no blow) closes the duel: its public event carries, in `also[]`, the
+  panels left through the `outro` and then a **provisional** `challenge.end`:
+
+```json
+{ "event": "challenge.end", "provisional": true, "duel_id": "duel:s1:0:1", "reason": "deadline", "winner": "dg:1",
+  "loser": "dg:0", "ko": false, "damage": { "a": 2.1, "b": 0.6 }, "hp": { "a": 7.9, "b": 9.4 }, "blows": 7, "typed": 1,
+  "deed": "", "log": [], "panels_total": 8, "a": "dg:0", "b": "dg:1", "a_name": "...", "b_name": "...",
+  "at": [0, 0], "pos": [0, 0], "cell": "...", "level": "regions", "place": "...", "locked_beat": 2 }
+```
+
+  The same comes with a knockout's outro (`reason: "ko"`). **So: lock your input at `deadline_ms` and send one
+  `duel_tick` at `deadline_ms + 30 ms`** (server clock); show the winner at once. The world is changed at the next
+  resolve exactly as before, and `round.outcome.public.duels[]` then carries the full `challenge.end` for the same
+  `duel_id` (the deed, the log, no `provisional`): replace the provisional one. After the close, lines are refused
+  `duel_over` and ticks `no_duel`. (`duel_keys` never closes a duel: it is not part of the match's record.)
 
 ## Exact resume: `present` (state schema 8)
 

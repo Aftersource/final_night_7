@@ -164,8 +164,8 @@ fn a_knockout_plays_its_panel_and_the_outro() {
     all.extend(ev["also"].as_array().cloned().unwrap_or_default());
     // Schema 12: the action that brings the outro also shows who won, at once (the resolve sends the deed).
     let live_end = all.pop().unwrap();
-    assert_eq!((live_end["event"].as_str(), live_end["provisional"].as_bool(), live_end["reason"].as_str(), live_end["deed"].is_null()),
-               (Some("challenge.end"), Some(true), Some("ko"), true));
+    assert_eq!((live_end["event"].as_str(), live_end["provisional"].as_bool(), live_end["reason"].as_str(), live_end["deed"].as_str()),
+               (Some("challenge.end"), Some(true), Some("ko"), Some("")));
     let kinds: Vec<&str> = all.iter().map(|p| p["kind"].as_str().unwrap()).collect();
     assert_eq!(&kinds[kinds.len() - 2..], ["ko", "outro"], "{kinds:?}");
     let (ko, outro) = (&all[all.len() - 2], &all[all.len() - 1]);

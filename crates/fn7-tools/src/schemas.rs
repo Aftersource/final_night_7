@@ -836,6 +836,10 @@ fn settings_schema() -> Value {
     p("duel_counter_ms", i(0, 60000, json!(3000), "Rules 0.8.1: a human idle this long is countered automatically."));
     p("duel_min_gap_ms", i(0, 5000, json!(500), "Rules 0.8.1: a blow sooner than this after the same side's last is a penalty."));
     p("duel_followup_ms", i(0, 10000, json!(1500), "Rules 0.8.1: a blow within this of the same side's last is a quick follow-up (+1)."));
+    p("duel_one_per_player", json!({ "type": "boolean", "default": true, "description": "State schema 12: a player fights one duel at a time: while one of its demigods is in an open duel, a challenge by or to any of its demigods is refused `busy:player` and the AI's chooser skips it." }));
+    p("duel_ai_lines_per_window", f(0.0, 1.0, 1.0, "State schema 12: the chance an AI fighter types a line of its own in an input window of a duel with a clock (1: every window; 0: off, it only counters as in 0.8.2)."));
+    p("duel_ai_aggression", f(0.0, 1.0, 0.6, "State schema 12: how often the typing AI attacks rather than sets a defence, repositions or taunts."));
+    p("duel_ai_handicap", i(0, 10, json!(5), "State schema 12: subtracted from the d20 modifier of the lines an AI types against a human (waived against a human silent for 12 s, and between two AIs)."));
     p("duel_deadline_ms", i(1000, 600000, json!(30000), "Rules 0.8.1: the longest a duel runs after its lock (the engine hold's deadline; without a hold the world keeps beating and the duel lasts at most ceil(duel_deadline_ms / flow_ms) resolves)."));
     p(
         "memory_per_owner",
@@ -1556,7 +1560,7 @@ fn v08_defs() -> Map<String, Value> {
           ("leap", nullable(object("The AI challenger summoned itself next to its rival first (applied at the resolve).",
                                    &[("demigod", r("Ref")), ("to", r("LonLat")), ("health_lost", num(""))], &[])))],
         &[("seq", int("")), ("received_at_ms", int("")),
-          ("also", array(json!({ "anyOf": [r("DuelScene"), r("DuelPanel")] }), "Rules 0.8.2: the duel's scene and panel 0, made with the lock. Handle each entry as its own event."))],
+          ("also", array(json!({ "anyOf": [r("DuelScene"), r("DuelPanel"), r("DuelTypingScript")] }), "Rules 0.8.2: the duel's scene and panel 0, made with the lock (state schema 12: then the first typing script of each AI fighter). Handle each entry as its own event."))],
     ));
     let moves = json!({ "type": "string", "enum": ["lunge", "slash", "parry", "dodge", "leap", "cast", "summon_army", "charge", "grapple", "taunt", "stagger", "fall", "block", "blast", "vanish", "rise"] });
     let anim = object(
@@ -1598,8 +1602,14 @@ fn v08_defs() -> Map<String, Value> {
     let strike_opt = vec![
         ("choreo", choreo),
         ("modifiers", object("", &[("wit", json!({ "type": "integer" })), ("health", json!({ "type": "integer" })), ("gear", json!({ "type": "integer" })),
-                                   ("follow_up", json!({ "type": "integer" })), ("home", json!({ "type": "integer" })), ("situation", json!({ "type": "integer" }))], &[])),
+                                   ("follow_up", json!({ "type": "integer" })), ("home", json!({ "type": "integer" })), ("situation", json!({ "type": "integer" }))],
+                             &[("handicap", json!({ "type": "integer", "description": "State schema 12: an AI's typed line against a human (minus `duel_ai_handicap`)." }))])),
         ("self_damage", num("A penalty's cost to its author.")),
+        ("move", object("State schema 12: what the line's words picked (docs/CLIENT_API.md \"Words to moves\"): the clip its figure plays for this strike.",
+            &[("clip", json!({ "type": "string", "enum": fn7_plugin::panel::CLIPS })),
+              ("word", json!({ "type": ["string", "null"], "description": "The move word read (as the table has it: `attack` for `attck`); null: none, the class's own clip." })),
+              ("setup", array(json!({ "type": "string", "enum": fn7_plugin::panel::CLIPS }), "The clips of the earlier move words of the line, played first (at most two).")),
+              ("path", json!({ "type": ["string", "null"], "enum": ["leap", null], "description": "`leap`: the figure leaves the ground." }))], &[])),
     ];
     d.insert("DuelStrike".into(), object("Rules 0.8.1: one strike (a counter's shape).", &strike_req, &strike_opt));
     let mut blow_req = vec![("event", json!({ "const": "duel.blow" })), ("duel_id", string("")), ("n", int("1-based blow number."))];
@@ -1607,7 +1617,9 @@ fn v08_defs() -> Map<String, Value> {
     let mut blow_opt = strike_opt.clone();
     blow_opt.extend([("counter", r("DuelStrike")), ("hp_after", object("Healths after the counter.", &[("a", num("")), ("b", num(""))], &[])),
                      ("at_ms", json!({ "type": "integer" })), ("seq", int("")), ("received_at_ms", json!({ "type": "integer" })),
-                     ("also", array(r("DuelPanel"), "Rules 0.8.2 (live event only): the panels this line's stamp made due. Handle each as its own event."))]);
+                     ("ai", boolean("State schema 12: an AI fighter's typed line (its typing script's text), entered at `at_ms` = the script's `ends_at_ms`. It has no `seq`.")),
+                     ("window", int("State schema 12 (with `ai`): the panel whose input window the line was typed in.")),
+                     ("also", array(json!({ "anyOf": [r("DuelPanel"), r("DuelBlow"), r("DuelTypingScript"), r("ChallengeEnd")] }), "Live event only: what this line's stamp made due: panels (rules 0.8.2), and in state schema 12 the AI lines entered before it (`duel.blow`, `ai: true`), the typing scripts of the windows opened, and a provisional `challenge.end` when it closed the duel. Handle each as its own event."))]);
     d.insert("DuelBlow".into(), object("Rules 0.8.1: `phase.event.public` for each duel line, at once (also in the resolve's challenge.open / challenge.end log).", &blow_req, &blow_opt));
     let ab = |desc: &str, v: Value| object(desc, &[("a", v.clone()), ("b", v)], &[]);
     let stance = json!({ "type": "string", "enum": ["neutral", "guarding", "committed", "off_balance", "airborne", "downed"] });
@@ -1636,6 +1648,7 @@ fn v08_defs() -> Map<String, Value> {
               &[("at_ms", json!({ "type": "integer" })), ("elapsed_ms", int("Duel time elapsed: the offset to seek to.")), ("remaining_ms", int("")), ("running", boolean(""))], &[]))),
           ("over", boolean("Knocked out or past its deadline: the next resolve ends it."))],
         &[("scene", nullable(r("DuelScene"))), ("panels", array(r("DuelPanel"), "Rules 0.8.2: every panel so far, in order.")),
+          ("typing_scripts", array(r("DuelTypingScript"), "State schema 12 (a duel whose AI types): the lines its AI fighters are typing right now. Seek each to `present.server_time_ms`.")),
           ("typing", ab("Live typing: each side's unsent line as its last `duel.typing` left it (never the characters).",
               object("", &[("len", int("Characters typed and not sent (0: nothing, or the line was sent).")),
                            ("at_ms", nullable(json!({ "type": "integer", "description": "The server stamp of that message; null: none since this server process started." })))], &[])))],
@@ -1648,6 +1661,20 @@ fn v08_defs() -> Map<String, Value> {
           ("tail", json!({ "type": "string", "maxLength": 4, "description": "The newest characters since its last message (may be empty)." })),
           ("at_ms", json!({ "type": "integer", "description": "The server's receive stamp (epoch ms)." })),
           ("seq", int("The action's room-wide arrival number."))],
+        &[],
+    ));
+    d.insert("DuelTypingScript".into(), object(
+        "State schema 12: `duel.typing_script`, the line an AI fighter types in one input window, to be played back by every client as masked live typing (the server sends no frames). Character k (1-based) appears at `starts_at_ms + k * key_ms + the ms of every pause with after < k`; at `ends_at_ms` it presses Enter and the line is a `duel.blow` (`ai: true`). Sent in `also[]` after the panel that opens the window (and after the lock), on that panel as `a|b.typing_script`, and while it is being typed in `present.duels[].typing_scripts`.",
+        &[("event", json!({ "const": "duel.typing_script" })), ("duel_id", string("")),
+          ("by", json!({ "type": "string", "enum": ["a", "b"], "description": "The side typing (a = the challenger)." })), ("demigod", r("Ref")),
+          ("window", int("The panel (`n`) whose input window it is typed in.")), ("text", json!({ "type": "string", "minLength": 20, "maxLength": 70, "description": "The whole line. Public by design: mask it as you mask live typing." })),
+          ("len", json!({ "type": "integer", "minimum": 20, "maximum": 70 })),
+          ("starts_at_ms", json!({ "type": "integer", "description": "Server epoch ms: it starts typing (after the window opens)." })),
+          ("cps", json!({ "type": "number", "minimum": 6, "maximum": 9, "description": "Characters a second (seeded per demigod and match)." })),
+          ("key_ms", json!({ "type": "integer", "description": "round(1000 / cps): ms per character." })),
+          ("pauses", array(object("", &[("after", int("Characters out before the pause.")), ("ms", int("80..180."))], &[]), "0 to 2 pauses between words, in order.")),
+          ("ends_at_ms", json!({ "type": "integer", "description": "Enter: at least 400 ms before `input_closes_ms`." })),
+          ("input_closes_ms", json!({ "type": "integer", "description": "Its window's close (the panel's)." }))],
         &[],
     ));
     let hex = json!({ "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2, "description": "A stage hex [q, r]: x = 1.732 (q + r/2), z = 1.5 r metres." });
@@ -1680,12 +1707,13 @@ fn v08_defs() -> Map<String, Value> {
         ("move_class", json!({ "type": ["string", "null"], "description": "Its last move's class (strike, heavy, guard, parry, feint, evade, close, retreat, grapple, throw, invoke, command, taunt)." })),
         ("default", json!({ "type": ["string", "null"], "enum": ["guard", "circle", null], "description": "It did nothing in the window: the rules default it plays." })),
         ("auto", boolean("An automatic counter of its is staged here.")),
-        ("segs", array(seg, "Clip segments in order; their `ms` sum to `play_ms`.")), ("at", hex.clone())], &[]);
+        ("segs", array(seg, "Clip segments in order; their `ms` sum to `play_ms`.")), ("at", hex.clone())],
+        &[("typing_script", nullable(r("DuelTypingScript")))]);
     d.insert("DuelPanel".into(), object(
         "Rules 0.8.2: `duel.panel`, one comic panel of a duel: the presentation of the blows of one input window (they are decided by the 0.8.1 rules; a panel decides nothing). Sent in `also[]` of the action that made it due, as the event of a `duel_tick`, in `challenge.open` / `challenge.end`, and all of them in `present.duels[].panels`.",
         &[("event", json!({ "const": "duel.panel" })), ("duel_id", string("")), ("n", int("0-based.")),
           ("kind", json!({ "type": "string", "enum": ["intro", "exchange", "idle", "ko", "outro"] })),
-          ("starts_at_ms", json!({ "type": "integer", "description": "Server epoch ms: the previous panel's end." })), ("play_ms", int("2400..3600.")),
+          ("starts_at_ms", json!({ "type": "integer", "description": "Server epoch ms: the previous panel's end." })), ("play_ms", int("2400..3600; in state schema 12, a panel that opens a window an AI types in plays as long as its line needs (up to about 6000).")),
           ("input_opens_ms", json!({ "type": ["integer", "null"] })),
           ("input_closes_ms", json!({ "type": ["integer", "null"], "description": "starts_at_ms + play_ms - 700 (the render lead); null: no input (a knockout, the last slot, the outro). Lines stamped up to it feed panel n + 1." })),
           ("caption", string("")), ("shot", json!({ "type": "string", "enum": fn7_plugin::panel::SHOTS })), ("a", fighter.clone()), ("b", fighter),
@@ -1700,7 +1728,7 @@ fn v08_defs() -> Map<String, Value> {
           ("hp", object("After the panel.", &[("a", num("")), ("b", num(""))], &[])), ("range", json!({ "type": "string", "enum": ["far", "mid", "close", "grapple"] })),
           ("initiative", json!({ "type": "string", "enum": ["a", "b"] }))],
         &[("winner", json!({ "type": ["string", "null"], "description": "Outro only." })), ("ko", json!({ "type": ["string", "null"], "description": "Outro only: the side knocked out." })),
-          ("also", array(r("DuelPanel"), "Live event only: further panels made due by the same action.")), ("seq", int("")), ("received_at_ms", json!({ "type": "integer" }))],
+          ("also", array(json!({ "anyOf": [r("DuelPanel"), r("DuelBlow"), r("DuelTypingScript"), r("ChallengeEnd")] }), "Live event only: further panels made due by the same action (state schema 12: also the AI lines it entered, the typing scripts of the windows opened, and a provisional `challenge.end` after the outro).")), ("seq", int("")), ("received_at_ms", json!({ "type": "integer" }))],
     ));
     d.insert("Present".into(), object(
         "State schema 8 (exact resume): the present moment, in every public view (so in every match.snapshot) and in `game.present`. See docs/TIME_TRAVEL.md.",
@@ -1734,7 +1762,8 @@ fn v08_defs() -> Map<String, Value> {
           ("at", r("LonLat")), ("pos", json!({ "$ref": "#/$defs/LonLat", "description": "`at` at full precision (outcome numbers are rounded to 2 decimals except `pos`)." })),
           ("cell", string("")), ("level", string("")), ("place", string("")), ("log", array(r("DuelBlow"), "The blows this final resolve was handed (earlier ones came live and in challenge.open)."))],
         &[("panels", array(r("DuelPanel"), "Rules 0.8.2: the rest of its panels, through the outro (`starts_at_ms` may lie ahead: play them out).")),
-          ("panels_total", int("Rules 0.8.2: panels in all."))],
+          ("panels_total", int("Rules 0.8.2: panels in all.")),
+          ("provisional", boolean("State schema 12, live only: shown at once by the duel action that closed the duel (a knockout's outro, or the first action stamped past the deadline): who won and the healths, `deed` empty, `log` empty. The next resolve applies it and sends the full `challenge.end` for the same `duel_id`."))],
     ));
     d.insert("Tale".into(), object("Rules 0.8.0: a deed the DM told.", &[("beat", int("")), ("kind", string("")), ("text", string(""))], &[]));
     d.insert("Scar".into(), object("Rules 0.8.0: a scar.", &[("beat", int("")), ("cause", string("")), ("place", string(""))], &[("cell", string(""))]));
@@ -1935,7 +1964,7 @@ pub fn all() -> Vec<(&'static str, Value)> {
         ("match_summary", finish("match_summary", "match.ended summary", "match.ended.summary", match_summary(), &pool)),
         ("phase_event", finish("phase_event", "phase.event public", "phase.event.public (pushed at once: who slowed time, a cast's streak)",
             json!({ "description": "`phase.event.public`: an immediate push from the game. `event` says which.",
-                    "oneOf": [r("Slowed"), r("Streak"), r("Summoning"), r("ChallengeLock"), r("DuelBlow"), r("DuelPanel"), r("DuelTyping")] }), &pool)),
+                    "oneOf": [r("Slowed"), r("Streak"), r("Summoning"), r("ChallengeLock"), r("DuelBlow"), r("DuelPanel"), r("DuelTyping"), r("DuelTypingScript"), r("ChallengeEnd")] }), &pool)),
     ];
     out.extend(query_schemas(&pool));
     out
