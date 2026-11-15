@@ -246,6 +246,22 @@ fn dollars_in(text: &str) -> Option<f64> {
     n.trim_end_matches('.').parse().ok()
 }
 
+/// A number written as a number or as text (`30`, `"30"`).
+fn num(v: &Value) -> Option<f64> {
+    v.as_f64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+}
+
+/// What an OpenAI image call cost by the media layer's own rule: the per-image price of the repo's table plus the
+/// usage's input tokens at the table's rates. `None` when the table does not know the model, size or quality.
+fn openai_cost(model: &str, size: &str, quality: &str, usage: &Value) -> Option<f64> {
+    let image = fn7_media::generator::price_per_image(model, size, quality)?;
+    // (text, image) USD per input token.
+    let (txt_rate, img_rate) = fn7_media::generator::input_rates(model)?;
+    let img = usage.pointer("/input_tokens_details/image_tokens")?.as_f64()?;
+    let txt = usage.pointer("/input_tokens_details/text_tokens").and_then(Value::as_f64).unwrap_or(0.0);
+    Some(image + img * img_rate + txt * txt_rate)
+}
+
 fn file_of(step: &Value) -> Vec<(String, Option<String>)> {
     let one = |f: &Value| Some((f["path"].as_str()?.to_string(), f["sha256"].as_str().map(str::to_string)));
     let mut v: Vec<_> = step["file"].as_object().and_then(|_| one(&step["file"])).into_iter().collect();
@@ -254,12 +270,13 @@ fn file_of(step: &Value) -> Vec<(String, Option<String>)> {
 }
 
 /// One figure's `provenance.json` (a demigod or god: portrait → heroic image → statue, and the A-pose image).
-fn import_figure(x: &mut Ctx<'_>, prov: &Value, index: Option<&Value>) -> Result<()> {
+fn import_figure(x: &mut Ctx<'_>, prov: &Value, index: Option<&Value>, media_portraits_only: bool) -> Result<()> {
     let slug = prov["slug"].as_str().unwrap_or("figure");
     let name = prov["name"].as_str().unwrap_or(slug);
     let subject = subject_of(prov["kind"].as_str().unwrap_or("demigod"), name, slug);
     // path (as the record names it) → asset id, to resolve `reference_images` and `input`.
     let mut by_path: HashMap<String, String> = HashMap::new();
+    let mut last_image: Option<String> = None;
     for step in prov["lineage"].as_array().into_iter().flatten() {
         let what = step["asset"].as_str().unwrap_or("").to_lowercase();
         let made = step["made_at"].as_str().and_then(parse_time);
@@ -289,10 +306,14 @@ fn import_figure(x: &mut Ctx<'_>, prov: &Value, index: Option<&Value>) -> Result
                 })?;
                 x.rep.assets += 1;
             }
-            by_path.insert(rel, id);
+            by_path.insert(rel.clone(), id);
+            last_image = Some(rel);
             continue;
         }
-        let inputs: Vec<String> = step["reference_images"]
+        if media_portraits_only {
+            continue;
+        }
+        let mut inputs: Vec<String> = step["reference_images"]
             .as_array()
             .into_iter()
             .flatten()
@@ -300,7 +321,29 @@ fn import_figure(x: &mut Ctx<'_>, prov: &Value, index: Option<&Value>) -> Result
             .chain(step["input"].as_str())
             .map(str::to_string)
             .collect();
+        // A model step that names no input was made from the index's source image, else from the image before it.
+        if inputs.is_empty() && provider.contains("meshy") {
+            let from_index = index.and_then(|i| i["source_image"].as_str()).map(|p| format!("figures/{p}")).filter(|p| by_path.contains_key(p));
+            inputs.extend(from_index.or_else(|| last_image.clone()));
+        }
         let input_ids: Vec<String> = inputs.iter().filter_map(|p| by_path.get(p).cloned()).collect();
+        if provider.is_empty() && step["prompt"].is_null() {
+            // A picture taken as it is (a likeness: someone's portrait): the asset that already has these bytes, else
+            // a reference image with no generation of its own.
+            let Some((rel, sha)) = files.first().cloned() else { continue };
+            let actual = crate::files::sha256_file(&x.base.join(&rel)).ok().map(|s| s.0);
+            let held: Option<String> = match &actual {
+                Some(a) => x.c.query_row("SELECT id FROM assets WHERE sha256=?1 ORDER BY (media_hash IS NULL), created_at, id LIMIT 1", [a], |r| r.get(0)).optional()?,
+                None => None,
+            };
+            let id = match held {
+                Some(id) => id,
+                None => x.asset("image", "reference", &subject, "likeness", Some(&rel), sha.as_deref(), &rel, made.unwrap_or(x.now), json!({ "slug": slug, "note": step["asset"] }))?,
+            };
+            by_path.insert(rel.clone(), id);
+            last_image = Some(rel);
+            continue;
+        }
         if provider.contains("meshy") {
             // A model task: the model file is the asset; a preview and other formats are further outputs.
             let subkind = if what.contains("statue") { "statue" } else { "figure" };
@@ -318,7 +361,7 @@ fn import_figure(x: &mut Ctx<'_>, prov: &Value, index: Option<&Value>) -> Result
                 reference_asset_ids: Some(input_ids.clone()),
                 provider_task_id: task.map(str::to_string),
                 finished_at: made,
-                cost_credits: step["credits"].as_f64(),
+                cost_credits: num(&step["credits"]),
                 ..Default::default()
             })?;
             for p in &input_ids {
@@ -343,11 +386,21 @@ fn import_figure(x: &mut Ctx<'_>, prov: &Value, index: Option<&Value>) -> Result
             }
         } else {
             // A reference image made for the 3D step (heroic pose, A-pose).
-            let variant = if what.contains("a-pose") || what.contains("apose") { "apose" } else if what.contains("heroic") { "heroic" } else { "reference" };
+            let variant = if what.contains("a-pose") || what.contains("apose") { "apose" } else if what.contains("heroic") || what.contains("statue") { "heroic" } else { "reference" };
             let Some((rel, sha)) = files.first().cloned() else { continue };
             let meta = json!({ "slug": slug, "size": step["size"], "note": step["asset"] });
             let id = x.asset("image", "reference", &subject, variant, Some(&rel), sha.as_deref(), &rel, made.unwrap_or(x.now), meta)?;
             let cost_text = step["cost"].as_str();
+            let usage = Some(step["usage"].clone()).filter(|u| u.is_object());
+            // The response's usage, when the file kept it: priced by the media layer's own rule.
+            let from_usage = usage.as_ref().and_then(|u| {
+                openai_cost(step["model"].as_str()?, step["size"].as_str()?, step["quality"].as_str()?, u)
+            });
+            let (cost_usd, basis) = match (from_usage, cost_text.and_then(dollars_in)) {
+                (Some(c), _) => (Some((c * 1e6).round() / 1e6), "usage"),
+                (None, Some(c)) => (Some(c), "estimated"),
+                (None, None) => (None, "unknown"),
+            };
             x.generation(&format!("prov:{label}:{variant}"), &id, GenerationIn {
                 provider: if provider.contains("openai") { "openai".into() } else { provider.clone() },
                 model: step["model"].as_str().map(str::to_string),
@@ -357,15 +410,16 @@ fn import_figure(x: &mut Ctx<'_>, prov: &Value, index: Option<&Value>) -> Result
                 params: Some(json!({ "size": step["size"], "quality": step["quality"], "reference_images": inputs })),
                 reference_asset_ids: Some(input_ids.clone()),
                 finished_at: made,
-                cost_usd: cost_text.and_then(dollars_in),
-                cost_basis: Some(if cost_text.and_then(dollars_in).is_some() { "estimated".into() } else { "unknown".to_string() }),
-                usage: cost_text.map(|t| json!({ "note": t })),
+                cost_usd,
+                cost_basis: Some(basis.to_string()),
+                usage: usage.or_else(|| cost_text.map(|t| json!({ "note": t }))),
                 ..Default::default()
             })?;
             for p in &input_ids {
                 add_lineage(x.c, p, &id, "reference", Some("identity reference sent with the request"))?;
             }
-            by_path.insert(rel, id);
+            by_path.insert(rel.clone(), id);
+            last_image = Some(rel);
         }
     }
     Ok(())
@@ -378,8 +432,10 @@ fn import_mannequin(x: &mut Ctx<'_>, prov: &Value, dir_rel: &str) -> Result<()> 
     let t0 = x.now;
     let finished = |x: &Ctx<'_>, task: Option<&str>| task.and_then(|t| x.tasks.by_id.get(t)).and_then(|t| t["finished_at"].as_i64()).unwrap_or(t0);
     let (mut mesh, mut rig): (Option<String>, Option<String>) = (None, None);
+    let mut bundle: Option<(String, Option<String>)> = None;
     let mut rig_gen: Option<String> = None;
     // One skin: its maps and preview from `<dir>/skins/<name>/`, one generation, retexture lineage from the mesh.
+    #[allow(clippy::too_many_arguments)]
     fn skin(x: &mut Ctx<'_>, subject: &Subject, dir_rel: &str, name: &str, task: Option<&str>, prompt: Option<&str>, op: &str, params: Value,
             credits: Option<f64>, mesh: Option<&str>, created: i64) -> Result<()> {
         let sdir = format!("{dir_rel}/skins/{name}");
@@ -433,20 +489,30 @@ fn import_mannequin(x: &mut Ctx<'_>, prov: &Value, dir_rel: &str) -> Result<()> 
             for (name, s) in skins {
                 let t = s["task_id"].as_str();
                 let created = finished(x, t);
-                skin(x, &subject, dir_rel, name, t, s["prompt"].as_str(), op, step["params"].clone(), step["credits_each"].as_f64(), mesh.as_deref(), created)?;
+                skin(x, &subject, dir_rel, name, t, s["prompt"].as_str(), op, step["params"].clone(), num(&step["credits_each"]), mesh.as_deref(), created)?;
             }
         } else if let Some(clips) = step["clip_action_ids"].as_object() {
-            let bundle_rel = step["file"]["path"].as_str();
-            let bundle_id = x.asset("animation", "clip", &subject, "all_clips", bundle_rel, step["file"]["sha256"].as_str(), "mannequin:all_clips", t0,
-                                    json!({ "bundle": true, "clips": clips.len() + 2, "note": step["asset"] }))?;
-            if let Some(r) = &rig {
-                add_lineage(x.c, r, &bundle_id, "clip_of", Some("every clip in one GLB"))?;
-            }
-            let each = step["credits"].as_f64().map(|c| c / clips.len().max(1) as f64);
+            // The bundle GLB every clip lives in: this step's file, else the one an earlier clips step named (later
+            // clips are added to the same file).
+            let first = bundle.is_none();
+            let (bundle_id, bundle_rel) = match (step["file"]["path"].as_str(), &bundle) {
+                (None, Some(b)) => b.clone(),
+                (rel, _) => {
+                    let id = x.asset("animation", "clip", &subject, "all_clips", rel, step["file"]["sha256"].as_str(), "mannequin:all_clips", t0,
+                                     json!({ "bundle": true, "note": step["asset"] }))?;
+                    if let Some(r) = &rig {
+                        add_lineage(x.c, r, &id, "clip_of", Some("every clip in one GLB"))?;
+                    }
+                    (id, rel.map(str::to_string))
+                }
+            };
+            bundle = Some((bundle_id.clone(), bundle_rel.clone()));
+            let bundle_rel = bundle_rel.as_deref();
+            let each = num(&step["credits"]).map(|c| c / clips.len().max(1) as f64);
             let mut names: Vec<(String, Option<u64>, bool)> = clips.iter().map(|(n, a)| (n.clone(), a.as_u64(), false)).collect();
-            // The two that came with the rig.
+            // The two that came with the rig (with the first set of clips).
             for n in ["walk", "run"] {
-                if !clips.contains_key(n) {
+                if first && !clips.contains_key(n) {
                     names.push((n.to_string(), None, true));
                 }
             }
@@ -503,7 +569,7 @@ fn import_mannequin(x: &mut Ctx<'_>, prov: &Value, dir_rel: &str) -> Result<()> 
                 params: Some(step["params"].clone()).filter(|p| !p.is_null()),
                 reference_asset_ids: mesh.clone().map(|m| vec![m]),
                 provider_task_id: task.map(str::to_string),
-                cost_credits: step["credits"].as_f64(),
+                cost_credits: num(&step["credits"]),
                 ..Default::default()
             })?;
             if let Some(m) = &mesh {
@@ -526,7 +592,7 @@ fn import_mannequin(x: &mut Ctx<'_>, prov: &Value, dir_rel: &str) -> Result<()> 
                 prompt: step["prompt"].as_str().map(str::to_string),
                 params: Some(step["params"].clone()).filter(|p| !p.is_null()),
                 provider_task_id: task.map(str::to_string),
-                cost_credits: step["credits"].as_f64(),
+                cost_credits: num(&step["credits"]),
                 ..Default::default()
             })?;
             mesh = Some(id);
@@ -557,6 +623,18 @@ pub fn import_provenance(reg: &Registry, dir: &Path) -> Result<ImportReport> {
     anyhow::ensure!(!found.is_empty(), "no provenance.json under {} (expected figures/<slug>/provenance.json, mannequin/provenance.json)", dir.display());
     let rep = reg.tx(|c| {
         let mut x = Ctx { reg, c, base: dir.to_path_buf(), tasks, rep: ImportReport::default(), source: "provenance", now: now_ms() };
+        // First the portraits the media layer made (found by their media hash), in every file: a later file may
+        // use one as a likeness, and must find the same asset whatever order the files come in.
+        for (file, _) in &found {
+            if let Some(prov) = read_json(file) {
+                let slug = prov["slug"].as_str().unwrap_or("");
+                if prov["lineage"].as_array().is_some_and(|l| l.iter().any(|s| s["media_hash"].is_string())) {
+                    let before = x.rep.assets;
+                    import_figure(&mut x, &prov, index.pointer(&format!("/figures/{slug}")), true)?;
+                    x.rep.assets = before;
+                }
+            }
+        }
         for (file, rel) in &found {
             let Some(prov) = read_json(file) else {
                 x.rep.notes.push(format!("{}: not JSON", file.display()));
@@ -568,7 +646,7 @@ pub fn import_provenance(reg: &Registry, dir: &Path) -> Result<ImportReport> {
             if is_shared {
                 import_mannequin(&mut x, &prov, rel)?;
             } else {
-                import_figure(&mut x, &prov, index.pointer(&format!("/figures/{slug}")))?;
+                import_figure(&mut x, &prov, index.pointer(&format!("/figures/{slug}")), false)?;
             }
         }
         // Figures the index lists without a provenance file: the statue alone, from the index line.

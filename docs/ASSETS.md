@@ -243,14 +243,26 @@ fn7-assets import-jobs <jobs.jsonl> [--root <dir>]
 ```
 
 `import-provenance` reads `figures/figures.json`, `figures/<slug>/provenance.json` and `mannequin/provenance.json` as
-they are today: the portrait (linked to the media layer's asset by its media hash, not duplicated), the heroic and
-A-pose images (OpenAI, exact prompt, an **estimated** cost when the file names one), the statue (Meshy, task id,
-credits, parameters, the GLB and its preview), the mannequin's mesh (no file: `external`), wood texture, rig, four
-skins (every map a `textures/skin` asset) and 35 clips (the 33 library clips at 3 credits each, walk and run as outputs
-of the rig task), with lineage throughout. Recorded sha256s are checked against the files. Where the Meshy CLI's
-project folders still exist next to them (`<date>_<name>_<id>/metadata.json`, `task_<id>.json`; git-ignored in the
-Unreal repo), each task's **measured** start, finish and consumed credits are read too, and the clips get their task
-ids. The directory is only read; files are copied in.
+they are written today:
+
+- **A figure** (a demigod or a god): the portrait (the media layer's asset, found by its media hash, not duplicated);
+  a likeness taken as it is (the asset that already has those bytes, e.g. the player's Left Hand portrait); the
+  heroic / marble / A-pose reference images (OpenAI, exact prompt; the cost from the response's `usage` when the file
+  kept it, else the file's own **estimate**, else unknown); the statue (Meshy, task id, credits, parameters, the GLB
+  and its preview), made from the image the step names, else the index's `source_image`, else the image before it.
+- **The mannequin**: the mesh (no file: `external`), the wood texture, the rig, the skins (every map a
+  `textures/skin` asset), and the clips: each library clip a row at its share of the step's credits, walk and run as
+  outputs of the rig task, all pointing into the bundle GLB unless a clip has a file of its own (`anims/<name>.fbx`);
+  clips a later step adds live in the same bundle.
+- Lineage throughout. Credits written as text (`"30"`) are read as numbers.
+- **Checks**: every recorded sha256 is compared with the file; the report lists `hash_mismatches` (a file remade
+  without its record being updated) and `missing_files` (registered `external`). Neither stops the import: the row
+  always carries the hash of the bytes actually stored.
+- Where the Meshy CLI's project folders still exist next to them (`<date>_<name>_<id>/metadata.json`,
+  `task_<id>.json`; git-ignored in the Unreal repo), each task's **measured** start, finish and consumed credits are
+  read too, and the clips get their task ids.
+
+The directory is only read; files are copied in.
 
 **Job records** (`import-jobs`): one JSON object per line, appended by a tool after each provider job. Lines starting
 with `#` and blank lines are skipped. Paths are relative to the file's directory (or `--root`).
