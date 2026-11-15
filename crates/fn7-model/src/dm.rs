@@ -51,6 +51,13 @@ pub const DUEL_WEAPONS_SCHEMA: u32 = 14;
 /// describe ([`crate::manifest::object_name`]), and a loadout and item art skip things that are not real objects.
 pub const ITEM_NAME_SCHEMA: u32 = 15;
 
+/// The schema token play switches on at (18 and 20 are taken by other branches): a typed will's acts at a place are
+/// played out by the tokens on the people-level board (`scene.play`, kept in [`Dm::scenes`]).
+pub const TOKEN_PLAY_SCHEMA: u32 = 19;
+
+/// Token-play scenes kept in the state (the newest).
+pub const SCENES_KEPT: usize = 24;
+
 /// Scars kept per demigod (the newest).
 pub const SCARS_KEPT: usize = 12;
 
@@ -401,6 +408,10 @@ pub struct Dm {
     /// dirty cells and the keyframes. Absent = nothing serialized, so states without it stay byte-identical.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub earth: Option<Box<crate::earth::EarthState>>,
+    /// Schema 19 (token play): the newest [`SCENES_KEPT`] `scene.play` scenes. The plugin owns the shape
+    /// (`fn7-plugin::scene::Scene`); empty = nothing serialized, so states without it stay byte-identical.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scenes: Vec<Value>,
 }
 
 /// Schema 8: the delivery mark and clocks of a state (all epoch ms; 0 = unknown).

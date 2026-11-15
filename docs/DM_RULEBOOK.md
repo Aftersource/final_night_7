@@ -1221,3 +1221,35 @@ reads the field; it never invents it.
   engine's answer: the DM never contradicts it and makes the rest fit, Rube Goldberg style (chapter 0): the punch
   landed only because the floodwater had carried the rival's boots off at dawn; Entropy's flood on fresh lava is told
   as steam and new black rock because that is what the field will do with it (docs/EARTH_SIM.md §12).
+
+## 29. Token play (state schema 19)
+
+Benito described typing an in-game action, such as going into the house to the left and approaching its occupant, and wanting to see it play out
+outwiththelittlegametokens". What a player's will does at a place is **played out by the game tokens** on the
+people-level board (docs/CLIENT_API.md "Token play" has the payload).
+
+- **After the ruling, never before.** The DM rules first (the d20 of chapter 3, the society's sweet-talk and bribes,
+  the gods' verdicts, chapter 0's Rube Goldberg tale); the scene is drawn afterwards from the ledger rows the will
+  produced and the recorded die. A scene can never make a failure a success or add a consequence: it decides nothing.
+- **One scene per demigod per beat**: its hand's act with the biggest row (then the one that was rolled for). Room
+  setting `token_play`: every demigod (`all`, the default: it is rules only and costs nothing), seated humans only
+  (`humans`), or nobody (`off`).
+- **The stage is the place × time memory.** The demigod stands on its 3 m hex; "the house to my left" is the nearest
+  hex to its west (then the other sides, ring 1 then ring 2) that the memory says has buildings (chapter 2's
+  extrapolated `cell_state`, or an observation). If only the 30 m hex around it has houses, the scene picks the
+  neighbour on the asked side and **records it** (`place.building`): from then on that hex is a house for everyone,
+  every beat. No houses near: the scene plays in the street.
+- **The cast is the society's.** The person the ruling names (a memorized character) plays herself, from where she
+  really is when that is within 4 hexes (else she stands 2 hexes off), or inside the house the scene enters. A social
+  act with nobody named brings forward the nearest known person within 50 m, else the society materializes one from a
+  crowd of the place, the same way every mention is resolved (chapter 4 of the society): she is remembered and can be
+  addressed by name next beat. Crowds, armies, rival demigods and uncovered beasts get tokens too.
+- **The outcome is the record's.** Success, partial (a fail that still landed half), failed, twisted (a Final
+  Destination accident, a god's twist): a seduction that worked ends in an embrace; a natural 1 ends in a slap and
+  she runs out; a failed search ends with "finds nothing". The die's face, modifier and DC ride along so the client
+  can tumble the same d20 the record holds.
+- **Public, so built from public things.** The order's words never appear; subagents', possessions' and secret god
+  rulings' acts make no scene.
+- **Captions** are the rules' templates. A room may let a small model (`token_play_llm`, off by default) rewrite the
+  wording of human seats' captions afterwards; it sees only the steps and the public outcome line, may only reword,
+  and its answer is recorded, so replay never asks a model.

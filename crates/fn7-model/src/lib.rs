@@ -93,7 +93,12 @@ use serde::{Deserialize, Serialize};
 /// step, a god's ruling, Entropy's ramifications, a general, the narrator, a duel's deed) carries a short line of what
 /// the Earth simulator's field holds there now, and a duel's scene carries the ground (`ground`, hazard props). Rules
 /// that changed read [`World::earth_prompt_rules`], so schema-4..16 recordings replay exactly.
-pub const STATE_SCHEMA: u32 = 17;
+///
+/// Schema 19 (token play; 18 and 20 belong to other branches): a demigod's typed will that resolves into acts at a
+/// place is played out on the people-level board by the game tokens (`scene.play`: actors, a timed path of steps on
+/// the hex grid, captions, the d20 and the outcome the rules already decided), kept in [`dm::Dm::scenes`]. Rules that
+/// changed read [`World::token_play_rules`], so schema-4..17 recordings replay exactly.
+pub const STATE_SCHEMA: u32 = 19;
 
 /// Match-wide settings and clocks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -487,6 +492,10 @@ impl World {
     /// Schema 14 rules: duel weapons, hammer-space, projectiles, the picker's recorded picks.
     pub fn duel_weapon_rules(&self) -> bool {
         self.meta.schema >= dm::DUEL_WEAPONS_SCHEMA
+    }
+    /// Schema 19 rules: token play (a typed will's acts played out by the tokens on the people-level board).
+    pub fn token_play_rules(&self) -> bool {
+        self.meta.schema >= dm::TOKEN_PLAY_SCHEMA
     }
     /// A seat's demigods, in id order (Left then Right in schema 5).
     pub fn bodies_of_seat(&self, seat: u8) -> impl Iterator<Item = &Demigod> {

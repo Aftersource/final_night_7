@@ -5038,6 +5038,38 @@
       "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg|ce|mb):\\d+$",
       "type": "string"
     },
+    "SceneCaptions": {
+      "description": "State schema 19 (token play): new captions for an earlier scene (one per step, same order). Replace them; nothing else changes.",
+      "properties": {
+        "beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "captions": {
+          "description": "",
+          "items": {
+            "description": "",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "event": {
+          "const": "scene.captions"
+        },
+        "scene_id": {
+          "description": "",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event",
+        "scene_id",
+        "beat",
+        "captions"
+      ],
+      "type": "object"
+    },
     "SlowEvent": {
       "description": "One slow-time announcement this beat: a window that closed since the last beat (with Time's bill), or orders sent without a window (an instant Enter, billed as a zero-second slow). A window still open is announced by the core (`window.opened`, `match.snapshot.window`) and the `slowed` phase.event.",
       "properties": {
@@ -5137,6 +5169,322 @@
         "day",
         "phase",
         "light"
+      ],
+      "type": "object"
+    },
+    "TokenScene": {
+      "description": "State schema 19 (token play): a demigod's typed will played out by the game tokens on the people-level board (docs/CLIENT_API.md \"Token play\"). Built by rules from what already happened (the ledger rows, the recorded d20, the ruling): it never changes the outcome. Key by `scene_id`.",
+      "properties": {
+        "actors": {
+          "description": "Who is on the stage.",
+          "items": {
+            "description": "A token.",
+            "properties": {
+              "id": {
+                "description": "`a0` is always the demigod.",
+                "type": "string"
+              },
+              "kind": {
+                "description": "",
+                "enum": [
+                  "demigod",
+                  "person",
+                  "crowd",
+                  "creature",
+                  "army"
+                ],
+                "type": "string"
+              },
+              "name": {
+                "description": "",
+                "type": "string"
+              },
+              "ref": {
+                "$ref": "#/$defs/Ref"
+              },
+              "start_cell": {
+                "description": "A people-level (3 m) hex cell key, `\"<face>:people:<q>:<r>\"`.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "kind",
+              "start_cell"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "beat": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "demigod": {
+          "$ref": "#/$defs/Ref"
+        },
+        "dice": {
+          "description": "The act's d20 as recorded (`dice.rolled`); absent when the act was ruled without one.",
+          "properties": {
+            "at_ms": {
+              "description": "When it tumbles (the start of the act).",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "memory": {
+              "description": "",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "modifier": {
+              "type": "integer"
+            },
+            "roll": {
+              "description": "",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "target_dc": {
+              "type": "integer"
+            },
+            "total": {
+              "type": "integer"
+            },
+            "verdict": {
+              "description": "",
+              "enum": [
+                "crit_fail",
+                "fail",
+                "success",
+                "crit_success"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "roll",
+            "modifier",
+            "total",
+            "target_dc",
+            "verdict",
+            "at_ms"
+          ],
+          "type": "object"
+        },
+        "event": {
+          "const": "scene.play"
+        },
+        "outcome": {
+          "description": "What happened (decided before the scene).",
+          "properties": {
+            "result": {
+              "description": "",
+              "enum": [
+                "success",
+                "partial",
+                "failed",
+                "twisted"
+              ],
+              "type": "string"
+            },
+            "text": {
+              "description": "One line (at most 140 characters): the ledger's line when its row is a public event, else the caption of the step that shows it.",
+              "type": "string"
+            },
+            "verb": {
+              "description": "The verb of the step that shows it (embrace, slap, flee, fall, celebrate, ...).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "text",
+            "result",
+            "verb"
+          ],
+          "type": "object"
+        },
+        "place": {
+          "description": "The stage.",
+          "properties": {
+            "building": {
+              "description": "The house the scene goes into (lift its roof on `enter`, lower it on `exit`).",
+              "properties": {
+                "cell": {
+                  "description": "A people-level (3 m) hex cell key, `\"<face>:people:<q>:<r>\"`.",
+                  "type": "string"
+                },
+                "memory": {
+                  "description": "The memory entry that makes it a fact.",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "side": {
+                  "description": "Where it stands from `place.cell`.",
+                  "enum": [
+                    "left",
+                    "right",
+                    "ahead left",
+                    "ahead right",
+                    "behind left",
+                    "behind right"
+                  ],
+                  "type": "string"
+                },
+                "source": {
+                  "description": "observed: the place x time memory has buildings on the hex; houses: the 30 m hex has houses and the scene recorded this one (`place.building`).",
+                  "enum": [
+                    "observed",
+                    "houses"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "cell",
+                "side",
+                "source"
+              ],
+              "type": "object"
+            },
+            "cell": {
+              "description": "A people-level (3 m) hex cell key, `\"<face>:people:<q>:<r>\"`.",
+              "type": "string"
+            },
+            "level": {
+              "const": "people"
+            },
+            "name": {
+              "description": "",
+              "type": "string"
+            },
+            "ref": {
+              "$ref": "#/$defs/Ref"
+            }
+          },
+          "required": [
+            "ref",
+            "name",
+            "cell",
+            "level"
+          ],
+          "type": "object"
+        },
+        "polished": {
+          "description": "The captions were rewritten by the polish model.",
+          "type": "boolean"
+        },
+        "scene_id": {
+          "description": "`sc:<beat>:<demigod index>`.",
+          "type": "string"
+        },
+        "seat": {
+          "description": "The seat whose will it is (absent for a built-in AI demigod).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "steps": {
+          "description": "At most 8, end to end.",
+          "items": {
+            "description": "One timed step (scene time).",
+            "properties": {
+              "actor": {
+                "description": "An actor id.",
+                "type": "string"
+              },
+              "caption": {
+                "description": "At most 70 characters.",
+                "type": "string"
+              },
+              "dur_ms": {
+                "description": "",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "mood": {
+                "description": "The bubble: hearts, anger marks, sweat drops, sparkles, none.",
+                "enum": [
+                  "love",
+                  "anger",
+                  "fear",
+                  "joy",
+                  "neutral"
+                ],
+                "type": "string"
+              },
+              "path": {
+                "description": "A walk or a flee: every cell on the way (the last is `to_cell`).",
+                "items": {
+                  "description": "",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "t_ms": {
+                "description": "",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "target_actor": {
+                "description": "An actor id.",
+                "type": "string"
+              },
+              "to_cell": {
+                "description": "A people-level (3 m) hex cell key, `\"<face>:people:<q>:<r>\"`.",
+                "type": "string"
+              },
+              "verb": {
+                "description": "The token animation.",
+                "enum": [
+                  "walk",
+                  "enter",
+                  "exit",
+                  "talk",
+                  "give",
+                  "take",
+                  "fight",
+                  "cast",
+                  "flee",
+                  "kneel",
+                  "embrace",
+                  "search",
+                  "hide",
+                  "celebrate",
+                  "fall",
+                  "slap"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "t_ms",
+              "dur_ms",
+              "actor",
+              "verb",
+              "caption",
+              "mood"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "total_ms": {
+          "description": "At most 9000; a short scene is slowed toward 8000.",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event",
+        "scene_id",
+        "beat",
+        "demigod",
+        "place",
+        "actors",
+        "steps",
+        "outcome",
+        "total_ms"
       ],
       "type": "object"
     },
@@ -5400,6 +5748,20 @@
       "description": "Rules 0.9.0: the open public quests (raisings, seals' counters).",
       "items": {
         "$ref": "#/$defs/Quest"
+      },
+      "type": "array"
+    },
+    "scene_captions": {
+      "description": "State schema 19 (token play, `token_play_llm`): earlier scenes whose captions the polish model rewrote since the last resolve (absent when none).",
+      "items": {
+        "$ref": "#/$defs/SceneCaptions"
+      },
+      "type": "array"
+    },
+    "scenes": {
+      "description": "State schema 19 (token play): this beat's `scene.play` scenes, at most one per demigod whose typed will resolved into acts at a place (absent when none).",
+      "items": {
+        "$ref": "#/$defs/TokenScene"
       },
       "type": "array"
     },

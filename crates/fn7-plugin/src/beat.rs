@@ -2082,6 +2082,9 @@ pub async fn resolve(
     // Gear looks (schema 11): each demigod's loadout is noted; a human player's demigod whose loadout changed takes
     // a new look (`look.changed`), and notable items are granted their pictures.
     let look_changes = crate::look::step(w, beat, &st);
+    // Schema 19 (token play): each demigod's typed will played out by the tokens on the people-level board, from what
+    // the act batch and the merge decided (the scene decides nothing).
+    let scenes = crate::scene::build(w, beat, row_start, &pos_at_start, pantheon, &st);
     clock.lap(Stage::Merge);
 
     // ---- (5) consequence: memories, rumor spread, mood drift, memory budget --------------------------------------
@@ -2349,6 +2352,10 @@ pub async fn resolve(
         public["wills"] = std::mem::take(&mut wills_out.public).into();
         public["curses"] = book["curses"].clone();
         public["quests"] = book["quests"].clone();
+    }
+    // Token play: this beat's scenes (`scene.play`).
+    if !scenes.is_empty() {
+        public["scenes"] = scenes.iter().map(|s| s.json()).collect();
     }
     clock.lap(Stage::Broadcast);
 

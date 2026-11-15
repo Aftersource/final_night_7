@@ -355,6 +355,16 @@ pub struct Settings {
     pub duel_draws: u32,
     /// Sparks a hammer-space draw costs when the purse has them (paid: an artifact-tier prop; unpaid: a trinket).
     pub duel_draw_sparks: u32,
+    /// Schema 19 (token play, docs/CLIENT_API.md "Token play"): whose typed wills are played out by the tokens on the
+    /// people-level board: `all` (every demigod that acted at a place; rules only, so cheap), `humans` (seated
+    /// players only) or `off`.
+    pub token_play: String,
+    /// Schema 19: polish the rule captions of human seats' scenes with one small LLM call each (`claude-haiku-5-5`,
+    /// no thinking; recorded through the plugin's journal, so a replay never calls a model). Off by default: nothing
+    /// new is spent unless a room turns it on (it also needs `llm` and a server LLM).
+    pub token_play_llm: bool,
+    /// How long a caption polish may take before it is dropped (the rule captions stand).
+    pub token_play_llm_timeout_ms: u32,
 }
 
 impl Default for Settings {
@@ -518,6 +528,9 @@ impl Default for Settings {
             duel_picker_for_ai: false,
             duel_draws: 2,
             duel_draw_sparks: 1,
+            token_play: "all".into(),
+            token_play_llm: false,
+            token_play_llm_timeout_ms: 2500,
         }
     }
 }
@@ -774,6 +787,14 @@ impl Settings {
             duel_picker_for_ai: boolean("duel_picker_for_ai", d.duel_picker_for_ai)?,
             duel_draws: int("duel_draws", d.duel_draws, 0, 10)?,
             duel_draw_sparks: int("duel_draw_sparks", d.duel_draw_sparks, 0, 10)?,
+            token_play: match m.get("token_play") {
+                None | Some(Value::Null) => d.token_play.clone(),
+                Some(Value::Bool(b)) => if *b { "all" } else { "off" }.into(),
+                Some(Value::String(x)) if matches!(x.trim(), "all" | "humans" | "off") => x.trim().to_string(),
+                _ => return Err("`token_play` must be \"all\", \"humans\" or \"off\"".into()),
+            },
+            token_play_llm: boolean("token_play_llm", d.token_play_llm)?,
+            token_play_llm_timeout_ms: int("token_play_llm_timeout_ms", d.token_play_llm_timeout_ms, 200, 10000)?,
         };
         let s = Settings { start_bolts: s.bolt_start, ..s };
         let mut out = match serde_json::to_value(&s).map_err(|e| e.to_string())? {
@@ -858,6 +879,10 @@ impl Settings {
         // Fault junctions and tiers (schema 16): settings recorded before them have no `fault_junctions_enabled`: off.
         if v.get("fault_junctions_enabled").is_none() {
             s.fault_junctions_enabled = false;
+        }
+        // Token play (schema 19): settings recorded before it have no `token_play`: off.
+        if v.get("token_play").is_none() {
+            s.token_play = "off".into();
         }
         // Settings recorded before flow/slow (schema 2) had only `beat_ms`.
         if v.get("flow_ms").is_none() {

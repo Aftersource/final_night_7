@@ -1827,6 +1827,145 @@ God powers act on a server-side voxel field of the planet; the full model, numbe
 Schemas: `query_earth`, `query_earth_at`, and `EarthBeat` / `EarthSummary` / `EarthPhenomenon` / `EarthCells` in
 `outcome_public`, `public_view` and `query_present`.
 
+## Token play (state schema 19)
+
+Benito described typing an in-game action, such as going into the house to the left and approaching its occupant, and wanting to see it play out
+outwiththelittlegametokens". When a demigod's typed will resolves into acts at a place, the server sends a
+**`scene.play`**: the game tokens act it out on the people-level board (3 m hexes): the camera drops to people
+level, the demigod's token walks to the house, the roof lifts like a dollhouse on `enter`, bubbles and the d20, the
+outcome (a heart burst, or a slap and she runs out), then the camera returns (about 8 s per typed action;
+docs/design/EVENTS_IN_THE_WORLD.md in the Unreal repo).
+
+**The scene decides nothing.** It is built by rules after the beat resolved, from the demigod's intents, the ledger
+rows they produced, the act's recorded d20 (`dice.rolled`, query `act:<intent>`) or its god's ruling. The outcome was
+already decided; the scene only shows it. With the polish off (the default) every caption is the rules' own.
+
+| Where | What |
+|---|---|
+| `round.outcome.public.scenes[]` | this beat's scenes, at most one per demigod (absent when none). Room setting `token_play`: `all` (default: every demigod that acted at a place), `humans` (seated players only), `off` |
+| `present.scenes` (`public_state.present`, `game.present`) | the newest resolve's scenes, with any polished captions already back: a reconnect, a viewer joining, a time-travel view of a past state |
+| `round.outcome.public.scene_captions[]` | `scene.captions` for earlier scenes whose captions the polish model rewrote (`token_play_llm`) |
+
+Schemas: `TokenScene`, `SceneCaptions` in `outcome_public`, `public_view` and `query_present`.
+
+### `scene.play`
+
+The real scene of the test `scene_tests::i_go_into_the_house_to_my_left_and_seduce_the_maiden` (seat 0 typed "I go
+into the house to my left and seduce the maiden"; the place × time memory has a house on the hex to its left):
+
+```json
+{ "event": "scene.play", "scene_id": "sc:2:0", "beat": 2, "demigod": "dg:0", "seat": 0,
+  "place": { "ref": "pl:42", "name": "New York", "cell": "4:people:-282797:1261323", "level": "people",
+             "building": { "cell": "4:people:-282798:1261323", "side": "left", "source": "observed", "memory": 100 } },
+  "actors": [ { "id": "a0", "ref": "dg:0", "name": "Ash's Left Hand", "kind": "demigod", "start_cell": "4:people:-282797:1261323" },
+              { "id": "a1", "ref": "ch:60", "name": "Otavio Pires", "kind": "person", "start_cell": "4:people:-282798:1261323" } ],
+  "steps": [
+    { "t_ms": 0,    "dur_ms": 1120, "actor": "a0", "verb": "walk", "to_cell": "4:people:-282798:1261323",
+      "path": ["4:people:-282798:1261323"], "caption": "Ash's Left Hand heads for the house on the left", "mood": "neutral" },
+    { "t_ms": 1120, "dur_ms": 890,  "actor": "a0", "verb": "enter", "to_cell": "4:people:-282798:1261323",
+      "caption": "Ash's Left Hand steps inside", "mood": "neutral" },
+    { "t_ms": 2010, "dur_ms": 2690, "actor": "a0", "verb": "talk", "target_actor": "a1",
+      "caption": "Ash's Left Hand turns on the charm for Otavio Pires", "mood": "love" },
+    { "t_ms": 4700, "dur_ms": 2390, "actor": "a1", "verb": "embrace", "target_actor": "a0",
+      "caption": "Otavio Pires falls into Ash's Left Hand's arms", "mood": "love" },
+    { "t_ms": 7090, "dur_ms": 890,  "actor": "a0", "verb": "exit", "to_cell": "4:people:-282797:1261323",
+      "caption": "Ash's Left Hand steps back out", "mood": "neutral" } ],
+  "outcome": { "text": "Otavio Pires falls into Ash's Left Hand's arms", "result": "success", "verb": "embrace" },
+  "total_ms": 7980 }
+```
+
+(Here "seduce" is one of the society's words: the rules sweet-talked her, an allegiance row, so no die was rolled and
+the scene has no `dice`; the sweet-talk row is private, so `outcome.text` is the embrace's caption. An act the world resolver rules carries its d20: the same table with "flirt with the maiden" (seed 41 of
+`scene_tests::the_maiden_answers_by_the_dice`) gives
+`"dice": { "roll": 4, "modifier": 1, "total": 5, "target_dc": 9, "verdict": "fail", "at_ms": 2040, "memory": 88 }`,
+nothing landed (`result: "failed"`), and the steps run `walk` → `enter` → `talk` → `slap` → `flee` ("Otavio Pires
+runs out") → `exit`, with `outcome.text` "Otavio Pires slaps Ash's Left Hand".)
+
+- **The stage.** `place.cell` is the demigod's people-level cell when the beat began; every `*_cell` is a people-level
+  hex key on the same cube face (`HexCell::parse`; centre with the same math as `game.node`). Actors start at
+  `start_cell`; a step with `to_cell` moves its actor there (a `walk` or `flee` along `path`, one cell after another).
+- **The building** (`place.building`, optional) is a real hex of the place × time memory: one with buildings on it
+  (`source: "observed"`), or, when only the 30 m hex around has houses, the neighbour the scene picked and recorded
+  (`source: "houses"`, a `place.building` memory entry: the same house ever after). "Left" / "right" in the order
+  choose the side (west is left); otherwise the nearest house. `enter` lifts that building's roof (the actor goes in,
+  `to_cell` = the building); `exit` lowers it (`to_cell` = the cell outside). An actor that starts on the building's
+  cell starts inside.
+- **Actors.** `a0` is always the demigod. Others are who the ledger rows (or the intent) name: a named person
+  (`kind: "person"`, a `ch:` ref, remembered: `game.person` knows them), a demigod, a crowd (`cl:` / `mb:` / `ce:`), an
+  army (a cluster with an army), or an uncovered beast near the stage (`creature`, no ref). A social act with nobody
+  named brings a person forward the society's way (the nearest known person within 50 m, else one materialized from a
+  crowd of the place) and remembers them.
+- **Steps** are laid end to end (`t_ms` = the sum of the earlier `dur_ms`), at most 8, `total_ms` ≤ 9000 (a short
+  scene is slowed toward 8000, never by more than half again). `caption` ≤ 70 characters. `dice.at_ms` is when the
+  die tumbles: the start of the act step.
+- **The outcome** is decided before the scene: `result` = `success` (the d20 succeeded, or the god granted / bargained,
+  or, with no die, the rows landed), `partial` (a fail that still landed half), `failed` (a natural 1, a refusal, or
+  nothing came of it), `twisted` (a Final Destination accident, a god's twist, or a backfire on a natural 1: the
+  demigod's token falls last). `text` is one line for it (≤ 140 characters): the ledger's line when its row is a
+  public event, else the caption of the step that shows it (a row's own words can carry what only its witnesses
+  know). `outcome.verb` is the step that shows it.
+
+**Verbs → token animations** (moods: `love` hearts, `anger` marks, `fear` sweat drops, `joy` sparkles, `neutral`
+none):
+
+| Verb | The token | Typical use |
+|---|---|---|
+| `walk` | walks along `path` to `to_cell` | to the house, up to someone, setting off |
+| `enter` / `exit` | goes into / out of `place.building` (roof up / down) | indoor acts |
+| `talk` | faces `target_actor`, speech bubbles | parley, charm, threats, a cold answer |
+| `embrace` | hugs `target_actor` (heart burst on `love`) | a seduction that worked |
+| `slap` | slaps `target_actor` | a seduction that failed |
+| `give` / `take` | hands over / grabs (an item token) | gifts, heals, theft, a find |
+| `fight` | strikes `target_actor` | attacks, a foe hitting back |
+| `cast` | raises its arms, a glow on `target_actor` | god routes, conjured things |
+| `fall` | lies down | a beaten foe, an accident |
+| `flee` | runs along `path` (or off the stage) | a scattered crowd, "she runs out" |
+| `search` | rummages around its cell | searching, scouting |
+| `hide` | crouches, half transparent | sneaking |
+| `kneel` | kneels | prayer, cowering, a fizzle |
+| `celebrate` | jumps, confetti | won over, a gift taken, a find |
+
+How each act is written (rules, deterministic; the intent's verb picks the act):
+
+| Act (verbs) | Steps |
+|---|---|
+| seduce (seduce, flirt, court, charm, kiss, ...) | (walk, enter) talk → success `embrace` / partial `talk` (joy) / failed `slap`, `flee` |
+| talk (ask, persuade, recruit, ...) / threaten | (walk, enter) talk → success `celebrate` (threat: `kneel`) / partial `talk` / failed `flee` |
+| give (give, heal, bless, pay, ...) | give → `celebrate` / `take` / `talk` (anger) |
+| take (steal, grab, rob, buy, ...) | take → `celebrate` / the victim `flee` / the victim `fight` |
+| fight (attack verbs) | walk up, fight → the foe `fall` (a crowd or army `flee`) / `fight` back |
+| cast (a god route, curse, conjure; a manifestation) | cast → the target `fall` (harm) or `celebrate` / the demigod `kneel` (fizzle) |
+| search (search, scout, explore, find, ...) | (walk, enter) search → `take` ("finds the Copper Tide") / `take` (a scrap) / `search` ("finds nothing") |
+| hide, flee, pray, celebrate, go | hide (spotted: `flee`), flee (failed: `fall`), kneel (answered: `celebrate`), celebrate (the target joins in), walk + `exit` |
+
+Indoor acts end with the demigod's `exit` unless it fell or fled; `twisted` adds the demigod's `fall`.
+
+**What stays hidden.** A scene is public, so it is built only from what the board shows: names, verb templates and the
+ledger's public line. The order's own words never appear (only "left" / "right" / "behind" / "ahead" pick the side of
+the street). Acts of subagents and possessions make no scene, nor does a god's ruling that is not public.
+
+### Caption polish (`token_play_llm`, off by default)
+
+With `token_play_llm: true` (and `llm`, and a server LLM), each new scene of a **human** seat gets one small call
+(`claude-haiku-5-5`, no thinking, temperature 0, a JSON schema of exactly one ≤ 70-character string per step) that
+rewrites its captions only. It runs outside the beat (`token_play_llm_timeout_ms`, 2500), never delays the scene and
+never changes a step, an actor, the dice or the outcome. Its answer is journaled (like the duel picker's picks):
+`present.scenes` shows the new captions at once, and the next resolve applies them to the stored scene
+(`polished: true`) and sends
+
+```json
+{ "event": "scene.captions", "scene_id": "sc:2:0", "beat": 2,
+  "captions": ["Ash saunters to the little house on the left", "…", "…", "…", "…"] }
+```
+
+in `round.outcome.public.scene_captions[]`. Replace the scene's captions by step index. The recording keeps the
+answers (`scene_captions` event), so a replay never calls a model. Failing or late: the rule captions stand.
+
+### Settings
+
+`token_play` (`all` | `humans` | `off`, default `all`), `token_play_llm` (false), `token_play_llm_timeout_ms` (2500,
+200..10000). A state before schema 19 has none of this.
+
 ## Message flow for one beat
 
 One Theatre **round** is one **beat**, so `round` and `beat` are always the same number. There are no choices: `round.private.choices`

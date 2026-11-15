@@ -1059,6 +1059,28 @@
       "minimum": 0.0,
       "type": "number"
     },
+    "token_play": {
+      "default": "all",
+      "description": "State schema 19: whose typed wills the tokens play out on the people-level board (`scene.play`): every demigod (rules only, cheap), seated humans only, or nobody.",
+      "enum": [
+        "all",
+        "humans",
+        "off"
+      ],
+      "type": "string"
+    },
+    "token_play_llm": {
+      "default": false,
+      "description": "State schema 19: polish human seats' scene captions with one small LLM call each (claude-haiku-5-5, no thinking; recorded, never called on replay; needs `llm` and a server LLM). Off: the rule captions.",
+      "type": "boolean"
+    },
+    "token_play_llm_timeout_ms": {
+      "default": 2500,
+      "description": "State schema 19: how long a caption polish may take before the rule captions stand.",
+      "maximum": 10000,
+      "minimum": 200,
+      "type": "integer"
+    },
     "will_debt_cap": {
       "default": 3.0,
       "description": "Rules 0.9.0: the open debt (health points, per demigod) beyond which the gods finance no more unpaid wills: the will becomes a mystic quest instead.",

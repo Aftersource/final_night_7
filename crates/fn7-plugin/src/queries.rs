@@ -260,7 +260,7 @@ fn dm_lite(state: &Value, want: bool) -> Result<fn7_model::dm::Dm, String> {
     let l: Lite = table(state, "dm", want)?;
     Ok(fn7_model::dm::Dm { memory: vec![], settlements: l.settlements, stories: l.stories, encounters: l.encounters,
                            loot: l.loot, trails: l.trails, shrines: l.shrines, duels: vec![], wills: l.wills, looks: l.looks, mark: None,
-                           earth: l.earth })
+                           earth: l.earth, scenes: vec![] })
 }
 
 /// Memory entries passing `keep` (tested on the unparsed entry), oldest first: only those are deserialized.

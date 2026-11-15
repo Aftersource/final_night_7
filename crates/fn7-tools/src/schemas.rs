@@ -846,6 +846,9 @@ fn settings_schema() -> Value {
     p("duel_picker_for_ai", json!({ "type": "boolean", "default": false, "description": "State schema 14: also pick for the lines AI duellists type." }));
     p("duel_draws", i(0, 10, json!(2), "State schema 14: hammer-space draws per fighter per duel (pulling out something it does not hold)."));
     p("duel_draw_sparks", i(0, 10, json!(1), "State schema 14: sparks a hammer-space draw costs when the purse has them (paid: an artifact-tier prop; unpaid: a trinket)."));
+    p("token_play", json!({ "type": "string", "enum": ["all", "humans", "off"], "default": "all", "description": "State schema 19: whose typed wills the tokens play out on the people-level board (`scene.play`): every demigod (rules only, cheap), seated humans only, or nobody." }));
+    p("token_play_llm", json!({ "type": "boolean", "default": false, "description": "State schema 19: polish human seats' scene captions with one small LLM call each (claude-haiku-5-5, no thinking; recorded, never called on replay; needs `llm` and a server LLM). Off: the rule captions." }));
+    p("token_play_llm_timeout_ms", i(200, 10000, json!(2500), "State schema 19: how long a caption polish may take before the rule captions stand."));
     p("duel_ai_handicap", i(0, 10, json!(5), "State schema 12: subtracted from the d20 modifier of the lines an AI types against a human (waived against a human silent for 12 s, and between two AIs)."));
     p("duel_deadline_ms", i(1000, 600000, json!(30000), "Rules 0.8.1: the longest a duel runs after its lock (the engine hold's deadline; without a hold the world keeps beating and the duel lasts at most ceil(duel_deadline_ms / flow_ms) resolves)."));
     earth::settings(&mut p);
@@ -1226,6 +1229,8 @@ fn outcome_public() -> Value {
             ("curses", array(r("Curse"), "Rules 0.9.0: every curse holding now (public faces).")),
             ("quests", array(r("Quest"), "Rules 0.9.0: the open public quests (raisings, seals' counters).")),
             ("earth", r("EarthBeat")),
+            ("scenes", array(r("TokenScene"), "State schema 19 (token play): this beat's `scene.play` scenes, at most one per demigod whose typed will resolved into acts at a place (absent when none).")),
+            ("scene_captions", array(r("SceneCaptions"), "State schema 19 (token play, `token_play_llm`): earlier scenes whose captions the polish model rewrote since the last resolve (absent when none).")),
         ],
     )
 }
@@ -1785,7 +1790,41 @@ fn v08_defs() -> Map<String, Value> {
               "description": "A phase.event.public payload (cast streak, summoning, god_power, challenge.lock, duel.blow) with its `seq`, `received_at_ms` and `beat`." }),
               "The public events of the instant actions since the last resolve, in arrival order.")),
           ("duels", array(r("PresentDuel"), "Every open duel in full."))],
-        &[("earth", json!({ "anyOf": [r("EarthSummary"), { "type": "null" }], "description": "State schema 13: the Earth simulator's field in short (null when it is off)." }))],
+        &[("earth", json!({ "anyOf": [r("EarthSummary"), { "type": "null" }], "description": "State schema 13: the Earth simulator's field in short (null when it is off)." })),
+          ("scenes", array(r("TokenScene"), "State schema 19 (token play): the newest resolve's scenes, with any polished captions already back (absent before schema 19)."))],
+    ));
+    let e = |v: &[&str], desc: &str| json!({ "type": "string", "enum": v, "description": desc });
+    let people_cell = || string("A people-level (3 m) hex cell key, `\"<face>:people:<q>:<r>\"`.");
+    d.insert("TokenScene".into(), object(
+        "State schema 19 (token play): a demigod's typed will played out by the game tokens on the people-level board (docs/CLIENT_API.md \"Token play\"). Built by rules from what already happened (the ledger rows, the recorded d20, the ruling): it never changes the outcome. Key by `scene_id`.",
+        &[("event", json!({ "const": "scene.play" })), ("scene_id", string("`sc:<beat>:<demigod index>`.")), ("beat", int("")), ("demigod", r("Ref")),
+          ("place", object("The stage.", &[("ref", r("Ref")), ("name", string("")), ("cell", people_cell()), ("level", json!({ "const": "people" }))],
+              &[("building", object("The house the scene goes into (lift its roof on `enter`, lower it on `exit`).",
+                  &[("cell", people_cell()), ("side", e(&["left", "right", "ahead left", "ahead right", "behind left", "behind right"], "Where it stands from `place.cell`.")),
+                    ("source", e(&["observed", "houses"], "observed: the place x time memory has buildings on the hex; houses: the 30 m hex has houses and the scene recorded this one (`place.building`)."))],
+                  &[("memory", int("The memory entry that makes it a fact."))]))])),
+          ("actors", array(object("A token.", &[("id", string("`a0` is always the demigod.")), ("name", string("")),
+              ("kind", e(&["demigod", "person", "crowd", "creature", "army"], "")), ("start_cell", people_cell())],
+              &[("ref", r("Ref"))]), "Who is on the stage.")),
+          ("steps", array(object("One timed step (scene time).", &[("t_ms", int("")), ("dur_ms", int("")), ("actor", string("An actor id.")),
+              ("verb", e(fn7_plugin::scene::VERBS, "The token animation.")), ("caption", string("At most 70 characters.")),
+              ("mood", e(fn7_plugin::scene::MOODS, "The bubble: hearts, anger marks, sweat drops, sparkles, none."))],
+              &[("to_cell", people_cell()), ("path", array(string(""), "A walk or a flee: every cell on the way (the last is `to_cell`).")),
+                ("target_actor", string("An actor id."))]), "At most 8, end to end.")),
+          ("outcome", object("What happened (decided before the scene).", &[("text", string("One line (at most 140 characters): the ledger's line when its row is a public event, else the caption of the step that shows it.")),
+              ("result", e(&["success", "partial", "failed", "twisted"], "")), ("verb", string("The verb of the step that shows it (embrace, slap, flee, fall, celebrate, ...)."))], &[])),
+          ("total_ms", int("At most 9000; a short scene is slowed toward 8000."))],
+        &[("seat", int("The seat whose will it is (absent for a built-in AI demigod).")),
+          ("dice", object("The act's d20 as recorded (`dice.rolled`); absent when the act was ruled without one.",
+              &[("roll", int("")), ("modifier", json!({ "type": "integer" })), ("total", json!({ "type": "integer" })), ("target_dc", json!({ "type": "integer" })),
+                ("verdict", e(&["crit_fail", "fail", "success", "crit_success"], "")), ("at_ms", int("When it tumbles (the start of the act)."))],
+              &[("memory", int(""))])),
+          ("polished", boolean("The captions were rewritten by the polish model."))],
+    ));
+    d.insert("SceneCaptions".into(), object(
+        "State schema 19 (token play): new captions for an earlier scene (one per step, same order). Replace them; nothing else changes.",
+        &[("event", json!({ "const": "scene.captions" })), ("scene_id", string("")), ("beat", int("")), ("captions", array(string(""), ""))],
+        &[],
     ));
     d.insert("ChallengeOpen".into(), object(
         "Rules 0.8.1: a duel still under way after this resolve (`round.outcome.public.duels_open[]`; the damage so far is applied).",

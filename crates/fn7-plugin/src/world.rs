@@ -36,6 +36,11 @@ pub fn settings(w: &World) -> Settings {
     if !w.earth_rules() || !w.is_planet() {
         s.earth_sim_enabled = false;
     }
+    // Token play needs a schema-19 state.
+    if !w.token_play_rules() {
+        s.token_play = "off".into();
+        s.token_play_llm = false;
+    }
     s
 }
 
