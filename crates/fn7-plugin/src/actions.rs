@@ -107,6 +107,10 @@ pub struct Input {
     /// `fields.duel_keys {duel_id, len, tail}`: a duellist's live typing (an instant action that travels alone; relayed
     /// as `duel.typing` and nothing else, see [`crate::typing`]).
     pub keys: Option<crate::typing::KeysOrder>,
+    /// Schema 14: `fields.duel_pick`: the duel picker's answer for a line, as the server journals it
+    /// ([`crate::picker`]). Never from a client (`validate_action` refuses it); only journal entries and a replay's
+    /// `duel_picks` event carry one.
+    pub pick: Option<crate::picker::PickRec>,
 }
 
 impl Input {
@@ -117,7 +121,7 @@ impl Input {
 
     /// Does it carry a challenge or a duel line (rules 0.8.1)?
     pub fn is_duel(&self) -> bool {
-        self.challenge.is_some() || self.blow.is_some() || self.tick.is_some() || self.keys.is_some()
+        self.challenge.is_some() || self.blow.is_some() || self.tick.is_some() || self.keys.is_some() || self.pick.is_some()
     }
 }
 
@@ -417,8 +421,12 @@ pub fn parse(text: &str, fields: &Value) -> Result<Input, String> {
         None => None,
     };
     i.keys = crate::typing::keys_of(fields)?;
+    i.pick = match fields.get("duel_pick").filter(|v| !v.is_null()) {
+        Some(v) => Some(serde_json::from_value(v.clone()).map_err(|_| "bad duel_pick")?),
+        None => None,
+    };
     if i.is_duel()
-        && (i.challenge.is_some() as u8 + i.blow.is_some() as u8 + i.tick.is_some() as u8 + i.keys.is_some() as u8 > 1
+        && (i.challenge.is_some() as u8 + i.blow.is_some() as u8 + i.tick.is_some() as u8 + i.keys.is_some() as u8 + i.pick.is_some() as u8 > 1
             || !i.casts.is_empty()
             || !i.summons.is_empty()
             || !i.god_powers.is_empty()

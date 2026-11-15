@@ -270,6 +270,13 @@ pub fn open(b: &mut Bout, w: &World) {
         if typing {
             f["typing_script"] = scripts.iter().find(|x| x.side == s).map(|x| x.json(&id)).unwrap_or(Value::Null);
         }
+        // Schema 14: what it has in hand.
+        if let Some(x) = b.wield[s].as_ref().filter(|_| b.weapons) {
+            f["segs"][0]["prop"] = x.prop();
+        }
+        if b.weapons {
+            f["weapon_class"] = b.wield[s].as_ref().map(|x| x.weapon_class.clone()).unwrap_or_else(|| "unarmed".into()).into();
+        }
         f
     };
     let intro = json!({
@@ -413,6 +420,8 @@ struct Strike<'a> {
     side: usize,
     ev: &'a Value,
     typed: bool,
+    /// Its blow's index in the window (counters ride on their blow's).
+    k: usize,
 }
 
 fn exchange(b: &mut Bout, st: &Settings, starts: i64, typing: bool) {
@@ -422,13 +431,19 @@ fn exchange(b: &mut Bout, st: &Settings, starts: i64, typing: bool) {
     c.fed = b.blows.len();
     let a_ref = json!(Ref::Demigod(b.duel.f[0].id));
     let mut strikes: Vec<Strike> = vec![];
-    for ev in &window {
+    for (k, ev) in window.iter().enumerate() {
         let side = if ev["by"] == a_ref { 0 } else { 1 };
-        strikes.push(Strike { side, ev, typed: ev["auto"] != true });
+        strikes.push(Strike { side, ev, typed: ev["auto"] != true, k });
         if ev["counter"].is_object() {
-            strikes.push(Strike { side: 1 - side, ev: &ev["counter"], typed: false });
+            strikes.push(Strike { side: 1 - side, ev: &ev["counter"], typed: false, k });
         }
     }
+    // Schema 14: a pick that came back by this window's close stages its line ([`crate::picker`]); `marks` notes on
+    // the blow whether it was used.
+    let close = c.closes_ms;
+    let mut marks: Vec<(usize, Value)> = vec![];
+    let fed0 = b.cycle.as_ref().map(|x| x.fed).unwrap_or(0);
+    let mut projectiles: Vec<Value> = vec![];
     let mut r = Rng::derive(b.duel.seed, &[PANEL_SALT, hash_str(&b.duel.id), n as u64]);
     let objects: Vec<Value> = b.scene.as_ref().and_then(|s| s["objects"].as_array().cloned()).unwrap_or_default();
     let shown = strikes.len().min(3);
@@ -476,25 +491,44 @@ fn exchange(b: &mut Bout, st: &Settings, starts: i64, typing: bool) {
             continue; // more blows than a panel can stage: they still count (hp, range), unseen
         }
         let t0 = slot * k as i64;
-        let mv = &s.ev["move"];
+        let mut picked = s.ev["move"].clone();
+        if b.weapons && s.typed && s.ev["ai"] != true && picked["picker"].is_null() {
+            let seq = s.ev["seq"].as_u64();
+            let at = s.ev["at_ms"].as_i64();
+            if let Some(p) = b.picks.iter().find(|p| !p.pre && Some(p.line_seq) == seq && Some(p.line_at_ms) == at && p.at_ms <= close && close > 0) {
+                if let Some(pick) = &p.pick {
+                    crate::duel::apply_pick(&mut picked, pick, cls, "used");
+                    marks.push((s.k, picked.clone()));
+                }
+            }
+        }
+        let mv = &picked;
         let foot = match mv["clip"].as_str() {
             // Schema 12: the clip the words picked says which limb.
             Some(clip) => clip.contains("kick") || clip.contains("sweep") || clip.contains("knee"),
             None => ch["contacts"][0]["limb"].as_str().is_some_and(|l| l.contains("foot")) || cls == "strike" && s.ev["text"].as_str().is_some_and(|t| t.to_lowercase().contains("kick")),
         };
-        let (mine, theirs) = stage(&mut r, &objects, &mut pos, me, cls, foot, result, dmg, down, c.range, slot, mv);
+        let foe_before = pos[foe];
+        let (mine, theirs, contact_at) = stage(&mut r, &objects, &mut pos, me, cls, foot, result, dmg, down, c.range, slot, mv, b.weapons);
         segs[me].extend(mine);
         segs[foe].extend(theirs);
         // The contact: on the foe when it lands, on the scenery or the air when it does not.
         let kind = if matches!(cls, "heavy" | "throw") { "heavy" } else if foot { "kick" } else { "hand" };
         let limb = if foot { "foot_r" } else if matches!(cls, "grapple" | "throw") { "hand_l" } else { "hand_r" };
-        let t_ms = t0 + slot * 55 / 100;
+        let t_ms = t0 + contact_at.unwrap_or(slot * 55 / 100);
         if matches!(cls, "strike" | "heavy" | "grapple" | "throw" | "invoke" | "command") {
-            let zone = match ch["contacts"][0]["target_limb"].as_str().unwrap_or("torso") {
-                "head" => "head",
-                "legs" => "legs",
-                "arms" => "chest",
-                _ => "belly",
+            let zone = match mv["target"].as_str() {
+                // Schema 14: the part the pick aimed at.
+                Some("head") => "head",
+                Some("legs") => "legs",
+                Some("chest" | "arms") => "chest",
+                Some(_) => "belly",
+                None => match ch["contacts"][0]["target_limb"].as_str().unwrap_or("torso") {
+                    "head" => "head",
+                    "legs" => "legs",
+                    "arms" => "chest",
+                    _ => "belly",
+                },
             };
             let words: &[&str] = match (dmg > 0.0, kind) {
                 (true, "heavy") => &["KRAAK", "THOOM", "WHAM"],
@@ -515,6 +549,23 @@ fn exchange(b: &mut Bout, st: &Settings, starts: i64, typing: bool) {
             } else {
                 contacts.push(json!({ "t_ms": t_ms, "by": side_name(me), "limb": limb, "kind": kind, "on": side_name(foe), "at": zone,
                                       "impulse": 0.0, "text": text, "miss": true, "ranged": false }));
+            }
+            // Schema 14: a ranged weapon's blow (or an invoke) flies: a projectile, and the contact lands when it does.
+            let wc = mv["weapon_class"].as_str().unwrap_or("unarmed");
+            if let Some(kind) = crate::weapons::kind_for(wc, cls).filter(|_| b.weapons) {
+                let foe_shield = prop_at(b, foe, fed0 + s.k + 1)["weapon_class"] == "shield";
+                let shot = crate::weapons::Shot { id: format!("p{n}.{}", projectiles.len() + 1), kind, by: me, blow: s.ev["n"].as_u64().unwrap_or(0) as u32,
+                                                  from: pos[me], foe: foe_before, t_fire_ms: t_ms, damage: dmg, result, foe_shield, burst: text };
+                let p = crate::weapons::projectile(&shot, &objects, &mut r);
+                if let Some(last) = contacts.last_mut().filter(|x| x["by"] == side_name(me) && x["t_ms"] == t_ms) {
+                    last["t_ms"] = p["t_hit_ms"].clone();
+                    last["ranged"] = true.into();
+                    if p["deflected_by"].is_string() {
+                        last["miss"] = true.into();
+                        last["impulse"] = 0.0.into();
+                    }
+                }
+                projectiles.push(p);
             }
         }
     }
@@ -565,6 +616,22 @@ fn exchange(b: &mut Bout, st: &Settings, starts: i64, typing: bool) {
             }
         }
     }
+    // Schema 14: the weapon in each fighter's hand on its segs (`prop`; the new one from a draw seg on), and every
+    // seg's clip trim (`at`, `speed`).
+    if b.weapons {
+        let draw_clip = crate::moves::current().body["draw_clip"].as_str().unwrap_or("draw_from_nowhere").to_string();
+        for (sd, track) in segs.iter_mut().enumerate() {
+            let (before, after) = (prop_at(b, sd, fed0), prop_at(b, sd, fed0 + window.len()));
+            let from = track.iter().position(|x| x["clip"] == draw_clip.as_str()).unwrap_or(0);
+            for (i, seg) in track.iter_mut().enumerate() {
+                let p = if i < from { &before } else { &after };
+                if !p.is_null() {
+                    seg["prop"] = p.clone();
+                }
+                trim_seg(seg);
+            }
+        }
+    }
     if let Some(last) = window.last() {
         let hp = if last["hp_after"].is_object() { &last["hp_after"] } else { &last["hp"] };
         c.hp = [hp["a"].as_f64().unwrap_or(c.hp[0]), hp["b"].as_f64().unwrap_or(c.hp[1])];
@@ -578,6 +645,9 @@ fn exchange(b: &mut Bout, st: &Settings, starts: i64, typing: bool) {
                 "default": default[s], "auto": strikes.iter().any(|x| x.side == s && !x.typed), "segs": segs[s], "at": pos[s] });
         if ai_types {
             f["typing_script"] = scripts.iter().find(|x| x.side == s).map(|x| x.json(&duel_id)).unwrap_or(Value::Null);
+        }
+        if b.weapons {
+            f["weapon_class"] = prop_at(b, s, fed0 + window.len())["weapon_class"].as_str().unwrap_or("unarmed").into();
         }
         f
     };
@@ -611,9 +681,33 @@ fn exchange(b: &mut Bout, st: &Settings, starts: i64, typing: bool) {
         "blows": window.iter().map(|e| e["n"].clone()).collect::<Vec<_>>(),
         "flip": init_before != c.initiative, "hp": { "a": c.hp[0], "b": c.hp[1] }, "range": c.range, "initiative": side_name(c.initiative),
     });
+    let mut panel = panel;
+    if b.weapons {
+        panel["projectiles"] = projectiles.into();
+    }
     b.panels.push(panel);
+    let fed = b.cycle.as_ref().map(|x| x.fed).unwrap_or(0);
+    for (k, mv) in marks {
+        if let Some(blow) = b.blows.get_mut(fed + k) {
+            blow["move"] = mv;
+        }
+    }
     b.cycle = Some(c);
     note_scripts(b, scripts);
+}
+
+/// Schema 14: the seg `prop` of `side` after the first `upto` blows: the weapon its newest move carried (null: its
+/// hand was empty), else what it wielded at the lock.
+pub fn prop_at(b: &Bout, side: usize, upto: usize) -> Value {
+    let who = json!(Ref::Demigod(b.duel.f[side].id));
+    for ev in b.blows.iter().take(upto).rev() {
+        for e in [&ev["counter"], ev] {
+            if e["by"] == who && e["move"]["weapon_class"].is_string() {
+                return e["move"]["prop"].clone();
+            }
+        }
+    }
+    b.duel.f[side].weapons.first().map(|x| x.prop()).unwrap_or(Value::Null)
 }
 
 /// Schema 12: `ms` of idle time for fighter `s` as short chunks: a step to a neighbouring hex at the same distance
@@ -675,7 +769,7 @@ fn obj_at(o: &Value) -> [i32; 2] {
 /// objects give the evasions their vaults, slides and wall kicks.
 #[allow(clippy::too_many_arguments)]
 fn stage(r: &mut Rng, objects: &[Value], pos: &mut [[i32; 2]; 2], me: usize, cls: &str, foot: bool, result: &str, dmg: f64, down: bool,
-         range_after: Range, ms: i64, mv: &Value) -> (Vec<Value>, Vec<Value>) {
+         range_after: Range, ms: i64, mv: &Value, trims: bool) -> (Vec<Value>, Vec<Value>, Option<i64>) {
     let foe = 1 - me;
     let mut mine: Vec<Value> = vec![];
     let mut theirs: Vec<Value> = vec![];
@@ -699,7 +793,18 @@ fn stage(r: &mut Rng, objects: &[Value], pos: &mut [[i32; 2]; 2], me: usize, cls
         let to = spot(pos[foe], want);
         let run = (ms * 3 / 10).max(300);
         let leap = cls == "heavy" && hex_dist(pos[me], pos[foe]) > want + 1;
-        if leaps {
+        let over = mv["object"].as_str().and_then(|id| objects.iter().find(|o| o["id"] == id)).filter(|_| matches!(mv["path"].as_str(), Some("vault" | "slide" | "wallkick")));
+        if let Some(o) = over {
+            // Schema 14: the pick sent it over, under or off a scene object on its way in.
+            let p = mv["path"].as_str().unwrap_or("vault");
+            let key = match p { "vault" => "over", "slide" => "under", _ => "on" };
+            let mut seg = json!({ "clip": if p == "wallkick" { "jump_attack" } else { "run" }, "ms": run, "to": to, "path": p, "face": "foe" });
+            seg[key] = o["id"].clone();
+            if p == "wallkick" {
+                seg["h"] = 1.4.into();
+            }
+            mine.push(seg);
+        } else if leaps {
             // The words asked for a leap: the whole move is the jump across.
             mine.push(json!({ "clip": word_clip.unwrap_or("jump_attack"), "ms": left, "to": to, "path": "leap", "h": 1.6, "face": "foe" }));
             leapt = true;
@@ -740,13 +845,20 @@ fn stage(r: &mut Rng, objects: &[Value], pos: &mut [[i32; 2]; 2], me: usize, cls
         Some(c) => mine.push(json!({ "clip": c, "ms": left, "face": "foe" })),
         None => mine.push(json!({ "clip": if crit { "combo_triple" } else { atk }, "ms": left, "face": "foe" })),
     }
+    // Schema 14: the attack seg plays its clip's trim; its contact frame says when the blow lands.
+    let contact = if trims {
+        let start: i64 = mine.iter().take(mine.len().saturating_sub(1)).map(|x| x["ms"].as_i64().unwrap_or(0)).sum();
+        mine.last_mut().and_then(trim_seg).map(|h| (start + h).clamp(1, ms - 1))
+    } else {
+        None
+    };
     // A move that attacks nobody (a guard, a step, a taunt, a failed dodge): the other just holds.
     if !matches!(cls, "strike" | "heavy" | "grapple" | "throw" | "invoke" | "command" | "feint") {
         theirs.push(json!({ "clip": "idle_guard", "ms": ms, "loop": true, "face": "foe" }));
-        return (mine, theirs);
+        return (mine, theirs, contact);
     }
-    // The defender: wait for it, then react.
-    let wait = (ms - left) + left * 45 / 100;
+    // The defender: wait for it, then react (schema 14: at the attack clip's contact frame).
+    let wait = contact.unwrap_or((ms - left) + left * 45 / 100);
     let react = ms - wait;
     theirs.push(json!({ "clip": "idle_guard", "ms": wait, "loop": true, "face": "foe" }));
     let away = |p: [i32; 2], k: i32| [p[0] - dir * k, p[1]];
@@ -813,7 +925,32 @@ fn stage(r: &mut Rng, objects: &[Value], pos: &mut [[i32; 2]; 2], me: usize, cls
         // wasted, moved, set, taunted, penalty: the other holds its guard
         _ => theirs.push(json!({ "clip": "idle_guard", "ms": react, "loop": true, "face": "foe" })),
     }
-    (mine, theirs)
+    (mine, theirs, contact)
+}
+
+/// Schema 14: a seg plays its clip's trim (the list's `at_ms`, `use_ms`, `hit_ms`): it starts `at` ms into the clip
+/// at `speed` = use_ms / ms (kept within 0.5..2.5; a clip that would play too fast plays the part around its contact),
+/// so a long clip never overruns its seg and its contact frame falls inside it. Returns the contact's offset in the seg
+/// (attacks only). Loops and segs with a speed already are left alone.
+pub fn trim_seg(seg: &mut Value) -> Option<i64> {
+    if seg["loop"] == true || seg.get("speed").is_some() {
+        return None;
+    }
+    let ms = seg["ms"].as_i64().filter(|m| *m > 0)?;
+    let list = crate::moves::current();
+    let (len, at, used, hit) = list.clip(seg["clip"].as_str()?)?.trim?;
+    let len_ms = (len * 1000.0).round() as i64;
+    let speed = (used as f64 / ms as f64).clamp(0.5, 2.5);
+    let played = (speed * ms as f64).round() as i64;
+    let start = match hit {
+        // Keep the contact at the same share of what is played.
+        Some(h) if played < used => at + h - (h as f64 * played as f64 / used as f64).round() as i64,
+        _ => at,
+    };
+    let start = start.clamp(0, (len_ms - played).max(0));
+    seg["at"] = start.into();
+    seg["speed"] = ((speed * 100.0).round() / 100.0).into();
+    hit.map(|h| ((at + h - start) as f64 / speed).round() as i64).filter(|t| *t > 0 && *t < ms)
 }
 
 /// The live `also[]` of a duel action: [`since`], and in a duel whose AI types (schema 12) also the AI's blows entered

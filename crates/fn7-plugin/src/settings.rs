@@ -281,6 +281,17 @@ pub struct Settings {
     /// strikes in every window, which no human does; its wit is capped at 2 like an automatic line's). Waived
     /// against a human silent for 12 s and between two AIs. 0 = none.
     pub duel_ai_handicap: u32,
+    /// Schema 14 (docs/DUEL_MOVES.md §4.1): `on`: one structured LLM call per typed human duel line chooses its move
+    /// class and presentation from the list (needs the room's `llm` and a server LLM); `off`: the keyword mapper only.
+    pub duel_picker: String,
+    /// How long a pick may take before the mapper's stands (ms).
+    pub duel_picker_timeout_ms: u32,
+    /// Also pick for the lines AI duellists type (off: they keep their rules lines' classes and clips).
+    pub duel_picker_for_ai: bool,
+    /// Schema 14: hammer-space draws per fighter per duel (pulling out something it does not hold).
+    pub duel_draws: u32,
+    /// Sparks a hammer-space draw costs when the purse has them (paid: an artifact-tier prop; unpaid: a trinket).
+    pub duel_draw_sparks: u32,
 }
 
 impl Default for Settings {
@@ -409,6 +420,11 @@ impl Default for Settings {
             duel_ai_lines_per_window: 1.0,
             duel_ai_aggression: 0.6,
             duel_ai_handicap: 5,
+            duel_picker: "on".into(),
+            duel_picker_timeout_ms: 700,
+            duel_picker_for_ai: false,
+            duel_draws: 2,
+            duel_draw_sparks: 1,
         }
     }
 }
@@ -622,6 +638,16 @@ impl Settings {
             duel_ai_lines_per_window: num("duel_ai_lines_per_window", d.duel_ai_lines_per_window, 0.0, 1.0)?,
             duel_ai_aggression: num("duel_ai_aggression", d.duel_ai_aggression, 0.0, 1.0)?,
             duel_ai_handicap: int("duel_ai_handicap", d.duel_ai_handicap, 0, 10)?,
+            duel_picker: match m.get("duel_picker") {
+                None | Some(Value::Null) => d.duel_picker.clone(),
+                Some(Value::Bool(b)) => if *b { "on" } else { "off" }.into(),
+                Some(Value::String(x)) if matches!(x.trim(), "on" | "off") => x.trim().to_string(),
+                _ => return Err("`duel_picker` must be \"on\" or \"off\"".into()),
+            },
+            duel_picker_timeout_ms: int("duel_picker_timeout_ms", d.duel_picker_timeout_ms, 100, 5000)?,
+            duel_picker_for_ai: boolean("duel_picker_for_ai", d.duel_picker_for_ai)?,
+            duel_draws: int("duel_draws", d.duel_draws, 0, 10)?,
+            duel_draw_sparks: int("duel_draw_sparks", d.duel_draw_sparks, 0, 10)?,
         };
         let s = Settings { start_bolts: s.bolt_start, ..s };
         let mut out = match serde_json::to_value(&s).map_err(|e| e.to_string())? {
@@ -694,6 +720,10 @@ impl Settings {
         }
         if v.get("duel_one_per_player").is_none() {
             s.duel_one_per_player = false;
+        }
+        // Duel weapons (schema 14): settings recorded before it have no `duel_picker`: off.
+        if v.get("duel_picker").is_none() {
+            s.duel_picker = "off".into();
         }
         // Settings recorded before flow/slow (schema 2) had only `beat_ms`.
         if v.get("flow_ms").is_none() {

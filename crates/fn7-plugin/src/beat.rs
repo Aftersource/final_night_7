@@ -761,6 +761,7 @@ pub fn split_turn(w: &World, seat: u8, lead: DemigodId, input: Input) -> Vec<Tur
                 tick: None,
                 blow: None,
                 keys: None,
+                pick: None,
             },
         });
     }
@@ -771,6 +772,8 @@ pub fn split_turn(w: &World, seat: u8, lead: DemigodId, input: Input) -> Vec<Tur
 pub struct BeatOut {
     pub public: Value,
     pub per_seat: Vec<(Seat, Value)>,
+    /// Schema 14: the `duel_line` records of the duels this beat ended (the plugin hands them to the server's store).
+    pub lines: Vec<Value>,
 }
 
 struct Clock {
@@ -2332,7 +2335,7 @@ pub async fn resolve(
         "llm_fallbacks": llm_fallbacks,
     });
     crate::payload::tidy(&mut public);
-    BeatOut { public, per_seat }
+    BeatOut { public, per_seat, lines: duels.lines.clone() }
 }
 
 /// Society rows below this magnitude don't become group rumors (and at most one per row per beat).

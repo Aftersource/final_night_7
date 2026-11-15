@@ -257,6 +257,33 @@ pub fn wit(text: &str, me: &Fighter, foe: &Fighter, duel: &Duel, said: &[String]
     ((up.min(4) - down).clamp(-3, 4), tags)
 }
 
+/// Schema 14: put a pick's presentation on a blow's `move` (clips, path, object, body part) when its first clip serves
+/// the class the rules resolved; else only the body part. `how`: `pre` (known at the line's arrival) or `used` (came
+/// before the panel's input close); `move.picker` says which, or `class` when the clip did not fit.
+pub fn apply_pick(mv: &mut Value, p: &fn7_agents::duel_pick::Pick, class: &str, how: &str) {
+    mv["target"] = p.target_part.clone().into();
+    let fits = p.clips.first().is_some_and(|c| crate::picker::serves(c, class));
+    if !fits {
+        mv["picker"] = "class".into();
+        return;
+    }
+    mv["clip"] = p.clips[0].clone().into();
+    mv["setup"] = p.clips[1..].iter().filter(|c| *c != &p.clips[0]).cloned().collect::<Vec<_>>().into();
+    let path = p.path.as_deref().filter(|x| match *x {
+        "leap" | "dash" => true,
+        _ => p.object_id.is_some(),
+    });
+    mv["path"] = match path {
+        Some("leap") => "leap".into(),
+        Some(x @ ("vault" | "slide" | "wallkick")) => x.into(),
+        _ => mv["path"].clone(),
+    };
+    if let (Some(id), Some("vault" | "slide" | "wallkick")) = (&p.object_id, path) {
+        mv["object"] = id.clone().into();
+    }
+    mv["picker"] = how.into();
+}
+
 fn jaccard(a: &str, b: &str) -> f64 {
     let x: std::collections::BTreeSet<&str> = a.split(' ').collect();
     let y: std::collections::BTreeSet<&str> = b.split(' ').collect();
@@ -318,6 +345,24 @@ pub struct Fighter {
     /// Rules 0.9.0: the duel bonus of its gear (`wills::arms`), on top of "any item +1". 0 (absent) before.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub arms: i32,
+    /// Schema 14: what it holds that it could wield, best first ([`crate::weapons::held`]; it wields the first).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub weapons: Vec<crate::weapons::Wieldable>,
+    /// Schema 14: its player's sparks at the lock (a paid hammer-space draw costs `duel_draw_sparks`).
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub sparks: u32,
+}
+
+fn is_zero_u32(x: &u32) -> bool {
+    *x == 0
+}
+
+fn zero2(x: &[u32; 2]) -> bool {
+    *x == [0, 0]
+}
+
+fn no_wield(x: &[Option<crate::weapons::Wieldable>; 2]) -> bool {
+    x[0].is_none() && x[1].is_none()
 }
 
 fn is_zero_i32(x: &i32) -> bool {
@@ -358,6 +403,8 @@ fn fighter(w: &World, d: DemigodId, region: PlaceId, moved: &[Moved]) -> Fighter
             || story.is_some_and(|s| s.followers >= 100),
         bolts: x.bolts,
         arms: crate::wills::arms::duel_bonus(w, d),
+        weapons: if w.duel_weapon_rules() { crate::weapons::held(w, d) } else { vec![] },
+        sparks: if w.duel_weapon_rules() { x.sparks } else { 0 },
     }
 }
 
@@ -719,6 +766,26 @@ pub struct Bout {
     /// Schema 12 ([`crate::duel_ai`]): its AI fighters type a line in every input window: the scripts not yet entered.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ai: Option<crate::duel_ai::Plan>,
+    /// Schema 14 (docs/DUEL_MOVES.md §4-5): weapon classes, hammer-space draws, projectiles, seg trims and the
+    /// picker's recorded picks are on in this duel.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub weapons: bool,
+    /// Schema 14: every pick the duel was handed ([`crate::picker`]), in its order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub picks: Vec<crate::picker::PickRec>,
+    /// Schema 14: what each side wields now (its best held weapon at the lock; a draw changes it).
+    #[serde(default, skip_serializing_if = "no_wield")]
+    pub wield: [Option<crate::weapons::Wieldable>; 2],
+    /// Schema 14: hammer-space draws each side made, and the sparks they cost (paid at the resolve).
+    #[serde(default, skip_serializing_if = "zero2")]
+    pub draws: [u32; 2],
+    #[serde(default, skip_serializing_if = "zero2")]
+    pub sparks_spent: [u32; 2],
+    #[serde(default, skip_serializing_if = "zero2")]
+    pub sparks_paid: [u32; 2],
+    /// The pick known at the arrival of the line being struck (set by [`Bout::step`], taken by the strike).
+    #[serde(skip)]
+    pre_pick: Option<fn7_agents::duel_pick::Pick>,
 }
 
 impl Bout {
@@ -727,7 +794,8 @@ impl Bout {
         let flow = crate::choreo::Flow::new(&duel.level);
         Bout { duel, hp, n: 0, last_ms: [None; 2], last_seq: [None; 2], said: [vec![], vec![]], log: vec![], strikes: vec![],
                ko: None, typed: 0, lines: vec![], flow, invoked: [0; 2], applied: [0.0; 2], paid: [0; 2], opened: false, delivered_seq: 0,
-               blows: vec![], full: false, pauses: vec![], scene: None, panels: vec![], cycle: None, moves: false, ai: None }
+               blows: vec![], full: false, pauses: vec![], scene: None, panels: vec![], cycle: None, moves: false, ai: None,
+               weapons: false, picks: vec![], pre_pick: None, wield: [None, None], draws: [0; 2], sparks_spent: [0; 2], sparks_paid: [0; 2] }
     }
 
     /// [`Bout::new`] in `w`'s rules: a schema-8 state keeps the duel's whole timeline.
@@ -735,6 +803,10 @@ impl Bout {
         let mut b = Bout::new(duel);
         b.full = w.resume_rules();
         b.moves = w.ai_duel_rules();
+        b.weapons = w.duel_weapon_rules();
+        if b.weapons {
+            b.wield = [crate::weapons::best(&b.duel.f[0].weapons), crate::weapons::best(&b.duel.f[1].weapons)];
+        }
         crate::panel::open(&mut b, w);
         b
     }
@@ -809,12 +881,25 @@ impl Bout {
         let home = me.home as i32;
         // The formal model: the line's move class, gated by range, bolts and armies; the situation's modifier.
         use crate::choreo::{self, MoveClass};
+        // Schema 14: a line that pulls something out draws it first (a setup move: a held item freely, else
+        // hammer-space, whose fumble flips the initiative before the blow).
+        let draw = match (self.weapons && !auto).then(|| crate::weapons::draw_words(text)).flatten() {
+            Some((thing, wc)) => Some(self.draw(w, st, side, &thing, wc, &query)),
+            None => None,
+        };
+        let wc = crate::weapons::class_of_side(self, side).to_string();
         let flow = self.flow.clone();
         // Schema 12: the line's words pick the class (typos and short commands included) and the clip.
-        let read = if self.moves { crate::moves::read(text) } else { None };
+        let read = if self.weapons { crate::moves::read_at(text, fn7_model::dm::DUEL_WEAPONS_SCHEMA) } else if self.moves { crate::moves::read(text) } else { None };
         let (has_bolt, has_army) = (me.bolts > self.invoked[side], me.army);
+        // Schema 14: a pick known at the line's arrival chooses the class (the rules still gate it).
+        let pre = if self.weapons { self.pre_pick.take() } else { None };
+        let picked_class: Option<MoveClass> = pre.as_ref().and_then(|p| serde_json::from_value(json!(p.move_class)).ok());
         let class = if self.moves {
-            crate::moves::effective(read.as_ref().map(|r| r.class).unwrap_or_else(|| choreo::classify(text)), flow.range, has_bolt, has_army)
+            let asked = picked_class.or(read.as_ref().map(|r| r.class)).unwrap_or_else(|| choreo::classify(text));
+            let c = crate::moves::effective(asked, flow.range, has_bolt, has_army);
+            // Schema 14: a ranged weapon shoots from far instead of stepping in.
+            if self.weapons { crate::weapons::effective(c, asked, flow.range, &wc) } else { c }
         } else {
             choreo::effective(choreo::classify(text), flow.range, has_bolt, has_army)
         };
@@ -824,7 +909,11 @@ impl Bout {
         let roll = dm::roll_d20(w, &query, modifier, dc);
         let ok = roll.verdict.ok();
         let margin = roll.total - dc;
-        let x = choreo::exchange(&flow, side, class, ok, margin, roll.verdict == DiceVerdict::CritSuccess);
+        let mut x = choreo::exchange(&flow, side, class, ok, margin, roll.verdict == DiceVerdict::CritSuccess);
+        // Schema 14: a shot that lands keeps its distance (only a hand-to-hand blow closes in).
+        if self.weapons && crate::weapons::RANGED.contains(&wc.as_str()) && matches!(class, MoveClass::Strike | MoveClass::Heavy) {
+            x.after.range = flow.range;
+        }
         if class == MoveClass::Invoke {
             self.invoked[side] += 1;
         }
@@ -833,7 +922,9 @@ impl Bout {
             DiceVerdict::Success => 1.0 + (margin >= 5) as i32 as f32 + (wit >= 3) as i32 as f32,
             _ => 0.0,
         };
-        let raw = if base > 0.0 && x.mult > 0.0 { (base * x.mult + x.bonus).clamp(0.0, 4.0) } else { 0.0 };
+        // Schema 14: ranged weapons hit harder from far and mid, half as hard in a grapple; a two-handed heavy harder.
+        let (wm, wb) = if self.weapons { crate::weapons::damage(&wc, class, flow.range) } else { (1.0, 0.0) };
+        let raw = if base > 0.0 && x.mult > 0.0 { (base * x.mult * wm + x.bonus + wb).clamp(0.0, 4.0) } else { 0.0 };
         let damage = round1(raw * st.duel_damage_scale);
         self.hurt(1 - side, damage);
         self.flow = x.after.clone();
@@ -858,11 +949,73 @@ impl Bout {
         if self.moves {
             let last = self.last_clip(side);
             let mut r = Rng::derive(self.duel.seed, &[PHRASE_SALT, hash_str(&self.duel.id), hash_str(text), self.n as u64, self.said[side].len() as u64, side as u64, 7]);
-            let clip = crate::moves::clip(read.as_ref(), class, last.as_deref(), &mut r);
+            // Schema 14: an armed fighter's generic attack (or a line with no move word) plays its weapon's clips.
+            let weapon_set = (self.weapons && wc != "unarmed" && read.as_ref().is_none_or(|x| x.weapon || x.class != class))
+                .then(|| crate::moves::current().weapon_clips(&wc, class)).flatten();
+            let clip = match weapon_set {
+                Some(set) => crate::moves::clip_from(set, last.as_deref(), &mut r),
+                None => crate::moves::clip(read.as_ref(), class, last.as_deref(), &mut r),
+            };
             ev["move"] = json!({ "clip": clip, "word": read.as_ref().map(|x| x.word), "setup": read.as_ref().map(|x| x.setup.clone()).unwrap_or_default(),
                                  "path": read.as_ref().filter(|x| x.leap && x.class == class).map(|_| "leap") });
+            if self.weapons {
+                ev["move"]["weapon_class"] = wc.clone().into();
+                if let Some(x) = &self.wield[side] {
+                    ev["move"]["prop"] = x.prop();
+                }
+                if let Some(d) = &draw {
+                    if d.verdict != "spent" {
+                        let mut setup = vec![json!(crate::moves::current().body["draw_clip"].as_str().unwrap_or("draw_from_nowhere"))];
+                        setup.extend(ev["move"]["setup"].as_array().cloned().unwrap_or_default());
+                        setup.truncate(3);
+                        ev["move"]["setup"] = setup.into();
+                    }
+                    ev["move"]["draw"] = serde_json::to_value(d).unwrap_or(Value::Null);
+                }
+            }
+            // Schema 14: the pick's presentation, when its clip serves the class the rules made of it.
+            if let Some(p) = &pre {
+                let cls = serde_json::to_value(class).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
+                apply_pick(&mut ev["move"], p, &cls, "pre");
+            }
         }
         ev
+    }
+
+    /// Schema 14: `side` pulls `thing` out ([`crate::weapons`]): a held item it names is drawn for free; anything
+    /// else comes from hammer-space (at most `duel_draws` a duel), judged by the item engine's odds and a seeded d20.
+    fn draw(&mut self, w: &World, st: &Settings, side: usize, thing: &str, wc: &str, query: &str) -> crate::weapons::Draw {
+        use crate::weapons::{Draw, Wieldable};
+        let me = self.duel.f[side].clone();
+        if let Some(h) = crate::weapons::held_match(&me.weapons, thing, wc) {
+            let d = Draw { thing: thing.into(), weapon_class: h.weapon_class.clone(), held: true, roll: None, need: None, p: None, sparks: 0,
+                           tier: h.tier.clone(), verdict: "drawn".into() };
+            self.wield[side] = Some(h.clone());
+            return d;
+        }
+        if self.draws[side] >= st.duel_draws {
+            return Draw { thing: thing.into(), weapon_class: wc.into(), held: false, roll: None, need: None, p: None, sparks: 0,
+                          tier: "trinket".into(), verdict: "spent".into() };
+        }
+        let recent = self.draws[side];
+        self.draws[side] += 1;
+        let cost = st.duel_draw_sparks;
+        let paid = cost > 0 && me.sparks >= self.sparks_spent[side] + cost;
+        if paid {
+            self.sparks_spent[side] += cost;
+        }
+        let (p, need, tier) = crate::weapons::draw_target(w, me.id, paid, recent);
+        let roll = crate::weapons::draw_roll(self.duel.seed, &format!("{query}:draw"));
+        let ok = roll == 20 || (roll != 1 && roll >= need);
+        if ok {
+            self.wield[side] = Some(Wieldable { item: None, name: thing.into(), kind: "weapon".into(), weapon_class: wc.into(),
+                                                material: crate::wills::arms::material_of(self.duel.seed, thing).0.into(), tier: tier.as_str().into(), hammer: true });
+        } else {
+            // The fumble: the initiative flips to the foe before the blow.
+            self.flow.initiative = 1 - side;
+        }
+        Draw { thing: thing.into(), weapon_class: wc.into(), held: false, roll: Some(roll), need: Some(need), p: Some((p * 1000.0).round() / 1000.0),
+               sparks: if paid { cost } else { 0 }, tier: tier.as_str().into(), verdict: if ok { "success" } else { "fumble" }.into() }
     }
 
     /// A typed line from `side` at `at_ms` (the core's receive stamp; 0 = unknown, then the arrival order `seq`
@@ -894,6 +1047,12 @@ impl Bout {
             });
         self.last_ms[side] = Some(at_ms);
         self.last_seq[side] = Some(seq);
+        // Schema 14: a pick journaled at this line's arrival (the cache) chooses its class and presentation.
+        self.pre_pick = if self.weapons {
+            self.picks.iter().rev().find(|p| p.pre && p.line_seq == seq && p.line_at_ms == at_ms).and_then(|p| p.pick.clone())
+        } else {
+            None
+        };
         let query = format!("{}:{n}", self.duel.id);
         let mut ev = if spam {
             // The rate limit (2 a second by default): no die, the words trip their author.
@@ -909,6 +1068,7 @@ impl Bout {
             self.lines.push(text.to_string());
             self.strike(w, st, side, text, query.clone(), followup, false)
         };
+        self.pre_pick = None;
         if self.ko.is_none() && foe_idle {
             let q = format!("{query}:counter");
             let line = ai_line(&self.duel, foe, &q);
@@ -1408,7 +1568,7 @@ pub fn on_instant_now(j: &crate::present::Journal, w: &World, seat: u8, a: &Acti
         find(&mut lv.bouts, w, seat, b).ok()?;
     }
     let act = Act { seat, seq: a.seq, at_ms: a.received_at_ms, challenge: i.challenge.clone(), blow: i.blow.clone(), summons: vec![],
-                    tick: i.tick.clone() };
+                    tick: i.tick.clone(), pick: None };
     // Rules 0.8.2: the panels this action makes due go out with its event (`also[]`).
     let target = i.blow.as_ref().map(|b| b.duel_id.clone()).or(i.tick.clone());
     let had = target.as_ref().and_then(|id| lv.bouts.iter().find(|b| b.duel.id == *id)).map(|b| (b.panels.len(), b.blows.len()));
@@ -1472,6 +1632,8 @@ pub struct Act {
     pub summons: Vec<crate::actions::SummonOrder>,
     /// Rules 0.8.2: a panel tick for this duel.
     pub tick: Option<String>,
+    /// Schema 14: a pick for a line of this duel (a journal entry or a replay's `duel_picks`; never a client's).
+    pub pick: Option<crate::picker::PickRec>,
 }
 
 /// This resolve's challenge and duel input: the acts in arrival order, plus the batch's newest receive stamp (the
@@ -1488,20 +1650,38 @@ pub struct Acts {
 /// An instant action as an [`Act`], when it is a challenge, a duel line or a summoning.
 pub fn act_of(seat: u8, text: &str, fields: &Value, seq: u64, at_ms: i64) -> Option<Act> {
     let i = crate::actions::parse(text, fields).ok()?;
-    (i.is_duel() || !i.summons.is_empty()).then_some(Act { seat, seq, at_ms, challenge: i.challenge, blow: i.blow, summons: i.summons, tick: i.tick })
+    (i.is_duel() || !i.summons.is_empty()).then_some(Act { seat, seq, at_ms, challenge: i.challenge, blow: i.blow, summons: i.summons, tick: i.tick,
+                                                           pick: i.pick })
 }
 
 /// This resolve's challenge and duel actions (instant, from real seats), in arrival order: by `seq`; in a schema-8
 /// state (`by_stamp`) by receive stamp, then `seq` (the same order within one server run, and still the arrival order
 /// when acts recovered from before a restart, whose `seq` counted from another origin, are in the batch).
+impl Acts {
+    /// Schema 14: the picks this resolve is handed ([`crate::picker`]), each placed by its stamp among the acts; a
+    /// pick known at its line's arrival (`pre`, the line's own stamp) just before that line. The batch's clock and
+    /// marks stay the core's.
+    pub fn add_picks(&mut self, picks: &[crate::picker::PickRec]) {
+        if picks.is_empty() {
+            return;
+        }
+        for p in picks {
+            self.acts.push(Act { seat: 0, seq: p.line_seq, at_ms: p.at_ms, challenge: None, blow: None, summons: vec![], tick: None, pick: Some(p.clone()) });
+        }
+        self.acts.sort_by_key(|a| (a.at_ms, a.seq, a.pick.is_none()));
+    }
+}
+
 pub fn acts_of(actions: &[Action], by_stamp: bool) -> Acts {
     let mut out: Vec<Act> = actions
         .iter()
         .filter(|a| a.instant && !a.defaulted && a.seat < crate::SYNTHETIC_SEAT)
         .filter_map(|a| {
             let i = crate::actions::parse(&a.text, &a.fields).ok()?;
-            (i.is_duel() || !i.summons.is_empty()).then_some(Act {
+            // A pick never comes from the core (validate_action refuses it): only the journal hands picks over.
+            (i.pick.is_none() && (i.is_duel() || !i.summons.is_empty())).then_some(Act {
                 seat: a.seat, seq: a.seq, at_ms: a.received_at_ms, challenge: i.challenge, blow: i.blow, summons: i.summons, tick: i.tick,
+                pick: None,
             })
         })
         .collect();
@@ -1542,6 +1722,8 @@ pub struct Resolved {
     pub pinned: Vec<DemigodId>,
     /// Built-in AI demigods that leapt to their duel this beat.
     pub leapt: Vec<DemigodId>,
+    /// Schema 14: the `duel_line` records of the duels that ended (for the server's store).
+    pub lines: Vec<Value>,
 }
 
 /// Fight this beat's duels from the committed state (the open ones, the AI's challenges, then the actions in arrival
@@ -1612,8 +1794,16 @@ pub fn process(w: &mut World, beat: u32, input: &Acts, pantheon: &Pantheon, st: 
             crate::panel::finish(&mut bout, w, st, false);
         }
         let from = had(&bout.duel.id);
-        // Schema 12: one `duel_line` record per typed line, in the recording (docs/DUEL_MOVES.md).
-        trace_lines(w, beat, &bout);
+        // Schema 12: one `duel_line` record per typed line, in the recording (docs/DUEL_MOVES.md). Schema 14: all of a
+        // duel's lines once it has ended (its panels are all out, so each row says what was staged and whether the
+        // pick was used), also handed to the server's store (`Resolved::lines`).
+        if bout.weapons {
+            if reason.is_some() {
+                out.lines.extend(trace_lines_all(w, beat, &bout));
+            }
+        } else {
+            trace_lines(w, beat, &bout);
+        }
         out.pinned.extend(bout.duel.f.iter().map(|f| f.id));
         if let Some(m) = bout.duel.leap.filter(|_| !bout.opened) {
             out.leapt.push(m.demigod);
@@ -1664,6 +1854,71 @@ fn trace_lines(w: &World, beat: u32, bout: &Bout) {
     }
 }
 
+/// Schema 14: every typed line of an ended duel as a `duel_line` record (the schema-12 record plus the picker's part and
+/// what was staged), traced and returned.
+fn trace_lines_all(w: &World, beat: u32, bout: &Bout) -> Vec<Value> {
+    let version = crate::moves::list_version();
+    let mut out = vec![];
+    for ev in &bout.blows {
+        let (Some(text), false) = (ev["text"].as_str(), ev["auto"] == true) else { continue };
+        let side = if ev["by"] == json!(Ref::Demigod(bout.duel.f[0].id)) { 0 } else { 1 };
+        let f = &bout.duel.f[side];
+        let read = crate::moves::read_at(text, fn7_model::dm::DUEL_WEAPONS_SCHEMA);
+        let (seq, at) = (ev["seq"].as_u64(), ev["at_ms"].as_i64());
+        let pick = bout.picks.iter().filter(|p| Some(p.line_seq) == seq && Some(p.line_at_ms) == at && ev["ai"] != true).min_by_key(|p| !p.pre);
+        let staged_at = bout.panels.iter().find(|p| p["blows"].as_array().is_some_and(|a| a.contains(&ev["n"])));
+        let used = ev["move"]["picker"].as_str();
+        let picker = pick.map(|p| json!({
+            "pick": p.pick, "pre": p.pre, "cached": p.cached, "latency_ms": p.latency_ms, "tokens_in": p.tokens_in, "tokens_out": p.tokens_out,
+            "cost_usd": p.cost_usd, "model": p.model, "error": p.error, "at_ms": p.at_ms,
+            "used": matches!(used, Some("pre" | "used")),
+            "why": match used {
+                Some("pre") => "known at arrival (cache)",
+                Some("used") => "came before the panel's input close",
+                Some("class") => "its clip does not serve the class the rules made of the line",
+                _ if p.pick.is_none() => "no pick (timeout or error)",
+                _ => "came after the panel's input close",
+            },
+        }));
+        let row = json!({
+            "beat": beat, "duel_id": bout.duel.id, "n": ev["n"], "at_ms": ev["at_ms"], "seq": ev["seq"], "by": if side == 0 { "a" } else { "b" },
+            "demigod": Ref::Demigod(f.id), "seat": (f.seat < crate::SYNTHETIC_SEAT).then_some(f.seat), "ai": ev["ai"] == true,
+            "player": w.demigods[f.id.ix()].player_name(), "account": w.seats.iter().find(|s| s.seat == f.seat).and_then(|s| s.account.clone()),
+            "line": text, "normalized": crate::moves::normalize(text), "list_version": version,
+            "mapper": read.as_ref().map(|r| json!({ "word": r.word, "class": r.class, "clips": r.clips, "setup": r.setup, "leap": r.leap })),
+            "picker": picker,
+            "class": ev["choreo"][if side == 0 { "a" } else { "b" }]["move_class"], "result": ev["choreo"]["result"], "verdict": ev["verdict"],
+            "damage": ev["damage"], "range": ev["choreo"]["range_before"],
+            "staged": { "clip": ev["move"]["clip"], "setup": ev["move"]["setup"], "path": ev["move"]["path"], "object": ev["move"]["object"],
+                        "weapon_class": ev["move"]["weapon_class"], "draw": ev["move"]["draw"], "panel": staged_at.map(|p| p["n"].clone()) },
+        });
+        crate::world::event("duel_line", Some(Ref::Demigod(f.id).to_string()), row.clone());
+        out.push(row);
+    }
+    out
+}
+
+/// Schema 14: what the picker sees of a line typed by `side` in `b` (the situation, the typist's weapon, the scene).
+pub fn pick_ctx(b: &Bout, side: usize, text: &str) -> fn7_agents::duel_pick::PickCtx {
+    fn name<T: Serialize>(v: &T) -> String {
+        serde_json::to_value(v).ok().and_then(|x| x.as_str().map(str::to_string)).unwrap_or_default()
+    }
+    let objects = b.scene.as_ref().and_then(|s| s["objects"].as_array().cloned()).unwrap_or_default().iter().map(|o| (
+        o["id"].as_str().unwrap_or("").to_string(), o["kind"].as_str().unwrap_or("").to_string(),
+        o["affords"].as_array().into_iter().flatten().filter_map(|x| x.as_str().map(str::to_string)).collect())).collect();
+    fn7_agents::duel_pick::PickCtx {
+        line: text.to_string(),
+        range: name(&b.flow.range),
+        initiative: b.flow.initiative == side,
+        my_stance: name(&b.flow.stance[side]),
+        foe_stance: name(&b.flow.stance[1 - side]),
+        foe_set: b.flow.set[1 - side].map(|c| name(&c)),
+        weapon_class: crate::weapons::class_of_side(b, side).to_string(),
+        held: b.duel.f[side].weapons.iter().map(|x| x.name.clone()).collect(),
+        objects,
+    }
+}
+
 /// One delivered act on the bouts under way (the resolve's loop, and the live view's replay of the acts not yet
 /// delivered): a summoning moves a later challenge's ground, a challenge that passes [`check_challenge`] locks a new
 /// bout, a duel line is a blow. Returns the public event it makes (`challenge.lock` or `duel.blow`).
@@ -1689,6 +1944,16 @@ pub fn apply_act(w: &World, st: &Settings, beat: u32, bouts: &mut Vec<Bout>, mov
             Err(why) if trace => crate::world::event("challenge_refused", Some(Ref::Demigod(c.demigod).to_string()),
                                                      json!({ "beat": beat, "seq": act.seq, "reason": why })),
             Err(_) => {}
+        }
+    }
+    // Schema 14: a pick joins its duel at its stamp (the windows its stamp passed close first); a line's blow or a
+    // panel uses it from there ([`crate::picker`]).
+    if let Some(p) = &act.pick {
+        if let Some(bout) = bouts.iter_mut().find(|x| x.duel.id == p.duel_id && x.weapons) {
+            crate::panel::advance(bout, w, st, act.at_ms, false);
+            if !bout.picks.iter().any(|x| x.line_seq == p.line_seq && x.line_at_ms == p.line_at_ms && x.pre == p.pre) {
+                bout.picks.push(p.clone());
+            }
         }
     }
     // Rules 0.8.2: a duellist's tick moves its duel's panel cycle on (and nothing else).
@@ -1781,6 +2046,16 @@ fn apply_segment(w: &mut World, beat: u32, bout: &mut Bout, pantheon: &Pantheon,
             let left = w.demigods[id.ix()].bolts.saturating_sub(due);
             w.set_bolts(id, left);
             bout.paid[i] = bout.invoked[i];
+        }
+    }
+    // Schema 14: paid hammer-space draws cost sparks from the purse.
+    for i in 0..2 {
+        let due = bout.sparks_spent[i].saturating_sub(bout.sparks_paid[i]);
+        if due > 0 {
+            let id = d.f[i].id;
+            let left = w.demigods[id.ix()].sparks.saturating_sub(due);
+            w.set_sparks(id, left);
+            bout.sparks_paid[i] = bout.sparks_spent[i];
         }
     }
     let taken = bout.taken();
