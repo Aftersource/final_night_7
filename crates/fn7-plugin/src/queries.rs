@@ -148,6 +148,9 @@ pub fn specs() -> Vec<QuerySpec> {
              "People and houses: every settlement house hex in the board disc (22 rings at `level`) around `cell`: its building kind (hut, cottage, longhouse, manor, temple, market_stall, dock, tower), look (poor, common, rich) and library picture (`sprite`). Read-only, deterministic, cheap.",
              obj(json!({ "cell": { "type": "string", "description": "A hex cell key (\"<face>:<level>:<q>:<r>\"): the board's centre." },
                          "level": { "type": "string", "enum": ["regions", "villages", "houses", "people"], "description": "The board's level (default: the cell key's)." } }), &["cell"])),
+        spec("sprites", true,
+             "People and houses: the whole picture library, location-free: every person sprite (16 roles x 3 looks) and building picture (8 kinds x 3 looks) with its `sprite` {key, kind, status, url, hash}, so a client can dress its own people and houses. Read-only.",
+             obj(json!({ "kind": { "type": "string", "enum": ["people", "buildings", "all"], "description": "Which part of the library (default all)." } }), &[])),
         spec("piles_final", true,
              "Every demigod's end-of-match pile (items, summons, stats, statue prompt). An error until the match is over.",
              obj(json!({}), &[])),
@@ -182,6 +185,7 @@ pub fn query(pantheon: &Pantheon, state: &Value, seat: Option<Seat>, name: &str,
         "memory_tree" => crate::memtree::query(state, seat, args.0),
         "people" => crate::people::query_people(state, args.0),
         "buildings" => crate::people::query_buildings(state, args.0),
+        "sprites" => crate::people::query_sprites(args.0),
         other => Err(format!("unknown query {other}")),
     }?;
     payload::tidy(&mut v);

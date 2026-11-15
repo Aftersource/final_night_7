@@ -225,6 +225,25 @@ pub fn subject(key: &str) -> Option<(&'static str, String)> {
 
 /// The sprite object the plugin writes: `{key, kind, status: "off", url: null, hash: null}`. The server's media
 /// layer fills `hash`, `status` and `url` (docs/MEDIA.md "Sprites and buildings"); the bare plugin leaves it off.
+pub fn query_sprites(args: &Value) -> Result<Value, String> {
+    let kind = args.get("kind").and_then(Value::as_str).unwrap_or("all");
+    if !["people", "buildings", "all"].contains(&kind) {
+        return Err(format!("kind must be people, buildings or all, not {kind}"));
+    }
+    let items: Vec<Value> = library_keys()
+        .into_iter()
+        .filter(|k| match kind { "people" => k.starts_with("sprite/"), "buildings" => k.starts_with("building/"), _ => true })
+        .map(|k| {
+            let mut it = k.split('/');
+            let (lib, id, look) = (it.next().unwrap_or(""), it.next().unwrap_or(""), it.next().unwrap_or(""));
+            let mut v = json!({ "key": k, "look": look, "sprite": sprite_stub(&k) });
+            v[if lib == "sprite" { "role" } else { "building" }] = json!(id);
+            v
+        })
+        .collect();
+    Ok(json!({ "kind": kind, "total": items.len(), "items": items }))
+}
+
 pub fn sprite_stub(key: &str) -> Value {
     let kind = key.split('/').next().unwrap_or("sprite");
     json!({ "key": key, "kind": kind, "status": "off", "url": null, "hash": null })
@@ -914,7 +933,7 @@ pub fn query_people(state: &Value, args: &Value) -> Result<Value, String> {
     let in_reach: Vec<&Place> = if c.level == HexLevel::Regions {
         vec![]
     } else {
-        w.places.iter().filter(|p| p.kind == PlaceKind::Site && distance_km(p.center, centre_at) <= reach_km).collect()
+        w.places.iter().filter(|p| p.kind == PlaceKind::Site && distance_km(p.center, centre_at) <= reach_km + p.radius_km.max(0.0)).collect()
     };
     let cx = Ctx::new(&w, state);
     // Each settlement's crowds, in one pass over the crowds.

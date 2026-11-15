@@ -476,6 +476,16 @@ pub(super) fn replies() -> Vec<(&'static str, &'static str, Value)> {
               ], &[]), "Nearest first."))],
             &[],
         )),
+        ("query_sprites", "sprites", object(
+            "`game.sprites`: the whole people-and-houses picture library, location-free (48 person sprites + 24 building pictures).",
+            &[("kind", e(&["people", "buildings", "all"], "")), ("total", int("")),
+              ("items", array(object("One library picture.", &[
+                  ("key", string("The library key.")), ("look", string("1..3 for people; poor/common/rich for buildings.")),
+                  ("role", string("A person sprite's role (people only).")), ("building", string("A building's kind (buildings only).")),
+                  ("sprite", r("LibrarySprite")),
+              ], &[]), ""))],
+            &[],
+        )),
         ("query_army", "army", army()),
         ("query_events", "events", json!({
             "type": "object",
