@@ -1503,3 +1503,42 @@ changes; nothing spent: mock images, a scripted gateway, a fake Meshy client):
 > The designer is going to sleep. Run the editor-side work overnight, but shut it down when it is not actively in use.
 
 Engineering: god form live (server main 228c4ea) with Meshy statues ON (1 per account; 259 credits); Benito asked for another key. The Mac keeps her editor shut unless a task needs it.
+
+## 2026-11-15: the tree of consequence (verbatim)
+
+> For a reviewer asking what the data structure is, add a tree of consequence overlay button near the upper-left debug text that opens a rendered, exact tree of how the memory hierarchy works, covering recall of granular facts and density of detail.
+
+(Chris. The client (Unreal) draws the overlay; the server gives it exact, real data.)
+
+Engineering (branch backend/memory-tree; state schema 20 unchanged: a read-only public query, no state change, no LLM,
+nothing spent):
+- **`game.memory_tree {focus?, beat?, depth?, per_node?}`** (`fn7-plugin/src/memtree.rs`; also
+  `GET /api/rooms/{code}/query/memory_tree`; docs/CLIENT_API.md "Tree of consequence", DATA_MODEL.md): the DM's place ×
+  time memory as the exact tree it is, from the world down to a focus (a hex, a place, a demigod, a person; default the
+  busiest region now): world → region → settlement or open country → villages hex → houses hex → people hex, and beside
+  the hexes a planet city's society branch, district → crowd → cell → person (the minds' memories). Every node counts
+  the entries at it or rolled up into it (`facts_total`, `facts_here`, `private_facts`), their density (per beat, per
+  million km², log10 per km² from about -5.5 for the planet to +6 for a 3 m hex), first and last beat, kinds and families,
+  the newest samples, which children rolled up into it, and its latest `memory.rollup` with the exact entry ids it cites
+  (rebuilt by walking back through its beat; `exact` says all were found).
+- **Recall paths** (3-5 near the focus): a d20 (its key, the seeded die reproducing the stored face, the entry, the
+  roll-ups citing it, the prompts: the real `dm::prompt_lines` of its region, the coarse zoom's roll-up, the earth line),
+  an encounter's chain, an earth event, a settled fact the DM's prompt carries now, and a person's memory (the public row,
+  the memory, its recall rank and rendered line).
+- **Totals**: entries by scope and kind, the minds' store, ledger rows, persons, cells, observed hexes, and the state's
+  bytes by table (a sampled walk, no serialization: 6.9 MB at beat 50 estimated within 7%).
+- **Hidden information**: private DM entries and memories are counted, never shown; a seat also sees its own private
+  entries (`data.seats`) and the memories `game.person` lets it see. No health anywhere.
+- **Bounded**: the newest 2,000 DM entries and 2,000 minds' memories (heads only, borrowed from the unparsed state), ledger
+  rows by index, no `cells` table load; ~2.3 ms median at beat 50 in release (1,631 DM entries, 11,316 memories), held
+  under 5 ms (median under 3.5 ms) by a new `query_timing` case.
+- **Past beats**: the DM memory is append-only and beat-stamped, so `beat` is exact for the memory (and its prompt lines);
+  the society structure is the live one and the earth line is omitted (`as_of` says which). A whole past state is the
+  admin state at a round.
+- Tests (`fn7-plugin/src/memtree_tests.rs`): every node's count re-derived from the whole memory (regions, settlements,
+  open country, each hex level), here + rolled-up children = total, every roll-up's cited ids match its counts by kind;
+  the d20 path matches the decided entry, `roll_d20` asked again with another modifier gives the same face, the prompt
+  lines equal `dm::prompt_lines` on the full state; planted private DM entries and a private memory are never shown to
+  the public or another seat, counted exactly, shown to their own seat; determinism (twice, and on a reloaded state);
+  a memory past the scan cap reads exactly 2,000 entries and says so; a past beat equals a state whose memory ends there;
+  bad args refused. `fn7-tools` strict validation of real replies against the regenerated `query_memory_tree` schema.
