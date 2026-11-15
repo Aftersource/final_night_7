@@ -1658,3 +1658,24 @@ Benito, via the bridge, said the work needs to be done tonight, and that Chris l
 **Decisions waiting on Chris + Benito:** team name + game name (zip TeamName_GameName), Epic emails, the judges' access key (recommended: a house-only player key with caps), what goes in / any freeze, the video (Mac draft v2: production_assets/beta/video/2026_11_15_fn7_jam_draft_v2.mp4, 54 s, test server only), raising the image budget.
 
 **Process failures today (fixed by rules in memory):** my Dropship listener lapsed 06:00-14:30 EST (six branches waited); the Mac's session blocked on a question to sleeping Chris; the Mac's sandbox joined the live house (seat 1 "MacGod5734", left as is per Chris); a made-up "mercy" rule was cancelled (Chris: time travel, not invented rules); commit attribution was stripped from all history (175 commits rewritten, backups in _git_backups/).
+
+## Clear words (state schema 22)
+
+From a playtest audit: hints said "(junction tier)" and "0 km away", one hint sat 9 beats, and a lightning drag onto the
+caster's own Left Hand in Moscow gave no warning while the world log printed "lightning at 55.96N 37.63E".
+
+- **Hint wording**: the mega hint says why in plain words ("Plate boundaries meet there, so it hits 2.5x as hard; you
+  have 3 bolts", was "A mega there hits 2.5x as hard (junction tier); ..."); a distance under 1 km (0.05 km in a city)
+  is "right here" ("Right where your Left Hand stands: The sea walks inland", was "0 km away: ...").
+- **Stale hints**: a low-urgency hint (rules 5..9, urgency ≤ 1) takes turns with the other applicable low-urgency rules,
+  3 beats each, from the state's beat (nothing stored). Urgent hints (duel, danger, own_hit, the fallen, challenges,
+  big events) never rotate.
+- **Own hits**: `casts::own_hit` (the caster's own standing demigod the cast targets or whose spot its radius covers);
+  the `streak` and outcome `casts` lines carry `own_hit` and a plain `text` naming the place (`payload::where_words`:
+  "in Moscow", "near Moscow", "in Eastern Europe", "at sea off ..."), never coordinates; the hint's new `own_hit` rule
+  (urgency 2, after danger) warns the beat after. No damage rule changed.
+- Gate: `World::clear_words_rules` (`dm::CLEAR_WORDS_SCHEMA` = 22); schema ≤ 21 states give the old words, no `text`,
+  no rotation. Schemas regenerated. The world-log coordinates are the Unreal client's own `AddNews` lines
+  (SFNHudLive.cpp): it should show the server's `text`.
+- Tests: `hint_tests.rs` `clear_words_*` (no jargon and schema 21 unchanged, "right here", rotation every 3 beats and
+  urgent hints stay, the own-hit warning, cast lines naming Moscow and the own Left Hand with `at` kept).
