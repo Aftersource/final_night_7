@@ -295,7 +295,7 @@
       "type": "array"
     },
     "layers": {
-      "description": "CLIENT_LAYERS: layer names by bit.",
+      "description": "CLIENT_LAYERS: layer names by bit (absent in a board or tiles answer).",
       "items": {
         "type": "string"
       },

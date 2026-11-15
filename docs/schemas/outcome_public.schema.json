@@ -3257,11 +3257,16 @@
           "type": "string"
         },
         "phenomena": {
-          "description": "",
+          "description": "The 20 biggest (power × reach), each with its stable id.",
           "items": {
             "$ref": "#/$defs/EarthPhenomenon"
           },
           "type": "array"
+        },
+        "phenomena_total": {
+          "description": "Live phenomena in all.",
+          "minimum": 0,
+          "type": "integer"
         },
         "strikes": {
           "description": "Lightning strikes this beat (cell keys).",
@@ -3283,6 +3288,7 @@
         "substeps",
         "delta",
         "phenomena",
+        "phenomena_total",
         "ended",
         "strikes",
         "did"

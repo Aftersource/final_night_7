@@ -606,7 +606,7 @@ fn deltas_rebuild_the_field_and_fit_the_budget() {
                 assert!(near(mine, theirs), "beat {b} cell {i} {name}: the client has {mine}, the server {theirs}");
             }
         }
-        assert!(v["phenomena"].as_array().unwrap().len() == sim.phen.len());
+        assert_eq!((v["phenomena"].as_array().unwrap().len(), v["phenomena_total"].as_u64().unwrap() as usize), (sim.phen.len().min(view::PHENOMENA_SENT), sim.phen.len()));
         // The three encodings say the same.
         if b == 30 {
             let cells = view::changed(&eb.before_sim(), sim);

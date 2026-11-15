@@ -3788,6 +3788,11 @@
           },
           "type": "array"
         },
+        "phenomena_total": {
+          "description": "Live phenomena (`phenomena` has the 20 biggest).",
+          "minimum": 0,
+          "type": "integer"
+        },
         "tops": {
           "additionalProperties": {
             "type": "integer"
@@ -3804,7 +3809,8 @@
         "phenomena",
         "keyframes",
         "first_beat",
-        "grid"
+        "grid",
+        "phenomena_total"
       ],
       "type": "object"
     },

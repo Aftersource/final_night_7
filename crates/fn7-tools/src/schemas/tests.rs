@@ -231,6 +231,15 @@ fn query_replies_validate() {
     if let Some(m) = w.mobs.first() {
         cases.push(("node", None, json!({ "ref": s(Ref::Mob(m.id)) }), &state));
     }
+    // State schema 13: the Earth simulator's views (the field, a board at two levels, the globe's tiles, a past beat).
+    let key = fn7_model::hexgrid::cell_at(w.places[region.ix()].center, fn7_model::hexgrid::HexLevel::Regions).key();
+    let since = w.meta.beat.saturating_sub(3);
+    for a in [json!({}), json!({ "cell": key }), json!({ "cell": key, "level": "villages", "rings": 4, "coarse": true }), json!({ "cell": key, "since": since }),
+              json!({ "tiles": 4 }), json!({ "tiles": 4, "since": since }), json!({ "cell": key, "level": "houses", "rings": 2, "hexes": true }),
+              json!({ "base": true, "grid": true, "bbox": "0,0,20,20" })] {
+        cases.push(("earth", None, a, &state));
+    }
+    cases.push(("earth_at", None, json!({ "beat": since }), &state));
     let specs = p.queries();
     for (name, seat, args, st) in cases {
         let schema = schema(&format!("query_{name}"));

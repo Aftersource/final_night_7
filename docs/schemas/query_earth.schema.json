@@ -262,6 +262,66 @@
       "minimum": 0,
       "type": "integer"
     },
+    "board": {
+      "description": "State schema 13: the client's board: 9 bytes per hex (`fields`) in ring order (ring 0, then each ring as the shared hex formula walks it), base64.",
+      "properties": {
+        "center": {
+          "description": "The centre hex key.",
+          "type": "string"
+        },
+        "changed": {
+          "description": "With `since`: the ring positions (u16 LE) whose records are in `data`.",
+          "type": "string"
+        },
+        "coarse": {
+          "description": "With `coarse`: the regions cell index under each hex (u16 LE).",
+          "type": "string"
+        },
+        "data": {
+          "description": "",
+          "type": "string"
+        },
+        "enc": {
+          "const": "b64"
+        },
+        "fields": {
+          "description": "h16 (height in 256ths, 128 = sea level), top, water, lava, ash, fire, snow, heat (signed), crack.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "level": {
+          "description": "",
+          "type": "string"
+        },
+        "n": {
+          "description": "Records in `data`.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rings": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "since": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "level",
+        "center",
+        "rings",
+        "n",
+        "fields",
+        "enc",
+        "data"
+      ],
+      "type": "object"
+    },
     "center_cell": {
       "description": "",
       "type": "string"
@@ -551,7 +611,7 @@
       "type": "array"
     },
     "layers": {
-      "description": "CLIENT_LAYERS: layer names by bit.",
+      "description": "CLIENT_LAYERS: layer names by bit (absent in a board or tiles answer).",
       "items": {
         "type": "string"
       },
@@ -593,6 +653,81 @@
       "minimum": 0,
       "type": "integer"
     },
+    "tiles": {
+      "description": "State schema 13: the globe in tiles: rows of latitude from the north down, west to east in each; 9 bytes per tile (`fields`), base64.",
+      "properties": {
+        "changed": {
+          "description": "With `since`: the tile indices (u16 LE) whose records are in `data`.",
+          "type": "string"
+        },
+        "data": {
+          "description": "",
+          "type": "string"
+        },
+        "deg": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "enc": {
+          "const": "b64"
+        },
+        "fields": {
+          "description": "",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "layout": {
+          "description": "",
+          "enum": [
+            "rings",
+            "grid"
+          ],
+          "type": "string"
+        },
+        "n": {
+          "description": "Records in `data`.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "row_cols": {
+          "description": "Tiles in each row.",
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "rows": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "since": {
+          "description": "",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tiles": {
+          "description": "Tiles in all.",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "deg",
+        "layout",
+        "rows",
+        "row_cols",
+        "tiles",
+        "n",
+        "fields",
+        "enc",
+        "data"
+      ],
+      "type": "object"
+    },
     "tops": {
       "description": "Top material names by index.",
       "items": {
@@ -611,7 +746,6 @@
     "from_keyframe",
     "resimulated_beats",
     "tops",
-    "layers",
     "level"
   ],
   "title": "game.earth",
@@ -622,7 +756,7 @@
     "description": "Over HTTP every arg is a query-string parameter (numbers as numeric strings). Unknown args are ignored.",
     "properties": {
       "base": {
-        "description": "true: add `globe` (h, top and fuel of every cell of the globe, about 26,000, in index order).",
+        "description": "true: add `globe` (h, top and fuel of every regions cell of the globe, about 26,000, in index order).",
         "type": [
           "boolean",
           "string"
@@ -644,11 +778,25 @@
         ]
       },
       "cell": {
-        "description": "A hex cell key (\"<face>:<level>:<q>:<r>\"): the view's centre.",
+        "description": "A hex cell key (\"<face>:<level>:<q>:<r>\"): the board's centre.",
         "type": "string"
       },
+      "coarse": {
+        "description": "Board: add the regions cell index under each hex (u16 LE, base64).",
+        "type": [
+          "boolean",
+          "string"
+        ]
+      },
+      "field": {
+        "description": "With a centre at regions: the cells as columns instead of the board.",
+        "type": [
+          "boolean",
+          "string"
+        ]
+      },
       "format": {
-        "description": "Cell encoding (default pack).",
+        "description": "Cell encoding of `field` (default pack).",
         "enum": [
           "pack",
           "columns",
@@ -663,8 +811,23 @@
           "string"
         ]
       },
+      "hexes": {
+        "description": "With a centre below regions: verbose JSON hexes instead of the board.",
+        "type": [
+          "boolean",
+          "string"
+        ]
+      },
+      "layout": {
+        "description": "Tiles: rings of latitude of about equal tiles (default) or a full raster.",
+        "enum": [
+          "rings",
+          "grid"
+        ],
+        "type": "string"
+      },
       "level": {
-        "description": "The zoom level (default regions).",
+        "description": "The zoom level (default: the cell key's, else regions).",
         "enum": [
           "regions",
           "villages",
@@ -673,15 +836,40 @@
         ],
         "type": "string"
       },
+      "max_phenomena": {
+        "description": "Phenomena sent at most (default 20).",
+        "minimum": 0,
+        "type": [
+          "integer",
+          "string"
+        ]
+      },
       "region": {
-        "description": "A region (or any place): the view's centre.",
+        "description": "A region (or any place): the board's centre.",
         "pattern": "^pl:\\d+$",
         "type": "string"
       },
       "rings": {
-        "description": "Hex rings around the centre (default 3 at regions, at most 12; 6 below, at most 16).",
-        "maximum": 16,
+        "description": "Board rings (default and most 22).",
+        "maximum": 22,
         "minimum": 0,
+        "type": [
+          "integer",
+          "string"
+        ]
+      },
+      "since": {
+        "description": "With a board or tiles: only what changed since this beat.",
+        "minimum": 0,
+        "type": [
+          "integer",
+          "string"
+        ]
+      },
+      "tiles": {
+        "description": "The globe in tiles of this many degrees.",
+        "maximum": 10,
+        "minimum": 2,
         "type": [
           "integer",
           "string"
@@ -691,6 +879,6 @@
     "required": [],
     "type": "object"
   },
-  "x-description": "The Earth simulator (state schema 13): the voxel field for a view. No args: every cell that differs from the base terrain. `cell` (a hex key of any level) or `region` (a `pl:` ref) with `rings`: the board around it; `bbox`: a box of regions cells; `base: true`: adds `globe`, every cell's height and top material now; `grid: true`: adds the grid's cell list. `level` below regions (villages, houses, people) returns hexes derived from the coarse cell under them (a pure function of the field, the seed and the hex). `beat`: the field as it stood at a past beat. Cells come as one packed base64 block (`format: \"columns\"` for a base64 array per column, \"json\" for number arrays). See docs/EARTH_SIM.md.",
+  "x-description": "The Earth simulator (state schema 13): the voxel field for a view. `cell` (a hex key of any level: the board's centre and, unless `level` says otherwise, its level) or `region` (a `pl:` ref): the client's BOARD, `board` = 22 rings (`rings` fewer) = 1,519 records of 9 bytes (h16, top, water, lava, ash, fire, snow, heat, crack) in ring order, base64; `since` (a beat): only the records that changed since then. `tiles` (degrees, 4 = the client's globe): the whole planet as rings of latitude, 9 bytes a tile (2,578 at 4°; `layout: \"grid\"` for a full raster); `since` works here too. No args: every regions cell that differs from base (`field`, packed); `bbox`: a box of regions cells; `base: true` adds `globe` (every cell's h, top, fuel); `grid: true` adds the grid. `hexes: true` / `field: true` with a centre: the verbose JSON hexes / regions columns. `beat`: the field as it stood then. `phenomena`: at most 20 (`max_phenomena`), the nearest to a board's centre first, else the biggest. See docs/EARTH_SIM.md.",
   "x-public": true
 }

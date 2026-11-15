@@ -42,7 +42,8 @@ pub fn defs() -> Map<String, Value> {
     d.insert("EarthBeat".into(), object(
         "State schema 13: `round.outcome.public.earth`: what changed on the field this beat (`delta`, only cells a client must redraw) and every live phenomenon.",
         &[("beat", int("")), ("hash", string("The field's hash (16 hex digits); compare with present.earth.hash.")), ("dirty", int("Cells that differ from base.")),
-          ("substeps", int("")), ("delta", r("EarthCells")), ("phenomena", array(r("EarthPhenomenon"), "")),
+          ("substeps", int("")), ("delta", r("EarthCells")), ("phenomena", array(r("EarthPhenomenon"), "The 20 biggest (power × reach), each with its stable id.")),
+          ("phenomena_total", int("Live phenomena in all.")),
           ("ended", array(object("", &[("id", int("")), ("kind", e(&KINDS, ""))], &[]), "Phenomena that ended this beat.")),
           ("strikes", array(json!({ "type": "string" }), "Lightning strikes this beat (cell keys).")),
           ("did", object("This beat's counts.", &[("spawned", array(json!({ "type": "integer" }), "Ids born this beat.")), ("spontaneous", int("")), ("ignitions", int("")), ("quenched", int("")), ("steamed", int("")),
@@ -55,7 +56,8 @@ pub fn defs() -> Map<String, Value> {
         &[("beat", int("")), ("hash", string("")), ("dirty", int("")),
           ("tops", json!({ "type": "object", "additionalProperties": { "type": "integer" }, "description": "Dirty cells by top material." })),
           ("phenomena", array(r("EarthPhenomenon"), "")), ("keyframes", array(json!({ "type": "integer" }), "Beats with a keyframe.")),
-          ("first_beat", int("")), ("grid", object("", &[("level", string("")), ("cells", int(""))], &[]))],
+          ("first_beat", int("")), ("grid", object("", &[("level", string("")), ("cells", int(""))], &[])),
+          ("phenomena_total", int("Live phenomena (`phenomena` has the 20 biggest)."))],
         &[],
     ));
     d
@@ -75,7 +77,28 @@ fn head() -> Vec<(&'static str, Value)> {
     vec![("beat", int("The beat shown.")), ("now", int("The last beat stepped.")), ("hash", string("")), ("dirty", int("")),
          ("phenomena", array(r("EarthPhenomenon"), "")), ("rebuilt", boolean("Re-simulated from a keyframe (a past beat).")),
          ("from_keyframe", nullable(int(""))), ("resimulated_beats", int("")),
-         ("tops", array(json!({ "type": "string" }), "Top material names by index.")), ("layers", array(json!({ "type": "string" }), "CLIENT_LAYERS: layer names by bit."))]
+         ("tops", array(json!({ "type": "string" }), "Top material names by index."))]
+}
+
+fn layers() -> (&'static str, Value) {
+    ("layers", array(json!({ "type": "string" }), "CLIENT_LAYERS: layer names by bit (absent in a board or tiles answer)."))
+}
+
+fn board() -> Value {
+    object("State schema 13: the client's board: 9 bytes per hex (`fields`) in ring order (ring 0, then each ring as the shared hex formula walks it), base64.",
+        &[("level", string("")), ("center", string("The centre hex key.")), ("rings", int("")), ("n", int("Records in `data`.")),
+          ("fields", array(json!({ "type": "string" }), "h16 (height in 256ths, 128 = sea level), top, water, lava, ash, fire, snow, heat (signed), crack.")),
+          ("enc", json!({ "const": "b64" })), ("data", string(""))],
+        &[("changed", string("With `since`: the ring positions (u16 LE) whose records are in `data`.")), ("since", int("")),
+          ("coarse", string("With `coarse`: the regions cell index under each hex (u16 LE)."))])
+}
+
+fn tiles() -> Value {
+    object("State schema 13: the globe in tiles: rows of latitude from the north down, west to east in each; 9 bytes per tile (`fields`), base64.",
+        &[("deg", int("")), ("layout", e(&["rings", "grid"], "")), ("rows", int("")), ("row_cols", array(json!({ "type": "integer" }), "Tiles in each row.")),
+          ("tiles", int("Tiles in all.")), ("n", int("Records in `data`.")), ("fields", array(json!({ "type": "string" }), "")),
+          ("enc", json!({ "const": "b64" })), ("data", string(""))],
+        &[("changed", string("With `since`: the tile indices (u16 LE) whose records are in `data`.")), ("since", int(""))])
 }
 
 pub fn replies() -> Vec<(&'static str, &'static str, Value)> {
@@ -84,14 +107,14 @@ pub fn replies() -> Vec<(&'static str, &'static str, Value)> {
     let col = |d: &str| json!({ "type": "string", "description": d });
     vec![
         ("query_earth", "earth", object("`game.earth` (state schema 13): the voxel field for a view (docs/EARTH_SIM.md).", &earth,
-            &[("center_cell", string("")), ("rings", int("")), ("derived", boolean("")), ("hexes", array(hex(), "Below regions: derived hexes.")),
+            &[layers(), ("center_cell", string("")), ("rings", int("")), ("derived", boolean("")), ("board", board()), ("tiles", tiles()), ("hexes", array(hex(), "Below regions: derived hexes.")),
               ("field", r("EarthCells")),
               ("globe", object("`base: true`: every cell's height, top and fuel now, in index order.", &[("n", int("")), ("enc", string("")),
                   ("h", b64_or_arr("")), ("top", b64_or_arr("")), ("fuel", b64_or_arr(""))], &[])),
               ("grid", object("`grid: true`: the regions grid (face, q, r of every cell, signed bytes, base64).", &[("level", string("")), ("hex_size_m", int("")),
                   ("cells", int("")), ("face", col("")), ("q", col("")), ("r", col(""))], &[]))])),
         ("query_earth_at", "earth_at", object("`game.earth_at` (state schema 13): the whole field at the end of a past beat, rebuilt from a keyframe.",
-            &head().into_iter().chain([("field", r("EarthCells")), ("keyframes", array(json!({ "type": "integer" }), "")), ("inputs", int("Inputs up to that beat."))]).collect::<Vec<_>>(), &[])),
+            &head().into_iter().chain([layers(), ("field", r("EarthCells")), ("keyframes", array(json!({ "type": "integer" }), "")), ("inputs", int("Inputs up to that beat."))]).collect::<Vec<_>>(), &[])),
     ]
 }
 

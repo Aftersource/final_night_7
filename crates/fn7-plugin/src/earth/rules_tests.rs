@@ -198,7 +198,10 @@ async fn queries_present_and_time_travel() {
     for b in [1u32, 5, 8, 9, 15, 16, 19] {
         let past = p.query(st, None, "earth_at", &json!({ "beat": b })).unwrap();
         assert_eq!(past["hash"], r.outs[b as usize - 1]["earth"]["hash"], "beat {b}");
-        assert_eq!(ids(&past["phenomena"]), ids(&r.outs[b as usize - 1]["earth"]["phenomena"]), "beat {b}");
+        // The outcome sends the 20 biggest; the rebuilt field has every one.
+        let all = ids(&past["phenomena"]);
+        assert!(ids(&r.outs[b as usize - 1]["earth"]["phenomena"]).iter().all(|x| all.contains(x)), "beat {b}");
+        assert_eq!(all.len() as u64, r.outs[b as usize - 1]["earth"]["phenomena_total"].as_u64().unwrap(), "beat {b}");
         assert!(past["resimulated_beats"].as_u64().unwrap() <= 8, "at most K beats re-simulated");
         // And it is what the state of that beat itself says.
         let then = p.query(&r.states[b as usize - 1], None, "earth", &json!({})).unwrap();
@@ -207,16 +210,63 @@ async fn queries_present_and_time_travel() {
     assert_eq!(p.query(st, None, "earth_at", &json!({ "beat": "16" })).unwrap()["from_keyframe"], 16);
     assert!(p.query(st, None, "earth_at", &json!({ "beat": 21 })).is_err());
     assert!(p.query(st, None, "earth_at", &json!({})).is_err());
-    // A board view: a hex and its rings, at the regions level and below (derived).
+    // The client's board: 22 rings around a hex at any level, 1,519 records of 9 bytes in ring order, under 20 KB.
     let cell = now["phenomena"][0]["cell"].as_str().unwrap().to_string();
-    let board = p.query(st, None, "earth", &json!({ "cell": cell, "rings": 2 })).unwrap();
-    assert!(board["field"]["n"].as_u64().unwrap() >= 19, "a hex and two rings (a few more where two faces meet)");
-    let fine = p.query(st, None, "earth", &json!({ "cell": cell, "level": "villages", "rings": 3 })).unwrap();
-    assert_eq!((fine["hexes"].as_array().unwrap().len(), fine["derived"].as_bool()), (37, Some(true)));
-    assert!(fine["hexes"][0]["cell"].as_str().unwrap().contains(":villages:"));
-    assert_eq!(fine, p.query(st, None, "earth", &json!({ "cell": cell, "level": "villages", "rings": 3 })).unwrap(), "pure");
-    let region = p.query(st, None, "earth", &json!({ "region": "pl:1", "level": "houses" })).unwrap();
+    let c0 = fn7_model::hexgrid::HexCell::parse(&cell).unwrap();
+    for level in ["regions", "villages", "houses", "people"] {
+        let b = p.query(st, None, "earth", &json!({ "cell": cell, "level": level })).unwrap();
+        let data = super::codec::un64(b["board"]["data"].as_str().unwrap());
+        assert_eq!((b["board"]["n"].as_u64(), data.len()), (Some(1519), 1519 * 9), "{level}");
+        let bytes = b.to_string().len();
+        assert!(bytes < 24 * 1024, "{level}: a board answer is {bytes} bytes");
+        assert!(b["phenomena"].as_array().unwrap().len() <= super::view::PHENOMENA_SENT);
+        assert_eq!(b, p.query(st, None, "earth", &json!({ "cell": cell, "level": level })).unwrap(), "pure");
+        if level == "regions" {
+            // The centre's record is the cell's own (height in 256ths: 128 = sea level).
+            let sim = super::view::field_at(st, None).unwrap().0;
+            let i = grid().index(&c0);
+            assert_eq!(data[0] as u32, sim.height(i) as u32 * 16 + 8);
+            assert_eq!(data[1], sim.top(i));
+            eprintln!("board (22 rings, regions): {bytes} bytes");
+        }
+    }
+    // A key's own level is the default; the board's centre is that hex.
+    let b = p.query(st, None, "earth", &json!({ "cell": cell })).unwrap();
+    assert_eq!((b["board"]["center"].as_str(), b["level"].as_str()), (Some(cell.as_str()), Some("regions")));
+    // Only what changed since a beat: applying those records to the old board gives the new one.
+    let old = p.query(st, None, "earth", &json!({ "cell": cell, "beat": 12 })).unwrap();
+    let diff = p.query(st, None, "earth", &json!({ "cell": cell, "since": 12 })).unwrap();
+    let mut board = super::codec::un64(old["board"]["data"].as_str().unwrap());
+    let pos = super::codec::un64(diff["board"]["changed"].as_str().unwrap());
+    let recs = super::codec::un64(diff["board"]["data"].as_str().unwrap());
+    assert_eq!(pos.len() / 2 * 9, recs.len());
+    assert!(!pos.is_empty() && pos.len() / 2 < 1519);
+    for (k, ch) in pos.chunks(2).enumerate() {
+        let at = u16::from_le_bytes([ch[0], ch[1]]) as usize;
+        board[at * 9..at * 9 + 9].copy_from_slice(&recs[k * 9..k * 9 + 9]);
+    }
+    assert_eq!(board, super::codec::un64(b["board"]["data"].as_str().unwrap()));
+    // The coarse cell under every board hex, to intersect a beat's delta with.
+    let fine = p.query(st, None, "earth", &json!({ "cell": cell, "level": "villages", "rings": 3, "coarse": true })).unwrap();
+    assert_eq!((fine["board"]["n"].as_u64(), super::codec::un64(fine["board"]["coarse"].as_str().unwrap()).len()), (Some(37), 74));
+    // The verbose forms stay: JSON hexes below regions, columns at regions.
+    let hexes = p.query(st, None, "earth", &json!({ "cell": cell, "level": "villages", "rings": 3, "hexes": true })).unwrap();
+    assert_eq!((hexes["hexes"].as_array().unwrap().len(), hexes["derived"].as_bool()), (37, Some(true)));
+    assert!(hexes["hexes"][0]["cell"].as_str().unwrap().contains(":villages:"));
+    let region = p.query(st, None, "earth", &json!({ "region": "pl:1", "level": "houses", "hexes": true, "rings": 6 })).unwrap();
     assert_eq!(region["hexes"].as_array().unwrap().len(), 127);
+    let cols2 = p.query(st, None, "earth", &json!({ "cell": cell, "rings": 2, "field": true })).unwrap();
+    assert!(cols2["field"]["n"].as_u64().unwrap() >= 19);
+    // The globe's raster: 4° tiles, 9 bytes each; only the changed tiles since a beat.
+    let tiles = p.query(st, None, "earth", &json!({ "tiles": 4 })).unwrap();
+    assert_eq!((tiles["tiles"]["rows"].as_u64(), tiles["tiles"]["n"].as_u64()), (Some(45), Some(2578)), "about equally large tiles: rings of latitude");
+    let raster = p.query(st, None, "earth", &json!({ "tiles": 4, "layout": "grid" })).unwrap();
+    assert_eq!(raster["tiles"]["n"].as_u64(), Some(4050));
+    let tb = tiles.to_string().len();
+    let tdiff = p.query(st, None, "earth", &json!({ "tiles": 4, "since": 12 })).unwrap();
+    let tn = tdiff["tiles"]["n"].as_u64().unwrap();
+    assert!(tn > 0 && tn < 2578);
+    eprintln!("globe tiles (4 deg): {tb} bytes; changed since beat 12: {tn} tiles, {} bytes", tdiff.to_string().len());
     let bbox = p.query(st, None, "earth", &json!({ "bbox": "120,20,150,50" })).unwrap();
     assert!(bbox["field"]["n"].as_u64().unwrap() > 50);
     // The whole globe and the grid, once.

@@ -290,7 +290,8 @@ pub fn beat_json(eb: &EarthBeat) -> Value {
         "dirty": sim.list.len(),
         "substeps": r.substeps,
         "delta": columns(sim, &cells, Enc::Pack),
-        "phenomena": phenomena_json(sim),
+        "phenomena": ranked(sim, None, PHENOMENA_SENT),
+        "phenomena_total": sim.phen.len(),
         "ended": r.ended.iter().map(|p| json!({ "id": p.id, "kind": kind_name(p.kind) })).collect::<Vec<_>>(),
         "strikes": keys(&r.strikes),
         "did": {
@@ -313,7 +314,8 @@ pub fn summary(sim: &Sim, s: &EarthState) -> Value {
         "hash": hash_hex(sim),
         "dirty": sim.list.len(),
         "tops": tops,
-        "phenomena": phenomena_json(sim),
+        "phenomena": ranked(sim, None, PHENOMENA_SENT),
+        "phenomena_total": sim.phen.len(),
         "keyframes": s.keyframes.iter().map(|k| k.beat).collect::<Vec<_>>(),
         "first_beat": s.first_beat,
         "grid": { "level": "regions", "cells": sim.grid().len() },
@@ -361,10 +363,38 @@ pub fn hex_json(sim: &Sim, c: &HexCell) -> Value {
         }
         return v;
     }
+    let f = fine(sim, c, i);
+    json!({
+        "cell": c.key(), "level": c.level.as_str(), "derived": true, "coarse": g.key(i), "coarse_index": i,
+        "h": (f.h16 / 16) as u8, "h16": f.h16, "top": TOPS[f.top as usize], "material": TOPS[f.mat as usize],
+        "fire": f.fire, "water": f.water, "lava": f.lava, "snow": f.snow, "ash": f.ash, "swarm": f.swarm, "crack": f.crack,
+        "cloud": cell.cloud, "heat": cell.heat, "plume": cell.plume, "shake": cell.shake, "ruin": cell.ruin,
+        "forest": f.forest, "weather": weather_word(&cell, sim.cold(i)),
+    })
+}
+
+/// A hex below the regions level, derived from its coarse cell `i` (see [`hex_json`]).
+pub struct Fine {
+    pub h16: u8,
+    pub top: u8,
+    pub mat: u8,
+    pub fire: u8,
+    pub water: u8,
+    pub lava: u8,
+    pub snow: u8,
+    pub ash: u8,
+    pub swarm: u8,
+    pub crack: u8,
+    pub forest: bool,
+}
+
+pub fn fine(sim: &Sim, c: &HexCell, i: u16) -> Fine {
+    let cell = *sim.c(i);
+    let h = sim.height(i);
     let hh = hex_hash(sim.seed, c);
     let sea = h < SEA_LEVEL;
     // Relief: ±7 sixteenths, never across the shoreline.
-    let h16 = (h as i32 * 16 + 8 + (hh & 15) as i32 - 8).clamp(if sea { 0 } else { 128 }, if sea { 127 } else { 255 });
+    let h16 = (h as i32 * 16 + 8 + (hh & 15) as i32 - 8).clamp(if sea { 0 } else { 128 }, if sea { 127 } else { 255 }) as u8;
     // Minis cast in this coarse cell: certain within their radius (in hexes of this level).
     let near = |kind: &[u8]| {
         sim.phen.iter().any(|p| {
@@ -422,13 +452,7 @@ pub fn hex_json(sim: &Sim, c: &HexCell) -> Value {
         mat
     };
     let _ = (M_ROCK, M_SAND);
-    json!({
-        "cell": c.key(), "level": c.level.as_str(), "derived": true, "coarse": g.key(i), "coarse_index": i,
-        "h": (h16 / 16) as u8, "h16": h16, "top": TOPS[top as usize], "material": TOPS[mat as usize],
-        "fire": fire, "water": water, "lava": lava, "snow": snow, "ash": ash, "swarm": swarm, "crack": crack,
-        "cloud": cell.cloud, "heat": cell.heat, "plume": cell.plume, "shake": cell.shake, "ruin": cell.ruin,
-        "forest": forest, "weather": weather_word(&cell, sim.cold(i)),
-    })
+    Fine { h16, top, mat, fire, water, lava, snow, ash, swarm, crack, forest }
 }
 
 /// The weather the field has over a cell, in one word.
@@ -508,6 +532,13 @@ fn truthy(a: &Value, k: &str) -> bool {
     matches!(a.get(k), Some(Value::Bool(true))) || a.get(k).and_then(Value::as_str).is_some_and(|s| s == "true" || s == "1")
 }
 
+/// A board or tiles answer carries its own `fields`: the column lists of `head` are left out.
+fn strip_lists(v: &mut Value) {
+    if let Some(o) = v.as_object_mut() {
+        o.remove("layers");
+    }
+}
+
 fn head(l: &Loaded) -> Value {
     json!({ "beat": l.sim.beat, "now": l.state.beat, "hash": hash_hex(&l.sim), "dirty": l.sim.list.len(),
             "phenomena": phenomena_json(&l.sim), "rebuilt": l.sim.beat != l.state.beat,
@@ -521,13 +552,24 @@ pub fn query_earth(state: &Value, a: &Value) -> Result<Value, String> {
     let l = load(state, beat)?;
     let (sim, g) = (&l.sim, grid());
     let enc = Enc::parse(a)?;
+    let key_level = a.get("cell").and_then(Value::as_str).and_then(HexCell::parse).map(|c| c.level);
     let level = match a.get("level").and_then(Value::as_str) {
-        None => HexLevel::Regions,
+        None => key_level.unwrap_or(HexLevel::Regions),
         Some(s) => HexLevel::parse(s).ok_or_else(|| format!("`level` must be regions, villages, houses or people, not `{s}`"))?,
     };
     let rings = uint(a, "rings")?;
     let mut out = head(&l);
     out["level"] = level.as_str().into();
+    // The whole planet as a lat/long raster (the client's globe resamples it).
+    if let Some(deg) = uint(a, "tiles")? {
+        let deg = deg.clamp(2, 10) as u32;
+        let since = uint(a, "since")?.map(|b| b as u32);
+        let then = since.map(|b| Sim::at_beat(sim.seed, sim.cfg, &l.state, b).ok_or_else(|| format!("no field at beat {b}"))).transpose()?;
+        out["tiles"] = tiles_json(sim, then.as_ref(), deg, a.get("layout").and_then(Value::as_str) != Some("grid"));
+        strip_lists(&mut out);
+        out["phenomena"] = ranked(sim, None, uint(a, "max_phenomena")?.unwrap_or(PHENOMENA_SENT as u64) as usize).into();
+        return Ok(out);
+    }
     // Where: a hex, a region's centre, a box, or (regions level only) everything that differs from base.
     let center: Option<LonLat> = match (a.get("cell").and_then(Value::as_str), a.get("region").and_then(Value::as_str)) {
         (Some(k), _) => Some(HexCell::parse(k).ok_or_else(|| format!("`{k}` is not a hex cell key"))?.center()),
@@ -538,6 +580,23 @@ pub fn query_earth(state: &Value, a: &Value) -> Result<Value, String> {
         }
         _ => None,
     };
+    let verbose = truthy(a, "hexes") || truthy(a, "field");
+    if let Some(center) = center.filter(|_| !verbose) {
+        let c0 = match a.get("cell").and_then(Value::as_str).and_then(HexCell::parse) {
+            Some(c) if c.level == level => c,
+            _ => cell_at(center, level),
+        };
+        let rings = rings.unwrap_or(BOARD_RINGS as u64).min(BOARD_RINGS as u64) as i64;
+        let since = uint(a, "since")?.map(|b| b as u32);
+        let then = since.map(|b| Sim::at_beat(sim.seed, sim.cfg, &l.state, b).ok_or_else(|| format!("no field at beat {b}"))).transpose()?;
+        out["center_cell"] = c0.key().into();
+        out["rings"] = rings.into();
+        out["board"] = board_json(sim, then.as_ref(), &c0, rings, truthy(a, "coarse"));
+        strip_lists(&mut out);
+        let reach_km = level.size_m() * 1.732 * rings as f64 / 1000.0;
+        out["phenomena"] = ranked(sim, Some((c0.center(), reach_km)), uint(a, "max_phenomena")?.unwrap_or(PHENOMENA_SENT as u64) as usize).into();
+        return Ok(out);
+    }
     if level != HexLevel::Regions {
         let center = center.ok_or("a level below regions needs `cell` (a hex of any level) or `region`: the board's centre")?;
         let rings = rings.unwrap_or(6).min(16) as i64;
@@ -619,6 +678,197 @@ pub fn query_earth_at(state: &Value, a: &Value) -> Result<Value, String> {
     out["keyframes"] = l.state.keyframes.iter().map(|k| k.beat).collect::<Vec<_>>().into();
     out["inputs"] = l.state.inputs.iter().filter(|i| i.beat <= beat).count().into();
     Ok(out)
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The board (a disc of hexes at any level) and the globe's raster: what an Unreal client draws
+// ---------------------------------------------------------------------------------------------------------------------
+
+/// The client's board: 22 rings around the centre hex, 1,519 hexes.
+pub const BOARD_RINGS: i64 = 22;
+/// Phenomena sent to a client at most (the biggest first, or the nearest to a board's centre).
+pub const PHENOMENA_SENT: usize = 20;
+/// One board (or globe tile) record, a byte each: height in 256ths (128 = sea level), top material, then the layers.
+/// `heat` is a signed byte.
+pub const BOARD_FIELDS: [&str; 9] = ["h16", "top", "water", "lava", "ash", "fire", "snow", "heat", "crack"];
+
+/// The record of one hex of any level. At the regions level it is the cell's own values; below, it is derived from
+/// the coarse cell under it ([`fine`]), a pure function of the field, the seed and the hex. A hex past its face's edge
+/// takes the cell that holds its centre on the next face, so every position of the client's ring enumeration has one.
+pub fn board_record(sim: &Sim, c: &HexCell) -> ([u8; 9], u16) {
+    let g = sim.grid();
+    let mut i = if c.level == HexLevel::Regions { g.index(c) } else { NONE };
+    if i == NONE {
+        i = g.index_of(c.center());
+    }
+    if i == NONE {
+        return ([0; 9], NONE);
+    }
+    let cell = sim.c(i);
+    if c.level == HexLevel::Regions {
+        let h16 = (sim.height(i) as u32 * 16 + 8).min(255) as u8;
+        return ([h16, sim.top(i), cell.water, cell.lava, cell.ash, cell.fire, cell.snow, cell.heat as u8, cell.crack], i);
+    }
+    let f = fine(sim, c, i);
+    ([f.h16, f.top, f.water, f.lava, f.ash, f.fire, f.snow, cell.heat as u8, f.crack], i)
+}
+
+/// The board's hexes in the client's order: ring 0, then ring 1.. `rings`, each ring as [`HexCell::ring`] walks it.
+pub fn board_cells(c0: &HexCell, rings: i64) -> Vec<HexCell> {
+    (0..=rings).flat_map(|k| c0.ring(k)).collect()
+}
+
+/// `board`: `{level, center, rings, n, fields, enc: "b64", data}`, `data` = 9 bytes per hex in ring order. With
+/// `then` (the field at `since`): only the positions whose record changed, as `changed` (u16 LE ring positions).
+/// `coarse`: the regions cell index under each hex (u16 LE), so a client can intersect it with a beat's delta.
+pub fn board_json(sim: &Sim, then: Option<&Sim>, c0: &HexCell, rings: i64, coarse: bool) -> Value {
+    let cells = board_cells(c0, rings);
+    let mut data = Vec::with_capacity(cells.len() * 9);
+    let mut under = Vec::with_capacity(cells.len() * 2);
+    let mut changed = Vec::new();
+    for (k, c) in cells.iter().enumerate() {
+        let (rec, i) = board_record(sim, c);
+        if let Some(t) = then {
+            if board_record(t, c).0 == rec {
+                continue;
+            }
+            changed.extend((k as u16).to_le_bytes());
+        }
+        data.extend(rec);
+        under.extend(i.to_le_bytes());
+    }
+    let mut v = json!({ "level": c0.level.as_str(), "center": c0.key(), "rings": rings, "n": data.len() / 9, "fields": BOARD_FIELDS,
+                        "enc": "b64", "data": b64(&data) });
+    if then.is_some() {
+        v["changed"] = b64(&changed).into();
+        v["since"] = then.map(|t| t.beat).into();
+    }
+    if coarse {
+        v["coarse"] = b64(&under).into();
+    }
+    v
+}
+
+/// Dramatic tops win a tile (lava over fire over a rift ...); otherwise the most common top under it.
+const TOP_RANK: [u8; 13] = [0, 0, 0, 0, 0, 0, 9, 8, 4, 2, 6, 7, 3];
+
+/// The globe's tiles: rings of latitude `deg`° tall, rows from the north pole down; row `y` (centre latitude `lat`)
+/// has `max(1, round(360 / deg × cos lat))` tiles from 180° W eastward, so tiles are about equally large (4°: 2,578
+/// tiles, about 445 km). `layout: "grid"` instead gives every row 360 / deg tiles (4°: 4,050).
+pub fn row_cols(deg: u32, equal_area: bool) -> Vec<usize> {
+    let rows = (180 / deg) as usize;
+    let full = (360 / deg) as usize;
+    (0..rows)
+        .map(|y| {
+            if !equal_area {
+                return full;
+            }
+            let lat = 90.0 - deg as f64 * (y as f64 + 0.5);
+            ((full as f64 * lat.to_radians().cos()).round() as usize).max(1)
+        })
+        .collect()
+}
+
+/// `tiles`: `{deg, layout, rows, row_cols, n, fields, enc, data}` with 9 bytes per tile ([`BOARD_FIELDS`]), rows
+/// from the north down and west to east in each: the mean height of the regions cells whose centres fall in the
+/// tile, the most dramatic top (else the most common), each layer's maximum (heat: the largest in size, signed). A
+/// tile no centre falls in takes the cell under its centre. With `then`: only the tiles that changed (`changed`,
+/// u16 LE tile indices).
+pub fn tiles_json(sim: &Sim, then: Option<&Sim>, deg: u32, equal_area: bool) -> Value {
+    let rc = row_cols(deg, equal_area);
+    let now = tiles(sim, deg, &rc);
+    let mut data = Vec::with_capacity(now.len() * 9);
+    let mut changed = vec![];
+    let old = then.map(|t| tiles(t, deg, &rc));
+    for (k, rec) in now.iter().enumerate() {
+        if let Some(o) = &old {
+            if o[k] == *rec {
+                continue;
+            }
+            changed.extend((k as u16).to_le_bytes());
+        }
+        data.extend(rec);
+    }
+    let mut v = json!({ "deg": deg, "layout": if equal_area { "rings" } else { "grid" }, "rows": rc.len(), "row_cols": rc,
+                        "tiles": now.len(), "n": data.len() / 9, "fields": BOARD_FIELDS, "enc": "b64", "data": b64(&data) });
+    if let Some(t) = then {
+        v["changed"] = b64(&changed).into();
+        v["since"] = t.beat.into();
+    }
+    v
+}
+
+fn tiles(sim: &Sim, deg: u32, rc: &[usize]) -> Vec<[u8; 9]> {
+    let g = sim.grid();
+    let d = deg as f64;
+    let start: Vec<usize> = rc.iter().scan(0, |a, &n| { let s = *a; *a += n; Some(s) }).collect();
+    let total: usize = rc.iter().sum();
+    let tile_of = |p: LonLat| {
+        let y = (((90.0 - p[1]) / d).floor() as i64).clamp(0, rc.len() as i64 - 1) as usize;
+        let x = ((((p[0] + 180.0) / 360.0) * rc[y] as f64).floor() as i64).rem_euclid(rc[y] as i64) as usize;
+        start[y] + x
+    };
+    type Acc = (u32, u32, [u16; 13], [u8; 6], i8);
+    let mut acc: Vec<Acc> = vec![(0, 0, [0; 13], [0; 6], 0); total];
+    let add = |acc: &mut Vec<Acc>, t: usize, i: u16| {
+        let c = sim.c(i);
+        let a = &mut acc[t];
+        a.0 += sim.height(i) as u32 * 16 + 8;
+        a.1 += 1;
+        a.2[sim.top(i) as usize] += 1;
+        for (k, v) in [c.water, c.lava, c.ash, c.fire, c.snow, c.crack].into_iter().enumerate() {
+            a.3[k] = a.3[k].max(v);
+        }
+        if (c.heat as i32).abs() > (a.4 as i32).abs() {
+            a.4 = c.heat;
+        }
+    };
+    for i in 0..g.len() as u16 {
+        add(&mut acc, tile_of(g.center[i as usize]), i);
+    }
+    for (y, &n) in rc.iter().enumerate() {
+        for x in 0..n {
+            let t = start[y] + x;
+            if acc[t].1 == 0 {
+                let p = [-180.0 + 360.0 * (x as f64 + 0.5) / n as f64, 90.0 - d * (y as f64 + 0.5)];
+                let i = g.index_of(p);
+                if i != NONE {
+                    add(&mut acc, t, i);
+                }
+            }
+        }
+    }
+    acc.iter()
+        .map(|a| {
+            let h = if a.1 == 0 { 0 } else { (a.0 / a.1).min(255) as u8 };
+            let dramatic = (0..13).filter(|&k| a.2[k] > 0 && TOP_RANK[k] > 0).max_by_key(|&k| TOP_RANK[k]);
+            let top = dramatic.unwrap_or_else(|| (0..13).max_by_key(|&k| (a.2[k], std::cmp::Reverse(k))).unwrap_or(0)) as u8;
+            [h, top, a.3[0], a.3[1], a.3[2], a.3[3], a.3[4], a.4 as u8, a.3[5]]
+        })
+        .collect()
+}
+
+/// The phenomena a client is sent: at most `max`, ranked by size (power × reach) or, around a board's centre, nearest
+/// first (only those whose reach touches the board). Each keeps its stable `id`.
+pub fn ranked(sim: &Sim, around: Option<(LonLat, f64)>, max: usize) -> Vec<Value> {
+    let g = sim.grid();
+    let size = |p: &Phenomenon| p.power.max(0) as i64 * (p.radius as i64 + 1);
+    let mut list: Vec<(i64, i64, u32, &Phenomenon)> = sim.phen.iter()
+        .filter(|p| p.kind != VOLCANO || p.dur > 0 || around.is_some())
+        .filter_map(|p| {
+            let at = if p.tier == TIER_MINI { [p.lon_e3 as f64 / 1000.0, p.lat_e3 as f64 / 1000.0] } else { g.center[p.cell as usize] };
+            match around {
+                None => Some((0, -size(p), p.id, p)),
+                Some((c, reach)) => {
+                    let km = fn7_society::geo::distance_km(c, at);
+                    let r = if p.tier == TIER_MINI { 10.0 } else { 104.0 + 208.0 * p.radius as f64 };
+                    (km <= reach + r).then_some((km as i64, -size(p), p.id, p))
+                }
+            }
+        })
+        .collect();
+    list.sort_by_key(|x| (x.0, x.1, x.2));
+    list.into_iter().take(max).map(|x| phenomenon_json(sim, x.3)).collect()
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
