@@ -169,9 +169,10 @@ fn params_of(call: &Call) -> Value {
     p
 }
 
-/// `base/<64 hex>.<ext>` → the media key.
+/// A reference named after a media key (`base/<64 hex>.<ext>`, or `<64 hex>.<ext>` as a recorded exchange lists its
+/// file) → the key: the base picture a gear look was drawn on.
 fn base_key(name: &str) -> Option<&str> {
-    name.strip_prefix("base/")?.split('.').next().filter(|k| is_hash(k))
+    name.strip_prefix("base/").unwrap_or(name).split('.').next().filter(|k| is_hash(k))
 }
 
 /// Make sure a reference image is an asset (`image/reference`, shared), storing its file when we have it.
@@ -181,7 +182,18 @@ fn reference_asset(c: &Connection, reg_root: &std::path::Path, r: &RefFile, at_m
     if let Some(key) = base_key(&r.name) {
         let id = asset_id_for_media(key);
         let known: bool = c.query_row("SELECT 1 FROM assets WHERE id=?1", [&id], |_| Ok(true)).optional()?.unwrap_or(false);
-        return Ok(known.then_some(id));
+        if known {
+            return Ok(Some(id));
+        }
+    }
+    // Bytes the registry already holds under another role (a generated picture sent back in as a reference).
+    if let Some(sha) = &r.sha256 {
+        let held: Option<String> = c
+            .query_row("SELECT id FROM assets WHERE sha256=?1 AND subkind != 'reference' ORDER BY created_at, id LIMIT 1", [sha], |row| row.get(0))
+            .optional()?;
+        if held.is_some() {
+            return Ok(held);
+        }
     }
     // By content when known, else by name (a recording's request lists names; its http record adds the hashes).
     if let Some(sha) = &r.sha256 {
