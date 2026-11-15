@@ -1350,3 +1350,9 @@ Benito asked for two distinct styles: realistic statues for the point-of-view la
 Chris asked the assistant to work out the styling part with Benito without blocking things, to have Benito produce Meshy dice, to route all Meshy requests through the assistant's SQL and storage, and to save every call.
 
 Engineering: two deliberate styles (Benito): the god's room realistic, the board and earth the gods' toys. Benito owns style and the event camera. Find-yourself beacon (his side), events-in-the-world on hold for his in-depth design, the "next move" hint from the server (backend/next-move, in progress). Every Meshy call goes through the backend into the asset registry (94 calls, 1,011 credits imported). Unreal: earth powers proven for all 11 powers x mega/mini in the sandbox against a private server, the Populous heave, earth time travel (hash-checked jumps, scrub, reconnect).
+
+> Chat should be responsive to the world scroll and to how expanded the will is, with a few mock-up versions of chat for other players, switchable by small buttons so Benito can choose which works best, and it must connect to the backend.
+
+Benito wants every scale to show the results of disasters: a dropped flood, wildfires that burn forests down, and hurricanes that hit villages so people run to shelters and shelters can be destroyed. He also wants in-game actions, such as going into a neighbouring house, to play out with the game tokens.
+
+Engineering: chat on the engine's room.chat / room.chat_msg (live); history-on-join and recording requested from theatre_worker. The Mac builds the chat panel above the WILL in six switchable variants for Benito to choose. Server agents: backend/next-move (schema 18), backend/token-play (19), backend/earth-effects (20).
