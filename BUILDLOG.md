@@ -1360,3 +1360,11 @@ Engineering: chat on the engine's room.chat / room.chat_msg (live); history-on-j
 Benito said he does not understand the turn system or how to use his time and effect value to win, and mostly ends up scrolling the board or challenging others. He asked what would make every turn and point meaningful and clear about what to do next.
 
 Engineering (measured from the recordings): 7 duels with Benito, 7 lost; 5 started by the AI, in which he typed 0 lines (knocked out while doing other things). The fix is his call (AI grace, a brace, the duel rate, odds); the server adds game.duel_odds, a top-urgency "you're in a duel: type now" hint, and a per-seat goal line.
+
+Benito reported that nothing seems to change or get fixed, and that new games start with all of his characters dead, which he does not understand. He does not see wildfires, or buildings and forests being destroyed, upgraded or raised. He also cannot tell how to win a challenge, cannot see the battlefield or his characters in detail, and does not know what to type.
+
+> That is not the rule. When a new player joins, should the game be forked as soon as they make a new request?
+
+> No. The assistant should not invent game rules. The system was meant to support time travel. If a player dies and is the only active player in the game, they should be allowed to time travel, forking from that point.
+
+Engineering: the cause is the house attract fork (a joiner inherits his seat from an old recorded match at its current beat, dead). A proposed "mercy" revival rule was cancelled: no invented rules. Instead: player time travel. A dead player who is the only active human may rewind and fork the match from an earlier beat (backend/death-mercy branch, retargeted to the rewind).
