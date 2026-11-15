@@ -1368,3 +1368,7 @@ Benito reported that nothing seems to change or get fixed, and that new games st
 > No. The assistant should not invent game rules. The system was meant to support time travel. If a player dies and is the only active player in the game, they should be allowed to time travel, forking from that point.
 
 Engineering: the cause is the house attract fork (a joiner inherits his seat from an old recorded match at its current beat, dead). A proposed "mercy" revival rule was cancelled: no invented rules. Instead: player time travel. A dead player who is the only active human may rewind and fork the match from an earlier beat (backend/death-mercy branch, retargeted to the rewind).
+
+Benito, in his game-design session, asked whether a classic lobby with joiner and starter options could be added, where a starter can pick all bots or create their own servers. He felt the design was overcomplicated, said the will box example does not hint at the death flow, and asked that duels be explained better or fixed, that anything confusing or not visually represented be found, and why duels look blocky, noting they should be image-generated.
+
+Engineering: a classic lobby (play vs bots / host with a code / join by code / the house) and the fallen-WILL chip go to the Mac; his own private room on his PC tonight; the duel fighters' look is his pick (generated cards, Meshy statues, or a backdrop).
