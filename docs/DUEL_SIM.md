@@ -7,8 +7,11 @@ events with the ids of the pieces they make, and for each fighter a root track p
 client's IK. The Unreal box (and the lab, and any later client) only plays it back: no physics in Unreal C++, no
 per-client drift, exact on rewind, resume and fork.
 
-Status: the crate, its tests and the seam exist; **nothing in `fn7-plugin` calls it yet**. The lead wires it after
-`backend/duel-weapons` merges (the 3 lines in [Wiring](#wiring)). Client shapes: docs/CLIENT_API.md, "Duel sim:
+Status: **wired** in state schema 14 (`backend/duel-weapons`): the two fighters' skins are locked in the bout at the
+lock (`skins`); `panel::extras` (the live stream only: `also[]`, a tick's event, an AI lock's `round.started` entry)
+attaches `sim` to each panel and to the scene, and `present.duels[]` carries `sim` (and `scene.sim`). The recorded
+outcome (`challenge.open.panels`, `challenge.end.panels`) and the state never carry it, so recordings replay with 0
+differences (`fn7-plugin` test `a_launcher_fires_a_rocket_with_a_blast`). Client shapes: docs/CLIENT_API.md, "Duel sim:
 baked physics and limb targets".
 
 ## What is modelled

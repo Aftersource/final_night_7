@@ -1228,3 +1228,16 @@ Engineering (Chris is she/her; earlier notes in this log that say otherwise are 
   a moving support (stacks fall), which moves a few secondary rows; every named event (the crate skids into b, the
   glass shatters, the couch slides, the pillar cracks, the boosted blow breaks it for gold and only cracks it for
   wood) is the same.
+
+## 2026-11-14: the picker, weapons, hammer-space, projectiles (verbatim)
+
+> It needs to work agentically: a list of options, run through, select, done. Thinking mode is not needed for the most part. All of it should be available in the list, as long as data is collected properly.
+
+> Players can grab items from hammer-space.
+
+Engineering (branch backend/duel-weapons; state schema 14, 13 being the earth simulation's; rules label unchanged 0.9.0):
+- **The picker** (docs/DUEL_MOVES.md §4.1): one structured `claude-haiku-5-5` call per typed human duel line, every choice an enum built from the list and the scene; it chooses class and staging, the d20 and the matrix decide. The pick is a side input in the plugin's journal, ordered with the duel's actions by stamp: a cached pick (words, range, weapon class, list version) at the line's arrival sets the class; an answer back before the panel's input close stages the line; resolves record the picks they were handed (`duel_picks`) and replay feeds them back. Settings `duel_picker`, `duel_picker_timeout_ms`, `duel_picker_for_ai`.
+- **The list as data**: `data/duel_moves.json` is loaded and validated at startup (`FN7_DUEL_MOVES`); a non-compiled list is recorded in the match's ruleset and installed by replay. Clip trims go on segs (`at`, `speed`) and contacts land on the clip's contact frame. Every ended duel's lines go to `<data>/fn7/duel_lines.sqlite` with `/api/duel/lines?by=line|clip|class|disagreement|unmatched` (key-gated).
+- **Weapon classes, hammer-space, projectiles** (§4.2-4.4): `weapon_class` on items and loadouts; a duellist wields its best held weapon, plays its clips and carries a seg `prop`; ranged weapons shoot from far, weak in a grapple; held items are drawn free, anything else is an item-engine roll (sparks, odds, d20) whose success is a duel prop and whose failure flips the initiative; ranged blows and invokes put `projectiles[]` on panels (a rocket's `aoe_hexes` and knocked `objects`).
+- **The duel sim** is wired (skins locked at the lock; `sim` on live panels, the live scene and `present` only).
+- **Replay finding**: recording 79b32d4b (159 differences from beat 4) was the engine's recorder writing two identical concurrent LLM calls (one player's same god invocation twice in a beat) in finish order while replay hands identical requests their answers in file order: the answers swapped. `fn7-sim --replay` now orders `llm_call` records by id (start order): 0 differences.

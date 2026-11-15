@@ -1188,8 +1188,8 @@ have one plays its fallback:
   "throw_object": "throw_shoulder", "draw_from_nowhere": "taunt" }
 ```
 
-The last 14 (bows, guns, the launcher, two-handed, thrown, hammer-space) are in the vocabulary so a client can ship
-them, but no panel plays them yet. The table is not sent on the wire: it is here, in
+The last 14 (bows, guns, the launcher, two-handed, thrown, hammer-space) are played from state schema 14 (weapon
+classes and hammer-space draws: see "Duel weapons" below). The table is not sent on the wire: it is here, in
 `fn7_plugin::panel::CLIP_FALLBACKS` and, with each clip's description, length and estimated trim (`len_s`, `at_ms`,
 `use_ms`, `hit_ms`), in `data/duel_moves.json` (see `docs/DUEL_MOVES.md`: the list, the per-line data, the loop).
 
@@ -1218,10 +1218,104 @@ them, but no panel plays them yet. The table is not sent on the wire: it is here
   `duel_id` (the deed, the log, no `provisional`): replace the provisional one. After the close, lines are refused
   `duel_over` and ticks `no_duel`. (`duel_keys` never closes a duel: it is not part of the match's record.)
 
+### Duel weapons, hammer-space, projectiles and the picker (state schema 14)
+
+State **schema 14** (13 is the earth simulation's). Everything here is additive: a schema-12 match has none of it,
+and a client that ignores the new keys plays as before. Design and data: `docs/DUEL_MOVES.md`.
+
+**Weapon classes.** Every wieldable item has `weapon_class`: `unarmed | one_handed | two_handed | bow | rifle |
+launcher | thrown | staff | shield`, derived by rules from its kind and name ("Twin Rocket Launchers" → launcher,
+"a yew longbow" → bow, "Moonsteel Greatsword" / "Thor's hammer" / "an axe" → two_handed, "hand axe" → one_handed, a
+weapon whose words name nothing → one_handed; armour, relics and artifacts only when their words name one: a shield,
+a staff). It is on items (`my_items[]`, piles, `game.*` items) and on each `look.loadout[]` line. A duellist wields its
+best held weapon (tier, then launcher > rifle > bow > two_handed > staff > one_handed > thrown > shield).
+
+- A generic attack word (`attack`, `hit`, `slash`, `stab`, `smash`, `block`, and the new `shoot`, `snipe`, `open
+  fire`, `fire at`, `chop`, `reap`) or a line with no move word plays the **weapon's clips** for its class (bow:
+  `bow_quick_shot`, `bow_draw_shoot`; rifle: `gun_side_shot`, `gun_quick_draw`, `gun_run_shoot`, `gun_roll_fire` to
+  evade, `gun_reload` to guard; launcher: `launcher_fire`; two_handed: `twohand_reap`, `twohand_chop`,
+  `twohand_stance`; thrown: `throw_object`; the sets are the list's `weapons[]`). A specific word (`kick`, `jumpkick`)
+  keeps its own clip.
+- **Ranged** (bow, rifle, launcher, thrown) are strong far and mid: a strike or heavy from far is a shot (not a step
+  in) and a landed shot keeps the distance, +0.5 damage at far and mid; half damage in a grapple. A two-handed heavy
+  +0.5.
+
+`duel.blow.move` (and its `counter.move`) gains:
+
+```json
+"move": { "clip": "launcher_fire", "word": "shoot", "setup": ["draw_from_nowhere"], "path": null,
+          "weapon_class": "launcher",
+          "prop": { "item": null, "name": "rocket launcher", "kind": "weapon", "weapon_class": "launcher",
+                    "material": "obsidian", "tier": "artifact", "hammer": true },
+          "draw": { "thing": "rocket launcher", "weapon_class": "launcher", "held": false, "roll": 14, "need": 8,
+                    "p": 0.886, "sparks": 1, "tier": "artifact", "verdict": "success" },
+          "picker": "used", "target": "head", "object": null }
+```
+
+- `weapon_class`: what it fought with for this strike. `prop`: the weapon in its hand (`item`: the world item's
+  ref; null for a hammer-space prop, which exists only in the duel). Absent `prop`: empty hands.
+- `draw` (a line that pulls something out: "pull out", "draw", "whip out", "take out", "unsheathe", "brandish", "from
+  hammerspace", ... followed by words that name a weapon): `held: true, verdict: "drawn"` for an item it holds (free;
+  it wields that from now on); otherwise hammer-space: the item engine's odds for the prop's tier (`p`: Death's favor,
+  Entropy, the draws already made) as a d20 target `need` (a 20 always works, a 1 never), `roll` the seeded d20,
+  `sparks` paid (`duel_draw_sparks`, 1, while the purse has them: the prop is `artifact` tier; unpaid: `trinket`).
+  `verdict`: `success` (the prop is in hand for the rest of the duel), `fumble` (the initiative flipped to the foe
+  before the blow; nothing in hand changes), `spent` (no draws left: `duel_draws`, 2 a duel; the line reads without
+  it). A draw plays `draw_from_nowhere` first (`setup[0]`). Sparks are paid at the resolve.
+- `picker`, `target`, `object`: see the picker below.
+
+`duel.panel` gains, per fighter, `a|b.weapon_class` (in hand at the panel's end), on **every seg** of an armed
+fighter `prop` (the shape above; from a `draw_from_nowhere` seg on, the new one), on segs whose clip has a trim
+`at` (ms into the clip to start) and `speed` (play `speed x ms` of the clip: a long clip never overruns its seg; the
+attack's contact frame is at `contacts[].t_ms`), and:
+
+```json
+"projectiles": [
+  { "id": "p4.1", "kind": "rocket", "by": "a", "from": "a", "from_hex": [-1, 0], "to": "b", "to_hex": [1, 0],
+    "t_fire_ms": 942, "t_hit_ms": 1086, "arc_h": 0.3, "speed": 24.0, "miss": false, "deflected_by": null,
+    "on_hit": { "blow": 4, "impulse": 0.1, "burst": "KRA-THOOM",
+                "aoe_hexes": [[1, 0], [2, 0], [0, 0], [1, 1], [1, -1], [2, -1], [0, 1]],
+                "objects": [{ "id": "cairn_a", "impulse": 0.6 }] } },
+  { "id": "p8.1", "kind": "arrow", "by": "a", "from": "a", "from_hex": [-1, 0], "to": [4, 0], "to_hex": [4, 0],
+    "t_fire_ms": 728, "t_hit_ms": 999, "arc_h": 0.5, "speed": 32.0, "miss": true, "deflected_by": null,
+    "on_hit": { "blow": 8, "impulse": 0.5, "burst": "KLANG" } } ]
+```
+
+- One per staged ranged blow (strike or heavy with a bow → `arrow`, rifle → `bullet`, launcher → `rocket`, thrown →
+  `rock`) and per invoke (`orb` with a staff, else the god's `bolt`). Decided by the blow's verdict and seeded: a hit
+  flies `to` the foe (`"a"` / `"b"`); a parry, or a guard with a shield, deflects it (`deflected_by`, landing on a hex
+  to the side); a miss lands on a scene object near the foe (its id) or a hex beyond (`[q, r]`). `from_hex` / `to_hex`
+  are where it leaves and lands. Times are panel-local ms; `speed` m/s; `arc_h` the apex above the line (m).
+- A rocket bursts: `on_hit.aoe_hexes` (the landing hex and its six neighbours) and `on_hit.objects` (scene objects in
+  them, with their impulse 0..1). The duel sim reads `t_fire_ms`, `t_hit_ms`, `to`, `speed`, `on_hit.impulse`,
+  `on_hit.aoe_hexes`, `on_hit.objects`: these names are stable.
+- The blow's contact in `contacts[]` is at `t_hit_ms`, `ranged: true` (a deflected one `miss: true`).
+
+`duel.scene` gains `list_version` (the duel move list the duel is read with) and `clip_fallbacks` (`{clip: fallback}`,
+what a client without a clip plays; it comes from `data/duel_moves.json`, so an edit reaches you here).
+
+**The picker** (`duel_picker`, on). For each typed human line the server asks a small model (`claude-haiku-5-5`, no
+thinking, low effort) to choose, from the list only, the move class, one to three clips, a path, a scene object and
+the body part aimed at. It decides no outcome (the d20 and the matrix do). A pick the server already has for the same
+words, range, weapon class and list version is used at the line's arrival: it chooses the class and the staging
+(`move.picker: "pre"`). Otherwise the line resolves at once as before and the pick, when it comes back before the
+panel's input close (`duel_picker_timeout_ms`, 700), stages the line in its panel (`move.picker: "used"` on the blow in
+`present.duels[].blows`; the live `duel.blow` came before it). `move.picker: "class"`: the pick's clip did not serve
+the class the rules made of the line; `"weapon"`: it named a weapon the fighter does not hold; in both only `target`
+is taken. `target` (`head chest belly arms legs`) sets the contact's `at`; `object` with `path` `vault` / `slide` /
+`wallkick` sends the figure over, under or off it on its way in. A client sends nothing new; it never sends
+`fields.duel_pick` (refused).
+
+Settings: `duel_picker` (`on` | `off`), `duel_picker_timeout_ms` (700, 100..5000), `duel_picker_for_ai` (false: also
+pick for the AI's typed lines), `duel_draws` (2, 0..10), `duel_draw_sparks` (1, 0..10).
+
 ## Duel sim: baked physics and limb targets
 
-**Not wired yet** (crate `fn7-duelsim`, docs/DUEL_SIM.md): once it is, every `duel.panel` carries a `sim`, `duel.scene`
-a `sim`, and `present.duels[]` a `sim`. The server simulates each panel once, deterministically (120 Hz rigid bodies
+**Wired in state schema 14** (crate `fn7-duelsim`, docs/DUEL_SIM.md): on the **live stream** every `duel.panel` (in
+`also[]` and as a `duel_tick`'s event) carries a `sim`, the live `duel.scene` a `sim`, and `present.duels[]` a `sim`
+(and its `scene.sim`). The recorded outcome's panels (`challenge.open.panels`, `challenge.end.panels`) and
+`present.duels[].panels` stay bare (a recording replays unchanged; a reconnect plays `present.duels[].sim`). The two
+fighters' skins are locked in the duel's state at the lock (`skins`), so the masses never change mid-duel. The server simulates each panel once, deterministically (120 Hz rigid bodies
 with masses from materials, fighters with mass from their skin), and a client **plays it back**: no physics on the
 client, the same result on every screen, exact on rewind and resume. A client that ignores `sim` works as before.
 

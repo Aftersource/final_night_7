@@ -1,22 +1,22 @@
 # Duel moves: the list, the data, and the loop
 
-How a typed duel line becomes a move and an animation in Final Night 7 (state schema 12), what is recorded about
-every line, and how Chris and Benito get players what they ask for. Client shapes are in `docs/CLIENT_API.md`
-("AI duellists: typing scripts", "Words to moves and `clip_fallbacks`"); the rules are in `docs/DM_RULEBOOK.md` 21.8.
+How a typed duel line becomes a move and an animation in Final Night 7 (state schemas 12 and 14), what is recorded
+about every line, and how Chris and Benito get players what they ask for. Client shapes are in `docs/CLIENT_API.md`
+("AI duellists: typing scripts", "Words to moves and `clip_fallbacks`", "Duel weapons, hammer-space, projectiles and
+the picker"); the rules are in `docs/DM_RULEBOOK.md` 21.8.
 
 **Status at a glance**
 
 | Piece | State |
 |---|---|
-| The list as data (`data/duel_moves.json`, `fn7-duel-lines --list`) | built; generated from the code tables, checked by a test |
-| The keyword mapper (words → class, clips, setups, leaps; typos) | built (`crates/fn7-plugin/src/moves.rs`), in every schema-12 duel |
-| One record per typed line in the recording (`duel_line`) + rollup CLI | built (`fn7-duel-lines`) |
-| 15 new clips in use, 14 more reserved (bows, guns, launcher, two-handed, hammer-space) with fallbacks | vocabulary and fallbacks built; the 14 are not emitted yet |
-| Clip trims (`len_s`, `at_ms`, `use_ms`, `hit_ms`) | in the list, **estimated by rule**; segs do not carry them yet |
-| The LLM picker, its settings, its cache | **designed below, not built** |
-| The SQLite table and the `/api` rollup route | **not built** (the recording is the store today) |
-| The list loaded from the file at startup (editable without code) | **not built** (the file is generated; the code tables are the source) |
-| Weapon classes, hammer-space draws, projectiles | **designed below, not built** |
+| The list as data (`data/duel_moves.json`) | **loaded at startup** (`FN7_DUEL_MOVES`, else the file, else the compiled one), validated like the media style; the code tables are the compiled-in default (a test keeps the file equal to it) |
+| The keyword mapper (words → class, clips, setups, leaps; typos) | built (`moves.rs`), in every schema-12 duel; schema 14 adds `shoot`/`chop` rows and weapon-generic words |
+| One record per typed line (`duel_line`) + rollup CLI | built; schema 14: one record per line when its duel ends, with the picker's part and what was staged |
+| The SQLite store and `/api/duel/lines` rollups | **built** (§2) |
+| The LLM picker (§4.1) | **built**: a journaled side input, cache, settings, replay-exact |
+| Clip trims on segs (`at`, `speed`) | **built** (schema 14); the trims themselves are still estimated by rule |
+| Weapon classes, hammer-space draws, projectiles (§4.4-4.6) | **built** (schema 14) |
+| The duel sim on live panels (docs/DUEL_SIM.md) | **wired** (schema 14: skins locked at the lock; live stream and `present` only) |
 
 ## 1. The list
 
@@ -32,20 +32,36 @@ every line, and how Chris and Benito get players what they ask for. Client shape
                  "clips": ["flying_kick"], "leap": true, "weak": false, "typos": true }, ... ] }
 ```
 
-- `version`: a hash of everything else. It is in every data row (`list_version`), so a rollup knows which list a
-  line was read with.
+- `version`: a hash of everything else. It is in every data row (`list_version`) and on `duel.scene`, so a rollup knows
+  which list a line was read with.
+- `defaults[]`: each class's clips when the line names none. `weapons[]`: per weapon class, its clips per move class
+  (`sets`) and what it shoots (`projectile`). `draw_clip`: the hammer-space clip.
 - `clips[].for`: the classes the clip serves (`reaction`, `idle`, `outro` for the ones no line picks;
   `reserved: <weapon class>` for the 14 waiting for weapon classes). `fallback`: what a client without the clip plays
   (null for the 35 original ones).
 - **Trims.** Several library clips are long. `len_s` is the measured length (34 clips so far); `at_ms` is where to
   start, `use_ms` how much to play, `hit_ms` the contact inside the used part. They are first guesses by rule (a clip
   of 5 s or more starts 35% in and uses 40%; a shorter one plays whole; an attack's contact is 45% into the used
-  part) and marked `trim: "estimated"`: correct them by eye. A client plays a seg of `ms` with
-  `speed = use_ms / ms` from `at_ms`. The panels do not send `at` / `speed` on segs yet; the list is where they are.
+  part) and marked `trim: "estimated"`: correct them by eye. Schema 14: every non-looping seg whose clip has a trim
+  carries `at` (ms into the clip) and `speed` (`use_ms / ms`, kept within 0.5..2.5; when it would be faster, the
+  played part is the one around the contact), and an attack's contact (`contacts[].t_ms`, the defender's reaction)
+  is at the clip's `hit_ms`.
 - `words[]`: the mapper's rows. `weak`: only the move when no other row matched (`knee` in "kick your knee").
   `typos`: may match within one or two edits in a command of at most four words.
 
-**Adding a clip** (today, in code; one commit):
+**Editing without code.** The server reads the list from `FN7_DUEL_MOVES` (a path), else `data/duel_moves.json` in its
+working directory, else the compiled one; a file that does not validate stops the server with the reason (every clip
+one the rig has, `panel::CLIPS`, described once; every fallback one of the 35 original clips; every class one of the
+13; every word row, default and weapon set naming known clips; every weapon class known; every trim inside its
+clip). What can be edited in the file: descriptions (`about`: the picker reads them), fallbacks (sent to clients in
+`duel.scene.clip_fallbacks`), word rows (`words`: the words, their class and clips, `leap`, `weak`, `typos`, `weapon`
+for a generic attack word, `since`: the schema the row applies from), each class's `defaults`, the weapon classes'
+clip `sets` and `projectile`, and the trims (`len_s`, `at_ms`, `use_ms`, `hit_ms`; set `trim` to `"measured"` once
+checked by eye). The version is the content's hash: an edited file gets a new one, in every data row. A match records
+the list in its ruleset when it is not the compiled one (`duel_moves.list`), and a replay installs it, so old matches
+are read with the list they were played with. Restart the server to load an edit.
+
+**Adding a clip** (in code; one commit):
 
 1. `crates/fn7-plugin/src/panel.rs`: add its name to `CLIPS` and, if older clients must cope, `(name, fallback)` to
    `CLIP_FALLBACKS`.
@@ -77,7 +93,43 @@ trace event `duel_line` in the match's recording (`<THEATRE_RECORD_DIR>/<match>.
 
 `mapper` is null when the line has no move word (it was read as in 0.8.1): those are the lines the list lacks.
 `class` is what the rules made of it (range, bolts and armies gate the asked class). `staged` is what the panel
-played. `picker` is always null today.
+played.
+
+**Schema 14.** A duel's records are written once it has ended (all its panels are out), so `staged` is what was
+really played and `picker` is filled. A real row from the private-server run (`fn7-server/tests/duel_weapons.rs`):
+
+```json
+{ "beat": 12, "duel_id": "duel:s21:0:1", "n": 1, "seq": 22, "at_ms": 1794709068448, "by": "a", "demigod": "dg:0", "seat": 0,
+  "ai": false, "player": "Ash", "account": null, "line": "I hit him hard", "normalized": "i hit him hard", "list_version": "d24da37ec8bd6819",
+  "mapper": { "word": "hit", "class": "strike", "clips": ["jab", "punch_combo", "strike_side"], "setup": [], "leap": false },
+  "picker": { "pick": { "move_class": "strike", "clips": ["roundhouse_kick"], "path": null, "object_id": null, "target_part": "head" },
+              "pre": false, "cached": false, "latency_ms": 2, "tokens_in": 0, "tokens_out": 40, "cost_usd": 0.00002,
+              "model": "claude-haiku-5-5", "error": null, "at_ms": 1794709068464,
+              "used": true, "why": "came before the panel's input close" },
+  "class": "strike", "result": "landed", "verdict": "success", "damage": 0.1, "range": "close",
+  "staged": { "clip": "roundhouse_kick", "setup": [], "path": null, "object": null, "weapon_class": "one_handed", "draw": null, "panel": 1 } }
+```
+
+`picker.why`: known at arrival (cache); came before the panel's input close; came after it; no pick (timeout or
+error: `error`); its clip does not serve the class the rules made of the line; its clip belongs to a weapon the
+fighter does not wield. Tokens are the provider's (the OpenAI-compatible gateway reports output tokens only).
+
+**The SQLite store.** The server also writes each record to `<THEATRE_DATA_DIR>/fn7/duel_lines.sqlite`
+(`FN7_DUEL_LINES_DB` to move it, `FN7_DUEL_LINES=off` to stop it): table `duel_lines`, one row per (match, duel, blow
+`n`), upserted, with the record's fields in columns (match, beat, duel, seat, account, player, raw and normalized
+line, list version, mapper word / class / clip, picker class / clips / path / object / target / latency / tokens /
+cost / used / pre / cached / error, resolved class, result, verdict, damage, range, staged clip / setup / path,
+weapon class, draw) and the whole record as JSON (`row`). The pick cache is the table `pick_cache` (key, pick,
+model). The recording stays the record of truth; the store is the queryable copy.
+
+**`GET /api/duel/lines?by=line|clip|class|disagreement|unmatched[&ai=1][&limit=40]`**, key-gated (`?key=` or
+`Authorization: Bearer`: `FN7_DUEL_LINES_KEY`, else `FN7_PROFILE_KEY`, else the admin token; none set: 403):
+`{ "by", "lines", "ai", "rows": [...] }`, most frequent first. Rows by `line`: `{line, count, classes, clips,
+no_move_word, picker_used}`; `clip`: `{clip, count, classes, weapon_classes, picker_used, avg_damage}`; `class`:
+`{class, count, mapper_classes, picker_classes, successes, avg_damage}`; `disagreement` (the picker chose another
+class than the mapper, or the mapper found no word): `{line, count, mapper_class, picker_class, mapper_clips,
+picker_clips}`; `unmatched` (no move word): `{line, count, classes, picker_classes, clips}`. Human lines only
+unless `ai=1`.
 
 **Rollups** (reads recordings, writes nothing):
 
@@ -103,74 +155,99 @@ Recordings from before schema 12 have no `duel_line` events (their lines are in 
 5. **Import** into Unreal under the same name; older clients play the fallback.
 6. **Live** with the next deploy; the list version in the rows changes, so before and after can be compared.
 
-## 4. Designed, not built
-
-These were asked for while this branch was in flight. They are written down so the next branch can build them
-without re-deriving the constraints.
+## 4. The picker, the list as data, weapons (state schema 14)
 
 ### 4.1 The picker (an LLM chooses from the list)
 
-One small call per typed human line: the model is handed the whole list (classes, clips with descriptions, paths),
-the scene's object ids and affordances, the range, initiative and stances and the fighter's gear, with the line as
-untrusted text, and returns a structured pick with enums built from the list (it cannot invent a clip):
-`{move_class, clips: [1..3], path?, object_id?, target_part, intent_words}`. Settings `duel_picker` (off | on),
-`duel_picker_timeout_ms`, `duel_picker_for_ai`.
+The designer asked for a list of options the agent can run through and select from, with no thinking mode needed for the
+most part, and with the list right. all of it should be right there, as long as you collect data properly".
 
-The constraint that shapes it: **a blow is resolved inside pure, synchronous hooks, and panels are part of the
-state.** `on_instant`, the live view, the resolve and a replay must all compute the same blow and the same panel
-from the same inputs, and none of them may wait for a model. So:
+**The call** (`fn7_agents::duel_pick`): one request per typed human line, model `claude-haiku-5-5`, no thinking, effort
+low (the Anthropic backend's defaults; temperature 0 is asked for, the backend sends none: current models take the
+default), at most 300 output tokens. The system prompt says: read what the player means, pick only from the lists,
+decide nothing else. The user message has the situation (range, initiative, stances, the foe's set defence, the
+typist's weapon class and held items), the classes and the pickable clips with their descriptions (from the list:
+everything but reactions, idles and outros), the paths, the scene's objects with what they afford, and the line
+fenced as untrusted text. The reply's JSON schema has an **enum for every choice**, built from the list and the scene:
+`move_class` (the 13), `clips` (1..3 of the pickable clips), `path` (dash, leap, vault, slide, wallkick or null),
+`object_id` (the scene's ids or null), `target_part` (head, chest, belly, arms, legs). The reply is checked against
+the same enums again.
 
-- The blow is resolved at once from the mapper's class, as today. The picker may change the **presentation**
-  (clips, path, object, target part) of the panel that stages it; if it may also change the class, the class must be
-  fixed before the d20, which means the pick must already exist when the line arrives (only the cache can do that).
-- The pick is a **side input**, like `duel_clock`: the server makes the call beside the plugin (as it does
-  moderation), stamps the answer with the server clock, and hands it to the plugin as a journaled entry ordered with
-  the duel's actions by `(at_ms, seq)`. A panel uses a pick only if its stamp is before the panel's window close;
-  otherwise the mapper's. The resolve reads the picks from the journal, records them as a `duel_picks` event, and a
-  replay feeds that event back (no model call on replay).
-- Cache by `(normalized line, range, list version)`; a cached pick is known at arrival and can also set the class.
-- The `picker` field of the `duel_line` record then carries the pick, whether it was used, its latency and tokens.
+**The replay problem, and the solution.** A blow is resolved inside pure, synchronous hooks: `on_instant`, the live
+view, the resolve and a replay must compute the same blow and the same panel from the same inputs, and none of them
+may wait for a model. So the pick is a **recorded side input ordered with the duel's actions**:
 
-### 4.2 The SQLite table and the `/api` route
+1. When a typed line arrives, the plugin looks the line up in the pick cache by (normalized line, range, the typist's
+   weapon class, list version). A hit is journaled at once as a pick record stamped with the line's own `(received_at_ms,
+   seq)`, ordered just before the line: the line's blow takes the pick's **class** (gated by range, bolts, armies and
+   the weapon as any class) and its **staging**. (The weapon class is in the key because the clips a pick names
+   depend on what is in hand.)
+2. On a miss the line is resolved at once with the mapper's class, as before, and the server makes the call outside
+   the hooks (a spawned task, `duel_picker_timeout_ms`, 700). Its answer, or its timeout or error (`pick: null`), is
+   journaled as a pick record stamped with the server clock when it came back. A panel stages the line with the
+   pick's clips, path, object and body part only if that stamp is at or before the panel's input close and the pick's
+   first clip serves the class the rules resolved; otherwise the mapper's staging stands. A late answer still fills
+   the cache (so the next time those words are typed they are picked at arrival).
+3. Pick records are entries of the plugin's journal (`fields.duel_pick`; a client sending one is refused). So they are
+   ordered with the duel's actions by `(received_at_ms, seq)` in the live view, survive a restart (the journal is on
+   disk), and are handed to the resolve: the ones stamped at or before its batch's newest instant action (the mark it
+   sets; later ones stay pending for the next resolve, exactly as the live view applied them). The resolve records
+   them as the `duel_picks {beat, picks}` event; replay verification feeds that event back (`present::Feed`) and never
+   calls a model. Each pick lives in the bout (`picks`), so snapshots, forks and resumes carry it.
 
-A table `duel_lines` (the record of section 2, one row per line) in `<data>/fn7/duel_lines.sqlite`, filled by the
-server from the `duel_line` events as they are recorded, and `GET /api/duel/lines/rollup` (key-gated) serving the
-CLI's JSON. The asset registry's database (another branch) is the better home once it has merged.
+Why not the LLM recorder: the call cannot be inside a hook (it would block the room), so the engine's LLM replay
+(keyed by hook round and step) cannot serve it; and why not an internal room action: the engine has no way for the
+server to submit one (and is read-only for this branch). The journal is the plugin's existing record of everything
+between two resolves, with the same ordering rule as the actions themselves.
 
-### 4.3 The list as an editable file
+**Settings**: `duel_picker` (`on` | `off`, on), `duel_picker_timeout_ms` (700), `duel_picker_for_ai` (off: on, the
+AI's typed lines are picked when the window they are typed in opens from an instant action; a pick back before the
+line's Enter chooses its class). The room's `llm: false`, a server without an LLM, a replayed LLM or
+`FN7_DUEL_PICKER=off` mean no picks. Tests: `fn7-plugin/src/picker_tests.rs` (fake gateway: the enums, a pick
+staged before the close and replayed exactly from `duel_picks`, a timeout and the late answer cached, a cached pick
+choosing the class, off / old / no LLM), `fn7-server/tests/duel_weapons.rs` (the real server).
 
-Today the code tables are the source and the file is generated. To let descriptions, fallbacks, trims and word
-hints be edited without code: load `data/duel_moves.json` at startup, validate it (every clip known to the rig list,
-every fallback an original clip, every class one of the 13), and put the list (not only its version) in the match's
-recorded ruleset, because the mapper's reading decides classes: a replay must read old matches with the list they
-were played with.
+### 4.2 Weapon classes (built)
 
-### 4.4 Weapon classes
+`fn7_plugin::weapons`: `weapon_class` from kind and name by rules (launcher > bow > rifle > thrown > staff > shield >
+hatchet-like one-handed > two-handed > one-handed words; a weapon whose words name nothing is one-handed; armour,
+relics and artifacts only when their words name a weapon). Shown on items and on `look.loadout[]` lines. A fighter's
+held wieldables are in its duel record (`f[].weapons`, best first), it wields the best at the lock (`wield`); a move
+class plays its weapon class's clips (`weapons[].sets` in the list) for a generic attack word or a line with no move
+word; segs carry the `prop`. Ranged weapons fight from far (no step in, a landed shot keeps the range, +0.5 damage at
+far and mid, half in a grapple); a two-handed heavy +0.5.
 
-`weapon_class` on every wieldable item (`unarmed | one_handed | two_handed | bow | rifle | launcher | thrown | staff |
-shield`), derived by rules from its kind, name and material words, optional on the item, shown in payloads and in
-the gear look's loadout; a fighter's class in a duel is its best held weapon's. The list gets clip sets per move
-class and weapon class, falling back to the generic ones. The 14 reserved clips are for these sets.
+### 4.3 Hammer-space (built)
 
-### 4.5 Hammer-space
+"players can grab from hammer-space": a line with a draw phrase whose following words name a weapon draws it before
+its blow. Something it holds: free, it wields it from then on (`draw.verdict: "drawn"`). Anything else: the item
+engine's rules inside the duel: `manifest::odds` for the prop's tier (artifact when `duel_draw_sparks` are paid from
+the purse, trinket otherwise; Death's favor, Entropy, the draws already made as repeats) turned into a d20 target
+(`ceil(20 (1 - p)) + 6`, the duel's pressure), a seeded d20 (`<duel_id>:<n>:draw`; 20 always works, 1 never).
+Success: a duel prop (no world item) that sets the weapon class for the rest of the duel. Failure: a fumble, the
+initiative flips to the foe before the blow. At most `duel_draws` (2) per fighter per duel; sparks are paid at the
+resolve.
 
-A fighter pulls an item it holds out of nowhere mid-duel, or with the right words one it does not hold ("i pull out
-a rocket launcher"): an item-engine manifestation judged by the existing rules (cost, odds, a d20), resolved inside
-the duel as a setup move. Success: the item exists (a trinket-tier duel prop unless paid for), the panel has a seg
-`{clip: "draw_from_nowhere", prop: {item | kind, weapon_class, material}}`, and the fighter's weapon class changes
-for the rest of the duel. Failure: a fumble, the initiative flips. Bounded by a setting (draws per duel).
+### 4.4 Projectiles as mini data (built)
 
-### 4.6 Projectiles as mini data
-
-Ranged moves add compact entries to the panel, all decided by the blow's verdict and seeded:
+`duel.panel.projectiles[]` (`weapons::projectile`), one per staged ranged blow or invoke:
 
 ```json
-"projectiles": [ { "id": "p1", "kind": "arrow|bullet|rocket|rock|bolt|orb", "by": "a", "from": "a", "to": "b",
-                   "t_fire_ms": 900, "t_hit_ms": 1180, "arc_h": 0.4, "speed": 28,
-                   "on_hit": { "blow": 4, "impulse": 0.5, "text": "THOOM", "aoe_hexes": 1 }, "miss": false,
-                   "deflected_by": null } ]
+{ "id": "p4.1", "kind": "rocket", "by": "a", "from": "a", "from_hex": [-1, 0], "to": "b", "to_hex": [1, 0],
+  "t_fire_ms": 942, "t_hit_ms": 1086, "arc_h": 0.3, "speed": 24.0, "miss": false, "deflected_by": null,
+  "on_hit": { "blow": 4, "impulse": 0.1, "burst": "KRA-THOOM", "aoe_hexes": [[1, 0], [2, 0], [0, 0], [1, 1], [1, -1], [2, -1], [0, 1]],
+              "objects": [{ "id": "cairn_a", "impulse": 0.6 }] } }
 ```
 
-A miss lands on a named scene object or a hex; a parry or a shield can deflect; a rocket has a small area that also
-knocks scene objects. Ranged moves are legal at far and mid range and weak in a grapple, which needs new rows in
-the interaction matrix (a rules change, schema-gated). The same struct could carry board-level casts between beats.
+All decided by the blow's verdict and the panel's seeded rng: a hit flies to the foe; a parry or a shield's guard
+deflects it to a hex at the side; a miss lands on a scene object within 3 hexes of the foe or a hex beyond it. A rocket
+bursts over the landing hex and its neighbours and knocks the objects in them. The contact lands at `t_hit_ms`
+(`ranged: true`). The duel sim (`fn7-duelsim`) consumes `t_fire_ms`, `t_hit_ms`, `to`, `speed`, `on_hit.impulse`,
+`on_hit.aoe_hexes`, `on_hit.objects`: stable names. Kinds: `arrow bullet rocket rock bolt orb`.
+
+### 4.5 Not done
+
+- Trims are still the rule's estimates; nobody has corrected them by eye.
+- `duel_picker_for_ai` does not pick AI lines whose window was opened by a resolve (no instant action to carry the
+  call); the picker does not detect draws (the rules do).
+- Hammer-space props are duel-only: they never become world items.
