@@ -17,6 +17,10 @@ path = "src/bin/agents.rs"
 name = "fn7-schemas"
 path = "src/bin/schemas.rs"
 
+[[bin]]
+name = "fn7-duel-lines"
+path = "src/bin/duel_lines.rs"
+
 [dependencies]
 fn7-pantheon.workspace = true
 fn7-model = { workspace = true, features = ["schema"] }

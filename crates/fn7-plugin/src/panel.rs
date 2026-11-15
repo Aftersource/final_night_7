@@ -30,6 +30,7 @@ use serde_json::{json, Value};
 
 use crate::choreo::Range;
 use crate::duel::{Bout, Duel};
+use crate::settings::Settings;
 
 /// The render lead: a panel's input closes this long before it ends.
 pub const LEAD_MS: i64 = 700;
@@ -47,6 +48,24 @@ pub const CLIPS: &[&str] = &[
     "evade_spin", "evade_stand", "grapple_throw_down", "ground_slam", "heavy_charged", "heavy_hammer", "idle_guard", "invoke",
     "jump_attack", "kick", "kneel", "lunge", "parry_back", "parry_high", "rise", "run", "shield_push", "stagger_back",
     "stagger_waist", "strike_side", "strike_slash", "taunt", "throw_shoulder", "victory", "walk",
+    // Schema 12: the new clips of the same rig (a client without one plays its fallback: [`CLIP_FALLBACKS`]).
+    "flying_kick", "roundhouse_kick", "high_kick", "leg_sweep", "elbow_strike", "uppercut", "jab", "punch_combo", "blade_spin", "axe_spin",
+    "spin_rise", "mage_cast", "dodge_roll_back", "knee_strike", "sword_judgment",
+    // Reserved for weapon classes (docs/DUEL_MOVES.md: designed, not emitted yet): in the vocabulary and the fallback
+    // table now so a client can ship them ahead.
+    "bow_draw_shoot", "bow_quick_shot", "bow_aim_walk", "gun_side_shot", "gun_run_shoot", "gun_quick_draw", "gun_roll_fire", "gun_reload",
+    "launcher_fire", "twohand_chop", "twohand_reap", "twohand_stance", "throw_object", "draw_from_nowhere",
+];
+/// Schema 12: what a client without a new clip plays instead (`clip_fallbacks`).
+pub const CLIP_FALLBACKS: &[(&str, &str)] = &[
+    ("flying_kick", "kick"), ("roundhouse_kick", "kick"), ("high_kick", "kick"), ("leg_sweep", "kick"), ("elbow_strike", "strike_side"),
+    ("uppercut", "strike_side"), ("jab", "strike_side"), ("punch_combo", "combo_triple"), ("blade_spin", "strike_slash"),
+    ("axe_spin", "heavy_hammer"), ("spin_rise", "rise"), ("mage_cast", "invoke"), ("dodge_roll_back", "evade_roll"), ("knee_strike", "kick"),
+    ("sword_judgment", "heavy_charged"),
+    ("bow_draw_shoot", "strike_slash"), ("bow_quick_shot", "strike_slash"), ("bow_aim_walk", "walk"), ("gun_side_shot", "strike_side"),
+    ("gun_run_shoot", "strike_side"), ("gun_quick_draw", "strike_side"), ("gun_roll_fire", "evade_roll"), ("gun_reload", "strike_side"),
+    ("launcher_fire", "heavy_charged"), ("twohand_chop", "heavy_hammer"), ("twohand_reap", "heavy_hammer"), ("twohand_stance", "idle_guard"),
+    ("throw_object", "throw_shoulder"), ("draw_from_nowhere", "taunt"),
 ];
 /// The path vocabulary of `segs[].path`.
 pub const PATHS: &[&str] = &["dash", "leap", "flip", "knock", "vault", "wallrun", "wallkick", "mantle", "drop", "slide"];
@@ -231,21 +250,49 @@ pub fn open(b: &mut Bout, w: &World) {
     let t0 = b.duel.started_ms;
     let pos = starts(b.flow.range);
     let hp = [n1(b.hp[0]), n1(b.hp[1])];
-    b.cycle = Some(Cycle { closes_ms: t0 + INTRO_MS - LEAD_MS, next_ms: t0 + INTRO_MS, fed: 0, pos, hp,
+    // Schema 12: its AI fighters type their first lines in window 0, and the intro plays as long as they need.
+    let st = crate::world::settings(w);
+    let mut play = INTRO_MS;
+    let mut scripts = vec![];
+    if crate::duel_ai::enabled(w, &st, &b.duel) {
+        b.ai = Some(Default::default());
+        (scripts, play) = crate::duel_ai::open_window(b, &st, 0, t0, t0, INTRO_MS);
+    }
+    b.cycle = Some(Cycle { closes_ms: t0 + play - LEAD_MS, next_ms: t0 + play, fed: 0, pos, hp,
                            range: b.flow.range, initiative: b.flow.initiative, done: false });
+    let typing = b.ai.is_some();
+    let id = b.duel.id.clone();
     let (a, bb) = (&b.duel.f[0].name, &b.duel.f[1].name);
-    let seg = |clip: &str| json!([{ "clip": clip, "ms": INTRO_MS, "loop": clip == "idle_guard" }]);
-    let fighter = |s: usize, clip: &str| json!({ "line": null, "line_masked_len": 0, "lines": 0, "move_class": null, "default": null,
-                                                  "auto": false, "segs": seg(clip), "at": pos[s] });
-    b.panels.push(json!({
+    let seg = |clip: &str| json!([{ "clip": clip, "ms": play, "loop": clip == "idle_guard" }]);
+    let fighter = |s: usize, clip: &str| {
+        let mut f = json!({ "line": null, "line_masked_len": 0, "lines": 0, "move_class": null, "default": null,
+                            "auto": false, "segs": seg(clip), "at": pos[s] });
+        if typing {
+            f["typing_script"] = scripts.iter().find(|x| x.side == s).map(|x| x.json(&id)).unwrap_or(Value::Null);
+        }
+        f
+    };
+    let intro = json!({
         "event": "duel.panel", "duel_id": b.duel.id, "n": 0, "kind": "intro",
-        "starts_at_ms": t0, "play_ms": INTRO_MS, "input_opens_ms": t0, "input_closes_ms": t0 + INTRO_MS - LEAD_MS,
+        "starts_at_ms": t0, "play_ms": play, "input_opens_ms": t0, "input_closes_ms": t0 + play - LEAD_MS,
         "caption": format!("{a} and {bb}: two wills, one hex. The box opens."), "shot": "wide",
         "a": fighter(0, if b.flow.initiative == 0 { "taunt" } else { "idle_guard" }),
         "b": fighter(1, if b.flow.initiative == 1 { "taunt" } else { "idle_guard" }),
         "contacts": [], "blows": [], "flip": false,
         "hp": { "a": hp[0], "b": hp[1] }, "range": b.flow.range, "initiative": side_name(b.flow.initiative),
-    }));
+    });
+    b.panels.push(intro);
+    note_scripts(b, scripts);
+}
+
+/// The scripts of the window that just opened are now being typed.
+fn note_scripts(b: &mut Bout, scripts: Vec<crate::duel_ai::Script>) {
+    if let Some(p) = b.ai.as_mut() {
+        for s in &scripts {
+            p.window[s.side.min(1)] = Some(s.window);
+        }
+        p.pending = scripts;
+    }
 }
 
 fn n1(x: f32) -> f64 {
@@ -259,24 +306,37 @@ pub fn running(b: &Bout) -> bool {
 
 /// Emit every panel that is due at `now_ms`: each window whose close has passed (`tick`: a duellist's tick may close
 /// the current one up to [`TICK_GRACE_MS`] early). Returns how many panels were added.
-pub fn advance(b: &mut Bout, now_ms: i64, mut tick: bool) -> usize {
+///
+/// Schema 12: in the same pass, in time order, every AI line whose Enter (`ends_at_ms`) has come by `now_ms` becomes
+/// a blow ([`crate::duel_ai::enter_due`]); a window that closes enters what is left of its own.
+pub fn advance(b: &mut Bout, w: &World, st: &Settings, now_ms: i64, mut tick: bool) -> usize {
     let before = b.panels.len();
-    while let Some(c) = b.cycle.as_ref().filter(|c| !c.done) {
+    loop {
+        if now_ms > 0 {
+            crate::duel_ai::enter_due(b, w, st, Some(now_ms));
+        }
+        // Schema 12: the duel ends AT its deadline: the first stamp past it closes it (every panel left, the outro).
+        if b.moves && b.duel.deadline_ms > 0 && now_ms > b.duel.deadline_ms && running(b) {
+            finish(b, w, st, false);
+            break;
+        }
+        let Some(c) = b.cycle.as_ref().filter(|c| !c.done) else { break };
         let due = now_ms >= c.closes_ms || (tick && now_ms + TICK_GRACE_MS >= c.closes_ms);
         if !due {
             break;
         }
         tick = false;
-        next(b);
+        next(b, w, st, true);
     }
     b.panels.len() - before
 }
 
 /// The duel is over (the resolve ended it): every remaining panel, through the outro, whatever the clock says.
-pub fn finish(b: &mut Bout) -> usize {
+/// `typing` (schema 12, two AIs): the AI fighters keep typing and entering their lines in the windows left.
+pub fn finish(b: &mut Bout, w: &World, st: &Settings, typing: bool) -> usize {
     let before = b.panels.len();
     while running(b) {
-        next(b);
+        next(b, w, st, typing);
     }
     b.panels.len() - before
 }
@@ -287,9 +347,23 @@ pub fn shift(b: &mut Bout, ms: i64) {
         c.closes_ms += ms;
         c.next_ms += ms;
     }
+    // Schema 12: so do the lines being typed.
+    if let Some(p) = b.ai.as_mut() {
+        for s in p.pending.iter_mut() {
+            s.starts_at_ms += ms;
+            s.ends_at_ms += ms;
+            s.input_closes_ms += ms;
+        }
+    }
 }
 
-fn next(b: &mut Bout) {
+fn next(b: &mut Bout, w: &World, st: &Settings, typing: bool) {
+    // Schema 12: the window closes: an AI line of it not entered yet is entered now (or dropped: the duel was ended).
+    if typing {
+        crate::duel_ai::enter_due(b, w, st, None);
+    } else {
+        crate::duel_ai::drop_pending(b);
+    }
     let Some(c) = b.cycle.clone() else { return };
     let starts = c.next_ms;
     let deadline = b.duel.deadline_ms;
@@ -301,7 +375,7 @@ fn next(b: &mut Bout) {
         outro(b, starts);
         return;
     }
-    exchange(b, starts);
+    exchange(b, st, starts, typing);
 }
 
 fn outro(b: &mut Bout, starts: i64) {
@@ -341,7 +415,7 @@ struct Strike<'a> {
     typed: bool,
 }
 
-fn exchange(b: &mut Bout, starts: i64) {
+fn exchange(b: &mut Bout, st: &Settings, starts: i64, typing: bool) {
     let Some(mut c) = b.cycle.clone() else { return };
     let n = b.panels.len();
     let window: Vec<Value> = b.blows[c.fed..].to_vec();
@@ -358,8 +432,19 @@ fn exchange(b: &mut Bout, starts: i64) {
     let mut r = Rng::derive(b.duel.seed, &[PANEL_SALT, hash_str(&b.duel.id), n as u64]);
     let objects: Vec<Value> = b.scene.as_ref().and_then(|s| s["objects"].as_array().cloned()).unwrap_or_default();
     let shown = strikes.len().min(3);
-    let play = if shown == 0 { IDLE_MS } else { (600 + 1000 * shown as i64).clamp(2400, 3600) };
-    let slot = if shown == 0 { play } else { play / shown as i64 };
+    let base = if shown == 0 { IDLE_MS } else { (600 + 1000 * shown as i64).clamp(2400, 3600) };
+    let slot = if shown == 0 { base } else { base / shown as i64 };
+    // Schema 12: the AI's lines for the window this panel opens, and the play time that fits them (the strikes are
+    // staged in `base`; the rest is guard). None after a knockout or when the slot reaches the deadline.
+    let deadline = b.duel.deadline_ms;
+    let opens = if c.closes_ms > 0 { c.closes_ms } else { starts };
+    let (scripts, play) = if typing && b.ko.is_none() && !(deadline > 0 && starts + base >= deadline) {
+        crate::duel_ai::open_window(b, st, n as u32, opens, starts, base)
+    } else {
+        (vec![], base)
+    };
+    let ai_types = b.ai.is_some();
+    let duel_id = b.duel.id.clone();
     let mut segs: [Vec<Value>; 2] = [vec![], vec![]];
     let mut contacts: Vec<Value> = vec![];
     let mut class: [Value; 2] = [Value::Null, Value::Null];
@@ -391,8 +476,13 @@ fn exchange(b: &mut Bout, starts: i64) {
             continue; // more blows than a panel can stage: they still count (hp, range), unseen
         }
         let t0 = slot * k as i64;
-        let foot = ch["contacts"][0]["limb"].as_str().is_some_and(|l| l.contains("foot")) || cls == "strike" && s.ev["text"].as_str().is_some_and(|t| t.to_lowercase().contains("kick"));
-        let (mine, theirs) = stage(&mut r, &objects, &mut pos, me, cls, foot, result, dmg, down, c.range, slot);
+        let mv = &s.ev["move"];
+        let foot = match mv["clip"].as_str() {
+            // Schema 12: the clip the words picked says which limb.
+            Some(clip) => clip.contains("kick") || clip.contains("sweep") || clip.contains("knee"),
+            None => ch["contacts"][0]["limb"].as_str().is_some_and(|l| l.contains("foot")) || cls == "strike" && s.ev["text"].as_str().is_some_and(|t| t.to_lowercase().contains("kick")),
+        };
+        let (mine, theirs) = stage(&mut r, &objects, &mut pos, me, cls, foot, result, dmg, down, c.range, slot, mv);
         segs[me].extend(mine);
         segs[foe].extend(theirs);
         // The contact: on the foe when it lands, on the scenery or the air when it does not.
@@ -442,20 +532,37 @@ fn exchange(b: &mut Bout, starts: i64) {
             if hex_dist(to, pos[foe]) >= 1 {
                 pos[s] = to;
             }
-            segs[s] = vec![json!({ "clip": "walk", "ms": play, "loop": true, "to": pos[s], "path": "dash", "face": "foe" })];
+            segs[s] = vec![json!({ "clip": "walk", "ms": if b.moves { play.min(1200) } else { play }, "loop": true, "to": pos[s], "path": "dash", "face": "foe" })];
         } else if segs[s].is_empty() {
             default[s] = "guard".into();
-            segs[s] = vec![json!({ "clip": "idle_guard", "ms": play, "loop": true, "face": "foe" })];
+            if !b.moves {
+                segs[s] = vec![json!({ "clip": "idle_guard", "ms": play, "loop": true, "face": "foe" })];
+            }
         } else {
             default[s] = "guard".into();
         }
     }
-    // Pad each track to the panel's length.
-    for track in segs.iter_mut() {
-        let used: i64 = track.iter().map(|x| x["ms"].as_i64().unwrap_or(0)).sum();
+    // Pad each track to the panel's length. (Schema 12: with steps around the foe, guard shuffles and feints of the
+    // feet, not only a held guard; a fighter knocked down gets up when there is time.)
+    for s in 0..2 {
+        let used: i64 = segs[s].iter().map(|x| x["ms"].as_i64().unwrap_or(0)).sum();
         if used < play {
-            let downed = track.last().is_some_and(|x| matches!(x["clip"].as_str(), Some("downed" | "defeat")));
-            track.push(json!({ "clip": if downed { "downed" } else { "idle_guard" }, "ms": play - used, "loop": !downed }));
+            let last = segs[s].last().and_then(|x| x["clip"].as_str()).unwrap_or("").to_string();
+            let downed = matches!(last.as_str(), "downed" | "defeat");
+            if !b.moves {
+                segs[s].push(json!({ "clip": if downed { "downed" } else { "idle_guard" }, "ms": play - used, "loop": !downed }));
+            } else if last == "defeat" || (downed && play - used < 1400) {
+                segs[s].push(json!({ "clip": "downed", "ms": play - used, "loop": false }));
+            } else {
+                let mut left = play - used;
+                if downed {
+                    segs[s].push(json!({ "clip": "downed", "ms": 500, "loop": false }));
+                    segs[s].push(json!({ "clip": if r.below(2) == 0 { "rise" } else { "spin_rise" }, "ms": 800 }));
+                    left -= 1300;
+                }
+                let more = filler(&mut r, &objects, &mut pos, s, left);
+                segs[s].extend(more);
+            }
         }
     }
     if let Some(last) = window.last() {
@@ -466,9 +573,13 @@ fn exchange(b: &mut Bout, starts: i64) {
     let line_of = |s: usize| strikes.iter().rev().find(|x| x.side == s && x.typed).and_then(|x| x.ev["text"].as_str());
     let fighter = |s: usize| {
         let line = line_of(s);
-        json!({ "line": line, "line_masked_len": line.map(|l| l.chars().count()).unwrap_or(0),
+        let mut f = json!({ "line": line, "line_masked_len": line.map(|l| l.chars().count()).unwrap_or(0),
                 "lines": strikes.iter().filter(|x| x.side == s && x.typed).count(), "move_class": class[s],
-                "default": default[s], "auto": strikes.iter().any(|x| x.side == s && !x.typed), "segs": segs[s], "at": pos[s] })
+                "default": default[s], "auto": strikes.iter().any(|x| x.side == s && !x.typed), "segs": segs[s], "at": pos[s] });
+        if ai_types {
+            f["typing_script"] = scripts.iter().find(|x| x.side == s).map(|x| x.json(&duel_id)).unwrap_or(Value::Null);
+        }
+        f
     };
     let idle = ["They circle. Nobody blinks.", "A breath. The hex holds still.", "Feet shift on the stone. Not yet."];
     let caption = match decisive {
@@ -486,23 +597,59 @@ fn exchange(b: &mut Bout, starts: i64) {
         },
     };
     // No input after a knockout, nor when the next slot starts at or past the deadline.
-    let deadline = b.duel.deadline_ms;
     let closed = ko.is_some() || (deadline > 0 && starts + play >= deadline);
     let closes = starts + play - LEAD_MS;
-    let opens = if c.closes_ms > 0 { c.closes_ms } else { starts };
     // (A knockout's outro comes with it: close 0 is always due.)
     c.closes_ms = if ko.is_some() { 0 } else if closed { starts + play } else { closes };
     c.next_ms = starts + play;
     let kind = if ko.is_some() { "ko" } else if shown == 0 { "idle" } else { "exchange" };
-    b.panels.push(json!({
+    let panel = json!({
         "event": "duel.panel", "duel_id": b.duel.id, "n": n, "kind": kind,
         "starts_at_ms": starts, "play_ms": play, "input_opens_ms": (!closed).then_some(opens), "input_closes_ms": (!closed).then_some(closes),
         "caption": caption, "shot": shot, "a": fighter(0), "b": fighter(1), "contacts": contacts,
         // The blows this panel stages (their `n`; the full `duel.blow` events are in the duel's `blows`).
         "blows": window.iter().map(|e| e["n"].clone()).collect::<Vec<_>>(),
         "flip": init_before != c.initiative, "hp": { "a": c.hp[0], "b": c.hp[1] }, "range": c.range, "initiative": side_name(c.initiative),
-    }));
+    });
+    b.panels.push(panel);
     b.cycle = Some(c);
+    note_scripts(b, scripts);
+}
+
+/// Schema 12: `ms` of idle time for fighter `s` as short chunks: a step to a neighbouring hex at the same distance
+/// from the foe (circling), a guard shuffle, a feint of the feet, a held guard. Moves `pos[s]`; the chunks sum to `ms`.
+fn filler(r: &mut Rng, objects: &[Value], pos: &mut [[i32; 2]; 2], s: usize, ms: i64) -> Vec<Value> {
+    let mut out = vec![];
+    let mut left = ms;
+    let mut last = usize::MAX;
+    while left > 0 {
+        let mut take = if left < 1300 { left } else { 700 + r.below(500) as i64 };
+        if left - take < 500 {
+            take = left;
+        }
+        left -= take;
+        let foe = pos[1 - s];
+        let steps: Vec<[i32; 2]> = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]]
+            .iter()
+            .map(|d| [pos[s][0] + d[0], pos[s][1] + d[1]])
+            .filter(|h| hex_dist(*h, foe) == hex_dist(pos[s], foe).max(1) && hex_dist(*h, [0, 0]) <= 5 && !objects.iter().any(|o| obj_at(o) == *h))
+            .collect();
+        let mut kind = r.below(5) as usize;
+        if kind == last || (kind <= 1 && (steps.is_empty() || take < 600)) {
+            kind = 2 + (kind + 1) % 3;
+        }
+        last = kind;
+        out.push(match kind {
+            0 | 1 => {
+                pos[s] = steps[r.below(steps.len() as u64) as usize];
+                json!({ "clip": "walk", "ms": take, "loop": true, "to": pos[s], "path": "dash", "face": "foe" })
+            }
+            2 => json!({ "clip": "idle_guard", "ms": take, "loop": true, "face": "foe" }),
+            3 => json!({ "clip": "evade_stand", "ms": take, "face": "foe" }),
+            _ => json!({ "clip": "block", "ms": take, "face": "foe" }),
+        });
+    }
+    out
 }
 
 /// The nearest object within `reach` hexes of `at` that affords one of `paths` (any object when `paths` is empty).
@@ -528,28 +675,44 @@ fn obj_at(o: &Value) -> [i32; 2] {
 /// objects give the evasions their vaults, slides and wall kicks.
 #[allow(clippy::too_many_arguments)]
 fn stage(r: &mut Rng, objects: &[Value], pos: &mut [[i32; 2]; 2], me: usize, cls: &str, foot: bool, result: &str, dmg: f64, down: bool,
-         range_after: Range, ms: i64) -> (Vec<Value>, Vec<Value>) {
+         range_after: Range, ms: i64, mv: &Value) -> (Vec<Value>, Vec<Value>) {
     let foe = 1 - me;
     let mut mine: Vec<Value> = vec![];
     let mut theirs: Vec<Value> = vec![];
+    // Schema 12 (`duel.blow.move`): the clip the line's words picked, its setups and its leap.
+    let word_clip = mv["clip"].as_str();
+    let leaps = mv["path"] == "leap";
     let want = sep(range_after);
     let dir = if pos[me][0] <= pos[foe][0] { -1 } else { 1 }; // my side of the foe along q
     let spot = |p: [i32; 2], k: i32| [p[0] + dir * k, p[1]];
     // The run-in (or the step back): end the slot at the range the rules left them at.
     let mut left = ms;
+    // The setups first ("plead! jump": the kneel, then the jump): a short beat each.
+    for c in mv["setup"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+        let t = (ms / 5).clamp(250, 450);
+        mine.push(json!({ "clip": c, "ms": t, "face": "foe" }));
+        left -= t;
+    }
+    let mut leapt = false;
     let moving = hex_dist(pos[me], pos[foe]) != want && !matches!(cls, "invoke" | "command" | "taunt" | "guard" | "parry");
     if moving {
         let to = spot(pos[foe], want);
         let run = (ms * 3 / 10).max(300);
         let leap = cls == "heavy" && hex_dist(pos[me], pos[foe]) > want + 1;
-        if leap {
+        if leaps {
+            // The words asked for a leap: the whole move is the jump across.
+            mine.push(json!({ "clip": word_clip.unwrap_or("jump_attack"), "ms": left, "to": to, "path": "leap", "h": 1.6, "face": "foe" }));
+            leapt = true;
+        } else if leap {
             mine.push(json!({ "clip": "jump_attack", "ms": run, "to": to, "path": "leap", "h": 1.6, "face": "foe" }));
         } else {
             let clip = if matches!(cls, "retreat") { "walk" } else { "run" };
             mine.push(json!({ "clip": clip, "ms": run, "loop": true, "to": to, "path": "dash", "face": "foe" }));
         }
         pos[me] = to;
-        left -= run;
+        if !leapt {
+            left -= run;
+        }
     }
     let pick = |r: &mut Rng, xs: &[&'static str]| xs[r.below(xs.len() as u64) as usize];
     let atk = match cls {
@@ -570,7 +733,13 @@ fn stage(r: &mut Rng, objects: &[Value], pos: &mut [[i32; 2]; 2], me: usize, cls
         _ => "stagger_waist", // a penalty: the words knotted into string
     };
     let crit = dmg >= 3.0 && cls == "strike";
-    mine.push(json!({ "clip": if crit { "combo_triple" } else { atk }, "ms": left, "face": "foe" }));
+    match word_clip {
+        _ if leapt => {}
+        // A leap from where it stands: up and down on its own hex.
+        Some(c) if leaps && !moving => mine.push(json!({ "clip": c, "ms": left, "to": pos[me], "path": "leap", "h": 1.2, "face": "foe" })),
+        Some(c) => mine.push(json!({ "clip": c, "ms": left, "face": "foe" })),
+        None => mine.push(json!({ "clip": if crit { "combo_triple" } else { atk }, "ms": left, "face": "foe" })),
+    }
     // A move that attacks nobody (a guard, a step, a taunt, a failed dodge): the other just holds.
     if !matches!(cls, "strike" | "heavy" | "grapple" | "throw" | "invoke" | "command" | "feint") {
         theirs.push(json!({ "clip": "idle_guard", "ms": ms, "loop": true, "face": "foe" }));
@@ -592,6 +761,15 @@ fn stage(r: &mut Rng, objects: &[Value], pos: &mut [[i32; 2]; 2], me: usize, cls
             let to = away(pos[foe], 2);
             theirs.push(json!({ "clip": "airborne_hit", "ms": react / 2, "to": to, "path": "knock", "h": 2.2, "spin": true }));
             theirs.push(json!({ "clip": "downed", "ms": react - react / 2 }));
+            pos[foe] = to;
+        }
+        // Schema 12: a hard hit lifts it off its feet and it gets up again.
+        "landed" if word_clip.is_some() && dmg >= 3.0 && react >= 900 => {
+            let to = away(pos[foe], 1);
+            let (fly, lie) = (react * 4 / 10, react * 25 / 100);
+            theirs.push(json!({ "clip": "airborne_hit", "ms": fly, "to": to, "path": "knock", "h": 1.0, "spin": true }));
+            theirs.push(json!({ "clip": "downed", "ms": lie }));
+            theirs.push(json!({ "clip": if r.below(2) == 0 { "rise" } else { "spin_rise" }, "ms": react - fly - lie }));
             pos[foe] = to;
         }
         "landed" if dmg >= 2.0 => {
@@ -636,6 +814,37 @@ fn stage(r: &mut Rng, objects: &[Value], pos: &mut [[i32; 2]; 2], me: usize, cls
         _ => theirs.push(json!({ "clip": "idle_guard", "ms": react, "loop": true, "face": "foe" })),
     }
     (mine, theirs)
+}
+
+/// The live `also[]` of a duel action: [`since`], and in a duel whose AI types (schema 12) also the AI's blows entered
+/// since `blows_from` (`duel.blow` with `ai: true`, each before the panel that stages it; one not staged yet comes
+/// last) and, after each panel, the typing scripts of the window it opens (`duel.typing_script`).
+pub fn extras(b: &Bout, scene_too: bool, panels_from: usize, blows_from: usize) -> Vec<Value> {
+    if !b.moves {
+        return since(b, scene_too, panels_from);
+    }
+    let mut out = vec![];
+    if scene_too {
+        out.extend(b.scene.clone());
+    }
+    let mut blows: Vec<&Value> = b.blows.iter().skip(blows_from).filter(|e| e["ai"] == true).collect();
+    for p in b.panels.iter().skip(panels_from) {
+        let staged = |e: &Value| p["blows"].as_array().is_some_and(|a| a.contains(&e["n"]));
+        out.extend(blows.iter().filter(|e| staged(e)).map(|e| (*e).clone()));
+        blows.retain(|e| !staged(e));
+        out.push(p.clone());
+        for s in ["a", "b"] {
+            if p[s]["typing_script"].is_object() {
+                out.push(p[s]["typing_script"].clone());
+            }
+        }
+    }
+    out.extend(blows.into_iter().cloned());
+    // The outro came out with this action: the duel is closed, here is who won (the resolve sends the deed).
+    if b.panels.iter().skip(panels_from).any(|p| p["kind"] == "outro") {
+        out.push(crate::duel::end_live_json(b));
+    }
+    out
 }
 
 /// The events a duel action made beyond its own: the scene and the panels added since `from` (for `also[]`).

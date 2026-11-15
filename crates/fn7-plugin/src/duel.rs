@@ -712,6 +712,13 @@ pub struct Bout {
     pub panels: Vec<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cycle: Option<crate::panel::Cycle>,
+    /// Schema 12 ([`crate::moves`]): a line's words pick its move class and its clip (`duel.blow.move`), and the
+    /// panels fill idle time with steps and shuffles.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub moves: bool,
+    /// Schema 12 ([`crate::duel_ai`]): its AI fighters type a line in every input window: the scripts not yet entered.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ai: Option<crate::duel_ai::Plan>,
 }
 
 impl Bout {
@@ -720,13 +727,14 @@ impl Bout {
         let flow = crate::choreo::Flow::new(&duel.level);
         Bout { duel, hp, n: 0, last_ms: [None; 2], last_seq: [None; 2], said: [vec![], vec![]], log: vec![], strikes: vec![],
                ko: None, typed: 0, lines: vec![], flow, invoked: [0; 2], applied: [0.0; 2], paid: [0; 2], opened: false, delivered_seq: 0,
-               blows: vec![], full: false, pauses: vec![], scene: None, panels: vec![], cycle: None }
+               blows: vec![], full: false, pauses: vec![], scene: None, panels: vec![], cycle: None, moves: false, ai: None }
     }
 
     /// [`Bout::new`] in `w`'s rules: a schema-8 state keeps the duel's whole timeline.
     pub fn new_in(w: &World, duel: Duel) -> Bout {
         let mut b = Bout::new(duel);
         b.full = w.resume_rules();
+        b.moves = w.ai_duel_rules();
         crate::panel::open(&mut b, w);
         b
     }
@@ -776,10 +784,18 @@ impl Bout {
     /// One strike by `side` (a typed line, a counter or an automatic blow).
     #[allow(clippy::too_many_arguments)]
     fn strike(&mut self, w: &World, st: &Settings, side: usize, text: &str, query: String, followup: bool, auto: bool) -> Value {
+        self.strike_capped(w, st, side, text, query, followup, auto, auto.then_some(2), 0)
+    }
+
+    /// [`Bout::strike`] with the line's wit capped at `cap` (an automatic line and an AI's typed line: 2) and
+    /// `handicap` taken off the modifier (an AI's typed line: `duel_ai_handicap`; shown as `modifiers.handicap`).
+    #[allow(clippy::too_many_arguments)]
+    fn strike_capped(&mut self, w: &World, st: &Settings, side: usize, text: &str, query: String, followup: bool, auto: bool,
+                     cap: Option<i32>, handicap: i32) -> Value {
         let (me, foe) = (self.duel.f[side].clone(), self.duel.f[1 - side].clone());
         let (mut wit, tags) = wit(text, &me, &foe, &self.duel, &self.said[side]);
-        if auto {
-            wit = wit.min(2);
+        if let Some(cap) = cap {
+            wit = wit.min(cap);
         }
         let health = if self.hp[side] >= 7.0 {
             1
@@ -794,10 +810,16 @@ impl Bout {
         // The formal model: the line's move class, gated by range, bolts and armies; the situation's modifier.
         use crate::choreo::{self, MoveClass};
         let flow = self.flow.clone();
-        let asked = choreo::classify(text);
-        let class = choreo::effective(asked, flow.range, me.bolts > self.invoked[side], me.army);
+        // Schema 12: the line's words pick the class (typos and short commands included) and the clip.
+        let read = if self.moves { crate::moves::read(text) } else { None };
+        let (has_bolt, has_army) = (me.bolts > self.invoked[side], me.army);
+        let class = if self.moves {
+            crate::moves::effective(read.as_ref().map(|r| r.class).unwrap_or_else(|| choreo::classify(text)), flow.range, has_bolt, has_army)
+        } else {
+            choreo::effective(choreo::classify(text), flow.range, has_bolt, has_army)
+        };
         let situ = choreo::situation(&flow, side);
-        let modifier = wit + health + gear + follow + home + situ;
+        let modifier = wit + health + gear + follow + home + situ - handicap;
         let dc = 10 + self.duel.night as i32 + foe.wardrobe as i32 / 2;
         let roll = dm::roll_d20(w, &query, modifier, dc);
         let ok = roll.verdict.ok();
@@ -825,11 +847,22 @@ impl Bout {
         let camera = anim["camera"].as_str().unwrap_or("wide").to_string();
         let choreo = choreo::choreo_json(self.duel.seed, &query, &flow, &x, side, text, damage, ko, &camera);
         self.strikes.push(Strike { query, by: me.id, roll: roll.clone() });
-        json!({ "by": Ref::Demigod(me.id), "by_name": me.name, "text": text, "roll": roll.roll, "modifier": modifier,
+        let mut ev = json!({ "by": Ref::Demigod(me.id), "by_name": me.name, "text": text, "roll": roll.roll, "modifier": modifier,
                 "total": roll.total, "target_dc": dc, "verdict": roll.verdict, "damage": n1(damage), "hp": self.hp_json(),
                 "flavor": flavor, "wit": wit, "tags": tags,
                 "modifiers": { "wit": wit, "health": health, "gear": gear, "follow_up": follow, "home": home, "situation": situ },
-                "ko": self.ko.is_some(), "auto": auto, "anim": anim, "choreo": choreo })
+                "ko": self.ko.is_some(), "auto": auto, "anim": anim, "choreo": choreo });
+        if handicap != 0 {
+            ev["modifiers"]["handicap"] = (-handicap).into();
+        }
+        if self.moves {
+            let last = self.last_clip(side);
+            let mut r = Rng::derive(self.duel.seed, &[PHRASE_SALT, hash_str(&self.duel.id), hash_str(text), self.n as u64, self.said[side].len() as u64, side as u64, 7]);
+            let clip = crate::moves::clip(read.as_ref(), class, last.as_deref(), &mut r);
+            ev["move"] = json!({ "clip": clip, "word": read.as_ref().map(|x| x.word), "setup": read.as_ref().map(|x| x.setup.clone()).unwrap_or_default(),
+                                 "path": read.as_ref().filter(|x| x.leap && x.class == class).map(|_| "leap") });
+        }
+        ev
     }
 
     /// A typed line from `side` at `at_ms` (the core's receive stamp; 0 = unknown, then the arrival order `seq`
@@ -851,12 +884,14 @@ impl Bout {
                 self.last_seq[side].is_some_and(|s| s + 1 == seq)
             };
         let foe = 1 - side;
-        let foe_idle = self.duel.f[foe].ai
+        // Schema 12: an AI that typed its own line for this window does not also counter in it.
+        let foe_idle = !crate::duel_ai::typed_this_window(self, foe)
+            && (self.duel.f[foe].ai
             || if timed {
                 self.last_ms[foe].is_none_or(|t| at_ms - t > st.duel_counter_ms as i64)
             } else {
                 self.last_seq[foe].is_none_or(|f| self.last_seq[side].is_some_and(|m| f < m))
-            };
+            });
         self.last_ms[side] = Some(at_ms);
         self.last_seq[side] = Some(seq);
         let query = format!("{}:{n}", self.duel.id);
@@ -891,6 +926,53 @@ impl Bout {
         self.log.push(out.clone());
         self.keep(&out);
         Some(out)
+    }
+
+    /// Schema 12: an AI's typed line is entered (its script's `ends_at_ms`): a blow like a human's line, by the same
+    /// d20 and matrix, numbered in the duel's order, stamped at its Enter. It has no follow-up bonus, never trips the
+    /// rate limit, its wit is capped at 2, `duel_ai_handicap` comes off its modifier (against a human who
+    /// entered a line in the last 12 s), and it draws no automatic counter. `ai: true` marks it.
+    pub fn ai_blow(&mut self, w: &World, st: &Settings, s: &crate::duel_ai::Script) -> Option<Value> {
+        if self.ko.is_some() || s.side > 1 {
+            return None;
+        }
+        self.n += 1;
+        let n = self.n;
+        let query = format!("{}:{n}", self.duel.id);
+        self.lines.push(s.text.clone());
+        // The handicap is the price of striking in every window: owed to a human, who cannot; not to another AI, and
+        // not to a human silent for 12 s (since the lock or its last line).
+        let foe = 1 - s.side;
+        let silent = s.ends_at_ms - self.last_ms[foe].unwrap_or(self.duel.started_ms) > crate::duel_ai::IDLE_MS;
+        let handicap = if self.duel.f[foe].ai || silent { 0 } else { st.duel_ai_handicap as i32 };
+        self.last_ms[s.side] = Some(s.ends_at_ms);
+        let ev = self.strike_capped(w, st, s.side, &s.text, query, false, false, Some(2), handicap);
+        let mut out = json!({ "event": "duel.blow", "duel_id": self.duel.id, "n": n });
+        if let (Some(o), Value::Object(e)) = (out.as_object_mut(), ev) {
+            o.extend(e);
+        }
+        out["ai"] = true.into();
+        out["window"] = s.window.into();
+        out["at_ms"] = s.ends_at_ms.into();
+        out["seq"] = Value::Null;
+        if let Some(p) = self.ai.as_mut() {
+            p.struck += 1;
+            if self.ko.is_some() {
+                p.pending.clear();
+            }
+        }
+        self.log.push(out.clone());
+        self.keep(&out);
+        Some(out)
+    }
+
+    /// The clip `side` played for its last move (schema 12: the next one of the same list differs).
+    fn last_clip(&self, side: usize) -> Option<String> {
+        let who = json!(Ref::Demigod(self.duel.f[side].id));
+        self.blows.iter().rev().find_map(|ev| {
+            let own = if ev["counter"]["by"] == who { &ev["counter"] } else if ev["by"] == who { ev } else { return None };
+            own["move"]["clip"].as_str().map(str::to_string)
+        })
     }
 
     /// A penalty's choreography: its author stumbles, the other waits; the state is unchanged but its author is off
@@ -1014,10 +1096,19 @@ pub fn check_challenge(w: &World, seat: u8, c: &ChallengeOrder, beat: u32, st: &
     if bouts.iter().any(|b| b.ko.is_none() && b.duel.f.iter().any(|f| f.id == me.id || f.id == foe.id)) {
         return Err("busy".into());
     }
+    // Schema 12: a player fights one duel at a time (it can only type in one).
+    if w.ai_duel_rules() && st.duel_one_per_player && player_busy(w, bouts, &[me.id, foe.id]) {
+        return Err("busy:player".into());
+    }
     if on_cooldown(w, me.id, beat, st) {
         return Err("cooldown".into());
     }
     Ok(())
+}
+
+/// Schema 12 (`duel_one_per_player`): is the player of any of `who` already in a duel under way (with any demigod)?
+fn player_busy(w: &World, bouts: &[Bout], who: &[DemigodId]) -> bool {
+    bouts.iter().filter(|b| b.ko.is_none()).flat_map(|b| b.duel.f.iter()).any(|f| who.iter().any(|d| w.same_player(f.id, *d)))
 }
 
 /// The built-in AI's challenges this beat (decided from the state at the round's start; recomputed identically at
@@ -1031,7 +1122,12 @@ pub fn ai_challenges(w: &World, beat: u32, st: &Settings) -> Vec<AiChallenge> {
     let far = (st.duel_ai_reach_km as f64).max(reach);
     let fighting: Vec<DemigodId> = open_bouts(w).iter().flat_map(|b| b.duel.f.iter().map(|f| f.id)).collect();
     let mut out: Vec<AiChallenge> = vec![];
-    let busy = |out: &[AiChallenge], d: DemigodId| fighting.contains(&d) || out.iter().any(|x| x.a == d || x.b == d);
+    // Schema 12: a player with a demigod in a duel (or about to be in one) is busy with all its demigods.
+    let per_player = w.ai_duel_rules() && st.duel_one_per_player;
+    let busy = |out: &[AiChallenge], d: DemigodId| {
+        let same = |x: DemigodId| x == d || (per_player && w.same_player(x, d));
+        fighting.iter().any(|x| same(*x)) || out.iter().any(|x| same(x.a) || same(x.b))
+    };
     for d in w.alive_demigods() {
         if crate::table::controller(w, d) != "ai" || busy(&out, d.id) {
             continue;
@@ -1191,7 +1287,10 @@ fn find<'a>(bouts: &'a mut [Bout], w: &World, seat: u8, b: &BlowOrder) -> Result
     }
     let bout = bouts.iter_mut().find(|x| x.duel.id == b.duel_id).ok_or("no_duel")?;
     let side = bout.duel.side_of(seat).ok_or("not_yours")?;
-    if bout.ko.is_some() || bout.past_deadline(theatre_trace::now_ms()) {
+    // Schema 12: the first action past the deadline closes the duel (its outro and `challenge.end` are that action's
+    // event): such a line is taken, though it is no blow. After that the duel is over for lines.
+    let closing = bout.moves && bout.ko.is_none() && crate::panel::running(bout);
+    if bout.ko.is_some() || (bout.past_deadline(theatre_trace::now_ms()) && !closing) {
         return Err("duel_over".into());
     }
     if !w.demigods[bout.duel.f[side].id.ix()].alive {
@@ -1259,8 +1358,8 @@ pub fn round_start_now(j: &crate::present::Journal, w: &World) -> Vec<Value> {
         .filter(|b| b.duel.by_seat.is_none() && !b.opened)
         .map(|b| {
             let mut lock = lock_json(w, &b.duel);
-            // Rules 0.8.2: its scene and panel 0 come with it.
-            let also = crate::panel::since(b, true, 0);
+            // Rules 0.8.2: its scene and panel 0 come with it (schema 12: and the AI's first typing scripts).
+            let also = crate::panel::extras(b, true, 0, 0);
             if !also.is_empty() {
                 lock["also"] = also.into();
             }
@@ -1312,15 +1411,23 @@ pub fn on_instant_now(j: &crate::present::Journal, w: &World, seat: u8, a: &Acti
                     tick: i.tick.clone() };
     // Rules 0.8.2: the panels this action makes due go out with its event (`also[]`).
     let target = i.blow.as_ref().map(|b| b.duel_id.clone()).or(i.tick.clone());
-    let had = target.as_ref().and_then(|id| lv.bouts.iter().find(|b| b.duel.id == *id)).map(|b| b.panels.len());
+    let had = target.as_ref().and_then(|id| lv.bouts.iter().find(|b| b.duel.id == *id)).map(|b| (b.panels.len(), b.blows.len()));
     let ev = apply_act(w, &st, w.meta.beat, &mut lv.bouts, &mut lv.moved, &act, false);
+    let ev_was_none = ev.is_none();
     let id = target.or_else(|| ev.as_ref().and_then(|v| v["duel_id"].as_str().map(str::to_string)))?;
     let bout = lv.bouts.iter().find(|b| b.duel.id == id)?;
-    let mut also = crate::panel::since(bout, had.is_none(), had.unwrap_or(0));
+    // Schema 12: with the panels, the AI's lines this action's stamp entered (`duel.blow`, `ai: true`) and the
+    // typing scripts of the windows it opened (`duel.typing_script`).
+    let mut also = crate::panel::extras(bout, had.is_none(), had.map(|h| h.0).unwrap_or(0), had.map(|h| h.1).unwrap_or(0));
     let mut v = match ev {
         Some(v) => v,
-        // A tick: the first panel it made due is the event (none due: nothing to show).
-        None if i.tick.is_some() && !also.is_empty() => also.remove(0),
+        // A tick: the first panel it made due is the event (none due: nothing to show, unless it entered an AI's line).
+        None if i.tick.is_some() && !also.is_empty() => {
+            let k = also.iter().position(|x| x["event"] == "duel.panel").unwrap_or(0);
+            also.remove(k)
+        }
+        // A line that came too late (the AI's line, entered first, ended the duel): what happened instead.
+        None if i.blow.is_some() && bout.moves && !also.is_empty() => also.remove(0),
         None => return None,
     };
     match (&i.challenge, &i.blow) {
@@ -1328,11 +1435,18 @@ pub fn on_instant_now(j: &crate::present::Journal, w: &World, seat: u8, a: &Acti
         (_, Some(b)) => crate::world::event("duel_blow", Some(b.duel_id.clone()), v.clone()),
         _ => {}
     }
+    let kind = |p: &Value| match p["event"].as_str() {
+        Some("duel.scene") => "duel_scene",
+        Some("duel.blow") => "duel_blow",
+        Some("duel.typing_script") => "duel_typing_script",
+        Some("challenge.end") => "duel_end_live",
+        _ => "duel_panel",
+    };
     for p in &also {
-        crate::world::event(if p["event"] == "duel.scene" { "duel_scene" } else { "duel_panel" }, Some(id.clone()), p.clone());
+        crate::world::event(kind(p), Some(id.clone()), p.clone());
     }
-    if i.tick.is_some() {
-        crate::world::event("duel_panel", Some(id.clone()), v.clone());
+    if i.challenge.is_none() && ev_was_none {
+        crate::world::event(kind(&v), Some(id.clone()), v.clone());
     }
     if !also.is_empty() {
         v["also"] = also.into();
@@ -1455,30 +1569,51 @@ pub fn process(w: &mut World, beat: u32, input: &Acts, pantheon: &Pantheon, st: 
         bout.delivered_seq = bout.delivered_seq.max(input.max_seq);
         let fallen = bout.duel.f.iter().any(|f| !w.demigods[f.id.ix()].alive);
         let human = bout.duel.f.iter().any(|f| !f.ai);
-        let time_up = beat >= bout.duel.ends_beat || (bout.duel.deadline_ms > 0 && input.now_ms > bout.duel.deadline_ms);
+        // Schema 12: a duel with a clock ends by its deadline's stamp (the first action past it closes it live), not
+        // at its last beat's resolve, which may come seconds before the deadline; one beat later at the latest.
+        let by_clock = bout.moves && bout.cycle.is_some() && bout.duel.deadline_ms > 0;
+        let time_up = if by_clock {
+            input.now_ms > bout.duel.deadline_ms || beat > bout.duel.ends_beat
+        } else {
+            beat >= bout.duel.ends_beat || (bout.duel.deadline_ms > 0 && input.now_ms > bout.duel.deadline_ms)
+        };
+        // Schema 12: its AI fighters type. The lines entered by this batch's clock come first (one may be the
+        // knockout), and two AIs fight their windows out to a knockout or the deadline instead of ending at once.
+        let typing = bout.ai.is_some();
+        if typing && input.now_ms > 0 && !fallen {
+            crate::panel::advance(&mut bout, w, st, input.now_ms, false);
+        }
         let reason = if bout.ko.is_some() {
             Some("ko")
         } else if fallen {
             Some("fallen")
-        } else if !human {
+        } else if !human && !typing {
             Some("auto")
         } else if time_up || ENGINE_HOLDS {
             Some("deadline")
         } else {
             None
         };
-        if reason.is_some() && !fallen && bout.typed == 0 && bout.ko.is_none() {
+        // Rules 0.8.2: the panels due by this batch's clock; an ended duel plays out to its outro. (Schema 12: two
+        // AIs keep typing through the windows left, so a duel no client ticked is still fought; against a human the
+        // AI enters nothing more once the resolve has ended the duel: nobody could answer.)
+        if typing && reason.is_some() && !fallen && !human {
+            crate::panel::finish(&mut bout, w, st, true);
+        }
+        let struck = bout.ai.as_ref().map(|p| p.struck).unwrap_or(0);
+        if reason.is_some() && !fallen && bout.typed == 0 && struck == 0 && bout.ko.is_none() {
             bout.auto(w, st);
         }
         let reason = if bout.ko.is_some() { Some("ko") } else { reason };
-        // Rules 0.8.2: the panels due by this batch's clock; an ended duel plays out to its outro.
         if input.now_ms > 0 {
-            crate::panel::advance(&mut bout, input.now_ms, false);
+            crate::panel::advance(&mut bout, w, st, input.now_ms, false);
         }
         if reason.is_some() {
-            crate::panel::finish(&mut bout);
+            crate::panel::finish(&mut bout, w, st, false);
         }
         let from = had(&bout.duel.id);
+        // Schema 12: one `duel_line` record per typed line, in the recording (docs/DUEL_MOVES.md).
+        trace_lines(w, beat, &bout);
         out.pinned.extend(bout.duel.f.iter().map(|f| f.id));
         if let Some(m) = bout.duel.leap.filter(|_| !bout.opened) {
             out.leapt.push(m.demigod);
@@ -1500,6 +1635,33 @@ pub fn process(w: &mut World, beat: u32, input: &Acts, pantheon: &Pantheon, st: 
     }
     w.dm.duels = still;
     out
+}
+
+/// Schema 12, "collect the data properly": every typed line this resolve was handed, as a `duel_line` trace event
+/// (in the match's recording): who typed what, how the list read it, what the rules made of it and which clip its
+/// figure played. `fn7-duel-lines` rolls them up.
+fn trace_lines(w: &World, beat: u32, bout: &Bout) {
+    if !bout.moves {
+        return;
+    }
+    let version = crate::moves::list_version();
+    for ev in &bout.log {
+        let (Some(text), false) = (ev["text"].as_str(), ev["auto"] == true) else { continue };
+        let side = if ev["by"] == json!(Ref::Demigod(bout.duel.f[0].id)) { 0 } else { 1 };
+        let f = &bout.duel.f[side];
+        let read = crate::moves::read(text);
+        crate::world::event("duel_line", Some(Ref::Demigod(f.id).to_string()), json!({
+            "beat": beat, "duel_id": bout.duel.id, "n": ev["n"], "at_ms": ev["at_ms"], "by": if side == 0 { "a" } else { "b" },
+            "demigod": Ref::Demigod(f.id), "seat": (f.seat < crate::SYNTHETIC_SEAT).then_some(f.seat), "ai": ev["ai"] == true,
+            "player": w.demigods[f.id.ix()].player_name(), "account": w.seats.iter().find(|s| s.seat == f.seat).and_then(|s| s.account.clone()),
+            "line": text, "normalized": crate::moves::normalize(text), "list_version": version,
+            "mapper": read.as_ref().map(|r| json!({ "word": r.word, "class": r.class, "clips": r.clips, "setup": r.setup, "leap": r.leap })),
+            "picker": null,
+            "class": ev["choreo"][if side == 0 { "a" } else { "b" }]["move_class"], "result": ev["choreo"]["result"], "verdict": ev["verdict"],
+            "damage": ev["damage"], "range": ev["choreo"]["range_before"],
+            "staged": { "clip": ev["move"]["clip"], "setup": ev["move"]["setup"], "path": ev["move"]["path"] },
+        }));
+    }
 }
 
 /// One delivered act on the bouts under way (the resolve's loop, and the live view's replay of the acts not yet
@@ -1532,7 +1694,7 @@ pub fn apply_act(w: &World, st: &Settings, beat: u32, bouts: &mut Vec<Bout>, mov
     // Rules 0.8.2: a duellist's tick moves its duel's panel cycle on (and nothing else).
     if let Some(id) = &act.tick {
         if let Some(bout) = bouts.iter_mut().find(|x| x.duel.id == *id && x.duel.side_of(act.seat).is_some()) {
-            crate::panel::advance(bout, act.at_ms, true);
+            crate::panel::advance(bout, w, st, act.at_ms, true);
         }
     }
     if let Some(b) = &act.blow {
@@ -1540,7 +1702,7 @@ pub fn apply_act(w: &World, st: &Settings, beat: u32, bouts: &mut Vec<Bout>, mov
         let side = bout.duel.side_of(act.seat)?;
         if w.demigods[bout.duel.f[side].id.ix()].alive {
             // The windows this line's stamp has passed close first: it belongs to the one open now.
-            crate::panel::advance(bout, act.at_ms, false);
+            crate::panel::advance(bout, w, st, act.at_ms, false);
             out = bout.step(w, st, side, &b.text, act.at_ms, act.seq);
         }
     }
@@ -1723,6 +1885,22 @@ pub fn end_json(p: &Pending, deed: &str) -> Value {
         v["panels_total"] = b.panels.len().into();
     }
     v
+}
+
+/// Schema 12: the `challenge.end` shown at once when a duel action closes the duel (a knockout's outro, or the
+/// first action stamped past the deadline): who won and the healths, `provisional: true`, an empty deed and log.
+/// The next resolve applies the result and sends the full `challenge.end` (the same `duel_id`) as before.
+pub fn end_live_json(b: &Bout) -> Value {
+    let d = &b.duel;
+    let r = b.result();
+    let t = b.taken();
+    json!({ "event": "challenge.end", "duel_id": d.id, "provisional": true, "a": Ref::Demigod(d.f[0].id), "b": Ref::Demigod(d.f[1].id),
+            "a_name": d.f[0].name, "b_name": d.f[1].name,
+            "winner": r.map(|x| Ref::Demigod(d.f[x.0].id)), "loser": r.map(|x| Ref::Demigod(d.f[x.1].id)),
+            "ko": b.ko.is_some(), "reason": if b.ko.is_some() { "ko" } else { "deadline" },
+            "damage": { "a": n1(t[0]), "b": n1(t[1]) }, "hp": { "a": n1(b.hp[0]), "b": n1(b.hp[1]) },
+            "blows": b.n, "typed": b.typed, "deed": "", "at": d.at, "pos": d.at, "cell": d.cell, "level": d.level, "place": d.place,
+            "locked_beat": d.beat, "log": [], "panels_total": b.panels.len() })
 }
 
 /// Record the told deeds: `duel.end` in the memory at the duel's hex, a tale for both duellists. Returns the public

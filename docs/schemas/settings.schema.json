@@ -341,9 +341,30 @@
       "minimum": 0,
       "type": "integer"
     },
+    "duel_ai_aggression": {
+      "default": 0.6,
+      "description": "State schema 12: how often the typing AI attacks rather than sets a defence, repositions or taunts.",
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "type": "number"
+    },
     "duel_ai_chance": {
       "default": 0.02,
       "description": "Rules 0.8.1: chance per beat that a built-in AI demigod challenges its nearest rival.",
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "type": "number"
+    },
+    "duel_ai_handicap": {
+      "default": 5,
+      "description": "State schema 12: subtracted from the d20 modifier of the lines an AI types against a human (waived against a human silent for 12 s, and between two AIs).",
+      "maximum": 10,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "duel_ai_lines_per_window": {
+      "default": 1.0,
+      "description": "State schema 12: the chance an AI fighter types a line of its own in an input window of a duel with a clock (1: every window; 0: off, it only counters as in 0.8.2).",
       "maximum": 1.0,
       "minimum": 0.0,
       "type": "number"
@@ -403,6 +424,11 @@
       "maximum": 5000,
       "minimum": 0,
       "type": "integer"
+    },
+    "duel_one_per_player": {
+      "default": true,
+      "description": "State schema 12: a player fights one duel at a time: while one of its demigods is in an open duel, a challenge by or to any of its demigods is refused `busy:player` and the AI's chooser skips it.",
+      "type": "boolean"
     },
     "entropy_per_mega": {
       "default": 10.0,
