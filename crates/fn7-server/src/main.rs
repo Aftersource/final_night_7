@@ -51,7 +51,11 @@ async fn main() -> anyhow::Result<()> {
                    style_version = %style.version, style_hash = %&style.hash[..12], "media");
     // The asset registry (docs/ASSETS.md): attached before the prewarm, so every image the media layer touches from
     // here on is written to SQL as it happens.
-    let assets = fn7_server::assets::open(&cfg.data_dir, |k| std::env::var(k).ok())?;
+    // A registry that cannot be opened never stops the game: the server runs without it and says so.
+    let assets = fn7_server::assets::open(&cfg.data_dir, |k| std::env::var(k).ok()).unwrap_or_else(|e| {
+        tracing::error!(error = %e, "assets: the registry could not be opened; running without it (no /api/assets, no asset rows)");
+        None
+    });
     let asset_hook = assets.as_ref().map(|(reg, root)| {
         tracing::info!(dir = %root.display(), schema = reg.schema_version().unwrap_or(0), "assets");
         fn7_server::assets::attach(reg.clone(), &media)

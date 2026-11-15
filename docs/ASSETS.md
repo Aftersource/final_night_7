@@ -17,7 +17,8 @@ Code: `crates/fn7-assets` (`schema.rs`, `lib.rs`, `files.rs`, `live.rs`, `ingest
 `fn7-server/tests/assets.rs` (the real server, a played match).
 
 `FN7_ASSETS_DIR` moves the root. `FN7_ASSETS=off` turns the registry off (no rows, no routes). `FN7_ASSETS_KEY` (else
-`FN7_PROFILE_KEY`) gates the routes.
+`FN7_PROFILE_KEY`) gates the routes. If the registry cannot be opened at startup (a full disk, a database from a newer
+build) the server logs the error and runs without it: the game and `/media` never depend on it.
 
 ## 1. Layout
 
