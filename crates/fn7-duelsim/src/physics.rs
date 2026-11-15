@@ -327,6 +327,14 @@ impl World {
         let dt = DT; let nb = self.bodies.len();
         let mut cs: Vec<Contact> = vec![];
         for i in 0..nb { let b = &mut self.bodies[i]; if b.dead { continue; } if !b.fixed && !b.asleep { b.v = [b.v[0], b.v[1] - G * dt, b.v[2]]; } self.pose(i); }
+        // a body on the move wakes the sleepers it overlaps: a stack must not hang in the air when its support leaves
+        // (the lab wakes only the neighbours of a struck body; this goes one step further, every step)
+        for i in 0..nb {
+            let a = &self.bodies[i];
+            if a.dead || a.fixed || a.asleep || (dot(a.v, a.v) < 0.09 && dot(a.w, a.w) < 0.25) { continue; }
+            let (ap, ar) = (a.p, a.radius);
+            for o in &mut self.bodies { if o.asleep && !o.dead && !o.fixed && len(sub(o.p, ap)) < o.radius + ar + 0.05 { o.asleep = false; o.still = 0.0; } }
+        }
         for l in self.loads.clone() { let b = &self.bodies[l.body]; if !b.dead && !b.fixed && !b.asleep { self.push(l.body, mul(l.f, dt), l.at); } }
         // ---- contacts ----
         let floor = |b: &Body, pa: usize, p: V3, depth: f64| -> Contact {

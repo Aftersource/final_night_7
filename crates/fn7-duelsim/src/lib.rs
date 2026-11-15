@@ -27,4 +27,4 @@ pub mod shapes;
 pub mod wire;
 
 pub use bake::{FighterSpec, PanelBake, Sim};
-pub use seam::{bake, fighters_of, panel_sim, present_sim, scene_sim, seed32, with_sims, DuelBake, PanelSim};
+pub use seam::{bake, fighters_of, lab_panels, panel_sim, present_sim, scene_sim, seed32, with_sims, DuelBake, PanelSim, SimCache};

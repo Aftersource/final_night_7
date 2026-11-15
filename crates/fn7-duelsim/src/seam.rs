@@ -211,3 +211,53 @@ pub fn scene_sim(scene_spec: &Value, fighters: &[FighterSpec; 2]) -> Value {
             "objects": objects, "affordances": aff, "fighters": { "a": fighter(0), "b": fighter(1) },
             "materials": table().materials.iter().map(|m| (m.name.clone(), json!({ "density": m.density, "friction": m.friction, "restitution": m.restitution, "strength": m.strength, "brittle": m.brittle, "shards": m.shards, "word": m.word, "sound": m.sound }))).collect::<Map<String, Value>>() })
 }
+
+/// A lab duel file (`duel_lab/duel.json`) as the server would stream it: an intro panel (the lab's `intro_ms` of
+/// standing), its panels, an outro (the lab's `outro_ms`; the settle follows it).
+pub fn lab_panels(d: &Value) -> Vec<Value> {
+    let mut v = vec![json!({ "kind": "intro", "play_ms": d["intro_ms"], "a": { "segs": [] }, "b": { "segs": [] } })];
+    v.extend(d["panels"].as_array().cloned().unwrap_or_default());
+    v.push(json!({ "kind": "outro", "play_ms": d["outro_ms"], "a": { "segs": [] }, "b": { "segs": [] } }));
+    v
+}
+
+/// An in-process memo of the newest simulation of each duel, so a duel streaming panel by panel bakes each panel
+/// once. It is **never part of the match state**: a miss (a restart, a replay, a fork, another duel) re-bakes from
+/// the panels and gives the same bytes.
+pub struct SimCache { cap: usize, entries: Vec<CacheEntry> }
+struct CacheEntry { key: String, sig: Vec<u32>, sim: Sim, sims: Vec<Value>, at: Value }
+fn sig(v: &Value) -> u32 { fnv(FNV0, serde_json::to_string(v).unwrap_or_default().as_bytes()) }
+impl SimCache {
+    /// `cap`: how many duels to remember (the oldest is dropped).
+    pub fn new(cap: usize) -> SimCache { SimCache { cap: cap.max(1), entries: vec![] } }
+    pub fn len(&self) -> usize { self.entries.len() }
+    pub fn is_empty(&self) -> bool { self.entries.is_empty() }
+    /// Every panel's `sim` so far, and the stage as the newest panel starts. `key`: the duel's id.
+    pub fn sims(&mut self, key: &str, scene: &Value, fighters: &[FighterSpec; 2], seed: u32, panels: &[Value]) -> (&[Value], &Value) {
+        let mut want = vec![sig(scene) ^ seed, fnv(FNV0, format!("{fighters:?}").as_bytes())];
+        want.extend(panels.iter().map(sig));
+        let at = self.entries.iter().position(|e| e.key == key);
+        let mut e = match at { Some(i) => self.entries.remove(i), None => CacheEntry { key: key.to_string(), sig: vec![], sim: Sim::new(scene, fighters, seed), sims: vec![], at: Value::Null } };
+        if e.sig.len() < 2 || e.sig.len() > want.len() || e.sig[..] != want[..e.sig.len()] { e = CacheEntry { key: key.to_string(), sig: want[..2].to_vec(), sim: Sim::new(scene, fighters, seed), sims: vec![], at: Value::Null }; }
+        for (i, p) in panels.iter().enumerate().skip(e.sims.len()) {
+            e.at = e.sim.checkpoint_json();
+            let b = e.sim.panel(p);
+            e.sims.push(b.to_json(&e.sim.scene)); e.sig.push(want[i + 2]);
+        }
+        if self.entries.len() >= self.cap { self.entries.remove(0); }
+        self.entries.push(e);
+        let e = self.entries.last().unwrap();
+        (&e.sims, &e.at)
+    }
+    /// `panels[from..]`, each with its `sim` attached.
+    pub fn with_sims(&mut self, key: &str, scene: &Value, fighters: &[FighterSpec; 2], seed: u32, panels: &[Value], from: usize) -> Vec<Value> {
+        let (sims, _) = self.sims(key, scene, fighters, seed, panels);
+        panels.iter().zip(sims).skip(from).map(|(p, s)| { let mut p = p.clone(); p["sim"] = s.clone(); p }).collect()
+    }
+    /// For `present.duels[].sim`.
+    pub fn present(&mut self, key: &str, scene: &Value, fighters: &[FighterSpec; 2], seed: u32, panels: &[Value]) -> Value {
+        if panels.is_empty() { return Value::Null; }
+        let (sims, at) = self.sims(key, scene, fighters, seed, panels);
+        json!({ "at": at, "sim": sims[sims.len() - 1] })
+    }
+}
