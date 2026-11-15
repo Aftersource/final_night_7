@@ -67,7 +67,12 @@ use serde::{Deserialize, Serialize};
 /// Schema 12 (AI duellists type): in a duel with a clock an AI fighter types a line in every input window: a bout's
 /// `ai` (the typing scripts not yet entered), blows marked `ai`, panels with `typing_script` and a `play_ms` that
 /// fits the line. Rules that changed read [`World::ai_duel_rules`], so schema-4..11 recordings replay exactly.
-pub const STATE_SCHEMA: u32 = 12;
+///
+/// Schema 14 (duel weapons; 13 is reserved for the earth simulation): a bout's recorded `picks` (the LLM picker's
+/// choices, ordered with the duel's actions), its fighters' `weapon` and the `wield` drawn mid-duel (hammer-space),
+/// `projectiles` and seg trims (`at`, `speed`) on panels. Rules that changed read [`World::duel_weapon_rules`], so
+/// schema-4..12 recordings replay exactly.
+pub const STATE_SCHEMA: u32 = 14;
 
 /// Match-wide settings and clocks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -425,6 +430,10 @@ impl World {
     /// Schema 12 rules may be on (AI duellists type; the room setting `duel_ai_lines_per_window` decides).
     pub fn ai_duel_rules(&self) -> bool {
         self.meta.schema >= dm::AI_DUEL_SCHEMA
+    }
+    /// Schema 14 rules: duel weapons, hammer-space, projectiles, the picker's recorded picks.
+    pub fn duel_weapon_rules(&self) -> bool {
+        self.meta.schema >= dm::DUEL_WEAPONS_SCHEMA
     }
     /// A seat's demigods, in id order (Left then Right in schema 5).
     pub fn bodies_of_seat(&self, seat: u8) -> impl Iterator<Item = &Demigod> {

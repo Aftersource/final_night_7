@@ -43,6 +43,10 @@ pub const LOOK_SCHEMA: u32 = 11;
 /// built-in AI or bot fighter types a line of its own in every input window (a public typing script, then a blow).
 pub const AI_DUEL_SCHEMA: u32 = 12;
 
+/// The schema duel weapons switch on at (13 is the earth simulation's): the LLM picker's recorded picks, weapon
+/// classes and their clips, hammer-space draws, projectiles on panels, clip trims on segs (docs/DUEL_MOVES.md).
+pub const DUEL_WEAPONS_SCHEMA: u32 = 14;
+
 /// Scars kept per demigod (the newest).
 pub const SCARS_KEPT: usize = 12;
 
