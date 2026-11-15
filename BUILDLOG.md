@@ -1298,6 +1298,12 @@ Engineering (branch backend/duel-weapons; state schema 14, 13 being the earth si
 
 > That looks and feels poor and is very laggy. Stop doing it that way; use the mouse pointer and get the controls right.
 
+> The controls are unreliable again. Why is the pan broken again?
+
+> None of the mega powers appear to have any effect on the board.
+
+> What about the rest of the mega and table board powers? Nothing visual is shown for them yet. Was the simulation engine in the background not readied for this?
+
 Benito asked that the star reference image be sent to Chris's agents, and that they be asked how to avoid frustrating him.
 
 Engineering:
