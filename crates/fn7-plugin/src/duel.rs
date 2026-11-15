@@ -783,6 +783,9 @@ pub struct Bout {
     pub sparks_spent: [u32; 2],
     #[serde(default, skip_serializing_if = "zero2")]
     pub sparks_paid: [u32; 2],
+    /// Schema 14: the two fighters' skins as of the lock (the duel sim's masses never change mid-duel).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skins: Option<[String; 2]>,
     /// The pick known at the arrival of the line being struck (set by [`Bout::step`], taken by the strike).
     #[serde(skip)]
     pre_pick: Option<fn7_agents::duel_pick::Pick>,
@@ -795,7 +798,7 @@ impl Bout {
         Bout { duel, hp, n: 0, last_ms: [None; 2], last_seq: [None; 2], said: [vec![], vec![]], log: vec![], strikes: vec![],
                ko: None, typed: 0, lines: vec![], flow, invoked: [0; 2], applied: [0.0; 2], paid: [0; 2], opened: false, delivered_seq: 0,
                blows: vec![], full: false, pauses: vec![], scene: None, panels: vec![], cycle: None, moves: false, ai: None,
-               weapons: false, picks: vec![], pre_pick: None, wield: [None, None], draws: [0; 2], sparks_spent: [0; 2], sparks_paid: [0; 2] }
+               weapons: false, picks: vec![], pre_pick: None, wield: [None, None], draws: [0; 2], sparks_spent: [0; 2], sparks_paid: [0; 2], skins: None }
     }
 
     /// [`Bout::new`] in `w`'s rules: a schema-8 state keeps the duel's whole timeline.
@@ -806,6 +809,8 @@ impl Bout {
         b.weapons = w.duel_weapon_rules();
         if b.weapons {
             b.wield = [crate::weapons::best(&b.duel.f[0].weapons), crate::weapons::best(&b.duel.f[1].weapons)];
+            let skin = |s: usize| crate::skin::of(w, &w.demigods[b.duel.f[s].id.ix()]).to_string();
+            b.skins = Some([skin(0), skin(1)]);
         }
         crate::panel::open(&mut b, w);
         b

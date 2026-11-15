@@ -516,6 +516,10 @@ pub fn duel_json(w: &World, b: &Bout, at_ms: i64, paused: bool) -> Value {
     if b.ai.is_some() {
         v["typing_scripts"] = crate::duel_ai::pending_json(b).into();
     }
+    // Schema 14: the duel sim's checkpoint and the newest panel's sim (docs/DUEL_SIM.md); `panels[]` stay bare.
+    if let Some(sim) = crate::panel::present_sim(b) {
+        v["sim"] = sim;
+    }
     v
 }
 

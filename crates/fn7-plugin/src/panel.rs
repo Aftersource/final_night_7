@@ -224,11 +224,19 @@ pub fn scene(w: &World, d: &Duel) -> Value {
     for text in remembered {
         put("cairn", Some(text), &mut r, &mut spots);
     }
-    json!({ "event": "duel.scene", "duel_id": d.id, "source": "rules", "biome": biome, "place": d.place, "time_of_day": d.phase,
+    let mut v = json!({ "event": "duel.scene", "duel_id": d.id, "source": "rules", "biome": biome, "place": d.place, "time_of_day": d.phase,
             "cell": d.cell, "level": d.level, "settlement_level": level,
             "backstory": format!("{} at {}. {} and {} have chosen this hex.", d.place, d.phase, d.f[0].name, d.f[1].name),
             "hex": { "x": "1.732 (q + r/2)", "z": "1.5 r", "unit": "m" }, "radius": 5,
-            "a_start": start[0], "b_start": start[1], "objects": objects })
+            "a_start": start[0], "b_start": start[1], "objects": objects });
+    // Schema 14: the list the duel is read with, and what a client without a clip plays (edited in the list file).
+    if w.duel_weapon_rules() {
+        let l = crate::moves::current();
+        v["list_version"] = l.version.clone().into();
+        v["clip_fallbacks"] = l.clips.iter().filter_map(|c| Some((c.clip.to_string(), Value::String(c.fallback.clone()?))))
+            .collect::<serde_json::Map<String, Value>>().into();
+    }
+    v
 }
 
 fn starts(range: Range) -> [[i32; 2]; 2] {
@@ -965,7 +973,13 @@ pub fn extras(b: &Bout, scene_too: bool, panels_from: usize, blows_from: usize) 
         out.extend(b.scene.clone());
     }
     let mut blows: Vec<&Value> = b.blows.iter().skip(blows_from).filter(|e| e["ai"] == true).collect();
-    for p in b.panels.iter().skip(panels_from) {
+    // Schema 14: on the live stream only (never in a recorded outcome), each panel carries the duel sim's `sim`.
+    let simmed = live_sims(b, panels_from);
+    let panels: Vec<&Value> = match &simmed {
+        Some(v) => v.iter().collect(),
+        None => b.panels.iter().skip(panels_from).collect(),
+    };
+    for p in panels {
         let staged = |e: &Value| p["blows"].as_array().is_some_and(|a| a.contains(&e["n"]));
         out.extend(blows.iter().filter(|e| staged(e)).map(|e| (*e).clone()));
         blows.retain(|e| !staged(e));
@@ -982,6 +996,21 @@ pub fn extras(b: &Bout, scene_too: bool, panels_from: usize, blows_from: usize) 
         out.push(crate::duel::end_live_json(b));
     }
     out
+}
+
+/// Schema 14: `panels[from..]` each with its `sim` (docs/DUEL_SIM.md: baked once per panel on this server, cached by
+/// duel; a pure function of the scene, the skins locked at the lock, the panels and the seed). `None` before schema 14.
+pub fn live_sims(b: &Bout, from: usize) -> Option<Vec<Value>> {
+    let skins = b.skins.as_ref().filter(|_| b.weapons)?;
+    let scene = b.scene.as_ref()?;
+    Some(fn7_duelsim::live_with_sims(&b.duel.id, scene, [&skins[0], &skins[1]], b.duel.seed, &b.panels, from))
+}
+
+/// Schema 14: `present.duels[].sim` (`{at, sim}`: the stage as the newest panel starts and that panel's sim).
+pub fn present_sim(b: &Bout) -> Option<Value> {
+    let skins = b.skins.as_ref().filter(|_| b.weapons)?;
+    let scene = b.scene.as_ref()?;
+    Some(fn7_duelsim::live_present(&b.duel.id, scene, [&skins[0], &skins[1]], b.duel.seed, &b.panels))
 }
 
 /// The events a duel action made beyond its own: the scene and the panels added since `from` (for `also[]`).

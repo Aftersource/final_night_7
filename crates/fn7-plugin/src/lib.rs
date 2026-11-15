@@ -1114,3 +1114,5 @@ mod duel_ai_tests;
 mod moves_tests;
 #[cfg(test)]
 mod picker_tests;
+#[cfg(test)]
+mod weapons_tests;

@@ -585,6 +585,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "fn7-agents",
+ "fn7-duelsim",
  "fn7-memory",
  "fn7-model",
  "fn7-pantheon",
