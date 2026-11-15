@@ -355,7 +355,9 @@ async fn a_different_style_gives_different_prompts_and_hashes() {
     // (Its references resolve next to the file, so this copy drops them.)
     let mut body = alt_style().body;
     body.as_object_mut().unwrap().remove("references");
-    body["kinds"]["portrait"].as_object_mut().unwrap().remove("references");
+    for k in body["kinds"].as_object_mut().unwrap().values_mut() {
+        k.as_object_mut().unwrap().remove("references");
+    }
     std::fs::write(&good, serde_json::to_string(&body).unwrap()).unwrap();
     let c = MediaConfig::from_lookup(|k| (k == "FN7_MEDIA_STYLE").then(|| good.display().to_string())).unwrap();
     assert_eq!((c.style.version.as_str(), c.max_events_per_match), ("2-noir", 3));

@@ -119,12 +119,14 @@ impl MediaRecord {
 }
 
 fn real_match(m: Option<&str>) -> Option<&str> {
-    m.filter(|m| !m.is_empty() && *m != "-" && *m != "prewarm")
+    m.filter(|m| !m.is_empty() && !matches!(*m, "-" | "prewarm" | "library"))
 }
 
 fn requested_by(m: Option<&str>) -> String {
     match m {
         Some("prewarm") => "prewarm".into(),
+        // The people-and-houses library (sprites and buildings, asked for lazily or by the library prewarm).
+        Some("library") => "library".into(),
         Some(m) if !m.is_empty() && m != "-" => format!("match:{m}"),
         _ => "unknown".into(),
     }

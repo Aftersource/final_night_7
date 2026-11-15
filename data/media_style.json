@@ -1,6 +1,6 @@
 {
   "version": "2",
-  "_comment": "Benito's lever (docs/MEDIA.md). Two looks: the top-level house_style/references are the max-zoom hex-diorama look (Final Night 7's tabletop geometry in the mood of Benito's references) used by every kind except portrait; kinds.portrait.style/references are Benito's dark-fantasy look (his DEFAULT_STYLE without the fixed keep-and-forest scenery, his refs and REF_NOTE). house_style_original is Benito's verbatim DEFAULT_STYLE, kept for him to choose (never sent to the model). Reference paths are relative to this file. To add the Unreal geometry screenshots, list them in references.geometry (they go first in every request): a data change, no code change.",
+  "_comment": "Benito's lever (docs/MEDIA.md). The sprite and building kinds are the people-and-houses library (one picture per role x look and kind x look, cached forever). Two looks: the top-level house_style/references are the max-zoom hex-diorama look (Final Night 7's tabletop geometry in the mood of Benito's references) used by every kind except portrait; kinds.portrait.style/references are Benito's dark-fantasy look (his DEFAULT_STYLE without the fixed keep-and-forest scenery, his refs and REF_NOTE). house_style_original is Benito's verbatim DEFAULT_STYLE, kept for him to choose (never sent to the model). Reference paths are relative to this file. To add the Unreal geometry screenshots, list them in references.geometry (they go first in every request): a data change, no code change.",
   "house_style": "Final Night 7's tabletop world: an extremely sparse, geometric low-poly miniature diorama on a dark candlelit wooden table: a board of flat raised hexagonal tiles in soft greens, sand and pale sea-blue, chunky voxel blocks, simple extruded white pillars and cones standing in for people, a floating globe made of small cubes. Combined with the mood of the reference images: a mystical early-2000s PlayStation 2 era dark-fantasy, Dark Souls atmosphere, deep cobalt blue and violet night haze with stars and nebulae, warm orange candle and torch light as the only contrast, heavy contrast, simple baked lighting, crunchy low-resolution textures, dreamy and eerie",
   "house_style_original": "a dark-fantasy world at night: a burning stone keep of crumbling walls, torch-lit corridors and Gothic archways, standing at the edge of a misty pine forest under a vast starry sky with swirling purple and blue nebulae and a thin crescent moon. Deep saturated cobalt blue and violet everywhere, warm orange torch and fire light as the only contrast, glowing sparks and fireflies. Rendered to look like an early-2000s PlayStation 2 era fantasy game cutscene: low-poly models, crunchy over-sharpened low-resolution textures, heavy contrast, slightly jagged edges, simple baked lighting, dreamy and eerie",
   "kinds": {
@@ -45,6 +45,38 @@
     "diorama": {
       "framing": "the demigod as a tiny, extremely simple geometric miniature figure (a few faceted low-poly blocks, a near-faceless head, glowing hand shapes) standing on a single raised hexagonal diorama tile with its signature prop, three-quarter view from slightly above, centered on the dark candlelit table",
       "size": "1024x1024"
+    },
+    "sprite": {
+      "framing": "one full-body game sprite of a single character standing in a relaxed three-quarter view, the whole figure from head to feet in frame and centered, a clear silhouette readable at a small size, on a plain flat background with no scenery and no ground: {subject}",
+      "size": "1024x1024",
+      "style": "Final Night 7's tabletop world brought down to one of its inhabitants: a faceted low-poly game character with a distinct face, build, clothing and props that say at a glance who they are, in the mood of the reference images: a mystical early-2000s PlayStation 2 era dark-fantasy, deep cobalt blue and violet tones, warm orange candle and torch light as the only contrast, heavy contrast, simple baked lighting, crunchy low-resolution textures, dreamy and eerie",
+      "references": {
+        "geometry": [],
+        "mood": [
+          "style_refs/IMG_3751.jpg",
+          "style_refs/IMG_3754.jpg",
+          "style_refs/IMG_3762.jpg",
+          "style_refs/IMG_3765.jpg"
+        ],
+        "mood_per_request": 4,
+        "note": "Match the reference images' palette, lighting and mood only, not their scenery: one character alone on a plain flat background; this is a new piece in that same world, not a copy of them."
+      }
+    },
+    "building": {
+      "framing": "a single building shown alone as a chunky low-poly miniature game piece on one raised hexagonal tile, three-quarter view from slightly above, centered, on a plain flat background with no scenery: {subject}",
+      "size": "1024x1024",
+      "style": "Final Night 7's tabletop world: a sparse, geometric low-poly miniature building made of chunky voxel blocks, with character and wear that say who lives there, in the mood of the reference images: a mystical early-2000s PlayStation 2 era dark-fantasy, deep cobalt blue and violet night tones, warm orange candle and torch light glowing from its windows as the only contrast, heavy contrast, simple baked lighting, crunchy low-resolution textures, dreamy and eerie",
+      "references": {
+        "geometry": [],
+        "mood": [
+          "style_refs/IMG_3751.jpg",
+          "style_refs/IMG_3754.jpg",
+          "style_refs/IMG_3762.jpg",
+          "style_refs/IMG_3765.jpg"
+        ],
+        "mood_per_request": 4,
+        "note": "Match the reference images' palette, lighting and mood only, not their scenery: one building alone on a plain flat background; this is a new piece in that same world, not a copy of them."
+      }
     }
   },
   "avoid": "No words or letters in the picture, no gore, no real people.",
