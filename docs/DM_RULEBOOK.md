@@ -491,6 +491,16 @@ strength, plates, km}` or null); `fault_factor` is then the whole damage multipl
 Older states (schema ≤ 15) and settings recorded without `fault_junctions_enabled` keep the plain curve, so their
 recordings replay exactly.
 
+**Balance** (`crates/fn7-server/tests/fault_balance.rs`, 128 seeds × 60 beats, 4 players, rules only, the house
+curve, junctions off vs on). At the house `bolt_start` (1) the built-in AI casts a mega only when it holds 2+ bolts,
+which almost never happens, so the two arms come out identical (58.4 beats played; 19% end early, none by heat
+death; seat wins 27/42/26/33, χ² 5.06 < 7.81). With `bolt_start` 6 (297 megas: 12 junction, 45 fault, 75 near, 55
+mild, 110 tiny) both arms hit heat death at beat 19.7 on average: the Entropy each mega adds ends those worlds, not
+the junctions (first elimination 19.0 → 18.9, eliminations 6.02 → 6.03 per match, the champion changes on 3 of 128
+seeds, seats χ² 0.44). The AI aims at rivals, not at junctions; a player who hunts junctions on purpose lands megas
+of about × 3.9 damage and × 3 radius. If that turns out too much, make a junction mega cost one more bolt (or more
+Entropy) instead of weakening the multipliers.
+
 Credit (required, ODC-BY 1.0): "Plate boundaries: Bird, P. (2002), PB2002; GeoJSON by Hugo Ahlenius, Nordpil
 (ODC-BY 1.0)." (`data/geo/PB2002_boundaries.json`, `data/geo/README.md`.)
 
