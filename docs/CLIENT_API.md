@@ -1218,6 +1218,87 @@ them, but no panel plays them yet. The table is not sent on the wire: it is here
   `duel_id` (the deed, the log, no `provisional`): replace the provisional one. After the close, lines are refused
   `duel_over` and ticks `no_duel`. (`duel_keys` never closes a duel: it is not part of the match's record.)
 
+## Duel sim: baked physics and limb targets
+
+**Not wired yet** (crate `fn7-duelsim`, docs/DUEL_SIM.md): once it is, every `duel.panel` carries a `sim`, `duel.scene`
+a `sim`, and `present.duels[]` a `sim`. The server simulates each panel once, deterministically (120 Hz rigid bodies
+with masses from materials, fighters with mass from their skin), and a client **plays it back**: no physics on the
+client, the same result on every screen, exact on rewind and resume. A client that ignores `sim` works as before.
+
+Frame: millimetres, x to the audience's right, y up, z toward the audience (hex `[q, r]` -> x = 1732.0508 (q + r/2),
+z = 1500 r). **Unreal**: `UE_cm = 0.1 x (x, z, y)`, a quaternion `[qx, qy, qz, qw]` -> `(-qx, -qz, -qy, qw)`; a yaw
+(radians about +y, 0 = facing +z) faces UE `(sin yaw, cos yaw)`, i.e. UE yaw `90 - degrees(yaw)` for a +X-forward actor.
+
+### `duel.scene.sim` (once)
+
+```json
+{ "v": 1, "hz": 60, "step_hz": 120, "unit": "mm",
+  "objects": [ { "id": "crate_a", "b": 1, "mass": 42.3, "volume": 0.065, "com": [-3897, 375, 1200], "at": [-3897, 0, 1200],
+                 "tip_deg": 48.6, "tip_j": 79.5, "support": [[-4401, 873], [-3570, 696], [-3393, 1527], [-4224, 1704]],
+                 "bounds": [[-4401, 0, 696], [-3393, 750, 1704]] } ],
+  "affordances": [ { "kind": "vault", "obj": "desk", "part": 0, "at": [2607, 940, -195], "hex": [1.57, -0.13], "height": 940 } ],
+  "fighters": { "a": { "skin": "gold", "material": "gold", "figure": "mannequin", "mass": 178.3, "jump": 0.491, "speed": 0.701,
+                       "com": [0, 969, 5], "start": [-5196, 0, 0], "segments": { "pelvis": 24.719, ... },
+                       "anchors": { "head": [0, 1580, 40], "chest": [0, 1300, 100], "belly": [0, 1040, 100], "legs": [90, 550, 60] },
+                       "spheres": [[950, 300], [1400, 260]] }, "b": { ... } },
+  "materials": { "stone": { "density": 2500, "friction": 0.65, "restitution": 0.1, "strength": 5200, "brittle": false, "shards": 3, "word": "KRAK", "sound": "stone" }, ... } }
+```
+
+`b` is the object's **body index**, the number every track and event uses; `volume` is the solid volume (m^3, after
+`fill`); `tip_deg` the tilt at which it topples, `tip_j` the energy that takes (J); `support` its footprint `[x, z]`.
+`affordances[].mode` (`up` / `along`) on wall-runs.
+
+### `duel.panel.sim`
+
+```json
+{ "v": 1, "n": 6, "t0_ms": 17200, "step0": 2064, "len": 180,
+  "bodies": [ { "b": 3, "obj": "crate_a", "k": "<base64>" }, { "b": 31, "k": "<base64>" } ],
+  "events": [ { "t": 1412, "e": "hit", "obj": "screen", "b": 12, "part": 0, "at": [-6210, 1100, 2070], "by": "b", "j": 395, "with": "b", "fx": "glitter" },
+              { "t": 1420, "e": "shatter", "obj": "screen", "b": 12, "part": 0, "at": [...], "word": "KSSSH", "fx": "glitter",
+                "shards": [[31, 412, 380, 8], [32, 296, 410, 8]] },
+              { "t": 2210, "e": "break", "obj": "pillar", "b": 9, "part": 2, "at": [...], "word": "KRAK", "fx": "dust", "pieces": [[33, 2], [34, 3]] },
+              { "t": 900, "e": "crack", "obj": "pillar", "b": 9, "part": 1, "at": [...], "damage": 0.52, "fx": "dust" } ],
+  "fighters": { "a": { "root": "<base64>", "limbs": [[1220, 1600, 140, 150, "foot_r", "strike", -3837, 360, -450, -940, 0, 342, "crate_e", 0]],
+                       "look": [[0, "foe"], [1300, "path"]], "arcs": [[0, 630, 1661, 138]] }, "b": { ... } },
+  "shots": [ { "t0": 900, "t1": 1180, "kind": "rocket", "by": "a", "from": [...], "to": [...], "hit": "crate_a", "part": 0, "blast": 320, "radius": 2500 } ],
+  "hash": "bdc0381c", "state": "..." }
+```
+
+- **Time.** Sample `i` of a track is at panel-local `(step0 + 2 i) x 1000 / 120 - t0_ms` ms (60 samples a second).
+  Event `t` and every `*_ms` are panel-local ms.
+- **`bodies[].k`** (base64, little-endian): `u16 first sample`, then 11-byte keys `u8 dt` (samples since the previous
+  key), `i16 x, y, z` (mm), `u32 q` (smallest-three: bits 30-31 the index of the largest of `[x, y, z, w]`, left out
+  and positive; the other three in order, 10 bits each, `c = (v / 511.5 - 1) x 0.70710678`). Interpolate positions
+  linearly and rotations by normalised lerp; before its first key a body is where the previous panel left it (or
+  where the scene put it); after its last key it holds. Only bodies that moved have a track. A track is the pose of
+  the object's origin (its `at`, with its yaw); for a piece or shard, the pose of that part's centre.
+- **Pieces.** `break.pieces` = `[body, scene part]`: hide that part of the object, spawn the part's primitive as body
+  `body`. `shatter.shards` = `[body, w, h, d]` (mm): hide the part, spawn boxes of the part's material. Their tracks
+  start where they appear. `crack`: show a crack decal on that part. `fx`: dust / splinter / spark / glitter / chip
+  / puff at `at`.
+- **`fighters.*.root`** (base64): `u16 first`, then 16-byte keys `u8 dt`, `i16 x, y, z` (mm: the root on the floor),
+  `i16 yaw, pitch, roll` (mrad; yaw continuous), `i8 lean_x, lean_z` (x 4 mrad: tilt the body about the feet toward
+  world +x / +z so the centre of mass stays over its support), `u8 flags` (1 air, 2 hung, 4 low). Linear between keys.
+  It agrees with the clip segments' `to` / `path`: it is the same path, resolved on the real surfaces.
+- **`limbs[]`** = `[t0, t1, in, out, limb, kind, x, y, z, nx, ny, nz, on, part]`: IK targets, not poses. From `t0`
+  blend the limb's end (`hand_l hand_r foot_l foot_r`) toward `(x, y, z)` over `in` ms, hold, blend out over the last
+  `out` ms to `t1`; align the palm or sole to the normal `n` (x 1000). `kind`: `plant` (a foot on a surface that is
+  not the floor plane), `vault` / `mantle` (hands on a top), `wallrun` / `wallkick` (a sole on a wall), `strike` (the
+  striking limb at the exact point it hits, at `contacts[].t_ms`: on an object's surface, or on the foe's `on` = `a` /
+  `b`, `part` = `head chest belly legs`, at the anchor as the foe stands then). `on` = `""` is the floor.
+- **`look[]`** = `[t_ms, "foe" | "path" | <object id>]`: the head's look-at from then on. **`arcs[]`** = `[t0, t1,
+  apex_mm, impulse_Ns]`: flights (dust at take-off and landing).
+- **Mass shows.** A gold fighter's kick sends a crate twice as far as a wooden one's, and the same boosted blow
+  breaks the pillar for gold and only cracks it for wood: play what the sim says, never re-derive it.
+
+### `present.duels[].sim` (join, reconnect)
+
+`{ "at": <checkpoint>, "sim": <the newest panel's sim> }`. The checkpoint is the stage as that panel starts, so a
+client never needs the earlier panels' tracks: `bodies` = `[b, obj, x, y, z, q]` for every displaced object, `pieces`
+= `[b, obj, part, "piece", x, y, z, q]` or `[b, obj, part, "shard", x, y, z, q, w, h, d]`, `dead` / `cracked` =
+`[obj, part]`, `fighters` = `{ a: [x, y, z], b: [...] }`. Build the scene, apply the checkpoint, then play the panel's
+sim from `server_time_ms - starts_at_ms`.
+
 ## Exact resume: `present` (state schema 8)
 
 A match started by this server (state **schema 8** and up; older matches in flight keep the 0.8.1 behaviour) can be redrawn

@@ -1,0 +1,75 @@
+{
+  "_": "The duel's materials, skins and figures. One table for the scene generator's material names (fn7-plugin panel.rs), the simulation (fn7-duelsim) and the clients (docs/DUEL_SIM.md). Ported from duel_lab/lib/materials.js. density kg/m^3; friction = Coulomb mu; strength = impulse (N*s) one square metre of the part's smallest cross-section survives; brittle parts shatter into `shards` pieces; word/sound = the impact class.",
+  "crack_at": 0.4,
+  "ref_mass": 43,
+  "materials": {
+    "stone":    { "density": 2500,  "friction": 0.65, "restitution": 0.10, "strength": 5200,  "brittle": false, "shards": 3,  "word": "KRAK",  "sound": "stone" },
+    "marble":   { "density": 2700,  "friction": 0.50, "restitution": 0.12, "strength": 4200,  "brittle": false, "shards": 4,  "word": "KRAK",  "sound": "stone" },
+    "wood":     { "density": 650,   "friction": 0.50, "restitution": 0.25, "strength": 6000,  "brittle": false, "shards": 5,  "word": "THOK",  "sound": "wood" },
+    "iron":     { "density": 7800,  "friction": 0.45, "restitution": 0.25, "strength": 30000, "brittle": false, "shards": 2,  "word": "KLANG", "sound": "metal" },
+    "gold":     { "density": 19300, "friction": 0.40, "restitution": 0.15, "strength": 9000,  "brittle": false, "shards": 2,  "word": "DONG",  "sound": "metal" },
+    "cloth":    { "density": 240,   "friction": 0.80, "restitution": 0.02, "strength": 60000, "brittle": false, "shards": 1,  "word": "WHUMP", "sound": "soft" },
+    "glass":    { "density": 2500,  "friction": 0.35, "restitution": 0.30, "strength": 450,   "brittle": true,  "shards": 12, "word": "KSSSH", "sound": "glass" },
+    "bone":     { "density": 1800,  "friction": 0.50, "restitution": 0.20, "strength": 1800,  "brittle": true,  "shards": 4,  "word": "KRIK",  "sound": "bone" },
+    "ice":      { "density": 917,   "friction": 0.05, "restitution": 0.10, "strength": 900,   "brittle": true,  "shards": 8,  "word": "KRSH",  "sound": "glass" },
+    "obsidian": { "density": 2400,  "friction": 0.45, "restitution": 0.15, "strength": 1500,  "brittle": true,  "shards": 6,  "word": "TSSK",  "sound": "glass" },
+    "clay":     { "density": 1900,  "friction": 0.60, "restitution": 0.05, "strength": 700,   "brittle": true,  "shards": 6,  "word": "KRASH", "sound": "clay" },
+    "leaf":     { "density": 90,    "friction": 0.70, "restitution": 0.02, "strength": 60000, "brittle": false, "shards": 1,  "word": "FSSH",  "sound": "soft" },
+    "rope":     { "density": 500,   "friction": 0.80, "restitution": 0.05, "strength": 20000, "brittle": false, "shards": 1,  "word": "THWIP", "sound": "soft" }
+  },
+  "default_material": "wood",
+  "skins": {
+    "_": "What a fighter's skin is made of. The figure is a cast: fill = how much of its volume is material. mass = density * fill * figure volume. The first five exist as textures; the rest are ready for future skins.",
+    "wood":        { "material": "wood",     "fill": 1.0 },
+    "butterfly":   { "material": "cloth",    "fill": 1.0 },
+    "dragonscale": { "material": "bone",     "fill": 0.8 },
+    "obsidian":    { "material": "obsidian", "fill": 0.4 },
+    "gold":        { "material": "gold",     "fill": 0.14 },
+    "stone":       { "material": "stone",    "fill": 0.5,  "future": true },
+    "marble":      { "material": "marble",   "fill": 0.5,  "future": true },
+    "bone":        { "material": "bone",     "fill": 0.6,  "future": true },
+    "ice":         { "material": "ice",      "fill": 1.0,  "future": true },
+    "iron":        { "material": "iron",     "fill": 0.2,  "future": true },
+    "glass":       { "material": "glass",    "fill": 0.3,  "future": true },
+    "clay":        { "material": "clay",     "fill": 0.45, "future": true },
+    "leaf":        { "material": "leaf",     "fill": 1.0,  "future": true },
+    "rope":        { "material": "rope",     "fill": 1.0,  "future": true }
+  },
+  "default_skin": "wood",
+  "figures": {
+    "_": "A figure = a rigged body on the UE5 mannequin skeleton. volume m^3 (measured from the skinned mesh in the lab; 0.066 is the lab's table value); height m; pivot = the height the body spins about in the air; segments = each bone's share of the mass; rest = each segment's centre in the standing pose, root-local metres [x left, y up, z forward]; anchors = where a blow lands on the body (head/chest/belly/legs), root-local; spheres = the two collision spheres [height above the root, radius].",
+    "mannequin": {
+      "volume": 0.066, "height": 1.7, "pivot": 0.95,
+      "segments": { "pelvis": 0.14, "spine_01": 0.1, "spine_02": 0.12, "spine_03": 0.13, "neck_01": 0.01, "head": 0.07,
+        "clavicle_l": 0.01, "upperarm_l": 0.027, "lowerarm_l": 0.016, "hand_l": 0.007, "clavicle_r": 0.01, "upperarm_r": 0.027, "lowerarm_r": 0.016, "hand_r": 0.007,
+        "thigh_l": 0.1, "calf_l": 0.045, "foot_l": 0.012, "ball_l": 0.003, "thigh_r": 0.1, "calf_r": 0.045, "foot_r": 0.012, "ball_r": 0.003 },
+      "rest": { "pelvis": [0, 0.96, 0], "spine_01": [0, 1.04, 0], "spine_02": [0, 1.14, 0], "spine_03": [0, 1.28, 0], "neck_01": [0, 1.46, 0], "head": [0, 1.58, 0.02],
+        "clavicle_l": [0.08, 1.40, 0], "upperarm_l": [0.20, 1.25, 0], "lowerarm_l": [0.23, 1.00, 0.02], "hand_l": [0.24, 0.82, 0.04],
+        "clavicle_r": [-0.08, 1.40, 0], "upperarm_r": [-0.20, 1.25, 0], "lowerarm_r": [-0.23, 1.00, 0.02], "hand_r": [-0.24, 0.82, 0.04],
+        "thigh_l": [0.09, 0.72, 0], "calf_l": [0.09, 0.30, 0], "foot_l": [0.09, 0.06, 0.05], "ball_l": [0.09, 0.02, 0.14],
+        "thigh_r": [-0.09, 0.72, 0], "calf_r": [-0.09, 0.30, 0], "foot_r": [-0.09, 0.06, 0.05], "ball_r": [-0.09, 0.02, 0.14] },
+      "anchors": { "head": [0, 1.58, 0.04], "chest": [0, 1.30, 0.10], "belly": [0, 1.04, 0.10], "legs": [0.09, 0.55, 0.06] },
+      "spheres": [[0.95, 0.30], [1.40, 0.26]],
+      "foot_half_stance": 0.11, "reach_arm": 0.62, "reach_leg": 0.86
+    }
+  },
+  "default_figure": "mannequin",
+  "limbs": {
+    "_": "A strike: the share of the fighter's mass behind it, its speed (m/s) and its default height (m). Impulse = share * mass * speed * the fighter's speed scale * power.",
+    "hand":  { "m": 0.12, "v": 10, "y": 1.3 },
+    "kick":  { "m": 0.25, "v": 11, "y": 0.75 },
+    "heavy": { "m": 0.5,  "v": 12, "y": 1.35 },
+    "slam":  { "m": 1.0,  "v": 9,  "y": 1.1 }
+  },
+  "projectiles": {
+    "_": "mass kg, speed m/s; blast = impulse N*s at the centre of a radial blast of `radius` m (falls off as (1 - d/radius)^2).",
+    "arrow":    { "mass": 0.05, "speed": 60 },
+    "bolt":     { "mass": 0.08, "speed": 70 },
+    "knife":    { "mass": 0.25, "speed": 18 },
+    "stone":    { "mass": 0.4,  "speed": 25 },
+    "spear":    { "mass": 1.2,  "speed": 22 },
+    "bullet":   { "mass": 0.012, "speed": 380 },
+    "fireball": { "mass": 0.5,  "speed": 20, "blast": 120, "radius": 1.6 },
+    "rocket":   { "mass": 2.0,  "speed": 40, "blast": 320, "radius": 2.5 }
+  }
+}
