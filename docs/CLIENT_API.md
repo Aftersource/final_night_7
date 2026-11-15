@@ -1556,6 +1556,10 @@ Room setting `looks_enabled` (default true; needs state schema 11). Everything h
 ignores unknown keys keeps working, and the identity `portrait_image` / `diorama_image` on every demigod are unchanged.
 There are **no new actions**. Rules and prompts: [MEDIA.md](MEDIA.md) "Looks"; the state: [TIME_TRAVEL.md](TIME_TRAVEL.md) §2.
 
+State schema 15: a thing whose name is a demigod's, a person's, a player's or a god's (or empty) is never in a
+loadout and never gets item art; a find, a god's gift or an encounter's find made from schema 15 is named after the
+object it is ("Rusted Fish-Gutting Knife", never "Bot Kestrel's Right Hand").
+
 **What it is.** Every demigod has a **loadout**: its notable gear right now (its best item per slot, `weapon`,
 `armor`, `charm`, plus up to `look_extra_items` other major items: relic tier and up, god-blessed, or the first item
 of a kind it has). When a **human player's** demigod's loadout changes (a *major acquisition*, or a loss), it takes a

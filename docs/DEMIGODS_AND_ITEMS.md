@@ -408,6 +408,11 @@ differences (`fn7-sim --replay`).
    `manifest`.
 8. `resolver.rs`/`step.rs`/`god.rs`: their `CreateItem` paths become trinket- or artifact-tier items with `ext` filled
    by `classify_kind`, so old paths still make items, now with kinds. Stop making items from bare verbs (§15).
+   State schema 15: those paths split "name: description" text, so a reply like "Bot Kestrel's Right Hand: finds a
+   rusted fish-gutting knife among the trout" (live match ae54b0af) named the find after its finder. Where the item is
+   made (`fn7_society::effects::thing_name`), a name that is empty, names an entity (`World::names_entity`: a demigod,
+   a person, a player, a god) or is only the start of its own description is replaced by the object the description
+   names (`manifest::object_name`: "Rusted Fish-Gutting Knife"), else "Curious Keepsake". Older states keep the name.
 
 **fn7-society**
 9. `effects.rs`: apply `Effect::Manifest` (push the `mf` row; create the item via `new_item` and set `ext`; link it to

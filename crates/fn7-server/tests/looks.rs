@@ -113,7 +113,7 @@ async fn a_human_arms_their_demigods_the_look_swaps_in_and_the_recording_replays
     assert_eq!(pending["portrait_image"]["status"], "ready");
     assert!(pending["gained"]["name"].as_str().unwrap().contains("Blade"), "{pending}");
     assert_eq!(pending["loadout"][0]["slot"], "weapon");
-    assert!(pending["pending"]["portrait_image"]["prompt"].as_str().unwrap().contains("gripped in the right hand"));
+    assert!(pending["pending"]["portrait_image"]["prompt"].as_str().unwrap().contains("the new gear is the subject of this shot: raised in the right hand"));
 
     // Then ready: announced once more with the same hashes.
     let ready = ready_event.expect("the ready announcement");

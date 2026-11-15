@@ -550,6 +550,8 @@ fn effect(w: &mut World, p: &Proposal, beat: u32, row: &mut LedgerRow) -> Result
                 Source::God { god, .. } => ItemOrigin::Granted { god },
                 _ => ItemOrigin::Summoned,
             };
+            // Schema 15: never an entity's name (a resolver's "Bot Kestrel's Right Hand: finds a rusted knife ...").
+            let name = if w.item_name_rules() { thing_name(w, name, description) } else { name.clone() };
             let iid = new_item(
                 w,
                 name.clone(),
@@ -1207,6 +1209,25 @@ fn new_debt(owed_by: Ref, god: GodId, amount: f32, due: u32) -> Debt {
         status: DebtStatus::Open,
         collected_by: None,
     }
+}
+
+/// The name a made thing takes (schema 15): `name` itself, unless it is empty, names an entity
+/// ([`World::names_entity`]) or is only the start of its own description (a step's act cut to 40 characters); then the
+/// object its description describes ([`fn7_model::manifest::object_name`]), else `"Curious Keepsake"`.
+pub fn thing_name(w: &World, name: &str, description: &str) -> String {
+    let n = name.trim();
+    let d = description.trim();
+    // A name cut from its own description (`line` ends a cut with "…").
+    let head = n.trim_end_matches('…').trim_end();
+    let sentence = !head.is_empty() && (d.len() > head.len() && d.starts_with(head) || (n == d && n.split_whitespace().count() > 5));
+    if !w.names_entity(n) && !sentence {
+        return n.to_string();
+    }
+    [d, n]
+        .iter()
+        .filter_map(|t| fn7_model::manifest::object_name(t))
+        .find(|o| !w.names_entity(o))
+        .unwrap_or_else(|| "Curious Keepsake".to_string())
 }
 
 fn new_item(
