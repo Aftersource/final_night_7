@@ -935,6 +935,31 @@ impl GamePlugin for FinalNight7Plugin {
                 });
             }
         }
+        // Schema 14 (`duel_picker_for_ai`): the AI lines whose typing this action started are picked too; a pick
+        // that comes back before a line's Enter chooses its class (only windows opened by an instant action: one
+        // opened by a resolve keeps its rules line).
+        if let (Some(p), Some(v)) = (&self.picker, v.as_ref()) {
+            let st = world::settings(&w);
+            if w.duel_weapon_rules() && st.duel_picker == "on" && st.duel_picker_for_ai && st.llm {
+                let scripts: Vec<Value> = std::iter::once(v).chain(v["also"].as_array().into_iter().flatten())
+                    .filter(|e| e["event"] == "duel.typing_script").cloned().collect();
+                if !scripts.is_empty() {
+                    let lv = self.journal.live(&w, &st);
+                    for sc in scripts {
+                        let (Some(id), Some(ends), Some(text)) = (sc["duel_id"].as_str(), sc["ends_at_ms"].as_i64(), sc["text"].as_str()) else { continue };
+                        let Some(bout) = lv.bouts.iter().find(|b| b.duel.id == id && b.weapons) else { continue };
+                        let side = if sc["by"] == "a" { 0 } else { 1 };
+                        let range = serde_json::to_value(bout.flow.range).ok().and_then(|r| r.as_str().map(str::to_string)).unwrap_or_default();
+                        let rec = picker::PickRec { duel_id: id.into(), line_seq: 0, line_at_ms: ends, pre: true, at_ms: ends, pick: None, cached: false,
+                                                    latency_ms: 0, tokens_in: 0, tokens_out: 0, cost_usd: 0.0, model: fn7_agents::duel_pick::MODEL.into(),
+                                                    error: None, key: picker::key(text, &range, &moves::list_version()) };
+                        let (journal, key, seed, beat) = (self.journal.clone(), present::Journal::key_of(&w), w.meta.seed, w.meta.beat);
+                        p.spawn(moves::current().body.clone(), duel::pick_ctx(bout, side, text), rec,
+                                std::time::Duration::from_millis(st.duel_picker_timeout_ms as u64), move |r| journal.note_pick(&key, seed, beat, seat, &r));
+                    }
+                }
+            }
+        }
         // The line is sent: what its author was typing is gone.
         if let Some(id) = v.as_ref().filter(|v| v["event"] == "duel.blow").and_then(|v| v["duel_id"].as_str()) {
             self.typing.sent(w.meta.seed, id, seat, action.received_at_ms);

@@ -1106,7 +1106,16 @@ impl Bout {
         let silent = s.ends_at_ms - self.last_ms[foe].unwrap_or(self.duel.started_ms) > crate::duel_ai::IDLE_MS;
         let handicap = if self.duel.f[foe].ai || silent { 0 } else { st.duel_ai_handicap as i32 };
         self.last_ms[s.side] = Some(s.ends_at_ms);
+        // Schema 14 (`duel_picker_for_ai`): a pick for this script that came back by its Enter chooses its class and
+        // presentation, as a human's cached pick does.
+        self.pre_pick = if self.weapons {
+            self.picks.iter().find(|p| p.line_seq == 0 && p.line_at_ms == s.ends_at_ms && p.at_ms <= s.ends_at_ms && p.duel_id == self.duel.id)
+                .and_then(|p| p.pick.clone())
+        } else {
+            None
+        };
         let ev = self.strike_capped(w, st, s.side, &s.text, query, false, false, Some(2), handicap);
+        self.pre_pick = None;
         let mut out = json!({ "event": "duel.blow", "duel_id": self.duel.id, "n": n });
         if let (Some(o), Value::Object(e)) = (out.as_object_mut(), ev) {
             o.extend(e);
@@ -1865,7 +1874,10 @@ fn trace_lines_all(w: &World, beat: u32, bout: &Bout) -> Vec<Value> {
         let f = &bout.duel.f[side];
         let read = crate::moves::read_at(text, fn7_model::dm::DUEL_WEAPONS_SCHEMA);
         let (seq, at) = (ev["seq"].as_u64(), ev["at_ms"].as_i64());
-        let pick = bout.picks.iter().filter(|p| Some(p.line_seq) == seq && Some(p.line_at_ms) == at && ev["ai"] != true).min_by_key(|p| !p.pre);
+        let ai = ev["ai"] == true;
+        let pick = bout.picks.iter()
+            .filter(|p| if ai { p.line_seq == 0 } else { Some(p.line_seq) == seq } && Some(p.line_at_ms) == at)
+            .min_by_key(|p| !p.pre);
         let staged_at = bout.panels.iter().find(|p| p["blows"].as_array().is_some_and(|a| a.contains(&ev["n"])));
         let used = ev["move"]["picker"].as_str();
         let picker = pick.map(|p| json!({
