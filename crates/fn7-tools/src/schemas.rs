@@ -241,7 +241,7 @@ fn shared_defs() -> Map<String, Value> {
             ("fizzled", string("Its target doesn't exist (it will fizzle).")),
             ("fault_km", num("Rules 0.8.0, megas only: great-circle distance (km) from the aim to the nearest fault line.")),
             ("fault_factor", num("Rules 0.8.0, megas only: the damage multiplier the fault rule gives (1.6 near a fault .. 0.6 far).")),
-        ],
+        ].into_iter().chain(faults::cast_fields()).collect::<Vec<_>>(),
     );
     d.insert(
         "Streak".into(),
@@ -270,7 +270,7 @@ fn shared_defs() -> Map<String, Value> {
                 ("target_name", json!({ "type": ["string", "null"] })),
                 ("fault_km", num("Rules 0.8.0: first cast, a mega: distance (km) to the nearest fault line.")),
                 ("fault_factor", num("Rules 0.8.0: first cast, a mega: the fault rule's damage multiplier.")),
-            ],
+            ].into_iter().chain(faults::cast_fields()).collect::<Vec<_>>(),
         ),
     );
     d.insert(
@@ -301,7 +301,7 @@ fn shared_defs() -> Map<String, Value> {
                 ("fizzled", string("Why it fizzled (not enough bolts, no such target); nothing was spent.")),
                 ("fault_km", num("Rules 0.8.0, megas only: distance (km) from where it struck to the nearest fault line.")),
                 ("fault_factor", num("Rules 0.8.0, megas only: the fault rule's damage multiplier (radius and magnitude scale with it).")),
-            ],
+            ].into_iter().chain(faults::cast_fields()).collect::<Vec<_>>(),
         ),
     );
     d.insert(
@@ -781,6 +781,7 @@ fn settings_schema() -> Value {
     p("fault_far_radius", f(0.1, 10.0, 1.0, "Rules 0.8.0: radius multiplier far from any fault line."));
     p("fault_near_damage", f(0.0, 10.0, 1.6, "Rules 0.8.0: damage multiplier near a fault line."));
     p("fault_far_damage", f(0.0, 10.0, 0.6, "Rules 0.8.0: damage multiplier far from any fault line."));
+    faults::settings(&mut p);
     p("summon_enabled", json!({ "type": "boolean", "default": true, "description": "Rules 0.8.0: players may summon their demigods (fields.summon)." }));
     p("summon_cooldown_beats", i(1, 100, json!(1), "Rules 0.8.0: beats between two summonings of one demigod."));
     p("summon_loss_scale", f(0.0, 10.0, 1.0, "Rules 0.8.0: multiplier on a reckless summoning's health cost."));
@@ -1981,6 +1982,7 @@ pub fn all() -> Vec<(&'static str, Value)> {
     pool.extend(queries::defs());
     pool.extend(wills::defs());
     pool.extend(earth::defs());
+    pool.extend(faults::defs());
     let mut round_private = pool["SeatDelta"].clone();
     if let Some(props) = round_private["properties"].as_object_mut() {
         props.insert("demigods".into(), array(object("Rules 0.7.0: one of your two demigods this beat.",
@@ -2026,6 +2028,7 @@ fn query_schemas(pool: &Map<String, Value>) -> Vec<(&'static str, Value)> {
     queries::replies()
         .into_iter()
         .chain(earth::replies())
+        .chain(faults::replies())
         .map(|(stem, name, body)| {
             let spec = specs.iter().find(|s| s.name == name).unwrap_or_else(|| panic!("no query {name}"));
             let applies = format!(
@@ -2270,6 +2273,7 @@ fn check(root: &Value, s: &Value, v: &Value, path: &str, strict: bool, errs: &mu
 }
 
 mod earth;
+mod faults;
 mod queries;
 mod wills;
 

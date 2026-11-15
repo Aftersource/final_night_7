@@ -193,7 +193,7 @@ of it is public unless it says otherwise. The examples come from offline matches
 | 7 Paths wear in | `roads[]` on `game.region` / `game.node` / `game.globe`; `road.formed` / `road.faded` events |
 | 8 Shrines | `shrines[]` on `game.region` / `game.node` / `game.globe` / `public_state`; `shrine.built` / `shrine.level` events |
 | Zooming in | `game.node {cell}` (a hex's state, observed or extrapolated); `observed_beat`, `extrapolated` |
-| Fault lines | `fault_km`, `fault_factor` on a mega's streak (`phase.event`) and its `casts[]` line |
+| Fault lines | `fault_km`, `fault_factor` on a mega's streak (`phase.event`) and its `casts[]` line; state schema 16: `fault_tier`, `junction`, `game.fault`, `game.faults_overview` |
 | Summoning | `fields.summon`; `phase.event {event: "summoning"}`; `round.outcome.public.summons[]` (`summoned`) |
 | God-tier powers | `powers[]` with `tier: "god"`; `fields.cast {tier: "god"}`; `round.outcome.public.god_powers[]` |
 
@@ -404,6 +404,34 @@ A mega's strength follows its distance to the nearest plate boundary (rulebook c
 (the client's copy of `data/geo/PB2002_boundaries.json`). Credit: "Plate boundaries: Bird, P. (2002), PB2002; GeoJSON
 by Hugo Ahlenius, Nordpil (ODC-BY 1.0)."
 
+#### Junctions, tiers and the hover preview (state schema 16)
+
+Rulebook 13.1. Megas near a plate-boundary **junction** (where 3+ plates meet, or a knot of fault lines) get extra
+multipliers on top of the distance curve, and every mega lands in a **tier**: `junction`, `fault`, `near`, `mild`,
+`tiny` (≥ `fault_far_km`: a tiny volcano, its lasting mods stay local). The streak (top level and each `casts[]`
+entry), the resolved `casts[]` line and the `fault` event add:
+
+```json
+{ "tier": "mega", "power": "volcano", "radius_km": 1788.6, "fault_km": 0, "fault_factor": 3.92, "fault_tier": "junction",
+  "junction": { "name": "Afar triple junction", "kind": "triple", "at": [42.0332, 11.5772], "strength": 0.71,
+                "plates": ["AF", "AR", "SO"], "km": 0 } }
+```
+
+`junction` is null away from every junction; `name` is there only for the famous ones (say "at the Afar triple
+junction"). `fault_factor` is the whole damage multiplier, the junction's included. Absent before schema 16.
+
+**While a mega is armed:**
+
+- `game.faults_overview` (public; ask once a match): `{junctions_rule, junction_km, tiers: [{tier, max_km |
+  min_km | within_km_of_junction}], factors: {near, far, junction: {km, magnitude, radius, damage}}, junctions:
+  [{lon, lat, name?, kind: "triple" | "knot", strength 0..1, plates}], credit}`, strongest first: glow the junctions by
+  strength (about 97) next to the lines.
+- `game.fault {at: [lon, lat]}` (public; over HTTP `?at=lon,lat` or `?lon=&lat=`; cheap, read-only, deterministic: poll
+  it as the cursor moves, throttled): `{at, km, tier, junction: {name?, kind, at, strength, plates, km} | null,
+  factor: {magnitude, radius, damage}, junctions}`: show the tier and the expected strength under the cursor
+  (`factor.magnitude` is added to the power's mega magnitude, `radius` and `damage` multiply it). In an older match
+  `junctions` is false, `junction` null and `factor` the plain curve.
+
 ### Summoning your demigod (drag it onto the board)
 
 Send an **instant** action (any phase) with `fields.summon`:
@@ -478,7 +506,9 @@ A god-tier power that can't be paid has `fizzled` (nothing spent). The accept-ti
 
 `beats_per_day`, `dm_reach_km`, `dm_encounters_per_beat`, `dm_encounters_max`, `dm_encounter_fade_beats`,
 `dm_encounter_damage_scale`, `dm_settlement_step_beats`, `dm_road_wear`, `dm_road_decay`, `dm_shrines_per_demigod`,
-`dm_shrine_spark_every`, `dm_shrine_heal`, `dm_shrine_ward`, `dm_memory_lines` and the eight `fault_*` settings
+`dm_shrine_spark_every`, `dm_shrine_heal`, `dm_shrine_ward`, `dm_memory_lines` and the `fault_*` settings (eight, plus
+schema 16's `fault_junctions_enabled`, `fault_junction_km`, `fault_junction_magnitude`, `fault_junction_radius`,
+`fault_junction_damage`, `fault_tiny_mod_km`)
 `summon_enabled`, `summon_cooldown_beats`, `summon_loss_scale`, `god_power_cost`, `god_power_gift` (defaults and
 ranges in the rulebook's appendix and `docs/schemas/settings.schema.json`).
 
@@ -2475,6 +2505,8 @@ Unknown args are ignored, including the ngrok gate's `?key=`.
 | `item` | yes (public items; your own) | `ref` (`it:`) | Rules 0.7.0: one item, its manifestation (your own with the verdict) and custody history |
 | `memory` | yes | `place` (hex key / `pl:` / `"world"`), `until_beat?`, `limit?` (50, ≤ 200) | Rules 0.8.0: the DM's decisions about a place and everything above and below it ("DM rulebook features (0.8.0)") |
 | `encounters` | yes | `region?` (`pl:`) | Rules 0.8.0: the encounter hexes (hidden ones only as marked) |
+| `fault` | yes | `at` (`[lon, lat]`; HTTP `at=lon,lat`, or `lon` + `lat`) | State schema 16: a mega's preview there: `km`, `tier`, `junction`, `factor` ("Junctions, tiers and the hover preview") |
+| `faults_overview` | yes | none | State schema 16: every junction and the tier thresholds, for the globe overlay |
 | `piles_final` | yes | none | The end-of-match piles; an error until the match is over |
 | `media` | yes (public refs) | `kind` (`portrait` / `place` / `event` / `army`), `ref` | An image of that thing, by reference: an image object at once (pending, then ready via the manifest) |
 | `profile` | yes | `name?` (default: your seat's name) | A player's persistent profile (see "Profiles, history and library") |

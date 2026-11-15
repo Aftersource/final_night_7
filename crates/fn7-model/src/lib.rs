@@ -82,7 +82,13 @@ use serde::{Deserialize, Serialize};
 /// find, a god's gift, an encounter's find) whose name is an entity's (a demigod, a person, a player, a god) or empty
 /// is named after the object its words describe, and loadouts and item art skip things that are not real objects.
 /// Rules that changed read [`World::item_name_rules`], so schema-4..12 recordings replay exactly.
-pub const STATE_SCHEMA: u32 = 15;
+///
+/// Schema 16 (fault junctions and tiers; 13..15 are taken by the Earth simulator, duel weapons and item names on their
+/// branches): a mega near a plate-boundary junction gets extra multipliers, every mega lands in a tier (`junction` ..
+/// `tiny`) that scales its ramifications, and a tiny one's lasting mods stay local. The gate is
+/// `fn7_plugin::faults::JUNCTION_SCHEMA` (with the room setting `fault_junctions_enabled`), so older recordings
+/// replay exactly.
+pub const STATE_SCHEMA: u32 = 16;
 
 /// Match-wide settings and clocks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

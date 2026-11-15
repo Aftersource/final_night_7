@@ -419,6 +419,88 @@ More magnitude means more ramifications. Minis are unaffected. The lines are com
 startup (deterministic). The streak and the resolved cast carry `fault_km` and `fault_factor` (the damage
 multiplier). The client shows the lines only while a mega is armed.
 
+The live house curve (room settings, lobby): near 200 km: magnitude +5, radius × 2.2, damage × 2.5; far 1,000 km:
+magnitude −4, radius × 0.4, damage × 0.25.
+
+### 13.1 Junctions and tiers (state schema 16)
+
+Chris wants megapowers made much stronger at large intersections, the nearer they are to the faultlines, and only
+'tiny volcanos' near the no-faultline areas." With `fault_junctions_enabled` (default true) and a schema-16 state:
+
+**Junctions.** When the index is built, the plate-boundary junctions are found once, deterministically:
+
+- *Triple junctions:* polyline ends within 30 km of each other whose boundaries touch 3 or more different plates
+  (PB2002 names both plates of every boundary). Candidates chained within 150 km are one junction (the Galápagos
+  microplate's three are one Cocos-Nazca-Pacific-Galápagos junction of four plates), placed at its biggest member.
+- *Knots:* dense, twisting stretches of boundary (at least 1,500 km of boundary within 300 km: ridge-transform
+  staircases, the Kermadec arc) at least 400 km from every triple junction and 500 km from a stronger knot.
+- *Strength* (0..1, two decimals): for a triple junction, ¾ the size of the meeting (the mean of its three biggest
+  plates' weights, a plate's weight being √(its boundary length ÷ the Pacific's), + 0.1 per plate past three) and ¼ the
+  boundary length within 300 km, scaled so the strongest is 1. A knot's strength is 0.6 × its density ÷ the densest
+  sampled boundary (at most 0.6: below the great triple junctions).
+
+About 97 junctions (89 triple, 8 knots). The named ones (a table by location: the nearest triple junction within
+250 km takes the name):
+
+| Junction | Where (lon, lat) | Plates | Strength |
+|---|---|---|---|
+| Solomon Islands junction | 156.3, −8.17 | AU, NB, PA, SS, WL | 1.00 |
+| Macquarie triple junction | 161.23, −61.46 | AN, AU, PA | 0.94 |
+| Rivera triple junction | −105.59, 17.88 | CO, NA, PA, RI | 0.91 |
+| Bouvet triple junction | −0.44, −54.85 | AF, AN, SA | 0.90 |
+| Azores triple junction | −29.77, 39.40 | AF, EU, NA | 0.87 |
+| Juan Fernández triple junction | −110.83, −35.09 | AN, JZ, PA | 0.85 |
+| Galápagos triple junction | −102.18, 1.13 | CO, GP, NZ, PA | 0.84 |
+| Rodrigues triple junction | 69.96, −25.65 | AN, AU, SO | 0.84 |
+| Chile triple junction | −76.01, −45.66 | AN, NZ, SA | 0.80 |
+| Kamchatka–Aleutian junction | 164.07, 55.21 | NA, OK, PA | 0.78 |
+| Mendocino triple junction | −124.74, 40.31 | JF, NA, PA | 0.76 |
+| Queen Charlotte triple junction | −130.85, 51.61 | JF, NA, PA | 0.74 |
+| Afar triple junction | 42.03, 11.58 | AF, AR, SO | 0.71 |
+| Easter triple junction | −112.98, −26.83 | EA, NZ, PA | 0.67 |
+| Boso triple junction | 141.88, 34.21 | OK, PA, PS | 0.67 |
+| Maraş triple junction | 36.41, 36.02 | AF, AR, AT | 0.57 |
+| Karlıova triple junction | 41.00, 39.08 | AR, AT, EU | 0.57 |
+
+`game.faults_overview` lists them all.
+
+**The junction multiplier.** A mega within `fault_junction_km` (300) of a junction feels its pull = strength × (1 −
+km ÷ `fault_junction_km`) (the strongest pull wins), on top of the distance curve:
+
+| | At a junction of strength 1, at its point |
+|---|---|
+| magnitude | + `fault_junction_magnitude` (+3) × pull |
+| radius | × (1 + (`fault_junction_radius` (1.5) − 1) × pull) |
+| damage | × (1 + (`fault_junction_damage` (1.8) − 1) × pull) |
+
+With the house curve, a mega volcano (magnitude 10, damage 3, radius 600 km) aimed at the Afar triple junction lands
+at magnitude 10, damage 11.8 (× 3.92), radius 1,789 km; the same in central Australia (tiny) at magnitude 6, damage
+0.8, radius 240 km, and its scar stays within 150 km. The narration and the cast's act say where: "… casts volcano on Djibouti at the Afar triple junction"
+(unnamed: "at a triple junction", "at a junction of four plates", "in a knot of fault lines").
+
+**Tiers.** Every mega lands in one: `junction` (within `fault_junction_km` of a junction), `fault` (≤
+`fault_near_km`), `near` (the first half of the curve), `mild` (the second half), `tiny` (≥ `fault_far_km`). The
+tier sets the world's answer: the ramifications' weight of the cast (N = 1 + weight + magnitude/3, chapter 12.3) is 4
+at a junction, 3 at a fault or near, 2 mild, 1 tiny (the old rule: 3 for every mega), and a tiny mega's lasting world
+mods reach at most `fault_tiny_mod_km` (150 km): a tiny volcano stays a local mod, never a regional one.
+
+The streak, the resolved `casts[]` line and the `fault` event add `fault_tier` and `junction` (`{name?, kind, at,
+strength, plates, km}` or null); `fault_factor` is then the whole damage multiplier, the junction's included.
+`game.fault {at}` previews it under the cursor (read-only, deterministic).
+
+Older states (schema ≤ 15) and settings recorded without `fault_junctions_enabled` keep the plain curve, so their
+recordings replay exactly.
+
+**Balance** (`crates/fn7-server/tests/fault_balance.rs`, 128 seeds × 60 beats, 4 players, rules only, the house
+curve, junctions off vs on). At the house `bolt_start` (1) the built-in AI casts a mega only when it holds 2+ bolts,
+which almost never happens, so the two arms come out identical (58.4 beats played; 19% end early, none by heat
+death; seat wins 27/42/26/33, χ² 5.06 < 7.81). With `bolt_start` 6 (297 megas: 12 junction, 45 fault, 75 near, 55
+mild, 110 tiny) both arms hit heat death at beat 19.7 on average: the Entropy each mega adds ends those worlds, not
+the junctions (first elimination 19.0 → 18.9, eliminations 6.02 → 6.03 per match, the champion changes on 3 of 128
+seeds, seats χ² 0.44). The AI aims at rivals, not at junctions; a player who hunts junctions on purpose lands megas
+of about × 3.9 damage and × 3 radius. If that turns out too much, make a junction mega cost one more bolt (or more
+Entropy) instead of weakening the multipliers.
+
 Credit (required, ODC-BY 1.0): "Plate boundaries: Bird, P. (2002), PB2002; GeoJSON by Hugo Ahlenius, Nordpil
 (ODC-BY 1.0)." (`data/geo/PB2002_boundaries.json`, `data/geo/README.md`.)
 
@@ -777,6 +859,12 @@ Room settings (validated in `crates/fn7-plugin/src/settings.rs`, listed by `GET 
 | `fault_near_magnitude`, `fault_far_magnitude` | 3, −2 | −10–10 | 13 |
 | `fault_near_radius`, `fault_far_radius` | 1.5, 1.0 | 0.1–10 | 13 |
 | `fault_near_damage`, `fault_far_damage` | 1.6, 0.6 | 0–10 | 13 |
+| `fault_junctions_enabled` | true | bool | 13.1 (state schema 16) |
+| `fault_junction_km` | 300 | 0–3000 | 13.1 |
+| `fault_junction_magnitude` | 3 | −10–10 | 13.1 |
+| `fault_junction_radius` | 1.5 | 0.1–10 | 13.1 |
+| `fault_junction_damage` | 1.8 | 0–10 | 13.1 |
+| `fault_tiny_mod_km` | 150 | 20–1500 | 13.1 |
 | `summon_enabled` | true | bool | 19 |
 | `summon_cooldown_beats` | 1 | 1–100 | 19 |
 | `summon_loss_scale` | 1.0 | 0–10 | 19 |

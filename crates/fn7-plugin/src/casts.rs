@@ -183,7 +183,16 @@ pub fn streak(w: &World, d: DemigodId, seat: u8, casts: &[CastOrder]) -> Option<
                 Some((at, target)) => {
                     // Rules 0.8.0: a mega's strength follows the nearest fault line (shown before it lands).
                     if scale == Some(CastScale::Mega) && w.dm_rules() {
-                        let (q, f) = crate::faults::apply(p.clone(), at, &crate::world::settings(w));
+                        let st = crate::world::settings(w);
+                        // Schema 16: the junction it falls near and its tier, too.
+                        let (q, f) = if crate::faults::junction_rules(w, &st) {
+                            let (q, f, _) = crate::faults::apply_tiers(p.clone(), at, &st);
+                            v["fault_tier"] = f["fault_tier"].clone();
+                            v["junction"] = f["junction"].clone();
+                            (q, f)
+                        } else {
+                            crate::faults::apply(p.clone(), at, &st)
+                        };
                         v["radius_km"] = json!(q.radius_km);
                         v["fault_km"] = f["fault_km"].clone();
                         v["fault_factor"] = f["fault_factor"].clone();
@@ -205,7 +214,7 @@ pub fn streak(w: &World, d: DemigodId, seat: u8, casts: &[CastOrder]) -> Option<
     let mut out = json!({ "event": "streak", "by": name, "by_ref": Ref::Demigod(d), "by_seat": seat,
                           "casts": lines });
     for k in ["power", "power_name", "icon", "cost", "at", "region", "region_ref", "place", "target", "target_name", "fault_km",
-              "fault_factor"] {
+              "fault_factor", "fault_tier", "junction"] {
         if let Some(x) = first.get(k) {
             out[k] = x.clone();
         }
@@ -299,8 +308,16 @@ pub fn process(
             }
             // Rules 0.8.0: a mega lands stronger near a fault line and milder far from one (minis are unaffected).
             let mut fault = Value::Null;
+            // Schema 16: its tier and the junction it fell near (junction multipliers on top of the curve).
+            let mut tiered: Option<crate::faults::Assessment> = None;
             let p = if scale == Some(CastScale::Mega) && w.dm_rules() {
-                let (q, f) = crate::faults::apply(p, at, st);
+                let (q, f) = if crate::faults::junction_rules(w, st) {
+                    let (q, f, a) = crate::faults::apply_tiers(p, at, st);
+                    tiered = Some(a);
+                    (q, f)
+                } else {
+                    crate::faults::apply(p, at, st)
+                };
                 fault = f;
                 q
             } else {
@@ -309,6 +326,11 @@ pub fn process(
             let place = place_at(w, at);
             let (region, rname) = region_name(w, at);
             let place_name = w.name_of(Ref::Place(place));
+            // Schema 16: narration names the junction ("Djibouti at the Afar triple junction").
+            let where_name = match tiered.as_ref().and_then(|a| a.junction.as_ref()) {
+                Some((j, ..)) => format!("{place_name} {}", j.phrase()),
+                None => place_name.clone(),
+            };
             let intent = IntentId::from_ix(w.intents.len());
             let span = match &o.text {
                 Some(x) if p.slug == "custom" => format!("cast {x} on {place_name}"),
@@ -342,8 +364,8 @@ pub fn process(
             witnesses.dedup();
             let tname = target.map(|r| w.name_of(r));
             let act = match &tname {
-                Some(n) => format!("{name} casts {} on {n} in {place_name}", p.name.to_lowercase()),
-                None => format!("{name} casts {} on {place_name}", p.name.to_lowercase()),
+                Some(n) => format!("{name} casts {} on {n} in {where_name}", p.name.to_lowercase()),
+                None => format!("{name} casts {} on {where_name}", p.name.to_lowercase()),
             };
             let prop = Proposal {
                 source: Source::Rules,
@@ -380,10 +402,16 @@ pub fn process(
                 v["fault_km"] = fault["fault_km"].clone();
                 v["fault_factor"] = fault["fault_factor"].clone();
                 v["radius_km"] = json!(p.radius_km);
-                event("fault", Some(Ref::Demigod(d).to_string()),
-                      json!({ "beat": beat, "power": p.slug, "at": at, "fault_km": fault["fault_km"],
-                              "fault_factor": fault["fault_factor"], "magnitude": p.magnitude, "damage": p.damage,
-                              "radius_km": p.radius_km }));
+                let mut e = json!({ "beat": beat, "power": p.slug, "at": at, "fault_km": fault["fault_km"],
+                                    "fault_factor": fault["fault_factor"], "magnitude": p.magnitude, "damage": p.damage,
+                                    "radius_km": p.radius_km });
+                if tiered.is_some() {
+                    for k in ["fault_tier", "junction"] {
+                        v[k] = fault[k].clone();
+                        e[k] = fault[k].clone();
+                    }
+                }
+                event("fault", Some(Ref::Demigod(d).to_string()), e);
             }
             event("cast", Some(Ref::Demigod(d).to_string()),
                   json!({ "beat": beat, "by": d, "power": p.slug, "cost": p.cost, "at": at, "region": region,
@@ -407,16 +435,22 @@ pub fn process(
                     blurb: p.blurb.clone(),
                     custom: p.slug == "custom",
                     at,
-                    place_name,
+                    place_name: where_name,
                     target,
-                    // The ramifications' weight: a mega counts like a 3-bolt power, a mini like a free one.
-                    cost: match scale {
-                        Some(CastScale::Mega) => 3,
-                        Some(CastScale::Mini) => 0,
-                        None => p.cost,
+                    // The ramifications' weight: a mega counts like a 3-bolt power, a mini like a free one (schema 16:
+                    // a mega by its tier, a junction 4 .. a tiny one 1).
+                    cost: match (scale, &tiered) {
+                        (Some(CastScale::Mega), Some(a)) => crate::faults::ramify_weight(a.tier),
+                        (Some(CastScale::Mega), None) => 3,
+                        (Some(CastScale::Mini), _) => 0,
+                        (None, _) => p.cost,
                     },
                     magnitude: p.magnitude,
-                    radius_km: p.radius_km,
+                    // Schema 16: a tiny mega's lasting mods stay local.
+                    radius_km: match &tiered {
+                        Some(a) if a.tier == "tiny" => p.radius_km.min(st.fault_tiny_mod_km),
+                        _ => p.radius_km,
+                    },
                     tags: p.tags.clone(),
                 },
                 intent,

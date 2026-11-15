@@ -285,7 +285,7 @@ fn final_night_7_declares_its_queries_through_the_media_wrapper() {
     assert_eq!(
         names,
         ["globe", "region", "node", "person", "army", "events", "me", "powers", "gods", "standings", "present", "media", "items", "item", "memory",
-         "encounters", "earth", "earth_at", "piles_final"]
+         "encounters", "earth", "earth_at", "fault", "faults_overview", "piles_final"]
     );
     assert!(p.query(&json!({}), None, "powers", &json!({})).unwrap()["powers"].is_array());
     assert_eq!(p.query(&json!({}), Some(0), "globe", &json!({})), Err("no match state".to_string()));

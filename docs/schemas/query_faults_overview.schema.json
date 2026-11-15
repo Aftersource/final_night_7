@@ -1,0 +1,225 @@
+{
+  "$defs": {
+    "FaultTier": {
+      "description": "State schema 16: a mega's tier: junction (within fault_junction_km of a junction), fault (≤ fault_near_km from a fault line), near (the first half of the curve), mild (the second half), tiny (≥ fault_far_km: a tiny volcano; its lasting mods stay local).",
+      "enum": [
+        "junction",
+        "fault",
+        "near",
+        "mild",
+        "tiny"
+      ],
+      "type": "string"
+    }
+  },
+  "$id": "query_faults_overview.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "`game.faults_overview` (state schema 16): the globe overlay while a mega is armed: every junction (glow them by strength) and the tier thresholds. The same all match: ask once.",
+  "properties": {
+    "credit": {
+      "description": "The plate data's required credit (ODC-BY 1.0).",
+      "type": "string"
+    },
+    "factors": {
+      "description": "The curve's settings.",
+      "properties": {
+        "far": {
+          "description": "At or beyond fault_far_km.",
+          "properties": {
+            "damage": {
+              "description": "",
+              "type": "number"
+            },
+            "km": {
+              "description": "",
+              "type": "number"
+            },
+            "magnitude": {
+              "description": "",
+              "type": "number"
+            },
+            "radius": {
+              "description": "",
+              "type": "number"
+            }
+          },
+          "required": [
+            "km",
+            "magnitude",
+            "radius",
+            "damage"
+          ],
+          "type": "object"
+        },
+        "junction": {
+          "description": "At a junction of strength 1 (km = fault_junction_km).",
+          "properties": {
+            "damage": {
+              "description": "",
+              "type": "number"
+            },
+            "km": {
+              "description": "",
+              "type": "number"
+            },
+            "magnitude": {
+              "description": "",
+              "type": "number"
+            },
+            "radius": {
+              "description": "",
+              "type": "number"
+            }
+          },
+          "required": [
+            "km",
+            "magnitude",
+            "radius",
+            "damage"
+          ],
+          "type": "object"
+        },
+        "near": {
+          "description": "At or inside fault_near_km.",
+          "properties": {
+            "damage": {
+              "description": "",
+              "type": "number"
+            },
+            "km": {
+              "description": "",
+              "type": "number"
+            },
+            "magnitude": {
+              "description": "",
+              "type": "number"
+            },
+            "radius": {
+              "description": "",
+              "type": "number"
+            }
+          },
+          "required": [
+            "km",
+            "magnitude",
+            "radius",
+            "damage"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "near",
+        "far",
+        "junction"
+      ],
+      "type": "object"
+    },
+    "junction_km": {
+      "description": "fault_junction_km.",
+      "type": "number"
+    },
+    "junctions": {
+      "description": "Strongest first.",
+      "items": {
+        "description": "One junction.",
+        "properties": {
+          "kind": {
+            "description": "triple: boundaries of 3+ plates meet; knot: a dense, twisting stretch of boundary far from any triple junction.",
+            "enum": [
+              "triple",
+              "knot"
+            ],
+            "type": "string"
+          },
+          "lat": {
+            "description": "",
+            "type": "number"
+          },
+          "lon": {
+            "description": "",
+            "type": "number"
+          },
+          "name": {
+            "description": "A famous one's name.",
+            "type": "string"
+          },
+          "plates": {
+            "description": "PB2002 plate codes meeting there (sorted); empty for a knot.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "strength": {
+            "description": "0..1: the strongest triple junction is 1 (by the size of the plates meeting and the boundary around it).",
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "lon",
+          "lat",
+          "kind",
+          "strength",
+          "plates"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "junctions_rule": {
+      "description": "The match's fault rule includes junctions and tiers.",
+      "type": "boolean"
+    },
+    "tiers": {
+      "description": "junction, fault, near, mild, tiny, in that order.",
+      "items": {
+        "description": "One tier and where it ends.",
+        "properties": {
+          "max_km": {
+            "description": "It holds up to this distance (km) from the nearest fault line.",
+            "type": "number"
+          },
+          "min_km": {
+            "description": "tiny: from this distance on.",
+            "type": "number"
+          },
+          "tier": {
+            "$ref": "#/$defs/FaultTier"
+          },
+          "within_km_of_junction": {
+            "description": "junction: within this distance of a junction.",
+            "type": "number"
+          }
+        },
+        "required": [
+          "tier"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "junctions_rule",
+    "junction_km",
+    "tiers",
+    "factors",
+    "junctions",
+    "credit"
+  ],
+  "title": "game.faults_overview",
+  "type": "object",
+  "x-applies-to": "game.faults_overview reply (WebSocket), GET /api/rooms/{code}/query/faults_overview",
+  "x-args": {
+    "additionalProperties": true,
+    "description": "Over HTTP every arg is a query-string parameter (numbers as numeric strings). Unknown args are ignored.",
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
+  "x-description": "State schema 16, for the globe overlay while a mega is armed: every plate-boundary junction (`{lon, lat, name?, kind: triple|knot, strength 0..1, plates}`, strongest first), the tier thresholds and the curve's settings. The same for the whole match: ask once.",
+  "x-public": true
+}

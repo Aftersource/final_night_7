@@ -223,6 +223,11 @@ fn query_replies_validate() {
     }
     cases.push(("items", None, json!({}), &state));
     cases.push(("items", Some(0), json!({ "limit": 100 }), &state));
+    // State schema 16: the fault preview (on a junction, on a fault, far from any; HTTP-style string args) and overview.
+    for a in [json!({ "at": [42.0, 11.5] }), json!({ "at": "-120.5,35.9" }), json!({ "lon": "134", "lat": "-24" })] {
+        cases.push(("fault", None, a, &state));
+    }
+    cases.push(("faults_overview", None, json!({}), &state));
     let mine: Vec<Ref> = w.items.iter().filter(|i| i.holders.last() == Some(&Ref::Demigod(DemigodId(0)))).map(|i| Ref::Item(i.id)).collect();
     let item_args: Vec<Value> = mine.iter().take(1).map(|r| json!({ "ref": s(*r) })).collect();
     for a in &item_args {
