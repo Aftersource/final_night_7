@@ -362,7 +362,8 @@ pub fn read(text: &str) -> Option<Read> {
         }
     }
     found.sort_by_key(|f| f.0);
-    if found.iter().any(|f| !f.1.weak) {
+    // A weak word (a body part that is usually the target) is a move only in a bare command ("knee!", "elbow him").
+    if found.iter().any(|f| !f.1.weak) || ws.len() > 3 {
         found.retain(|f| !f.1.weak);
     }
     let k = found.iter().rposition(|f| matches!(f.1.class, MoveClass::Invoke | MoveClass::Command)).or(found.len().checked_sub(1))?;
@@ -466,6 +467,7 @@ pub(crate) mod tests {
         assert_eq!(classify("I step back out of reach"), Retreat);
         assert_eq!(classify("you fight like a farmer, I mock you"), Taunt);
         assert_eq!(classify("I hook your chin"), Strike, "no move word: the 0.8.1 reading");
+        assert!(read("My fist finds your knee.").is_none() && read("knee him!").is_some_and(|r| r.clips == ["knee_strike"]), "a target is not a move");
         assert!(read("I hook your chin").is_none());
         let r = read("I duck under it and stab your ribs").unwrap();
         assert_eq!((r.class, r.clips, &r.setup[..]), (Strike, &["lunge"][..], &["evade_roll"][..]), "duck, then the stab");

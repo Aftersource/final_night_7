@@ -297,6 +297,8 @@ pub struct LineCtx<'a> {
     pub foe_last: Option<(MoveClass, bool)>,
     /// The longest line this typist is given.
     pub cap: usize,
+    /// What it already said in this duel (normalized): it does not repeat itself while it has something else.
+    pub said: &'a [String],
 }
 
 fn fits(text: &str, class: MoveClass, cap: usize) -> bool {
@@ -365,7 +367,7 @@ pub fn rules_line(ctx: &LineCtx, r: &mut Rng) -> String {
                 s.push(' ');
                 s.push_str(closer);
             }
-            if fits(&s, ctx.class, ctx.cap) {
+            if fits(&s, ctx.class, ctx.cap) && !ctx.said.contains(&crate::moves::normalize(&s)) {
                 return s;
             }
         }
@@ -401,7 +403,7 @@ fn plan(b: &Bout, st: &Settings, window: u32, opens_ms: i64) -> Vec<Script> {
         let hurt = b.hp[side] <= 3.0;
         let class = choose(&b.flow, side, foe_last.map(|x| x.0), hurt, me.army, st.duel_ai_aggression, &mut r);
         let (cps, key_ms) = typist(d.seed, me.id);
-        let ctx = LineCtx { duel: d, side, class, flow: &b.flow, objects: objects.clone(), foe_last, cap: cap(key_ms) };
+        let ctx = LineCtx { duel: d, side, class, flow: &b.flow, objects: objects.clone(), foe_last, cap: cap(key_ms), said: &b.said[side] };
         let text = line(&ctx, &mut r);
         let n = text.chars().count();
         // It thinks, types (pausing once or twice between words), then presses Enter.
@@ -504,7 +506,7 @@ mod tests {
             for seed in 0..200u64 {
                 for (cap, objects) in [(22, vec![]), (23, vec!["crate".to_string(), "boulder".into()]), (35, vec!["pillar".into()]), (44, vec!["altar".into()])] {
                     let last = [None, Some((MoveClass::Heavy, false)), Some((MoveClass::Strike, true)), Some((MoveClass::Parry, false))][(seed % 4) as usize];
-                    let ctx = LineCtx { duel: &d, side: (seed % 2) as usize, class, flow: &flow, objects, foe_last: last, cap };
+                    let ctx = LineCtx { duel: &d, side: (seed % 2) as usize, class, flow: &flow, objects, foe_last: last, cap, said: &[] };
                     let t = rules_line(&ctx, &mut Rng::derive(seed, &[1]));
                     assert!(fits(&t, class, cap), "{class:?} cap {cap}: {t:?} ({} chars) is {:?}", t.chars().count(), crate::moves::classify(&t));
                     assert_eq!(t, rules_line(&ctx, &mut Rng::derive(seed, &[1])), "seeded");
@@ -516,7 +518,7 @@ mod tests {
         let mut odd = d.clone();
         odd.f[1].name = "Hugo's Left Hand".into();
         for seed in 0..100u64 {
-            let ctx = LineCtx { duel: &odd, side: 0, class: MoveClass::Strike, flow: &flow, objects: vec![], foe_last: None, cap: 40 };
+            let ctx = LineCtx { duel: &odd, side: 0, class: MoveClass::Strike, flow: &flow, objects: vec![], foe_last: None, cap: 40, said: &[] };
             assert!(fits(&rules_line(&ctx, &mut Rng::derive(seed, &[2])), MoveClass::Strike, 40));
         }
     }
