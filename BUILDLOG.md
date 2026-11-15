@@ -1290,6 +1290,10 @@ Engineering (branch backend/duel-weapons; state schema 14, 13 being the earth si
 
 > For the weather effects on the board, such as raising and lowering terrain, is there enough in place to run the simulation of how that would operate back to front? It is similar to Populous: a real-time change, with its effects altering the prompt for that area if anyone is in it, and so on. It is unclear how this will integrate fully.
 
+> Hand movement like a Molyneux game: double-click when not near an enemy's demigod to zoom in, right-click to zoom out. Whatever is happening here is very frustrating.
+
+> Just make it happen, and get it designed for the Unreal team.
+
 Benito asked that the star reference image be sent to Chris's agents, and that they be asked how to avoid frustrating him.
 
 Engineering:
