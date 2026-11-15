@@ -1064,6 +1064,7 @@ These are places where the source documents disagree with the code or with each 
 | Writing a client | `docs/AGENT_GUIDE.md` → `theatre/PROTOCOL.md` → `docs/CLIENT_API.md` → `docs/schemas/`, `docs/examples/`, `docs/clients/fn7_client.mjs` |
 | State, events, SQL | `docs/DATA_MODEL.md` (schema 3; see §11.3), `crates/fn7-model` |
 | Images | `docs/MEDIA.md`, `docs/SHARED_MEDIA_SPEC.md`, `data/media_style.json` |
+| Assets (the registry of every generated file: prompts, costs, lineage, uses) | `docs/ASSETS.md`, `crates/fn7-assets` |
 | Balance | `docs/AGENT_GUIDE.md` §12, `docs/BALANCE_REPORT_1.md` (draft) |
 | The globe-table scene engine | `docs/SCENE_ENGINE_NOTES.md` |
 | The engine | `theatre/README.md`, `DESIGN.md`, `PROTOCOL.md`, `PLUGIN_API.md`, `SPEC_V2.md`, `DEPLOY.md`, `BUILD.md` |

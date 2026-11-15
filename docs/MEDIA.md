@@ -84,6 +84,16 @@ The image bytes. `ext` is `png` (OpenAI), `svg` (the mock), or `webp` / `jpeg`. 
 The routes are served on the game server's own port (the Theatre's router is extended, alongside `/ws`, `/healthz`,
 `/stats`), so they work through the same ngrok tunnel.
 
+### The asset registry
+
+Every image this layer is asked for is also written to the asset registry ([`ASSETS.md`](ASSETS.md)): SQL rows with
+the exact prompt, the request parameters, timing, cost and token usage, and the file by the sha256 of its bytes
+(hard-linked from this cache, so both paths serve the same bytes). The routes above are unchanged. A media `hash`
+maps to its asset directly: `GET /api/assets/<hash>` (the row, its generations, lineage, uses) and
+`GET /api/assets/<hash>/file`; the asset id is `ast_` + the first 24 hex of `sha256("media:" + hash)`. The seam is
+`fn7_media::observe` (`Media::set_observer`): an observer is told at the same five moments the `media_*` events below
+are written.
+
 ## The style config: `data/media_style.json`
 
 Benito's lever (docs/SHARED_MEDIA_SPEC.md §4). The server loads `FN7_MEDIA_STYLE` (a path) if set, else
@@ -518,7 +528,7 @@ way out and never touches the state.
 Rust API (`crates/fn7-media`): `MediaStyle` (`style.rs`; `house_style_for`, `references_for`, `suffix_for`,
 `References::pick`, `base_note`), `ImagePrompt::{styled, from_subject, restyle, on_base, portrait, item,
 event, statue}`, `Media::{prompt, prompt_on, peek, request, request_with, request_by_ref, annotate, annotate_seen, manifest, style, wait_idle}`,
-`ImageGenerator` (`MockGenerator`, `OpenAiImages`), `fn7_media::http::router`. Plugin side (`crates/fn7-plugin`):
+`ImageGenerator` (`MockGenerator`, `OpenAiImages`), `fn7_media::http::router`, `observe::{MediaObserver, MediaEvent, HttpCall}` and `Media::set_observer`. Plugin side (`crates/fn7-plugin`):
 `visual.rs` (sheets), `payload::{event_subject, portrait_prompt, diorama_prompt, person_portrait_prompt, place_prompt, army_prompt}`,
 `phases::storyboard`, the `media` query (`queries.rs`). Server side: `fn7-server/src/media.rs` (`MediaPlugin`: payload
 annotation and `game.media` replies) and `FinalNight7Plugin::with_media_style` (the ruleset record).

@@ -1,7 +1,7 @@
 //! `fn7-assets`: fill and inspect the asset registry (docs/ASSETS.md).
 //!
 //! ```text
-//! fn7-assets [--assets-dir <dir>] ingest [--data-dir <dir>] [--media-dir <dir>] [--profiles <db>] [--recordings <dir>]
+//! fn7-assets [--assets-dir <dir>] ingest [--data-dir <dir>] [--media-dir <dir>] [--profiles <db>] [--recordings <dir>] [--style-refs <dir>]
 //! fn7-assets [--assets-dir <dir>] import-provenance <meshy production dir>
 //! fn7-assets [--assets-dir <dir>] import-jobs <jobs.jsonl> [--root <dir>]
 //! fn7-assets [--assets-dir <dir>] stats | costs [--by day|kind|provider|match|subject|basis|model] | show <id or media hash> | verify
@@ -44,6 +44,10 @@ enum Cmd {
         /// A recordings directory or one recording: adds beats, references, parameters, usage, refusals, failures.
         #[arg(long)]
         recordings: Option<PathBuf>,
+        /// A directory holding the style reference images (the repo's data/style_refs): references a recording
+        /// names by hash get their files.
+        #[arg(long)]
+        style_refs: Option<PathBuf>,
         /// Skip the media cache step.
         #[arg(long)]
         no_media: bool,
@@ -80,9 +84,9 @@ fn main() -> anyhow::Result<()> {
     let env = |k: &str| std::env::var(k).ok();
     let data = || PathBuf::from(env("THEATRE_DATA_DIR").unwrap_or_else(|| "./data".into()));
     let (data_dir, cmd) = match cli.cmd {
-        Cmd::Ingest { data_dir, media_dir, profiles, recordings, no_media, no_profiles } => {
+        Cmd::Ingest { data_dir, media_dir, profiles, recordings, style_refs, no_media, no_profiles } => {
             let d = data_dir.unwrap_or_else(data);
-            (d, Cmd::Ingest { data_dir: None, media_dir, profiles, recordings, no_media, no_profiles })
+            (d, Cmd::Ingest { data_dir: None, media_dir, profiles, recordings, style_refs, no_media, no_profiles })
         }
         other => (data(), other),
     };
@@ -93,7 +97,7 @@ fn main() -> anyhow::Result<()> {
         eprintln!("registry: {}", reg.db_path().display());
     }
     match cmd {
-        Cmd::Ingest { media_dir, profiles, recordings, no_media, no_profiles, .. } => {
+        Cmd::Ingest { media_dir, profiles, recordings, style_refs, no_media, no_profiles, .. } => {
             let mut out = serde_json::Map::new();
             if !no_media {
                 let dir = media_dir.clone().or_else(|| env("FN7_MEDIA_DIR").map(PathBuf::from)).unwrap_or_else(|| "runs/media".into());
@@ -108,6 +112,10 @@ fn main() -> anyhow::Result<()> {
                 eprintln!("recordings: {}", rec.display());
                 let dir = media_dir.clone().or_else(|| env("FN7_MEDIA_DIR").map(PathBuf::from));
                 out.insert("recordings".into(), serde_json::to_value(ingest::recordings(&reg, rec, dir.as_deref())?)?);
+            }
+            if let Some(dir) = &style_refs {
+                eprintln!("style references: {}", dir.display());
+                out.insert("style_refs".into(), serde_json::to_value(ingest::attach_references(&reg, dir)?)?);
             }
             if !no_profiles {
                 let db = profiles.unwrap_or_else(|| fn7_profile::default_path(&data_dir, env));

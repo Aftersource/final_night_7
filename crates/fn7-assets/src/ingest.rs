@@ -182,14 +182,14 @@ fn contains(hay: &[u8], needle: &[u8]) -> bool {
     hay.windows(needle.len()).any(|w| w == needle)
 }
 
-/// Step 3: one recording, or every `*.jsonl` of a directory. `media_dir`, when given, is where a `media_ready`
+/// Step 3: one recording, or every `*.jsonl` (and archived `*.jsonl.zst`) of a directory. `media_dir`, when given, is where a `media_ready`
 /// event's file is looked up by name (an image that is in a recording but was never in the ingested cache).
 pub fn recordings(reg: &Registry, path: &Path, media_dir: Option<&Path>) -> Result<RecordingsReport> {
     let t0 = now_ms();
     let mut files: Vec<PathBuf> = if path.is_dir() {
         std::fs::read_dir(path)?
             .filter_map(|e| e.ok().map(|e| e.path()))
-            .filter(|p| p.extension().is_some_and(|x| x == "jsonl"))
+            .filter(|p| p.extension().is_some_and(|x| x == "jsonl") || p.to_string_lossy().ends_with(".jsonl.zst"))
             .collect()
     } else {
         vec![path.to_path_buf()]
@@ -204,7 +204,23 @@ pub fn recordings(reg: &Registry, path: &Path, media_dir: Option<&Path>) -> Resu
         let mut prompts: HashMap<String, String> = HashMap::new();
         let mut calls: HashMap<String, Vec<Call>> = HashMap::new();
         let mut open: std::collections::HashSet<String> = Default::default();
-        let mut rd = BufReader::with_capacity(1 << 20, std::fs::File::open(f)?);
+        // An archived recording (`<match>.jsonl.zst`, runs/lan/recordings_tool.sh) is read through `zstd -dc`.
+        let mut child = None;
+        let src: Box<dyn std::io::Read> = if f.to_string_lossy().ends_with(".zst") {
+            let mut c = std::process::Command::new("zstd")
+                .args(["-dc", "--long=27"])
+                .arg(f)
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .map_err(|e| anyhow::anyhow!("{}: zstd is needed to read an archived recording: {e}", f.display()))?;
+            let out = c.stdout.take().expect("piped");
+            child = Some(c);
+            Box::new(out)
+        } else {
+            Box::new(std::fs::File::open(f)?)
+        };
+        let mut rd = BufReader::with_capacity(1 << 20, src);
         let mut line: Vec<u8> = Vec::new();
         loop {
             line.clear();
@@ -312,6 +328,9 @@ pub fn recordings(reg: &Registry, path: &Path, media_dir: Option<&Path>) -> Resu
             }
             records.push(r);
         }
+        if let Some(mut c) = child {
+            let _ = c.wait();
+        }
         rep.no_outcome += open.len() as u64;
         for chunk in records.chunks(500) {
             reg.tx(|c| {
@@ -326,6 +345,66 @@ pub fn recordings(reg: &Registry, path: &Path, media_dir: Option<&Path>) -> Resu
         }
     }
     reg.log_run("recordings", &path.display().to_string(), t0, &serde_json::to_value(&rep)?)?;
+    Ok(rep)
+}
+
+#[derive(Debug, Default, Clone, Serialize)]
+pub struct RefsReport {
+    /// Reference assets known only by hash (`external`) before this run.
+    pub wanted: u64,
+    pub files_seen: u64,
+    pub attached: u64,
+}
+
+/// Give reference images that are known only by name and hash (from a recording) their files: every file under
+/// `dir` whose sha256 a waiting reference asset expects is copied into the layout.
+pub fn attach_references(reg: &Registry, dir: &Path) -> Result<RefsReport> {
+    let t0 = now_ms();
+    let mut rep = RefsReport::default();
+    let wanted: HashMap<String, (String, String)> = reg.with(|c| {
+        let mut st = c.prepare("SELECT id, display_name, meta FROM assets WHERE kind='image' AND subkind='reference' AND path IS NULL AND meta IS NOT NULL")?;
+        let rows = st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)))?;
+        let mut m = HashMap::new();
+        for (id, name, meta) in rows.flatten() {
+            if let Some(sha) = serde_json::from_str::<Value>(&meta).ok().and_then(|v| v["sha256_expected"].as_str().map(str::to_string)) {
+                m.insert(sha, (id, name));
+            }
+        }
+        Ok(m)
+    })?;
+    rep.wanted = wanted.len() as u64;
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        for p in rd.filter_map(|e| e.ok()).map(|e| e.path()) {
+            if p.is_dir() {
+                stack.push(p);
+                continue;
+            }
+            if !p.extension().is_some_and(|x| ["jpg", "jpeg", "png", "webp"].contains(&x.to_string_lossy().to_lowercase().as_str())) {
+                continue;
+            }
+            rep.files_seen += 1;
+            let Ok((sha, _)) = crate::files::sha256_file(&p) else { continue };
+            let Some((id, name)) = wanted.get(&sha) else { continue };
+            let file = reg.store_file(&p, "image", "reference", crate::Link::Copy)?;
+            reg.upsert_asset(&crate::AssetIn {
+                id: id.clone(),
+                kind: "image".into(),
+                subkind: "reference".into(),
+                subject: Some(crate::Subject::shared(&format!("style_ref:{}", name.to_lowercase()), name)),
+                variant: "style".into(),
+                created_at: std::fs::metadata(&p).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_millis() as i64).unwrap_or(t0),
+                file: Some(file),
+                status: "ready".into(),
+                source: "backfill".into(),
+                origin_path: Some(p.display().to_string()),
+                ..Default::default()
+            })?;
+            rep.attached += 1;
+        }
+    }
+    reg.log_run("style-refs", &dir.display().to_string(), t0, &serde_json::to_value(&rep)?)?;
     Ok(rep)
 }
 

@@ -20,6 +20,7 @@ Code: `crates/fn7-plugin/src/present.rs` (the journal, the present, the side inp
 | 4 | **Event log** | `matches/<match>.events.jsonl` | by the core | the core's own events (phases, seats, submits) |
 | 5 | **Sessions** | `sessions.json` | by the core | players and resume tokens |
 | 6 | **Profiles** | `fn7/profiles.sqlite` | at match end | per-player history rows that point back into 3 |
+| 7 | **Assets** | `fn7/assets/assets.sqlite` + `fn7/assets/{images,models,textures,animations}/…` | as each image is asked for, finished, refused or failed, and as each payload goes out | every generated picture and model with its file, exact prompt, timing and cost, and **where it was shown**: which match, which beat, on which demigod (§ 9a, [`ASSETS.md`](ASSETS.md)) |
 
 All paths are under `THEATRE_DATA_DIR`. `FN7_JOURNAL_DIR` moves the journal; `FN7_JOURNAL=off` keeps it in memory only.
 
@@ -200,6 +201,7 @@ pauses are the `duel_clock` events. The test asserts the rebuilt list equals the
 | **State at a round** (`GET /admin/matches/{id}/state?after_round=N&view=public\|raw\|seat:N`) | the recording's `commit_round` snapshot | the state through the game's views; `present.duels` has the open duels as of that commit, `live: false` |
 | **Fork** (`POST /admin/fork {match_id, after_round}`) | the same snapshot, seat statuses and scores from events | a new private room, paused; open duels are open with their whole timeline; at its first Start the time since the forked moment is a pause, so each duel has the time it had left |
 | **Attract mode** | recording frames | recorded public messages re-sent |
+| **What a demigod looked like** (`GET /api/assets/at?match=&beat=&demigod=`) | the asset registry's `uses` rows (layer 7) | per picture kind, the image that was on that demigod at that beat, with its file path, URL and sha256 (§ 9a) |
 | **Profiles** (`game.history`, `/api/profiles/*`) | `matches` rows: `match_id`, `recording` (file name), `forked_from`, and the `TimeTravel` links `/admin/matches/{id}/timeline`, `/state?after_round={n}`, `POST /admin/fork` | a player's history points at the recording to scrub or fork |
 
 ## 7. Guarantees
@@ -240,6 +242,40 @@ beat 3 with a paused snapshot):
 | `present` for two live matches with one seed (a fork and its parent both running) | a view is matched to the run whose hooks last left exactly that beat and mark; between a parent's and a fork's identical states the newer wins | `public_view` runs outside the match's context | engine request 5 |
 | A schema-7 match in flight at the upgrade | no `present`, the 0.8.1 in-memory cache as before | not migrated | none (it ends) |
 | Power loss | the journal's last entries (no fsync) | cost per action | not planned |
+
+## 9a. Pictures in time: the asset registry (layer 7)
+
+The state and the recording say what happened; they name pictures only by media hash, and a hash is a request key,
+not a file. The asset registry ([`ASSETS.md`](ASSETS.md)) closes that: for every image a payload carried it keeps
+`uses(asset, match, beat … last_beat, role, subject ref, subject key, loadout hash)`, one row per run of beats, and the
+asset row points at the file by the sha256 of its bytes.
+
+```
+GET /api/assets/at?match=<match id>&beat=<N>&demigod=<name | dg:N>
+```
+
+answers "what did this demigod look like at beat N of match M": per picture kind (`portrait`, `diorama`, the statue
+image) the asset whose run of beats covers N (`matched: covers_beat`), else the newest one first seen at or before N
+(`latest_before`), else the earliest (`earliest_seen`); each with `path` (under the assets root), `file_url`,
+`media_url`, `sha256`, `loadout_hash`, `first_beat`, `last_beat`. Without `demigod`: every picture in effect at that
+beat (all demigods' pictures and the moment cards up then). `GET /api/assets?match=<id>&beat=<N>` lists the same assets
+with their rows, and `GET /api/assets/{id}` gives the exact prompt and cost of each.
+
+- **Where it comes from.** Live: the server's outermost plugin wrapper reads each outgoing payload (public and per
+  seat) after the media layer has annotated it and records every image object with its owner's `ref`, `name` and
+  loadout hash at the hook's beat. It reads only; state, payloads and the recording are untouched, so replays are too
+  (`fn7-server/tests/assets.rs` replays a played match with 0 differences).
+- **A picture that changes mid-match** (gear-aware portraits: a new loadout is a new image) starts a new `uses` row
+  at that beat with its `loadout_hash`; the row before it ends at the beat before. Coming back to an earlier look
+  starts another row.
+- **Older matches** (before the registry): `fn7-assets ingest --recordings` reads each recording's `media_request`,
+  `media_cached` and `media_refused` events, which carry the beat, so the lookup works for them at the beats an image
+  was asked for (`role: requested | cached`; `matched` is then usually `latest_before`). The profile library adds
+  match-level rows (`beat -1`).
+- **A fork** is a new match id; its payloads write their own rows from its first beat. What the parent showed before
+  the fork point stays under the parent's id.
+- **Not covered:** a match played with recording off has no match id and so no `uses`; a picture shown only by a
+  client-side cache (never re-sent in a payload) is not seen by the server.
 
 ## 9. Engine requests
 

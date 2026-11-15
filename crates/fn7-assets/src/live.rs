@@ -238,8 +238,24 @@ pub fn apply(c: &Connection, root: &std::path::Path, r: &MediaRecord) -> Result<
         What::Ready => ("external", Some("generated, but its file was not in the media cache when this was ingested".to_string())),
         What::Cached | What::Sidecar => ("pending", None),
     };
+    // A request, failure or refusal whose outcome is already on record is a re-read (a backfill run again): it
+    // changes nothing about the asset.
+    let concluded: bool = match r.what {
+        What::Requested | What::Failed | What::Refused => {
+            let cycle = if r.what == What::Refused { "refused" } else { "req" };
+            c.query_row(
+                "SELECT 1 FROM generations WHERE id=?1 AND status != 'pending'",
+                [generation_id_for_key(&format!("{cycle}:{}:{}", r.hash, gen_match.unwrap_or("-")))],
+                |_| Ok(true),
+            )
+            .optional()?
+            .unwrap_or(false)
+        }
+        _ => false,
+    };
     // Never let a report without a file disturb a row that has one, and never downgrade on a re-read.
-    let keep = matches!(exists.as_ref().map(|e| e.0.as_str()), Some("ready"))
+    let keep = concluded
+        || matches!(exists.as_ref().map(|e| e.0.as_str()), Some("ready"))
         || (status == "external" && exists.as_ref().is_some_and(|e| e.0 != "pending"))
         || (status == "pending" && r.what != What::Requested && exists.is_some());
     let created_at = r.created_at.unwrap_or(r.at_ms);
@@ -275,7 +291,9 @@ pub fn apply(c: &Connection, root: &std::path::Path, r: &MediaRecord) -> Result<
     let refs_known = !r.refs.is_empty() && r.provider != "mock" && ref_ids.len() == r.refs.len();
 
     // The generation of this request cycle: one per (image, match that had it generated).
-    let gid = generation_id_for_key(&format!("req:{}:{}", r.hash, gen_match.unwrap_or("-")));
+    // A refusal is a row of its own (a server restarted mid-match may refuse what it made before, or the reverse).
+    let cycle = if r.what == What::Refused { "refused" } else { "req" };
+    let gid = generation_id_for_key(&format!("{cycle}:{}:{}", r.hash, gen_match.unwrap_or("-")));
     let (label_model, quality) = split_label(r.label.as_deref());
     let last = r.calls.last();
     let model = r.model.clone().or(label_model).or_else(|| (r.provider == "mock").then(|| "mock".to_string()));
@@ -377,6 +395,18 @@ pub fn apply(c: &Connection, root: &std::path::Path, r: &MediaRecord) -> Result<
     };
     if !skip {
         upsert_generation(c, &g)?;
+        // The same generation may already be here from a sidecar that did not know its match: that row is this one.
+        let stray = generation_id_for_key(&format!("req:{}:-", r.hash));
+        if r.what == What::Ready && stray != gid {
+            let is_stray: bool = c
+                .query_row("SELECT 1 FROM generations WHERE id=?1 AND status='ok' AND source='sidecar'", [&stray], |_| Ok(true))
+                .optional()?
+                .unwrap_or(false);
+            if is_stray {
+                c.execute("DELETE FROM generation_outputs WHERE generation_id=?1", [&stray])?;
+                c.execute("DELETE FROM generations WHERE id=?1", [&stray])?;
+            }
+        }
     }
     // Earlier exchanges of the same generation (a refused transparent background, a 429): rows of their own.
     if r.calls.len() > 1 {

@@ -356,8 +356,9 @@ pub fn upsert_generation(c: &Connection, g: &GenerationIn) -> Result<String> {
                 (_, n) => n,
             }
             .to_string();
-            // richer: the new values win where both have one; poorer: the old ones do.
-            let richer = rank(&g.source) >= rank(&old_source);
+            // richer: the new values win where both have one; poorer: the old ones do. A report that is not a
+            // success never rewrites one that is (it may only fill what is missing).
+            let richer = rank(&g.source) >= rank(&old_source) && !(old_status == "ok" && g.status != "ok");
             // Parameters are merged key by key (the request knows the reserved price, the exchange the rest).
             let old_params: Option<String> = c.query_row("SELECT params FROM generations WHERE id = ?1", [&g.id], |r| r.get(0))?;
             let merged_params = match (old_params.and_then(|p| serde_json::from_str::<Value>(&p).ok()), &g.params) {
@@ -392,7 +393,8 @@ pub fn upsert_generation(c: &Connection, g: &GenerationIn) -> Result<String> {
                     requested_at=COALESCE(requested_at,?12), started_at=COALESCE(started_at,?13),
                     finished_at=COALESCE(finished_at,?14), duration_ms=COALESCE(duration_ms,?15),
                     cost_usd=COALESCE(cost_usd,?16), cost_credits=COALESCE(cost_credits,?17),
-                    cost_basis=COALESCE(cost_basis,?18), usage=COALESCE(usage,?19), error=COALESCE(error,?20),
+                    cost_basis=COALESCE(cost_basis,?18), usage=COALESCE(usage,?19),
+                    error=CASE WHEN ?2 = 'ok' THEN error ELSE COALESCE(error,?20) END,
                     requested_by=COALESCE(requested_by,?21), requested_match=COALESCE(requested_match,?22),
                     requested_beat=COALESCE(requested_beat,?23), requested_seat=COALESCE(requested_seat,?24),
                     requested_account=COALESCE(requested_account,?25), source=COALESCE(source,?26)

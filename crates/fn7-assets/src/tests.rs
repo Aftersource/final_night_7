@@ -861,6 +861,65 @@ fn recordings_add_beats_references_usage_and_refusals() {
                (Some("refused"), Some("refused"), Some("event image cap reached (3 per match)"), Some(3)));
     // The request with no outcome stays pending.
     assert_eq!(one(&reg, &format!("SELECT status FROM assets WHERE id = '{}'", asset_id_for_media(&h3)))["status"], "pending");
+
+    // A server restarted mid-match may refuse (a fresh cap count) an image the same match already made: the refusal
+    // is a row of its own and never touches what the generation cost.
+    std::fs::write(recs.join("run-1.jsonl"), lines.join("\n") + "\n" + &ev(9, "media_refused", 9, 1_794_694_300_000, json!({ "hash": h1, "kind": "event", "provider": "openai", "reason": "event image cap reached (3 per match)", "prompt": prompt })) + "\n").unwrap();
+    ingest::recordings(&reg, &recs, Some(&media)).unwrap();
+    let d = reg.detail(&id).unwrap().unwrap();
+    assert_eq!(d["asset"]["status"], "ready");
+    let mut by: Vec<(&str, f64)> = d["generations"].as_array().unwrap().iter().map(|g| (g["status"].as_str().unwrap(), g["cost_usd"].as_f64().unwrap())).collect();
+    by.sort_by(|a, b| a.0.cmp(b.0));
+    assert_eq!(by, [("failed", 0.0), ("ok", 0.02704), ("refused", 0.0)]);
+    assert!(d["generations"].as_array().unwrap().iter().find(|g| g["status"] == "ok").unwrap()["error"].is_null());
+    assert_eq!(one(&reg, "SELECT ROUND(SUM(cost_usd), 5) AS usd FROM generations")["usd"], 0.02704);
+
+    // The style references a recording names by hash get their files from a directory that has them.
+    let refs_dir = t.path().join("style_refs");
+    std::fs::create_dir_all(refs_dir.join("nested")).unwrap();
+    std::fs::write(refs_dir.join("nested/IMG_3751.jpg"), b"not the expected bytes").unwrap();
+    let rep = ingest::attach_references(&reg, &refs_dir).unwrap();
+    assert_eq!((rep.wanted, rep.files_seen, rep.attached), (2, 1, 0), "a file with other bytes is not the reference");
+    assert_eq!(n(&reg, "SELECT COUNT(*) FROM assets WHERE subkind = 'reference' AND status = 'external'"), 2);
+}
+
+#[test]
+fn a_sidecar_that_did_not_know_its_match_is_not_counted_twice() {
+    let t = Temp::new("stray");
+    let media = t.path().join("media");
+    let h = hash_of(0x44);
+    let jpg = b"reference bytes".to_vec();
+    let ref_sha = files::sha256_bytes(&jpg);
+    MediaCache::new(&media).store(&png(8, 8, "x"), &Sidecar { key: h.clone(), kind: ImageKind::Portrait, prompt: PORTRAIT.into(), provider: "openai".into(),
+        model: "gpt-image-1-mini".into(), ext: "png".into(), bytes: 0, created_at: 5000, cost_usd: 0.03, latency_ms: 900.0, match_id: None }).unwrap();
+    let reg = Registry::open(t.path().join("assets")).unwrap();
+    ingest::media_cache(&reg, &media).unwrap();
+    let recs = t.path().join("rec");
+    std::fs::create_dir_all(&recs).unwrap();
+    let ctx = r#"{"id":1,"run":"run-9","hook_id":1,"llm_call_id":null,"round":3,"step":null,"actor":null}"#;
+    let lines = [
+        format!(r#"{{"type":"event","id":1,"ctx":{ctx},"kind":"media_request","actor":null,"at":4000,"data":{}}}"#, json!({ "hash": h, "kind": "portrait", "model": "openai:gpt-image-1-mini:medium", "price_usd": 0.0302, "prompt": PORTRAIT, "provider": "openai", "refs": ["IMG_1.jpg"] })),
+        format!(r#"{{"type":"http","sample":0,"attempt":0,"started_at":4100,"duration_ms":890.0,"url":"https://api.openai.com/v1/images/edits","status":200,"request":{},"response":{{"usage":{{"input_tokens_details":{{"image_tokens":1128,"text_tokens":300}}}}}},"error":null,"request_headers":{{}},"response_headers":{{}},"ctx":{ctx}}}"#,
+                json!({ "prompt": PORTRAIT, "size": "1024x1024", "image[]": [ { "file": "IMG_1.jpg", "bytes": jpg.len(), "sha256": ref_sha } ] })),
+        format!(r#"{{"type":"event","id":2,"ctx":{ctx},"kind":"media_ready","actor":null,"at":5001,"data":{}}}"#, json!({ "bytes": 1, "cost_usd": 0.03, "hash": h, "kind": "portrait", "latency_ms": 900.0, "model": "gpt-image-1-mini", "path": "runs/media/x.png", "provider": "openai", "status": "ready" })),
+    ];
+    std::fs::write(recs.join("run-9.jsonl"), lines.join("\n") + "\n").unwrap();
+    for _ in 0..2 {
+        ingest::recordings(&reg, &recs, None).unwrap();
+        ingest::media_cache(&reg, &media).unwrap();
+        let g = reg.with(|c| crate::query::rows(c, "SELECT status, cost_usd, cost_basis, requested_match, requested_beat, source FROM generations", &[])).unwrap();
+        assert_eq!(g, vec![json!({ "status": "ok", "cost_usd": 0.03, "cost_basis": "usage", "requested_match": "run-9", "requested_beat": 3, "source": "recording" })],
+                   "one generation, now with its match, beat and usage; the cost counted once");
+    }
+    // The reference it was made with: known by hash, then given its file.
+    let refs_dir = t.path().join("style_refs");
+    std::fs::create_dir_all(&refs_dir).unwrap();
+    std::fs::write(refs_dir.join("IMG_1.jpg"), &jpg).unwrap();
+    let rep = ingest::attach_references(&reg, &refs_dir).unwrap();
+    assert_eq!((rep.wanted, rep.attached), (1, 1));
+    let r = one(&reg, "SELECT status, sha256, path, subject_key FROM assets WHERE subkind = 'reference'");
+    assert_eq!(r, json!({ "status": "ready", "sha256": ref_sha, "path": format!("images/reference/{ref_sha}.jpg"), "subject_key": "style_ref:img_1.jpg" }));
+    assert_eq!(ingest::attach_references(&reg, &refs_dir).unwrap().wanted, 0);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
