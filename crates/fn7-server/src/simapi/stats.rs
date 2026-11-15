@@ -120,6 +120,8 @@ pub async fn run_seed(
     let mut fizzled = 0u64;
     let mut bolts_spent = 0f64;
     let mut by_power: BTreeMap<String, u64> = BTreeMap::new();
+    // State schema 16: megas by fault tier (absent before it).
+    let mut by_fault_tier: BTreeMap<String, u64> = BTreeMap::new();
     let mut windows = 0u64;
     let mut open_ms: Vec<f64> = vec![];
     let mut timeouts = 0u64;
@@ -150,6 +152,9 @@ pub async fn run_seed(
             casts += 1;
             bolts_spent += c["cost"].as_f64().unwrap_or(0.0);
             *by_power.entry(c["power"].as_str().unwrap_or("?").to_string()).or_default() += 1;
+            if let Some(t) = c["fault_tier"].as_str() {
+                *by_fault_tier.entry(t.to_string()).or_default() += 1;
+            }
         }
         for s in pubv["slow"].as_array().into_iter().flatten() {
             match s["event"].as_str() {
@@ -290,6 +295,9 @@ pub async fn run_seed(
         "llm": { "plugin_calls": plugin_llm_calls, "plugin_fallbacks": plugin_llm_fallbacks, "provider_calls": counted.calls.load(Ordering::Relaxed) },
         "timing": { "wall_ms": round3(wall.elapsed().as_secs_f64() * 1000.0), "beat_ms": dist(beat_ms), "society_ms": dist(society_ms) },
     });
+    if !by_fault_tier.is_empty() {
+        out["casts"]["by_fault_tier"] = json!(by_fault_tier);
+    }
     if let Some(r) = recorder {
         r.flush();
         out["recording"] = json!({ "run_id": run_id, "file": format!("{run_id}.jsonl") });
