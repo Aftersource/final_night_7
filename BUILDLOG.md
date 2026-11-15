@@ -1229,6 +1229,42 @@ Engineering (Chris is she/her; earlier notes in this log that say otherwise are 
   glass shatters, the couch slides, the pillar cracks, the boosted blow breaks it for gold and only cracks it for
   wood) is the same.
 
+## 2026-11-15: session log (state at compact, ~02:25 UTC / 21:25 EST, 14 Nov)
+
+Chris is she/her. Chris's words since the last entry are relayed verbatim by the Mac session (#chris-biggun/finalnight-unreal) and logged in its Dropship reports; the key ones: "the zoom in needs to zoom in and out nicely ... they keep jumping into view"; "if its your challenge the box should be blue, if its not with you involved red box, no text input"; "a quarter the timeout for the victory parade"; "the knockouts are happening immediately"; "mouseover on elements are bad, tooltips look terrible"; "ai players need to have mannequins"; "stone/marble statues ... the thinker, michaelangelo's david"; "get the AI gods to have something fun too"; "an entry box where people choose how their stone godform looks"; "megapowers ... crazy powerful at huge intersections and only tiny volcanos near the no-faultline areas"; "set the subagents to opus 5.5"; "simulator on backend, timetravel, keep keyframes"; "it needs agentically a list of options, run through, select, done, no thinking mode".
+
+**STABLE (live, this Mac, house FINAL7):** server main e134b76 deployed in steps today: rules 0.9.0; state schema 12 for new matches. Start ONLY with runs/lan/start_stable.sh (nohup). House settings in that script now include duel_damage_scale 0.7 and steeper fault scaling (near 200 km: magnitude +5, radius x2.2, damage x2.5; far 1000 km: magnitude -4, radius x0.4, damage x0.25). Image budget $40 (lifetime per cache dir; ~$20 spent). Name guard off. Announce every deploy to both sides first (Play 4).
+
+**Live on the server, newest first:** AI duellists type (duel.typing_script) and strike every window, typed words pick moves and clips (data/duel_moves.json, 64 clips), one duel per player, duels end at their deadline (schema 12); the asset registry (SQL of every generated asset: files, exact prompts, timings, costs, lineage, uses per match/beat; /api/assets; backfilled); gear looks + item art (schema 11); live duel typing (duel_keys -> duel.typing, 8-char tail) and fighter skins; wills that matter: heal, arm with real gear, resurrection, curses, mystic quests (0.9.0, schema 10); exact resume + duel panels (0.8.2); accounts (guest + Google-ready, settings, demigod personalities with one moderation pass); challenge mode (0.8.1).
+
+**Merged, not live yet:** crates/fn7-duelsim (deterministic duel physics + IK limb targets baked per panel; parity with the browser lab; wiring into panels pending, see below).
+
+**Branches with agents RUNNING (all Opus 5.5):**
+- backend/duel-weapons (worktree final_night_7): the LLM move picker (list in, enum pick out, recorded for replay), duel_moves.json loaded at startup, a duel_lines SQLite + /api/duel/lines rollups, weapon classes (bow/rifle/launcher/two-handed...), hammer-space draws, projectiles as mini data, wiring fn7-duelsim into live panels + present with skins locked at the lock, and the 79b32d4b replay divergence.
+- backend/earth-sim (worktree fn7_quests): the voxel earth simulator for god powers (hex-column field, phenomena + interactions, entropy cascade, keyframes for time travel, earth.delta / earth.phenomena / game.earth / game.earth_at, the 22-ring board query and a globe query sized to the client's numbers). Inherited from a stopped Fable agent; its recovered history is fn7_quests/HANDOFF_previous_agent.txt.
+- backend/item-fixes (worktree fn7_items): the gear portrait prompt (the gear must be in frame; it wasn't), the junk item "a bot kestrel right hand".
+- backend/fault-junctions (worktree fn7_faults): triple-junction bonus (Afar, Boso, Azores...), fault_tier "tiny" far from faults, game.fault + game.faults_overview for the hover preview, balance with the live settings.
+
+**Unreal main 8285d62.** Merged today: the challenge box (rises, opens, lid sky + CLASH + plaques, hex stage from duel.scene, mannequins in lock skins playing panels), blue box for her duels / red read-only for watched ("WATCHING: A vs B"), the AI's typing script in the top line, 64 clips imported, 1.25 s end hold, the duel tray focus fix, the victory screen, will answers in WORLD, the wiped-player card, gear looks on cards, marble gods on all seats (Chris = Thinker, Benito = David, nine AI gods in classical poses), stone tooltips, stone LOBBY / RESET VIEW / ? and HOW TO PLAY, the launch server check + CAN'T REACH card, the kit HUD by default (a judge-blocking bug), the update notice before restarts, the globe fixes, Benito's eight features + night grade + scaled scenery + zoom gestures, the earth-columns stub (dev only).
+
+**Open now on Unreal:** (1) ZOOM REGRESSION, top: level switches rebuild the board at once (tiles pop) plus a rebuild storm on the wheel near a demigod (1,872 rebuilds in Benito's log); the Mac is fixing both (mac/zoom-smooth). (2) Benito's PC still runs a 20:27 build: the rebuild fires when he closes the game; his editor build needs him to save and close it. (3) Then: box polish (scale, slam-in, flip cut, real hex tiles), the height hook (benito/height-hook) + BoardHeightAt in the Mac's GroundTop, earth contract when the server lands, duel sim playback, the god-form setup screen, item thumbnails, the resume token on relaunch, the buildings report.
+
+**Meshy:** 589 credits left. Assets with exact provenance under final_night_7_unreal/production_assets/meshy/ (mannequin + 5 skins + 64 clips, 2 heroic demigod statues, 11 marble gods). Scripts tools/meshy/make_statue.sh, make_figure.sh.
+
+**Decisions waiting on Chris (and Benito):** the access key for the shipped build (the packaged game cannot connect without one; recommendation: a house-only player key + spend caps, rotated after judging); team name; Epic emails; who records the 30-60 s video; human demigods auto-arming (off today); moving encounters onto travelled paths (408 of 435 faded unfound); relaying the SUPREME voice-app steps to Benito (her doomcast session asked).
+
+**Deadline:** packaged build due Nov 15, 8:59 PM EST; after 12:00 PM EST only blocking fixes. Zip 338 MB (limit 1 GB). docs/PACKAGING.md in the Unreal repo.
+
+**Machine:** disk ~4.6 GB free with four agents building; clear finished worktrees' target/ folders as branches merge; recordings are archived with runs/lan/recordings_tool.sh.
+
+## 2026-11-15: addendum to the session log (~02:30 UTC)
+
+- Fault scaling settings are live in the house (start_stable.sh; next house match).
+- Unreal main fc2765d: Benito's height hook merged (AFNStudio::BoardHeightAt / HexStateAt / SetHexOverride / ClearHexOverrides / RebuildBoard / BoardCellKey; every board height in his layer goes through it). The Mac must make FN7Board::GroundTop / BoardPointFor use it.
+- Benito is relaunched on a fresh EDITOR build (main 89069a9 + height-hook), proven by his log: "FN7 HUD: mounting the kit HUD (default)" at 02:22:24 UTC. His zoom proof lines follow when he tries them. Rule for his PC: after every merge build BOTH targets (FinalNightEditor and FinalNight) and prove the newest feature from his own log.
+- The Mac is on mac/zoom-smooth: the zoom regression (level switches rebuild the board at once) and the rebuild storm (the wheel near a demigod calls FocusBoard -> BuildTable every notch: 1,872 rebuilds in Benito's log).
+- Disk: dropped to 2.7 GB with four agents building; freed fn7_accounts/target and archived all recordings except the newest 8 (lossless, verified; restore with runs/lan/recordings_tool.sh). The engine's theatre/target (10 GB, another session's) is untouched.
+- Agents running (Opus 5.5): backend/duel-weapons (final_night_7), backend/earth-sim (fn7_quests), backend/item-fixes (fn7_items), backend/fault-junctions (fn7_faults). Each: report -> merge -> test -> replay -> announce -> deploy.
 ## 2026-11-14: the picker, weapons, hammer-space, projectiles (verbatim)
 
 > It needs to work agentically: a list of options, run through, select, done. Thinking mode is not needed for the most part. All of it should be available in the list, as long as data is collected properly.
