@@ -1304,6 +1304,21 @@ Engineering (branch backend/duel-weapons; state schema 14, 13 being the earth si
 
 > What about the rest of the mega and table board powers? Nothing visual is shown for them yet. Was the simulation engine in the background not readied for this?
 
+> Remember that attribution must not be included in commit messages.
+
+> No, the panning must be fixed. If the mouse is over a tower, for example, the tower should stay under the mouse pointer when it moves.
+
+> The globe single-click does not work.
+
+> That worked. Stop changing the UX; it is good. Move on after reporting, and push without attribution.
+
+> Nothing is being cast right now; the agent should do what it needs to do. It is not a camera; it is the Populous-style earth. Make sure the earth is readied and that it operates.
+
+Engineering: commit attribution removed from all history in both repos (175 commits; trees identical; backups in
+_git_backups/). THE UX IS FROZEN as in Chris's editor at Unreal main 0a3e52e: no change to input, pan, zoom, globe
+or camera without her ask (docs/design/hand_of_god/HAND_OF_GOD.md §6). All 11 powers x mega/mini verified on a
+private no-spend server (every phenomenon produced); the Mac verifies the drawing in its sandbox against it.
+
 Benito asked that the star reference image be sent to Chris's agents, and that they be asked how to avoid frustrating him.
 
 Engineering:
