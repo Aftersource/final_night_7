@@ -411,6 +411,20 @@
       "minimum": 1000,
       "type": "integer"
     },
+    "duel_draw_sparks": {
+      "default": 1,
+      "description": "State schema 14: sparks a hammer-space draw costs when the purse has them (paid: an artifact-tier prop; unpaid: a trinket).",
+      "maximum": 10,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "duel_draws": {
+      "default": 2,
+      "description": "State schema 14: hammer-space draws per fighter per duel (pulling out something it does not hold).",
+      "maximum": 10,
+      "minimum": 0,
+      "type": "integer"
+    },
     "duel_followup_ms": {
       "default": 1500,
       "description": "Rules 0.8.1: a blow within this of the same side's last is a quick follow-up (+1).",
@@ -429,6 +443,27 @@
       "default": true,
       "description": "State schema 12: a player fights one duel at a time: while one of its demigods is in an open duel, a challenge by or to any of its demigods is refused `busy:player` and the AI's chooser skips it.",
       "type": "boolean"
+    },
+    "duel_picker": {
+      "default": "on",
+      "description": "State schema 14: one structured LLM call per typed human duel line chooses its move class and presentation from the list (docs/DUEL_MOVES.md §4.1; needs `llm` and a server LLM); off: the keyword mapper only.",
+      "enum": [
+        "on",
+        "off"
+      ],
+      "type": "string"
+    },
+    "duel_picker_for_ai": {
+      "default": false,
+      "description": "State schema 14: also pick for the lines AI duellists type.",
+      "type": "boolean"
+    },
+    "duel_picker_timeout_ms": {
+      "default": 700,
+      "description": "State schema 14: how long a pick may take before the mapper's stands.",
+      "maximum": 5000,
+      "minimum": 100,
+      "type": "integer"
     },
     "entropy_per_mega": {
       "default": 10.0,

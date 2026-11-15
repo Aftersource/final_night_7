@@ -69,6 +69,7 @@ fn art_fields() -> Vec<(&'static str, Value)> {
         ("image_kind", json!({ "const": "item" })),
         ("art", string("The picture's key (its normalized descriptor's hash).")),
         ("image", r("ImageObject")),
+        ("weapon_class", json!({ "type": "string", "enum": fn7_plugin::moves::WEAPON_CLASSES, "description": "State schema 14: how it is wielded in a duel (only what can be wielded has one)." })),
     ]
 }
 
@@ -839,6 +840,11 @@ fn settings_schema() -> Value {
     p("duel_one_per_player", json!({ "type": "boolean", "default": true, "description": "State schema 12: a player fights one duel at a time: while one of its demigods is in an open duel, a challenge by or to any of its demigods is refused `busy:player` and the AI's chooser skips it." }));
     p("duel_ai_lines_per_window", f(0.0, 1.0, 1.0, "State schema 12: the chance an AI fighter types a line of its own in an input window of a duel with a clock (1: every window; 0: off, it only counters as in 0.8.2)."));
     p("duel_ai_aggression", f(0.0, 1.0, 0.6, "State schema 12: how often the typing AI attacks rather than sets a defence, repositions or taunts."));
+    p("duel_picker", json!({ "type": "string", "enum": ["on", "off"], "default": "on", "description": "State schema 14: one structured LLM call per typed human duel line chooses its move class and presentation from the list (docs/DUEL_MOVES.md §4.1; needs `llm` and a server LLM); off: the keyword mapper only." }));
+    p("duel_picker_timeout_ms", i(100, 5000, json!(700), "State schema 14: how long a pick may take before the mapper's stands."));
+    p("duel_picker_for_ai", json!({ "type": "boolean", "default": false, "description": "State schema 14: also pick for the lines AI duellists type." }));
+    p("duel_draws", i(0, 10, json!(2), "State schema 14: hammer-space draws per fighter per duel (pulling out something it does not hold)."));
+    p("duel_draw_sparks", i(0, 10, json!(1), "State schema 14: sparks a hammer-space draw costs when the purse has them (paid: an artifact-tier prop; unpaid: a trinket)."));
     p("duel_ai_handicap", i(0, 10, json!(5), "State schema 12: subtracted from the d20 modifier of the lines an AI types against a human (waived against a human silent for 12 s, and between two AIs)."));
     p("duel_deadline_ms", i(1000, 600000, json!(30000), "Rules 0.8.1: the longest a duel runs after its lock (the engine hold's deadline; without a hold the world keeps beating and the duel lasts at most ceil(duel_deadline_ms / flow_ms) resolves)."));
     p(
@@ -1609,9 +1615,35 @@ fn v08_defs() -> Map<String, Value> {
             &[("clip", json!({ "type": "string", "enum": fn7_plugin::panel::CLIPS })),
               ("word", json!({ "type": ["string", "null"], "description": "The move word read (as the table has it: `attack` for `attck`); null: none, the class's own clip." })),
               ("setup", array(json!({ "type": "string", "enum": fn7_plugin::panel::CLIPS }), "The clips of the earlier move words of the line, played first (at most two).")),
-              ("path", json!({ "type": ["string", "null"], "enum": ["leap", null], "description": "`leap`: the figure leaves the ground." }))], &[])),
+              ("path", json!({ "type": ["string", "null"], "enum": ["leap", "dash", "vault", "slide", "wallkick", null], "description": "`leap`: the figure leaves the ground. State schema 14: a pick may also send it `vault` / `slide` / `wallkick` over, under or off `object`." }))],
+            &[("weapon_class", json!({ "type": "string", "enum": fn7_plugin::moves::WEAPON_CLASSES, "description": "State schema 14: what it fights with for this strike." })),
+              ("prop", r("DuelProp")),
+              ("draw", r("DuelDraw")),
+              ("picker", json!({ "type": "string", "enum": ["pre", "used", "class"], "description": "State schema 14: the LLM picker staged it (`pre`: known at the line's arrival, it also chose the class; `used`: came before the panel's input close; `class`: its clip did not serve the class the rules resolved, only `target` was taken). Absent: the mapper's." })),
+              ("target", json!({ "type": "string", "enum": ["head", "chest", "belly", "arms", "legs"], "description": "State schema 14: the body part the pick aimed at." })),
+              ("object", string("State schema 14: the scene object the pick's path uses."))])),
     ];
     d.insert("DuelStrike".into(), object("Rules 0.8.1: one strike (a counter's shape).", &strike_req, &strike_opt));
+    d.insert("DuelProp".into(), object("State schema 14: the weapon in a fighter's hand (on `duel.blow.move.prop` and on panel segs): what the client puts in the hand.",
+        &[("item", json!({ "type": ["string", "null"], "description": "The world item's ref (`it:N`); null: a hammer-space prop (it exists only in the duel)." })),
+          ("name", string("")), ("kind", string("The item kind (weapon, armor, relic, artifact).")),
+          ("weapon_class", json!({ "type": "string", "enum": fn7_plugin::moves::WEAPON_CLASSES })), ("material", string("")),
+          ("tier", string("trinket | artifact | relic ...")), ("hammer", boolean("Pulled out of hammer-space."))], &[]));
+    d.insert("DuelDraw".into(), object("State schema 14: a line that pulled something out (`duel.blow.move.draw`): a held item (free) or hammer-space (the item engine's odds as a d20 target, sparks).",
+        &[("thing", string("The words drawn (\"rocket launcher\").")), ("weapon_class", json!({ "type": "string", "enum": fn7_plugin::moves::WEAPON_CLASSES })),
+          ("held", boolean("A held item: drawn for free.")), ("sparks", int("Sparks it cost (paid at the resolve).")), ("tier", string("trinket (unpaid) | artifact (paid)")),
+          ("verdict", json!({ "type": "string", "enum": ["drawn", "success", "fumble", "spent"], "description": "`drawn`: a held item; `success`: the prop is in hand for the rest of the duel; `fumble`: the initiative flipped to the foe before the blow; `spent`: no draws left (`duel_draws`), the line is read without it." }))],
+        &[("roll", int("The d20.")), ("need", int("What it had to reach (a 20 always works, a 1 never).")), ("p", num("The item engine's success probability for it."))]));
+    d.insert("DuelProjectile".into(), object("State schema 14: one thing that flies in a panel (`duel.panel.projectiles[]`), decided by its blow's verdict and seeded. The duel sim reads `t_fire_ms`, `t_hit_ms`, `to`, `speed`, `on_hit.impulse`, `on_hit.aoe_hexes`, `on_hit.objects`: these names are stable.",
+        &[("id", string("p<panel>.<k>")), ("kind", json!({ "type": "string", "enum": ["arrow", "bullet", "rocket", "rock", "bolt", "orb"] })),
+          ("by", json!({ "type": "string", "enum": ["a", "b"] })), ("from", json!({ "type": "string", "enum": ["a", "b"] })), ("from_hex", hex_xy()),
+          ("to", json!({ "description": "`a` / `b` (a hit), a scene object's id (a miss that lands on it), or a hex [q, r]." })), ("to_hex", hex_xy()),
+          ("t_fire_ms", int("From the panel's start: released.")), ("t_hit_ms", int("Lands (the blow's contact is at this time, `ranged: true`).")),
+          ("arc_h", num("Apex above the straight line, m.")), ("speed", num("m/s.")),
+          ("on_hit", object("What the landing does.", &[("blow", int("The duel.blow's n.")), ("impulse", num("0..1.")), ("burst", string("The burst word."))],
+              &[("aoe_hexes", array(hex_xy(), "A rocket: the landing hex and its six neighbours.")),
+                ("objects", array(object("", &[("id", string("")), ("impulse", num("0..1"))], &[]), "A rocket: the scene objects in the blast."))])),
+          ("miss", boolean("")), ("deflected_by", json!({ "type": ["string", "null"], "description": "`a` / `b`: a parry or a shield turned it aside." }))], &[]));
     let mut blow_req = vec![("event", json!({ "const": "duel.blow" })), ("duel_id", string("")), ("n", int("1-based blow number."))];
     blow_req.extend(strike_req.iter().cloned());
     let mut blow_opt = strike_opt.clone();
@@ -1648,6 +1680,7 @@ fn v08_defs() -> Map<String, Value> {
               &[("at_ms", json!({ "type": "integer" })), ("elapsed_ms", int("Duel time elapsed: the offset to seek to.")), ("remaining_ms", int("")), ("running", boolean(""))], &[]))),
           ("over", boolean("Knocked out or past its deadline: the next resolve ends it."))],
         &[("scene", nullable(r("DuelScene"))), ("panels", array(r("DuelPanel"), "Rules 0.8.2: every panel so far, in order.")),
+          ("sim", json!({ "type": "object", "additionalProperties": true, "description": "State schema 14: `{at, sim}`, the duel sim's checkpoint as the newest panel starts and that panel's sim (docs/DUEL_SIM.md)." })),
           ("typing_scripts", array(r("DuelTypingScript"), "State schema 12 (a duel whose AI types): the lines its AI fighters are typing right now. Seek each to `present.server_time_ms`.")),
           ("typing", ab("Live typing: each side's unsent line as its last `duel.typing` left it (never the characters).",
               object("", &[("len", int("Characters typed and not sent (0: nothing, or the line was sent).")),
@@ -1693,13 +1726,16 @@ fn v08_defs() -> Map<String, Value> {
                   "size": { "type": "array", "items": { "type": "number" }, "description": "box [w,h,d]; cylinder, cone [r,h]; the others [r]. Metres." },
                   "offset": { "type": "array", "items": { "type": "number" }, "description": "The part's centre from the object's origin on the floor." },
                   "rot": { "type": "array", "items": { "type": "number" } }, "material": { "type": "string" }, "fill": { "type": "number" }, "glow": { "type": "number" } } }), "Primitive parts."))], &[]), ""))],
-        &[],
+        &[("list_version", string("State schema 14: the duel move list the duel is read with (data/duel_moves.json's version).")),
+          ("clip_fallbacks", json!({ "type": "object", "additionalProperties": { "type": "string" }, "description": "State schema 14: what a client without a clip plays instead (from the list)." }))],
     ));
     let seg = json!({ "type": "object", "required": ["clip", "ms"], "additionalProperties": true, "properties": {
         "clip": { "type": "string", "enum": fn7_plugin::panel::CLIPS }, "ms": { "type": "integer", "minimum": 0 }, "loop": { "type": "boolean" }, "speed": { "type": "number" },
         "to": hex.clone(), "path": { "type": "string", "enum": fn7_plugin::panel::PATHS }, "h": { "type": "number", "description": "Apex in metres." },
         "over": { "type": "string", "description": "vault: the object id." }, "under": { "type": "string", "description": "slide: the object id." },
         "on": { "type": "string", "description": "wallrun, wallkick, mantle: the object id." }, "face": { "type": "string", "enum": ["foe", "path"] },
+        "at": { "type": "integer", "description": "State schema 14: start this many ms into the clip (its trim), played at `speed`." },
+        "prop": { "$ref": "#/$defs/DuelProp" },
         "spin": { "type": "boolean" }, "steps": { "type": "integer" }, "rise": { "type": "number" } } });
     let fighter = object("One fighter's track.", &[
         ("line", json!({ "type": ["string", "null"], "description": "The last line it typed in the window this panel stages (null: none)." })),
@@ -1708,7 +1744,8 @@ fn v08_defs() -> Map<String, Value> {
         ("default", json!({ "type": ["string", "null"], "enum": ["guard", "circle", null], "description": "It did nothing in the window: the rules default it plays." })),
         ("auto", boolean("An automatic counter of its is staged here.")),
         ("segs", array(seg, "Clip segments in order; their `ms` sum to `play_ms`.")), ("at", hex.clone())],
-        &[("typing_script", nullable(r("DuelTypingScript")))]);
+        &[("typing_script", nullable(r("DuelTypingScript"))),
+          ("weapon_class", json!({ "type": "string", "enum": fn7_plugin::moves::WEAPON_CLASSES, "description": "State schema 14: what it has in hand at the panel's end." }))]);
     d.insert("DuelPanel".into(), object(
         "Rules 0.8.2: `duel.panel`, one comic panel of a duel: the presentation of the blows of one input window (they are decided by the 0.8.1 rules; a panel decides nothing). Sent in `also[]` of the action that made it due, as the event of a `duel_tick`, in `challenge.open` / `challenge.end`, and all of them in `present.duels[].panels`.",
         &[("event", json!({ "const": "duel.panel" })), ("duel_id", string("")), ("n", int("0-based.")),
@@ -1727,7 +1764,9 @@ fn v08_defs() -> Map<String, Value> {
           ("blows", array(json!({ "type": "integer" }), "The `n` of each duel.blow it stages.")), ("flip", boolean("The initiative changed hands.")),
           ("hp", object("After the panel.", &[("a", num("")), ("b", num(""))], &[])), ("range", json!({ "type": "string", "enum": ["far", "mid", "close", "grapple"] })),
           ("initiative", json!({ "type": "string", "enum": ["a", "b"] }))],
-        &[("winner", json!({ "type": ["string", "null"], "description": "Outro only." })), ("ko", json!({ "type": ["string", "null"], "description": "Outro only: the side knocked out." })),
+        &[("projectiles", array(r("DuelProjectile"), "State schema 14: what flies in this panel (ranged weapons, invokes).")),
+          ("sim", json!({ "type": "object", "additionalProperties": true, "description": "State schema 14, live stream only (never in challenge.open / challenge.end): the duel sim's baked physics for this panel (docs/DUEL_SIM.md)." })),
+          ("winner", json!({ "type": ["string", "null"], "description": "Outro only." })), ("ko", json!({ "type": ["string", "null"], "description": "Outro only: the side knocked out." })),
           ("also", array(json!({ "anyOf": [r("DuelPanel"), r("DuelBlow"), r("DuelTypingScript"), r("ChallengeEnd")] }), "Live event only: further panels made due by the same action (state schema 12: also the AI lines it entered, the typing scripts of the windows opened, and a provisional `challenge.end` after the outro).")), ("seq", int("")), ("received_at_ms", json!({ "type": "integer" }))],
     ));
     d.insert("Present".into(), object(
@@ -1868,6 +1907,7 @@ fn v07_defs() -> Map<String, Value> {
             ("banner", json!({ "anyOf": [{ "type": "null" }, object("A host's banner.", &[("device", string("")), ("colors", array(json!({"type": "string"}), ""))], &[("motto", string(""))])] })),
         ],
         &[("image_prompt", string("The item image subject (`image_kind` item). State schema 11: only an item granted a picture has it (a notable item a human player's demigod holds or that lies in a loot pile, within item_art_per_match); every other item shows its `icon`.")),
+          ("weapon_class", json!({ "type": "string", "enum": fn7_plugin::moves::WEAPON_CLASSES, "description": "State schema 14: how it is wielded in a duel (only what can be wielded has one)." })),
           ("image_kind", json!({ "const": "item" })),
           ("art", string("State schema 11: the item picture's key (sha256 of its normalized descriptor: kind, material, tier, name stem, blessing): the same key is the same picture in every match.")),
           ("image", r("ImageObject")), ("origin", string("game.item only.")), ("created_by", json!({})), ("holders", array(r("Ref"), "")),
@@ -1923,6 +1963,10 @@ fn v07_defs() -> Map<String, Value> {
         &[],
     ));
     d
+}
+
+fn hex_xy() -> Value {
+    json!({ "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2, "description": "A stage hex [q, r]." })
 }
 
 pub fn all() -> Vec<(&'static str, Value)> {
