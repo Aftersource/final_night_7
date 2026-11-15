@@ -1211,3 +1211,20 @@ Engineering (Chris is she/her; earlier notes in this log that say otherwise are 
 - Meshy: heroic statues of Chris's Left Hand and Benito's Left Hand (30 credits each; 1,066 left), cached by slug with a figures.json index and provenance records (exact prompts, task ids, credits, sha256) for them and for the mannequin, skins and clips. Scripts: tools/meshy/make_statue.sh, make_figure.sh. Custom god avatars: later, a characterization tab in the player settings.
 - In progress: backend/asset-registry (one SQL registry of every generated asset: files in subfolders by kind, exact prompts, timings, costs, lineage, uses per match and beat, an API).
 - Unreal main 269d277: the victory screen, will answers in WORLD, the wiped-player card, the duel typing tray, every duel pulling every view, the globe fixes (holds its spot through resolves, spins east, turns for viewers), the mini-power highlight, duel skins. Next: the resume token on relaunch, the token-bucket fix, gear looks on the cards, statues on the seats, then the duel box, the panel player and live panels.
+
+## 2026-11-14: the duel's physics baked on the server (backend/duel-sim)
+
+> Is simulation now possible for the mannequins and their skins?
+
+- `crates/fn7-duelsim` (not wired yet; docs/DUEL_SIM.md, CLIENT_API.md "Duel sim"): the lab's materials, compound
+  mass properties, rigid-body engine, parkour paths and bake in Rust, run once per panel on the server. Each panel
+  gets a `sim`: quantised keyframes for what moved, break / shatter / crack / hit events with piece ids, fighter root
+  tracks with lean and timed limb targets (feet on surfaces, hands on vault / mantle tops, soles on walls, the
+  striking limb on the point it hits). Fighters weigh what their skin is made of (gold 178 kg, wood 43, butterfly 16).
+- Deterministic: f64 with IEEE operations only, our own trig, one seeded RNG; the lab duel hashes the same on arm64
+  (debug, release) and x86_64 under Rosetta. Incremental equals from scratch. 155 ms for the whole lab duel in
+  release; 0.1 to 50 ms a panel; 0.3 to 11 KB a panel.
+- Parity with the lab's own bake: every row within tolerance in lab-exact mode; the default also wakes what rests on
+  a moving support (stacks fall), which moves a few secondary rows; every named event (the crate skids into b, the
+  glass shatters, the couch slides, the pillar cracks, the boosted blow breaks it for gold and only cracks it for
+  wood) is the same.
