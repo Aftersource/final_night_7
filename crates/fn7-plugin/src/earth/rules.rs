@@ -176,6 +176,15 @@ pub struct EarthBeat {
     pub micros: u64,
 }
 
+impl EarthBeat {
+    /// The field as it stood before this beat's step (for the beat's delta).
+    pub fn before_sim(&self) -> Sim {
+        let mut s = EarthState::default();
+        s.cells = super::codec::pack(&[], &self.before);
+        Sim::from_state(self.sim.seed, self.sim.cfg, &s)
+    }
+}
+
 /// One beat of the Earth: log this beat's physical ramifications, step the field, keep a keyframe when one is due,
 /// and apply the consequences. Call after the society and before the DM's step.
 pub fn step(w: &mut World, beat: u32, pantheon: &Pantheon, st: &Settings) -> Option<EarthBeat> {

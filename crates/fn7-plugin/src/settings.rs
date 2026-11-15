@@ -444,7 +444,7 @@ impl Default for Settings {
             earth_max_cells: 1500,
             earth_max_phenomena: 48,
             earth_substeps: 1,
-            earth_keyframe_beats: 8,
+            earth_keyframe_beats: 16,
             earth_plate_beats: 3,
             earth_km_per_cell: 400.0,
             earth_spread_scale: 1.0,

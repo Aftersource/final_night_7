@@ -162,7 +162,7 @@ pub struct Cfg {
 
 impl Default for Cfg {
     fn default() -> Self {
-        Cfg { max_cells: 1500, max_phenomena: 48, substeps: 1, keyframe_beats: 8, plate_beats: 3, spread_q: 16,
+        Cfg { max_cells: 1500, max_phenomena: 48, substeps: 1, keyframe_beats: 16, plate_beats: 3, spread_q: 16,
               spontaneous_q: 16, energy_q: 16, mini_q: 8 }
     }
 }

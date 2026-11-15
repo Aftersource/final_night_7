@@ -102,7 +102,7 @@ fn changes(o: &RoundOutcome) -> Vec<Value> {
 fn a_new_match_is_schema_11_and_looks_are_on() {
     let t = table(3, json!({}));
     let w = t.w();
-    assert_eq!((w.meta.schema, w.look_rules(), look::on(&w)), (11, true, true));
+    assert_eq!((w.meta.schema, w.look_rules(), look::on(&w)), (fn7_model::STATE_SCHEMA, true, true));
     assert!(w.dm.looks.is_null(), "nothing is stored until someone holds something");
     // Everyone has a look: an empty loadout and the base images.
     for d in t.public()["demigods"].as_array().unwrap() {

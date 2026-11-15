@@ -10,7 +10,7 @@ use fn7_model::hexgrid::{cell_at, HexCell, HexLevel};
 use fn7_model::LonLat;
 use serde_json::{json, Map, Value};
 
-use super::codec::{b64, Sparse};
+use super::codec::b64;
 use super::grid::{grid, mix, M_ICE, M_ROCK, M_SAND, M_SOIL, NONE, SEA_LEVEL};
 use super::rules::{cfg, EarthBeat};
 use super::sim::*;
@@ -48,17 +48,114 @@ fn at_json(p: LonLat) -> Value {
     json!([round5(p[0]), round5(p[1])])
 }
 
-/// Columns for `cells` (in the order given): `{n, enc, cells, h, top, layers{}}`. A layer that is zero on every one
-/// of them is left out. `enc: "b64"`: `cells` is u16 LE, the rest u8 (`heat` is a signed byte). `enc: "json"`: number
-/// arrays (`heat` signed).
-pub fn columns(sim: &Sim, cells: &[u16], json_arrays: bool) -> Value {
+/// How cell columns are written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Enc {
+    /// One base64 block, cell after cell (the default: the smallest). See [`pack_cells`].
+    Pack,
+    /// A base64 array per column: `cells` u16 little-endian, every other column one byte per cell.
+    Columns,
+    /// JSON number arrays (for reading by eye).
+    Json,
+}
+
+impl Enc {
+    pub fn parse(a: &Value) -> Result<Enc, String> {
+        match a.get("format").and_then(Value::as_str) {
+            None | Some("pack") => Ok(Enc::Pack),
+            Some("b64") | Some("columns") => Ok(Enc::Columns),
+            Some("json") => Ok(Enc::Json),
+            Some(x) => Err(format!("`format` must be pack, columns or json, not `{x}`")),
+        }
+    }
+}
+
+/// The packed block: for each cell, in index order,
+///
+/// ```text
+/// varint  index − the previous cell's index (the first: the index itself)
+/// byte    height, 0..=15
+/// byte    top material (an index into `tops`)
+/// varint  mask: bit k set = layer k of `layers` is not zero
+/// bytes   that layer's value, for each bit set, lowest first (`heat` is a signed byte)
+/// ```
+///
+/// (varints are LEB128: 7 bits a byte, low bits first, the high bit set on every byte but the last).
+pub fn pack_cells(sim: &Sim, cells: &[u16]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(cells.len() * 8);
+    let put = |out: &mut Vec<u8>, mut x: u32| loop {
+        let b = (x & 0x7F) as u8;
+        x >>= 7;
+        if x == 0 {
+            out.push(b);
+            break;
+        }
+        out.push(b | 0x80);
+    };
+    let mut last = 0u32;
+    for &i in cells {
+        put(&mut out, i as u32 - last);
+        last = i as u32;
+        out.push(sim.height(i));
+        out.push(sim.top(i));
+        let vals: Vec<u8> = (0..CLIENT_LAYERS.len()).map(|k| client_layer(sim, i, k)).collect();
+        let mask = vals.iter().enumerate().fold(0u32, |m, (k, v)| if *v != 0 { m | 1 << k } else { m });
+        put(&mut out, mask);
+        out.extend(vals.iter().filter(|v| **v != 0));
+    }
+    out
+}
+
+/// Read a packed block back: `(index, height, top, layers)` per cell (what a client does).
+pub fn unpack_cells(b: &[u8]) -> Vec<(u16, u8, u8, [u8; CLIENT_LAYERS.len()])> {
+    let get = |at: &mut usize| -> Option<u32> {
+        let (mut x, mut shift) = (0u32, 0);
+        loop {
+            let v = *b.get(*at)?;
+            *at += 1;
+            x |= ((v & 0x7F) as u32) << shift;
+            if v & 0x80 == 0 {
+                return Some(x);
+            }
+            shift += 7;
+        }
+    };
+    let (mut at, mut i, mut out) = (0usize, 0u32, vec![]);
+    while at < b.len() {
+        let Some(d) = get(&mut at) else { break };
+        i += d;
+        let (Some(&h), Some(&top)) = (b.get(at), b.get(at + 1)) else { break };
+        at += 2;
+        let Some(mask) = get(&mut at) else { break };
+        let mut layers = [0u8; CLIENT_LAYERS.len()];
+        for (k, v) in layers.iter_mut().enumerate() {
+            if mask & (1 << k) != 0 {
+                *v = b.get(at).copied().unwrap_or(0);
+                at += 1;
+            }
+        }
+        out.push((i as u16, h, top, layers));
+    }
+    out
+}
+
+/// `cells` (sorted by index) for a client: `{n, enc, ...}`.
+///
+/// - `enc: "pack"`: `data`, one base64 block ([`pack_cells`]).
+/// - `enc: "columns"`: `cells` (u16 LE), `h`, `top` and `layers{name}` (one byte per cell; a layer that is zero on
+///   every cell is left out), each base64.
+/// - `enc: "json"`: the same columns as number arrays (`heat` signed).
+pub fn columns(sim: &Sim, cells: &[u16], enc: Enc) -> Value {
     let n = cells.len();
+    if enc == Enc::Pack {
+        return json!({ "n": n, "enc": "pack", "data": b64(&pack_cells(sim, cells)) });
+    }
+    let json_arrays = enc == Enc::Json;
     let h: Vec<u8> = cells.iter().map(|&i| sim.height(i)).collect();
     let top: Vec<u8> = cells.iter().map(|&i| sim.top(i)).collect();
     let mut layers = Map::new();
     for (k, name) in CLIENT_LAYERS.iter().enumerate() {
         let col: Vec<u8> = cells.iter().map(|&i| client_layer(sim, i, k)).collect();
-        // `fuel` is never "zero = base": it is sent whenever anything is.
         if col.iter().all(|&x| x == 0) {
             continue;
         }
@@ -72,27 +169,40 @@ pub fn columns(sim: &Sim, cells: &[u16], json_arrays: bool) -> Value {
         json!({ "n": n, "enc": "json", "cells": cells, "h": h, "top": top, "layers": layers })
     } else {
         let idx: Vec<u8> = cells.iter().flat_map(|i| i.to_le_bytes()).collect();
-        json!({ "n": n, "enc": "b64", "cells": b64(&idx), "h": b64(&h), "top": b64(&top), "layers": layers })
+        json!({ "n": n, "enc": "columns", "cells": b64(&idx), "h": b64(&h), "top": b64(&top), "layers": layers })
     }
 }
 
-/// The cells whose stored bytes differ between `before` and the field now (sorted).
-pub fn changed(before: &Sparse, sim: &Sim) -> Vec<u16> {
-    let after = sim.sparse();
-    let (mut a, mut b, mut out) = (0, 0, vec![]);
-    while a < before.len() || b < after.len() {
-        let ia = before.get(a).map(|x| x.0 as u32).unwrap_or(u32::MAX);
-        let ib = after.get(b).map(|x| x.0 as u32).unwrap_or(u32::MAX);
-        let i = ia.min(ib);
-        let same = ia == ib && before[a].1 == after[b].1;
-        if ia == i {
-            a += 1;
+/// What a client sees of one cell, coarsely: its height, its top material and the high four bits of every layer.
+fn seen(sim: &Sim, i: u16) -> [u8; 2 + CLIENT_LAYERS.len()] {
+    let mut v = [0u8; 2 + CLIENT_LAYERS.len()];
+    v[0] = sim.height(i);
+    v[1] = sim.top(i);
+    for k in 0..CLIENT_LAYERS.len() {
+        v[2 + k] = client_layer(sim, i, k) >> 4;
+    }
+    v
+}
+
+/// The cells a client must redraw: those whose height, top material, or any layer by a sixteenth of its range (its
+/// high four bits) differ between the field `before` and the field now. Sorted. A slow fade (ruin healing a point a
+/// beat) is sent once every 16 beats, not every beat; a client's copy of a layer is never more than 15/255 stale, and
+/// its heights and top materials are exact.
+pub fn changed(before: &Sim, sim: &Sim) -> Vec<u16> {
+    let (a, b) = (&before.list, &sim.list);
+    let (mut x, mut y, mut out) = (0, 0, vec![]);
+    while x < a.len() || y < b.len() {
+        let ia = a.get(x).map(|v| *v as u32).unwrap_or(u32::MAX);
+        let ib = b.get(y).map(|v| *v as u32).unwrap_or(u32::MAX);
+        let i = ia.min(ib) as u16;
+        if ia == i as u32 {
+            x += 1;
         }
-        if ib == i {
-            b += 1;
+        if ib == i as u32 {
+            y += 1;
         }
-        if !same {
-            out.push(i as u16);
+        if seen(before, i) != seen(sim, i) {
+            out.push(i);
         }
     }
     out
@@ -170,7 +280,7 @@ fn hash_hex(sim: &Sim) -> String {
 /// The beat's public `earth` object: what changed since the last beat and every live phenomenon.
 pub fn beat_json(eb: &EarthBeat) -> Value {
     let sim = &eb.sim;
-    let cells = changed(&eb.before, sim);
+    let cells = changed(&eb.before_sim(), sim);
     let r = &eb.report;
     let g = sim.grid();
     let keys = |c: &[u16]| c.iter().map(|&i| g.key(i)).collect::<Vec<_>>();
@@ -179,7 +289,7 @@ pub fn beat_json(eb: &EarthBeat) -> Value {
         "hash": hash_hex(sim),
         "dirty": sim.list.len(),
         "substeps": r.substeps,
-        "delta": columns(sim, &cells, false),
+        "delta": columns(sim, &cells, Enc::Pack),
         "phenomena": phenomena_json(sim),
         "ended": r.ended.iter().map(|p| json!({ "id": p.id, "kind": kind_name(p.kind) })).collect::<Vec<_>>(),
         "strikes": keys(&r.strikes),
@@ -403,7 +513,7 @@ pub fn query_earth(state: &Value, a: &Value) -> Result<Value, String> {
     let beat = uint(a, "beat")?.map(|b| b as u32);
     let l = load(state, beat)?;
     let (sim, g) = (&l.sim, grid());
-    let json_arrays = a.get("format").and_then(Value::as_str) == Some("json");
+    let enc = Enc::parse(a)?;
     let level = match a.get("level").and_then(Value::as_str) {
         None => HexLevel::Regions,
         Some(s) => HexLevel::parse(s).ok_or_else(|| format!("`level` must be regions, villages, houses or people, not `{s}`"))?,
@@ -459,15 +569,29 @@ pub fn query_earth(state: &Value, a: &Value) -> Result<Value, String> {
         let [lon0, lat0, lon1, lat1] = nums[..] else { return Err("`bbox` is [west, south, east, north] in degrees".into()) };
         let inside = |p: LonLat| p[1] >= lat0 && p[1] <= lat1 && if lon0 <= lon1 { p[0] >= lon0 && p[0] <= lon1 } else { p[0] >= lon0 || p[0] <= lon1 };
         (0..g.len() as u16).filter(|&i| inside(g.center[i as usize])).collect()
-    } else if truthy(a, "base") {
-        (0..g.len() as u16).collect()
     } else {
         sim.list.clone()
     };
-    if cells.len() > QUERY_CELLS_MAX && !truthy(a, "base") {
+    let mut cells = cells;
+    cells.sort_unstable();
+    cells.dedup();
+    if cells.len() > QUERY_CELLS_MAX {
         return Err(format!("{} cells: ask for a smaller box (at most {QUERY_CELLS_MAX})", cells.len()));
     }
-    out["field"] = columns(sim, &cells, json_arrays);
+    out["field"] = columns(sim, &cells, enc);
+    // The whole globe, once: every cell's height and top material now, in index order (what is not in `field` is at
+    // base, and this is the base).
+    if truthy(a, "base") {
+        let all: Vec<u16> = (0..g.len() as u16).collect();
+        let h: Vec<u8> = all.iter().map(|&i| sim.height(i)).collect();
+        let top: Vec<u8> = all.iter().map(|&i| sim.top(i)).collect();
+        let fuel: Vec<u8> = all.iter().map(|&i| sim.fuel(i)).collect();
+        out["globe"] = if enc == Enc::Json {
+            json!({ "n": g.len(), "enc": "json", "h": h, "top": top, "fuel": fuel })
+        } else {
+            json!({ "n": g.len(), "enc": "b64", "h": b64(&h), "top": b64(&top), "fuel": b64(&fuel) })
+        };
+    }
     // The grid itself, once: every cell's face, q and r (signed bytes) in index order.
     if truthy(a, "grid") {
         let col = |f: &dyn Fn(&HexCell) -> u8| b64(&g.cells.iter().map(f).collect::<Vec<u8>>());
@@ -482,9 +606,9 @@ pub fn query_earth(state: &Value, a: &Value) -> Result<Value, String> {
 pub fn query_earth_at(state: &Value, a: &Value) -> Result<Value, String> {
     let beat = uint(a, "beat")?.ok_or("`beat` is required")? as u32;
     let l = load(state, Some(beat))?;
-    let json_arrays = a.get("format").and_then(Value::as_str) == Some("json");
+    let enc = Enc::parse(a)?;
     let mut out = head(&l);
-    out["field"] = columns(&l.sim, &l.sim.list, json_arrays);
+    out["field"] = columns(&l.sim, &l.sim.list, enc);
     out["keyframes"] = l.state.keyframes.iter().map(|k| k.beat).collect::<Vec<_>>().into();
     out["inputs"] = l.state.inputs.iter().filter(|i| i.beat <= beat).count().into();
     Ok(out)

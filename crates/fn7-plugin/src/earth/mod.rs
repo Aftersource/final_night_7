@@ -16,4 +16,6 @@ pub mod sim;
 pub mod view;
 
 #[cfg(test)]
-mod tests;
+mod rules_tests;
+#[cfg(test)]
+pub(crate) mod tests;

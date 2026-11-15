@@ -570,9 +570,11 @@ fn deltas_rebuild_the_field_and_fit_the_budget() {
     let cfg = Cfg::default();
     let (inputs, entropy) = heavy_inputs(60);
     let mut s = EarthState::default();
-    // A client that starts with nothing and applies every beat's delta holds the server's field.
-    let mut client: std::collections::BTreeMap<u16, (u8, u8, Vec<u8>)> = Default::default();
+    // A client that starts with nothing and applies every beat's delta holds the server's field: heights and top
+    // materials exactly, every layer to within a sixteenth of its range.
+    let mut client: std::collections::BTreeMap<u16, (u8, u8, [u8; 14])> = Default::default();
     let (mut worst, mut sum) = (0usize, 0usize);
+    let blank = Sim::new(13, cfg);
     for (k, e) in entropy.iter().enumerate() {
         let b = k as u32 + 1;
         s.inputs.extend(inputs.iter().filter(|i| i.beat == b).copied());
@@ -583,28 +585,40 @@ fn deltas_rebuild_the_field_and_fit_the_budget() {
         worst = worst.max(bytes);
         sum += bytes;
         let d = &v["delta"];
-        let idx = codec::un64(d["cells"].as_str().unwrap());
-        let (h, top) = (codec::un64(d["h"].as_str().unwrap()), codec::un64(d["top"].as_str().unwrap()));
-        let n = d["n"].as_u64().unwrap() as usize;
-        assert_eq!((idx.len(), h.len(), top.len()), (2 * n, n, n));
-        for j in 0..n {
-            let i = u16::from_le_bytes([idx[2 * j], idx[2 * j + 1]]);
-            let layers: Vec<u8> = view::CLIENT_LAYERS.iter().map(|l| d["layers"].get(*l).map(|x| codec::un64(x.as_str().unwrap())[j]).unwrap_or(0)).collect();
-            client.insert(i, (h[j], top[j], layers));
+        assert_eq!(d["enc"], "pack");
+        let cells = view::unpack_cells(&codec::un64(d["data"].as_str().unwrap()));
+        assert_eq!(cells.len() as u64, d["n"].as_u64().unwrap());
+        assert!(cells.windows(2).all(|w| w[0].0 < w[1].0), "in index order");
+        for (i, h, top, layers) in cells {
+            client.insert(i, (h, top, layers));
         }
-        // Every dirty cell is in the client's copy with the server's values; every other cell it holds is back at base.
         let sim = &eb.sim;
-        for &i in &sim.list {
-            let c = &client[&i];
-            assert_eq!((c.0, c.1), (sim.height(i), sim.top(i)), "beat {b} cell {i}");
-            assert_eq!((c.2[0], c.2[3], c.2[1]), (sim.c(i).water, sim.c(i).fire, sim.c(i).lava));
-        }
-        for (i, c) in &client {
-            if sim.c(*i).is_base() {
-                assert_eq!((c.0, c.1), (grid().h[*i as usize], sim.top(*i)), "beat {b}: cell {i} went back to base");
+        let near = |a: u8, b: u8| a >> 4 == b >> 4;
+        for i in 0..grid().len() as u16 {
+            if sim.c(i).is_base() && !client.contains_key(&i) {
+                continue;
+            }
+            let (h, top, layers) = client.get(&i).copied().unwrap_or_else(|| (grid().h[i as usize], blank.top(i), [0; 14]));
+            assert_eq!((h, top), (sim.height(i), sim.top(i)), "beat {b} cell {i}: height and top are exact");
+            let c = sim.c(i);
+            for (name, mine, theirs) in [("water", layers[0], c.water), ("lava", layers[1], c.lava), ("fire", layers[3], c.fire),
+                                         ("cloud", layers[5], c.cloud), ("ruin", layers[9], c.ruin), ("shake", layers[12], c.shake)] {
+                assert!(near(mine, theirs), "beat {b} cell {i} {name}: the client has {mine}, the server {theirs}");
             }
         }
         assert!(v["phenomena"].as_array().unwrap().len() == sim.phen.len());
+        // The three encodings say the same.
+        if b == 30 {
+            let cells = view::changed(&eb.before_sim(), sim);
+            let (p, c, j) = (view::columns(sim, &cells, view::Enc::Pack), view::columns(sim, &cells, view::Enc::Columns), view::columns(sim, &cells, view::Enc::Json));
+            let un = view::unpack_cells(&codec::un64(p["data"].as_str().unwrap()));
+            assert_eq!(un.iter().map(|x| x.0 as u64).collect::<Vec<_>>(), j["cells"].as_array().unwrap().iter().map(|x| x.as_u64().unwrap()).collect::<Vec<_>>());
+            assert_eq!(un.iter().map(|x| x.1).collect::<Vec<_>>(), codec::un64(c["h"].as_str().unwrap()));
+            assert_eq!(un.iter().map(|x| x.3[3]).collect::<Vec<_>>(), codec::un64(c["layers"]["fire"].as_str().unwrap()));
+            assert_eq!(un.iter().map(|x| x.3[7] as i8 as i64).collect::<Vec<_>>(), j["layers"]["heat"].as_array().unwrap().iter().map(|x| x.as_i64().unwrap()).collect::<Vec<_>>());
+            let len = |v: &serde_json::Value| serde_json::to_string(v).unwrap().len();
+            assert!(len(&p) < len(&c) && len(&c) < len(&j), "pack {} < columns {} < json {}", len(&p), len(&c), len(&j));
+        }
     }
     eprintln!("heavy match: earth payload mean {} bytes, worst {worst}", sum / 60);
     assert!(worst < 64 * 1024, "a catastrophic beat's payload is {worst} bytes");
@@ -672,6 +686,7 @@ fn measure_sizes_and_speed() {
         let (mut step_us, mut worst_us, mut payload, mut worst_payload, mut state_bytes, mut worst_state) = (0u128, 0u128, 0usize, 0usize, 0usize, 0usize);
         let (mut cells, mut worst_cells, mut phen) = (0usize, 0usize, 0usize);
         let mut last_us = 0;
+        let (mut encs, mut sent, mut all) = ([0usize; 3], 0usize, 0usize);
         for (k, e) in entropy.iter().enumerate() {
             let b = k as u32 + 1;
             s.inputs.extend(inputs.iter().filter(|i| i.beat == b).copied());
@@ -685,6 +700,13 @@ fn measure_sizes_and_speed() {
             let bytes = serde_json::to_string(&view::beat_json(&eb)).unwrap().len();
             payload += bytes;
             worst_payload = worst_payload.max(bytes);
+            let ch = view::changed(&eb.before_sim(), &eb.sim);
+            let every = eb.sim.list.len().max(eb.before.len());
+            for (k, enc) in [view::Enc::Pack, view::Enc::Columns, view::Enc::Json].into_iter().enumerate() {
+                encs[k] += serde_json::to_string(&view::columns(&eb.sim, &ch, enc)).unwrap().len();
+            }
+            sent += ch.len();
+            all += every;
             let sb = serde_json::to_string(&s).unwrap().len();
             state_bytes += sb;
             worst_state = worst_state.max(sb);
@@ -700,6 +722,7 @@ fn measure_sizes_and_speed() {
         let from_start = Sim::at_beat_from(13, cfg, &s, 55, false).unwrap().hash();
         let start_us = t.elapsed().as_micros();
         assert_eq!(from_kf, from_start);
+        eprintln!("{name}: delta alone per beat: pack {} bytes, columns {}, json {}; cells sent {} of {} dirty per beat", encs[0] / 60, encs[1] / 60, encs[2] / 60, sent / 60, all / 60);
         eprintln!("{name}:\n  step (load + step + store + keyframe): mean {} us, worst {} us, the last beat {} us\n  dirty cells: mean {}, worst {}; phenomena at most {}\n  earth payload per beat: mean {} bytes, worst {}\n  state (dm.earth as JSON): mean {} bytes per snapshot, worst {}, at the end {} (inputs {} = {} bytes, cells {} bytes)\n  keyframes: {} of them, bytes {:?}, total {}\n  beat 55 from its keyframe: {} us; from beat 1: {} us",
                   step_us / 60, worst_us, last_us, cells / 60, worst_cells, phen, payload / 60, worst_payload, state_bytes / 60, worst_state,
                   serde_json::to_string(&s).unwrap().len(), s.inputs.len(), serde_json::to_string(&s.inputs).unwrap().len(), s.cells.len(),
