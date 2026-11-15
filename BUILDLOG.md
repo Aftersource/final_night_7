@@ -1356,3 +1356,7 @@ Engineering: two deliberate styles (Benito): the god's room realistic, the board
 Benito wants every scale to show the results of disasters: a dropped flood, wildfires that burn forests down, and hurricanes that hit villages so people run to shelters and shelters can be destroyed. He also wants in-game actions, such as going into a neighbouring house, to play out with the game tokens.
 
 Engineering: chat on the engine's room.chat / room.chat_msg (live); history-on-join and recording requested from theatre_worker. The Mac builds the chat panel above the WILL in six switchable variants for Benito to choose. Server agents: backend/next-move (schema 18), backend/token-play (19), backend/earth-effects (20).
+
+Benito said he does not understand the turn system or how to use his time and effect value to win, and mostly ends up scrolling the board or challenging others. He asked what would make every turn and point meaningful and clear about what to do next.
+
+Engineering (measured from the recordings): 7 duels with Benito, 7 lost; 5 started by the AI, in which he typed 0 lines (knocked out while doing other things). The fix is his call (AI grace, a brace, the duel rate, odds); the server adds game.duel_odds, a top-urgency "you're in a duel: type now" hint, and a per-seat goal line.
