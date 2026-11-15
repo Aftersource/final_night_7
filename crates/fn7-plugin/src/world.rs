@@ -32,6 +32,10 @@ pub fn settings(w: &World) -> Settings {
     if !w.look_rules() {
         s.looks_enabled = false;
     }
+    // The Earth simulator needs a schema-13 state and the whole planet.
+    if !w.earth_rules() || !w.is_planet() {
+        s.earth_sim_enabled = false;
+    }
     s
 }
 

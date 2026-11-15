@@ -385,6 +385,10 @@ pub struct Dm {
     /// Schema 8 (exact resume): what the last resolve was handed, and the beat's clocks. Absent before the first one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mark: Option<Mark>,
+    /// Schema 13 (the Earth simulator, room setting `earth_sim_enabled`): the input log, the phenomena, the sparse
+    /// dirty cells and the keyframes. Absent = nothing serialized, so states without it stay byte-identical.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub earth: Option<Box<crate::earth::EarthState>>,
 }
 
 /// Schema 8: the delivery mark and clocks of a state (all epoch ms; 0 = unknown).

@@ -98,6 +98,21 @@ pub fn specs() -> Vec<QuerySpec> {
         spec("encounters", true,
              "Rules 0.8.0: the encounter hexes on the board: hidden ones only as {id, cell, marked}; revealed ones with their type and outcome. Optionally one region's.",
              obj(json!({ "region": r#ref(r"^pl:\d+$", "Only encounters in this region.") }), &[])),
+        spec("earth", true,
+             "The Earth simulator (state schema 13): the voxel field for a view. No args: every cell that differs from the base terrain. `cell` (a hex key of any level) or `region` (a `pl:` ref) with `rings`: the board around it; `bbox`: a box of regions cells; `base: true`: the whole globe; `grid: true`: adds the grid's cell list. `level` below regions (villages, houses, people) returns hexes derived from the coarse cell under them (a pure function of the field, the seed and the hex). `beat`: the field as it stood at a past beat. Columns are base64 arrays (`format: \"json\"` for number arrays). See docs/EARTH_SIM.md.",
+             obj(json!({ "cell": { "type": "string", "description": "A hex cell key (\"<face>:<level>:<q>:<r>\"): the view's centre." },
+                         "region": r#ref(r"^pl:\d+$", "A region (or any place): the view's centre."),
+                         "bbox": { "type": ["array", "string"], "description": "[west, south, east, north] in degrees (regions level)." },
+                         "level": { "type": "string", "enum": ["regions", "villages", "houses", "people"], "description": "The zoom level (default regions)." },
+                         "rings": { "type": ["integer", "string"], "minimum": 0, "maximum": 16, "description": "Hex rings around the centre (default 3 at regions, at most 12; 6 below, at most 16)." },
+                         "beat": { "type": ["integer", "string"], "minimum": 0, "description": "A past beat (default: now)." },
+                         "base": { "type": ["boolean", "string"], "description": "true: every cell of the globe (about 26,000), not just the changed ones." },
+                         "grid": { "type": ["boolean", "string"], "description": "true: add the grid (face, q, r of every cell in index order)." },
+                         "format": { "type": "string", "enum": ["b64", "json"], "description": "Column encoding (default b64)." } }), &[])),
+        spec("earth_at", true,
+             "The Earth simulator, time travel: the whole field (every cell that differs from base, and the phenomena) as it stood at the end of a past beat, rebuilt from the newest keyframe at or before it by re-simulating at most `earth_keyframe_beats` beats of the recorded inputs.",
+             obj(json!({ "beat": { "type": ["integer", "string"], "minimum": 0, "description": "The beat." },
+                         "format": { "type": "string", "enum": ["b64", "json"], "description": "Column encoding (default b64)." } }), &["beat"])),
         spec("piles_final", true,
              "Every demigod's end-of-match pile (items, summons, stats, statue prompt). An error until the match is over.",
              obj(json!({}), &[])),
@@ -124,6 +139,8 @@ pub fn query(pantheon: &Pantheon, state: &Value, seat: Option<Seat>, name: &str,
         "media" => media(state, seat, &args),
         "memory" => memory(state, &args),
         "encounters" => encounters(state, &args),
+        "earth" => crate::earth::view::query_earth(state, args.0),
+        "earth_at" => crate::earth::view::query_earth_at(state, args.0),
         other => Err(format!("unknown query {other}")),
     }?;
     payload::tidy(&mut v);
@@ -220,10 +237,13 @@ fn dm_lite(state: &Value, want: bool) -> Result<fn7_model::dm::Dm, String> {
         wills: Value,
         /// Schema 11: the look records and the item art (small).
         looks: Value,
+        /// Schema 13: the Earth simulator's state (tens of KB at most).
+        earth: Option<Box<fn7_model::earth::EarthState>>,
     }
     let l: Lite = table(state, "dm", want)?;
     Ok(fn7_model::dm::Dm { memory: vec![], settlements: l.settlements, stories: l.stories, encounters: l.encounters,
-                           loot: l.loot, trails: l.trails, shrines: l.shrines, duels: vec![], wills: l.wills, looks: l.looks, mark: None })
+                           loot: l.loot, trails: l.trails, shrines: l.shrines, duels: vec![], wills: l.wills, looks: l.looks, mark: None,
+                           earth: l.earth })
 }
 
 /// Memory entries passing `keep` (tested on the unparsed entry), oldest first: only those are deserialized.

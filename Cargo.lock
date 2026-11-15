@@ -577,6 +577,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "base64 0.22.1",
  "fn7-agents",
  "fn7-memory",
  "fn7-model",

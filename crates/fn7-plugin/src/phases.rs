@@ -712,6 +712,10 @@ fn with_dm(w: &World, mut v: Value) -> Value {
     if w.dm_rules() {
         v["shrines"] = crate::dm::shrines_under(w, None).into();
         crate::dm::add_time_of_day(&mut v, w.meta.beat, &settings(w));
+        // The Earth simulator (schema 13): the field in short (a client fetches the cells with `game.earth`).
+        if let Some(e) = crate::earth::view::summary_of(w, &settings(w)) {
+            v["earth"] = e;
+        }
         // Rules 0.9.0: the curses' public faces and the public quests.
         if crate::wills::on(w) {
             let book = crate::wills::public_json(w);
