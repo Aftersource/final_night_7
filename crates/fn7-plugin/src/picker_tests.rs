@@ -165,7 +165,8 @@ fn a_timeout_leaves_the_mappers_pick_and_a_late_answer_fills_the_cache() {
     let range = serde_json::to_value(range).unwrap().as_str().unwrap().to_string();
     let parry: fn7_agents::duel_pick::Pick = serde_json::from_value(json!({ "move_class": "parry", "clips": ["parry_high"], "path": null,
                                                                            "object_id": null, "target_part": "arms" })).unwrap();
-    pk.prime(&picker::key("Grab him!", &range, "unarmed", &moves::list_version()), &parry);
+    // (A schema-21 duel's picks are cached apart: `|w`.)
+    pk.prime(&format!("{}|w", picker::key("Grab him!", &range, "unarmed", &moves::list_version())), &parry);
     let b2 = submit(&t, &at(0, line(&id, "Grab him!"), 3, theatre_trace::now_ms())).unwrap();
     let all = picks(&t);
     let pre = all.iter().find(|p| p.pre).expect("a cached pick, journaled at the line's arrival");
@@ -189,4 +190,50 @@ fn off_or_old_or_without_the_llm_nothing_is_asked() {
         assert!(llm.seen.lock().unwrap().is_empty() && picks(&t).is_empty(), "{extra}");
     }
     assert!(settings::Settings::validate(&json!({ "duel_picker": "maybe" })).is_err());
+}
+
+/// Schema 21: the reply may stage the line as up to 4 steps (an enum list of clips, step paths, the scene's objects,
+/// the parts with the neck); a pick back by the close stages them on the panel, and a replay fed the recorded picks
+/// reproduces the state with no model call.
+#[test]
+fn a_pick_with_steps_stages_them_and_replays_exactly() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let _g = rt.enter();
+    let answer = json!({ "move_class": "strike", "clips": ["strike_slash"], "path": null, "object_id": null, "target_part": "neck",
+                         "steps": [{ "clip": "evade_roll", "path": "left", "object_id": null, "target_part": null },
+                                   { "clip": "rise", "path": null, "object_id": null, "target_part": null },
+                                   { "clip": "strike_slash", "path": null, "object_id": null, "target_part": "neck" },
+                                   { "clip": "moonwalk", "path": "flip", "object_id": "nowhere", "target_part": "soul" }] });
+    let llm = fake(answer, 0);
+    let t = picking(73, llm.clone(), json!({}));
+    let now = theatre_trace::now_ms();
+    let lock = submit(&t, &at(0, challenge(&t, "regions"), 1, now - 1_000)).unwrap();
+    let id = lock["duel_id"].as_str().unwrap().to_string();
+    let close = lock["also"].as_array().unwrap().iter().find(|x| x["event"] == "duel.panel").unwrap()["input_closes_ms"].as_i64().unwrap();
+    submit(&t, &at(0, line(&id, "I hit him"), 2, now - 500)).unwrap();
+    let got = wait_for(&t, 1);
+    let steps = &got[0].pick.as_ref().unwrap().steps;
+    assert_eq!(steps.len(), 3, "the junk step is dropped: {steps:?}");
+    let req = llm.seen.lock().unwrap()[0].clone();
+    let schema = req.json_schema.clone().unwrap();
+    assert_eq!(schema["properties"]["steps"]["maxItems"], 4);
+    assert_eq!(schema["properties"]["steps"]["items"]["properties"]["path"]["enum"][0], "cover");
+    assert!(schema["properties"]["target_part"]["enum"].as_array().unwrap().contains(&json!("neck")));
+    assert!(got[0].key.ends_with("|w"), "schema-21 picks are cached apart");
+    let tick = submit(&t, &at(0, json!({ "duel_tick": { "duel_id": id } }), 3, close + 30)).unwrap();
+    let panel = if tick["event"] == "duel.panel" { tick.clone() } else { tick["also"].as_array().unwrap().iter().find(|x| x["event"] == "duel.panel").unwrap().clone() };
+    let staged: Vec<&str> = panel["a"]["segs"].as_array().unwrap().iter().filter(|s| s["step"].is_u64()).filter_map(|s| s["clip"].as_str()).collect();
+    assert!(staged.starts_with(&["evade_roll", "rise"]) && staged.contains(&"strike_slash"), "{}", panel["a"]["segs"]);
+    assert!(panel["contacts"].as_array().unwrap().iter().any(|c| c["by"] == "a" && c["at"] == "neck"), "{}", panel["contacts"]);
+    let acts = [at(0, challenge(&t, "regions"), 1, now - 1_000), at(0, line(&id, "I hit him"), 2, now - 500),
+                at(0, json!({ "duel_tick": { "duel_id": id } }), 3, close + 30), at(3, json!({ "duel_tick": { "duel_id": "duel:s999999:0:1" } }), 9_999, now + 600_000)];
+    let cap = Arc::new(Capture::default());
+    let mut c = Ctx::new(cap.clone(), "");
+    c.round = Some(2);
+    let o = theatre_trace::within_sync(c, || resolve_at(&t.p, &t, 2, &acts));
+    let events = cap.0.lock().unwrap().clone();
+    let calls = llm.seen.lock().unwrap().len();
+    let replay = FinalNight7Plugin::new().with_feed(present::Feed::from_records(&events));
+    assert_eq!(resolve_at(&replay, &t, 2, &acts).state, o.state, "the replay reproduces the steps");
+    assert_eq!(llm.seen.lock().unwrap().len(), calls, "no model call on replay");
 }

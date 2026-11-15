@@ -1542,3 +1542,46 @@ nothing spent):
   the public or another seat, counted exactly, shown to their own seat; determinism (twice, and on a reloaded state);
   a memory past the scan cap reads exactly 2,000 entries and says so; a past beat equals a state whose memory ends there;
   bad args refused. `fn7-tools` strict validation of real replies against the regenerated `query_memory_tree` schema.
+## 2026-11-15: duels that look like your main character, played out as you type
+
+> Why do the characters look like blank models in duels?
+
+> Characters should look like the player's main character fighting, and an action such as pulling out a sword should be visible.
+> Any weapon the player comes up with, such as a sword or gun, should appear.
+
+> A duel should visibly look like two people calling things into existence, a contest of wits and intelligence.
+
+> The player should be able to say things like hide behind that tree then pop up and attack, or duck and roll left, and see it happen.
+> Players should be able to be as descriptive as they like and see that play out in real time.
+
+> The player types an action such as roll left, presses enter, then types jump and enter, and the character jumps on screen, then runs in.
+> Typing circles and enter should show the character running in circles, so the duel is two people competing on who can type faster and think harder.
+
+> Players should only be able to use items in their inventory, for example swords if they have them.
+> Shields and similar inventory items should be usable, and items shown on the board, such as trees and rocks, can be used as well.
+> A player might not have a rock in inventory, but rocks on the ground could be picked up, as could dirt.
+> Also add eyes and similar items to the list.
+
+Engineering: **state schema 21, duel words** (`World::duel_words_rules`, `fn7_model::dm::DUEL_WORDS_SCHEMA`; schema-20
+recordings replay with 0 differences). docs/DUEL_MOVES.md §5, docs/CLIENT_API.md "Duel words".
+
+- **Every Enter plays at once**: each `duel.blow` carries `stage` (up to 4 steps `{clip, path?, object_id?, ground?,
+  target_part?, prop?}`) from the keyword fallback, no model and no panel wait. `roll left` → `evade_roll` path `left`,
+  `jump` → `jump_attack` `leap`, `run in circles` → `run` `circle`, `duck`, `block`, `parry`, `charge`; a pure movement
+  line is a blow resolved as an evade (a d20 for positioning).
+- **Only what is held or on the board** (`duel_words::uses`): a weapon named as one's own draws THAT held item (its name,
+  its material and colour from its name: obsidian → black, golden → gold; `prop.colour`, `prop.colour_hex`); a board
+  object (tree, rock, crate, wall, pillar ...) or the hex's ground (dirt, sand, mud, snow, ash) can be used, picked up and
+  thrown (a projectile `rock` / `dirt` with `thing`). Named but not there → a whiff: verdict `fail`, "you have no
+  pistol" / "no cart here", wit `unavailable` −2; a real thing used is `uses` +1 (replacing the `item` tag). No new
+  hammer-space draws and nothing summoned in schema 21; schema 14..20 keep hammer-space.
+- **Up to 4 staged steps** (`duel_words::plan`, `move.steps`, `panel::stage_steps`): "hide behind that tree then pop up
+  and slit his throat" → run to the tree's far side, kneel, rise, `strike_slash` with the contact at the `neck` (a new
+  contact part; the duel sim anchors it between head and chest). One d20, one matrix result; the steps are staging, and a
+  panel with steps plays 350 ms longer per extra step (up to 4800). The picker's reply gains an enum list `steps` in a
+  schema-21 duel (cached apart, journaled, replayed with no model call).
+- **Looks**: `look` (the demigod's loadout look with its portrait and diorama, `aura`, `held` with names, colours,
+  icons and item art) and `usable` (items, board, ground: the tray's chips) per fighter on the lock and on
+  `duel.scene.fighters`. `statue` is null from the plugin (the statue is at `GET /api/assets/figures?name=`).
+- Tests: `duel_words.rs`, `duel_words_tests.rs`, `picker_tests.rs` (a pick with steps replayed with no model call);
+  schemas regenerated.

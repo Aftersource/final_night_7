@@ -1347,6 +1347,93 @@ is taken. `target` (`head chest belly arms legs`) sets the contact's `at`; `obje
 Settings: `duel_picker` (`on` | `off`), `duel_picker_timeout_ms` (700, 100..5000), `duel_picker_for_ai` (false: also
 pick for the AI's typed lines), `duel_draws` (2, 0..10), `duel_draw_sparks` (1, 0..10).
 
+### Duel words: every Enter plays at once, only what you hold or see, staged steps, looks (state schema 21)
+
+State **schema 21**. Additive: a schema-20 match has none of it and plays as before. Design: `docs/DUEL_MOVES.md` §5.
+
+**`duel.blow.stage`: play it on Enter.** Every `duel.blow` (the `phase.event` that comes back the instant a line
+resolves, and each `counter`) carries `stage`: up to 4 steps from the keyword fallback (no model, no wait for the panel),
+next to the d20 verdict it already had. Play it at once (within ~0.5 s); the panel (`move.steps`, or the picker's
+richer pick) refines it later.
+
+```json
+"stage": [{ "clip": "evade_roll", "path": "left",
+            "prop": { "item": "it:0", "name": "Obsidian Blade", "kind": "weapon", "weapon_class": "one_handed", "material": "obsidian",
+                      "tier": "relic", "hammer": false, "colour": "black", "colour_hex": "#141414" } }]
+```
+
+| Step field | Meaning |
+|---|---|
+| `clip` | one of the rig's clips |
+| `path` | `left` / `right` (a hex to that side as it faces the foe), `back` (a hex away), `in` (to the foe), `leap` (a jump on the spot), `circle` (a run round the six hexes about it), `cover` (to the far side of `object_id` from the foe); absent: in place |
+| `object_id` | the board object the step uses (`duel.scene.objects[].id`) |
+| `ground` | the ground it picks up (`dirt`, `sand`, `mud`, `snow`, `ash`, `gravel`, `leaves`, `water`) |
+| `target_part` | `head`, `neck`, `chest`, `belly`, `arms`, `legs` |
+| `prop` | what is in the hand (on the first step and on a draw) |
+| `whiff` | `true`: the line named a thing that is not there (one `stagger_waist` step) |
+
+Short commands (real outputs): `roll left` → `[{clip: evade_roll, path: left}]`, `roll right` → `path: right`, `jump` →
+`[{clip: jump_attack, path: leap}]`, `run in circles` → `[{clip: run, path: circle}]`, `charge` → `[{clip: run, path:
+in}]`, `duck` → `evade_stand`, `block` → `block`, `parry` → `parry_high`, `kick` → the move's clip. A pure movement line
+is still a blow: one d20, resolved as an `evade` (positioning).
+
+**Only what you hold or see.** A line can use the items its demigod holds, the objects on the duel board and the hex's
+ground; `usable` lists them per fighter (on `challenge.lock.a|b.usable` and `duel.scene.fighters.a|b.usable`), for the
+tray's chips:
+
+```json
+"usable": { "items": [{ "ref": "it:0", "name": "Obsidian Blade", "kind": "weapon", "weapon_class": "one_handed", "icon": "sword" },
+                      { "ref": "it:1", "name": "Golden Sword", "kind": "weapon", "weapon_class": "one_handed", "icon": "sword" }],
+            "board": [{ "object_id": "pillar_a", "kind": "pillar", "name": "an old stone pillar, the mortar long gone" },
+                      { "object_id": "crate_b", "kind": "crate", "name": "a crate somebody meant to come back for" }],
+            "ground": ["dirt", "gravel"] }
+```
+
+An item with item art also has `art`, and (images on) the existing `image {url, hash, status}`; a duel never asks for
+new art. `duel.blow.move` gains:
+
+- `uses`: `{kind: "item", ref, name}` | `{kind: "board", object_id, object_kind}` | `{kind: "ground", ground}`.
+  "I pull out a sword" draws the held Golden Sword (`draw.verdict: "drawn"`, free; the stage starts with
+  `draw_from_nowhere` carrying that prop); "my obsidian blade" is the Obsidian Blade. `prop` gains `colour` and
+  `colour_hex` from the item's name (obsidian → black `#141414`, golden → gold `#d4af37`, silver, crimson → red,
+  bone → ivory, ...). The tag `uses` (+1 wit) replaces the old `item` tag.
+- `whiff` (named but not there): "I draw a pistol" with no pistol held → `whiff: {named: "pistol", where: "held"}`,
+  verdict `fail`, damage 0, the caption "Ash's Left Hand reaches for a pistol: you have no pistol. The hand closes on
+  air.", tag `unavailable` (−2 wit), `stage: [{clip: "stagger_waist", whiff: true}]`; "duck behind the cart" with no
+  cart → `where: "board"`, "... looks for the cart: no cart here. The line is spent." No hammer-space in schema 21.
+- `throw`: what flies. "throw dirt in his eyes" → `throw: {kind: "dirt", ground: "dirt"}`, `target: "head"`, stage
+  `[{clip: kneel, ground: dirt}, {clip: throw_object, ground: dirt, target_part: head}]`, and on the panel a projectile
+  `kind: "dirt"` (or `rock` for a board object or a held thing thrown) with `thing` (the `throw`).
+- `steps`: the line staged as up to 4 steps (when it has more than one, or one that moves or uses a thing); `target` may
+  be `neck`.
+
+**Staged steps on the panel.** "hide behind that crate then pop up and slit his throat" → `stage` / `move.steps`
+`[{clip: run, path: cover, object_id: crate_b}, {clip: kneel}, {clip: rise}, {clip: strike_slash}]`, `move.target:
+"neck"`; the panel (real segs, props left out):
+
+```json
+[{ "clip": "run", "ms": 422, "loop": true, "to": [-4, 2], "path": "dash", "behind": "crate_b", "step": 1 },
+ { "clip": "kneel", "ms": 281, "face": "foe", "step": 2 }, { "clip": "rise", "ms": 281, "face": "foe", "step": 3 },
+ { "clip": "run", "ms": 283, "loop": true, "to": [2, -3], "path": "dash", "face": "foe", "step": 4 },
+ { "clip": "strike_slash", "ms": 283, "at": 356, "speed": 2.5, "face": "foe", "step": 4 }, ...]
+"contacts": [{ "t_ms": 1395, "by": "a", "limb": "hand_r", "kind": "hand", "on": "b", "at": "neck", "impulse": 0.1, "text": "SHHK", "miss": false, "ranged": false }]
+```
+
+Segs from a step carry `step` (1-based), `behind` (the object it went behind), `circle: true` (a ring of `dash` segs),
+`at_object`, `ground`. Paths stay the lab's (`dash`, `leap`). The blow is still one d20 and one matrix result: a miss
+stages the steps and misses. A panel with steps plays 350 ms longer per step beyond the first (up to 4800 ms).
+`contacts[].at` may be `neck` (the duel sim targets between the head and chest anchors).
+
+**Looks.** `challenge.lock.a|b.look` and `duel.scene.fighters.a|b.look` (with `demigod`, `name`, `usable`): the
+demigod's look (`loadout`, `loadout_hash`, `image_loadout_hash`, ...; images on: `portrait_image`, `diorama_image`),
+`aura` (`#E69F00`), `held` (each item: `ref`, `name`, `kind`, `weapon_class`, `material`, `colour`, `colour_hex`, `icon`,
+and with item art `art`, `image`), `figure_key` (`"ash left hand"`) and `statue` (null from the plugin: fetch the statue
+from `GET /api/assets/figures?name=`). Dress the mannequin with these.
+
+**The picker** in a schema-21 duel also returns `steps` (an enum list of at most 4: `clip` from the pickable clips plus
+`rise` / `spin_rise`, `path` from the step paths, `object_id` from the scene, `target_part` with `neck`); a pick back
+by the input close stages them (`move.steps`). Its picks are cached apart from schema-20 ones.
+
 ## Duel sim: baked physics and limb targets
 
 **Wired in state schema 14** (crate `fn7-duelsim`, docs/DUEL_SIM.md): on the **live stream** every `duel.panel` (in

@@ -152,8 +152,10 @@ fn draws_from_the_hand_and_from_hammer_space() {
                (Some("draw_from_nowhere"), Some("Obsidian Dagger"), Some("one_handed")));
 
     // Hammer-space, with sparks in the purse: six tries in one duel (duel_draws 3, then the line reads without it).
+    // (Hammer-space draws of things not held are schema 14..20: schema 21 uses only what is held.)
     let mut t = table(83, json!({ "duel_draws": 5, "duel_damage_scale": 0.05 }));
     let mut w = world::load(&t.state).unwrap();
+    w.meta.schema = 20;
     w.set_sparks(t.me, 3);
     t.state = world::save(&w);
     let now = theatre_trace::now_ms();

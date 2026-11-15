@@ -197,6 +197,12 @@ fn has_vowel(w: &str) -> bool {
 /// cost (the same line again −2, nearly the same −1, under three words −1, gibberish −1): −3..+4. Returns the score
 /// and its tags.
 pub fn wit(text: &str, me: &Fighter, foe: &Fighter, duel: &Duel, said: &[String]) -> (i32, Vec<&'static str>) {
+    wit_with(text, me, foe, duel, said, None)
+}
+
+/// [`wit`] in a schema-21 duel: `uses` replaces the generic `item` tag: `(+1, "uses")` for a line that uses a held
+/// item or a board object, `(-2, "unavailable")` for one that names a thing that is not there, `(0, "")` otherwise.
+pub fn wit_with(text: &str, me: &Fighter, foe: &Fighter, duel: &Duel, said: &[String], uses: Option<(i32, &'static str)>) -> (i32, Vec<&'static str>) {
     let ws = words(text);
     if ws.is_empty() {
         return (-3, vec!["empty"]);
@@ -223,9 +229,16 @@ pub fn wit(text: &str, me: &Fighter, foe: &Fighter, duel: &Duel, said: &[String]
         up += 1;
         tags.push("body");
     }
-    if ws.iter().any(|w| me.items.contains(w)) {
-        up += 1;
-        tags.push("item");
+    match uses {
+        None if ws.iter().any(|w| me.items.contains(w)) => {
+            up += 1;
+            tags.push("item");
+        }
+        Some((x, tag)) if x > 0 => {
+            up += x;
+            tags.push(tag);
+        }
+        _ => {}
     }
     if ws.iter().any(|w| TERRAIN.contains(&w.as_str()) || duel.terrain.contains(w)) {
         up += 1;
@@ -236,6 +249,10 @@ pub fn wit(text: &str, me: &Fighter, foe: &Fighter, duel: &Duel, said: &[String]
         tags.push("story");
     }
     let mut down = 0;
+    if let Some((x, tag)) = uses.filter(|u| u.0 < 0) {
+        down -= x;
+        tags.push(tag);
+    }
     let norm = ws.join(" ");
     if said.contains(&norm) {
         down += 2;
@@ -290,7 +307,39 @@ pub fn apply_pick(mv: &mut Value, p: &fn7_agents::duel_pick::Pick, class: &str, 
     if let (Some(id), Some("vault" | "slide" | "wallkick")) = (&p.object_id, path) {
         mv["object"] = id.clone().into();
     }
+    // Schema 21: the pick's staged steps (only in a duel whose words reach the stage: the pick carries them only then),
+    // never over a whiff.
+    if !p.steps.is_empty() && mv["whiff"].is_null() {
+        mv["steps"] = p.steps.iter().map(|s| s.json()).collect::<Vec<_>>().into();
+        if let Some(t) = p.steps.iter().rev().find_map(|s| s.target_part.clone()) {
+            mv["target"] = t.into();
+        }
+    }
     mv["picker"] = how.into();
+}
+
+/// Schema 21: the instant `stage` of a blow (`duel.blow.stage`): the keyword fallback's steps when it has them (or
+/// the whiff), else the move's clip as one step (`{clip, path?, target_part?, prop?}`).
+pub fn stage_of(mv: &Value, fallback: &Value) -> Value {
+    if fallback.is_array() {
+        return fallback.clone();
+    }
+    let mut one = json!({ "clip": mv["clip"] });
+    if mv["path"].is_string() {
+        one["path"] = mv["path"].clone();
+    }
+    if mv["target"].is_string() {
+        one["target_part"] = mv["target"].clone();
+    }
+    if mv["prop"].is_object() {
+        one["prop"] = mv["prop"].clone();
+    }
+    // The draw comes out with the prop it draws.
+    let mut out: Vec<Value> = mv["setup"].as_array().into_iter().flatten()
+        .map(|c| if c == "draw_from_nowhere" && mv["prop"].is_object() { json!({ "clip": c, "prop": mv["prop"] }) } else { json!({ "clip": c }) }).collect();
+    out.push(one);
+    out.truncate(crate::duel_words::MAX_STEPS);
+    out.into()
 }
 
 fn jaccard(a: &str, b: &str) -> f64 {
@@ -360,6 +409,9 @@ pub struct Fighter {
     /// Schema 14: its player's sparks at the lock (a paid hammer-space draw costs `duel_draw_sparks`).
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub sparks: u32,
+    /// Schema 21: every item it holds ([`crate::duel_words::held_items`]): what a line may draw, throw or use.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub held: Vec<crate::duel_words::HeldItem>,
 }
 
 fn is_zero_u32(x: &u32) -> bool {
@@ -414,6 +466,7 @@ fn fighter(w: &World, d: DemigodId, region: PlaceId, moved: &[Moved]) -> Fighter
         arms: crate::wills::arms::duel_bonus(w, d),
         weapons: if w.duel_weapon_rules() { crate::weapons::held(w, d) } else { vec![] },
         sparks: if w.duel_weapon_rules() { x.sparks } else { 0 },
+        held: if w.duel_words_rules() { crate::duel_words::held_items(w, d) } else { vec![] },
     }
 }
 
@@ -496,19 +549,65 @@ impl Duel {
     }
 }
 
-fn side_json(w: &World, f: &Fighter) -> Value {
+/// Schema 21: how a fighter looks, so the client dresses the mannequin as its main character: the demigod's `look`
+/// (its loadout; the media wrapper turns its inputs into `portrait_image` / `diorama_image`), its `aura`, its `skin`,
+/// what it holds (`held`: name, kind, weapon class, material, colour), and its statue (`statue`: the Meshy statue's
+/// slug when the assets registry has one, filled by the server; `figure_key`: the registry's subject key).
+pub fn fighter_look(w: &World, f: &Fighter) -> Value {
     let d = &w.demigods[f.id.ix()];
-    json!({ "demigod": Ref::Demigod(f.id), "name": f.name, "player": d.player_name(),
+    let mut v = crate::look::look_json(w, d);
+    v["aura"] = crate::payload::aura(w, d.seat).into();
+    v["held"] = f.held.iter().map(|h| {
+        let wv = f.weapons.iter().find(|x| x.item == Some(h.item));
+        let mut v = json!({ "ref": Ref::Item(h.item), "name": h.name, "kind": h.kind, "weapon_class": h.weapon_class,
+                "material": wv.map(|x| x.material.clone()), "colour": wv.and_then(|x| x.colour.clone()),
+                "colour_hex": wv.and_then(|x| x.colour_hex.clone()) });
+        item_art(w, h.item, &mut v);
+        v
+    }).collect::<Vec<_>>().into();
+    v["figure_key"] = fn7_model::manifest::name_key(&d.name).into();
+    v["statue"] = Value::Null;
+    v
+}
+
+/// Schema 21: a fighter's `look` and `usable` ([`crate::duel_words::usable_json`]: its items, the board, the ground).
+pub fn fighter_card(w: &World, f: &Fighter, scene: Option<&Value>) -> Value {
+    let mut usable = crate::duel_words::usable_json(&f.held, scene);
+    for (i, h) in f.held.iter().enumerate() {
+        item_art(w, h.item, &mut usable["items"][i]);
+    }
+    json!({ "demigod": Ref::Demigod(f.id), "name": f.name, "look": fighter_look(w, f), "usable": usable })
+}
+
+/// An item's picture as payloads carry it: its `icon`, and when it has item art its `art` key and `image_prompt`
+/// (the media wrapper puts the existing `image {url, hash, status}` next to it; a duel never asks for new art).
+fn item_art(w: &World, item: ItemId, v: &mut Value) {
+    let Some(it) = w.items.get(item.ix()) else { return };
+    v["icon"] = fn7_model::manifest::icon_of(it.ext.kind, &it.name).into();
+    crate::look::art_fields(w, &crate::look::book(w), it, v);
+}
+
+fn side_json(w: &World, f: &Fighter, scene: Option<&Value>) -> Value {
+    let d = &w.demigods[f.id.ix()];
+    let mut v = json!({ "demigod": Ref::Demigod(f.id), "name": f.name, "player": d.player_name(),
             "seat": (d.seat < crate::SYNTHETIC_SEAT).then_some(d.seat), "controller": crate::table::controller(w, d),
             "health": n1(f.health), "max_health": n1(f.max), "skin": crate::skin::of(w, d),
             // The media wrapper adds `portrait_image` / `diorama_image` next to these (the lock-in portraits).
-            "portrait_prompt": crate::payload::portrait_prompt(w, d), "diorama_prompt": crate::payload::diorama_prompt(w, d) })
+            "portrait_prompt": crate::payload::portrait_prompt(w, d), "diorama_prompt": crate::payload::diorama_prompt(w, d) });
+    if w.duel_words_rules() {
+        let c = fighter_card(w, f, scene);
+        v["look"] = c["look"].clone();
+        v["usable"] = c["usable"].clone();
+    }
+    v
 }
 
 /// The public `challenge.lock` event.
 pub fn lock_json(w: &World, d: &Duel) -> Value {
     let participants: Vec<u8> = d.f.iter().filter(|f| f.seat < crate::SYNTHETIC_SEAT).map(|f| f.seat).collect();
-    json!({ "event": "challenge.lock", "duel_id": d.id, "a": side_json(w, &d.f[0]), "b": side_json(w, &d.f[1]),
+    // Schema 21: the board the fighters can use (the scene is a pure function of the duel).
+    let scene = (w.duel_words_rules() && w.panel_rules() && d.started_ms > 0).then(|| crate::panel::scene(w, d));
+    json!({ "event": "challenge.lock", "duel_id": d.id, "a": side_json(w, &d.f[0], scene.as_ref()), "b": side_json(w, &d.f[1], scene.as_ref()),
             "at": d.at, "cell": d.cell, "level": d.level,
             // Every client centres the camera and spins the globe here.
             "focus": { "at": d.at, "lat": d.at[1], "lon": d.at[0], "cell": d.cell, "level": d.level },
@@ -795,6 +894,10 @@ pub struct Bout {
     /// Schema 14: the two fighters' skins as of the lock (the duel sim's masses never change mid-duel).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skins: Option<[String; 2]>,
+    /// Schema 21 ([`crate::duel_words`]): a line uses only what its fighter holds and what is on the board; it plays as
+    /// up to 4 staged steps (`move.steps`, the instant `stage`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub words: bool,
     /// The pick known at the arrival of the line being struck (set by [`Bout::step`], taken by the strike).
     #[serde(skip)]
     pre_pick: Option<fn7_agents::duel_pick::Pick>,
@@ -807,7 +910,7 @@ impl Bout {
         Bout { duel, hp, n: 0, last_ms: [None; 2], last_seq: [None; 2], said: [vec![], vec![]], log: vec![], strikes: vec![],
                ko: None, typed: 0, lines: vec![], flow, invoked: [0; 2], applied: [0.0; 2], paid: [0; 2], opened: false, delivered_seq: 0,
                blows: vec![], full: false, pauses: vec![], scene: None, panels: vec![], cycle: None, moves: false, ai: None,
-               weapons: false, picks: vec![], pre_pick: None, wield: [None, None], draws: [0; 2], sparks_spent: [0; 2], sparks_paid: [0; 2], skins: None }
+               weapons: false, picks: vec![], pre_pick: None, wield: [None, None], draws: [0; 2], sparks_spent: [0; 2], sparks_paid: [0; 2], skins: None, words: false }
     }
 
     /// [`Bout::new`] in `w`'s rules: a schema-8 state keeps the duel's whole timeline.
@@ -816,6 +919,7 @@ impl Bout {
         b.full = w.resume_rules();
         b.moves = w.ai_duel_rules();
         b.weapons = w.duel_weapon_rules();
+        b.words = w.duel_words_rules();
         if b.weapons {
             b.wield = [crate::weapons::best(&b.duel.f[0].weapons), crate::weapons::best(&b.duel.f[1].weapons)];
             let skin = |s: usize| crate::skin::of(w, &w.demigods[b.duel.f[s].id.ix()]).to_string();
@@ -879,7 +983,17 @@ impl Bout {
     fn strike_capped(&mut self, w: &World, st: &Settings, side: usize, text: &str, query: String, followup: bool, auto: bool,
                      cap: Option<i32>, handicap: i32) -> Value {
         let (me, foe) = (self.duel.f[side].clone(), self.duel.f[1 - side].clone());
-        let (mut wit, tags) = wit(text, &me, &foe, &self.duel, &self.said[side]);
+        // Schema 21: what the line uses of what it holds and what is on the board, and its staged steps.
+        let worded = self.words && !auto;
+        let here = self.cycle.as_ref().map(|c| c.pos[side]).unwrap_or([if side == 0 { -2 } else { 2 }, 0]);
+        let uses = if worded { crate::duel_words::uses(text, &me.held, self.scene.as_ref(), here) } else { Default::default() };
+        let plan = if worded { crate::duel_words::plan(text) } else { Default::default() };
+        let adj = self.words.then(|| match (&uses.thing, &uses.missing) {
+            (Some(_), _) => (1, "uses"),
+            (None, Some(_)) => (-2, "unavailable"),
+            _ => (0, ""),
+        });
+        let (mut wit, tags) = wit_with(text, &me, &foe, &self.duel, &self.said[side], adj);
         if let Some(cap) = cap {
             wit = wit.min(cap);
         }
@@ -897,9 +1011,14 @@ impl Bout {
         use crate::choreo::{self, MoveClass};
         // Schema 14: a line that pulls something out draws it first (a setup move: a held item freely, else
         // hammer-space, whose fumble flips the initiative before the blow).
-        let draw = match (self.weapons && !auto).then(|| crate::weapons::draw_words(text)).flatten() {
-            Some((thing, wc)) => Some(self.draw(w, st, side, &thing, wc, &query)),
-            None => None,
+        let draw = if self.words {
+            // Schema 21: only a held item is drawn (THAT item: its name, material and colour); nothing from hammer-space.
+            self.draw_held(side, &uses)
+        } else {
+            match (self.weapons && !auto).then(|| crate::weapons::draw_words(text)).flatten() {
+                Some((thing, wc)) => Some(self.draw(w, st, side, &thing, wc, &query)),
+                None => None,
+            }
         };
         let wc = crate::weapons::class_of_side(self, side).to_string();
         let flow = self.flow.clone();
@@ -910,7 +1029,7 @@ impl Bout {
         let pre = if self.weapons { self.pre_pick.take() } else { None };
         let picked_class: Option<MoveClass> = pre.as_ref().and_then(|p| serde_json::from_value(json!(p.move_class)).ok());
         let class = if self.moves {
-            let asked = picked_class.or(read.as_ref().map(|r| r.class)).unwrap_or_else(|| choreo::classify(text));
+            let asked = picked_class.or(plan.class).or(read.as_ref().map(|r| r.class)).unwrap_or_else(|| choreo::classify(text));
             let c = crate::moves::effective(asked, flow.range, has_bolt, has_army);
             // Schema 14: a ranged weapon shoots from far instead of stepping in.
             if self.weapons { crate::weapons::effective(c, asked, flow.range, &wc) } else { c }
@@ -920,7 +1039,11 @@ impl Bout {
         let situ = choreo::situation(&flow, side);
         let modifier = wit + health + gear + follow + home + situ - handicap;
         let dc = 10 + self.duel.night as i32 + foe.wardrobe as i32 / 2;
-        let roll = dm::roll_d20(w, &query, modifier, dc);
+        let mut roll = dm::roll_d20(w, &query, modifier, dc);
+        // Schema 21: a line that names a thing that is not there whiffs: the die is thrown, the blow fails.
+        if worded && uses.missing.is_some() && roll.verdict.ok() {
+            roll.verdict = DiceVerdict::Fail;
+        }
         let ok = roll.verdict.ok();
         let margin = roll.total - dc;
         let mut x = choreo::exchange(&flow, side, class, ok, margin, roll.verdict == DiceVerdict::CritSuccess);
@@ -947,7 +1070,10 @@ impl Bout {
             self.flow.stance[1 - side] = choreo::Stance::Downed;
         }
         self.said[side].push(words(text).join(" "));
-        let flavor = flavor(&self.duel, side, Some(roll.verdict), &query, text);
+        let flavor = match uses.missing.as_ref().filter(|_| worded) {
+            Some((named, at)) => crate::duel_words::whiff_caption(&me.name, named, at),
+            None => flavor(&self.duel, side, Some(roll.verdict), &query, text),
+        };
         let anim = anim(&self.duel, side, text, Some(roll.verdict), ko, &query);
         let camera = anim["camera"].as_str().unwrap_or("wide").to_string();
         let choreo = choreo::choreo_json(self.duel.seed, &query, &flow, &x, side, text, damage, ko, &camera);
@@ -987,10 +1113,17 @@ impl Bout {
                     ev["move"]["draw"] = serde_json::to_value(d).unwrap_or(Value::Null);
                 }
             }
+            // Schema 21: what the line uses, the whiff, its steps and the instant stage.
+            if self.words {
+                self.words_move(&mut ev, side, text, &uses, &plan, auto);
+            }
             // Schema 14: the pick's presentation, when its clip serves the class the rules made of it.
             if let Some(p) = &pre {
                 let cls = serde_json::to_value(class).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
                 apply_pick(&mut ev["move"], p, &cls, "pre");
+            }
+            if self.words {
+                ev["stage"] = stage_of(&ev["move"], &ev["stage"]);
             }
         }
         ev
@@ -1023,13 +1156,105 @@ impl Bout {
         let ok = roll == 20 || (roll != 1 && roll >= need);
         if ok {
             self.wield[side] = Some(Wieldable { item: None, name: thing.into(), kind: "weapon".into(), weapon_class: wc.into(),
-                                                material: crate::wills::arms::material_of(self.duel.seed, thing).0.into(), tier: tier.as_str().into(), hammer: true });
+                                                material: crate::wills::arms::material_of(self.duel.seed, thing).0.into(), tier: tier.as_str().into(), hammer: true,
+                                                colour: None, colour_hex: None });
         } else {
             // The fumble: the initiative flips to the foe before the blow.
             self.flow.initiative = 1 - side;
         }
         Draw { thing: thing.into(), weapon_class: wc.into(), held: false, roll: Some(roll), need: Some(need), p: Some((p * 1000.0).round() / 1000.0),
                sparks: if paid { cost } else { 0 }, tier: tier.as_str().into(), verdict: if ok { "success" } else { "fumble" }.into() }
+    }
+
+    /// Schema 21: draw the held item a line names (free, `drawn`), unless it is in hand already or the line throws it.
+    fn draw_held(&mut self, side: usize, uses: &crate::duel_words::Uses) -> Option<crate::weapons::Draw> {
+        let crate::duel_words::Thing::Item(i) = uses.thing.as_ref()? else { return None };
+        if uses.throw {
+            return None;
+        }
+        let item = self.duel.f[side].held.get(*i)?.item;
+        if self.wield[side].as_ref().is_some_and(|x| x.item == Some(item)) {
+            return None;
+        }
+        let h = self.duel.f[side].weapons.iter().find(|x| x.item == Some(item))?.clone();
+        let d = crate::weapons::Draw { thing: h.name.clone(), weapon_class: h.weapon_class.clone(), held: true, roll: None, need: None, p: None, sparks: 0,
+                                       tier: h.tier.clone(), verdict: "drawn".into() };
+        self.wield[side] = Some(h);
+        Some(d)
+    }
+
+    /// Schema 21: the blow's `move` gains `uses` (the held item, board object or ground it uses), `whiff` (named but
+    /// not there), `throw` (what flies), `steps` (the staged steps: more than one, or one that moves or uses a thing)
+    /// and `target` (the part its words aim at); the event gains `stage` (the keyword fallback's steps, for the client
+    /// to play at once).
+    fn words_move(&self, ev: &mut Value, side: usize, text: &str, uses: &crate::duel_words::Uses, plan: &crate::duel_words::Plan, auto: bool) {
+        use crate::duel_words::Thing;
+        let me = &self.duel.f[side];
+        let mv = &mut ev["move"];
+        if auto {
+            ev["stage"] = Value::Null;
+            return;
+        }
+        match &uses.thing {
+            Some(Thing::Item(i)) => {
+                if let Some(h) = me.held.get(*i) {
+                    mv["uses"] = json!({ "kind": "item", "ref": Ref::Item(h.item), "name": h.name });
+                }
+            }
+            Some(Thing::Board(id, kind)) => mv["uses"] = json!({ "kind": "board", "object_id": id, "object_kind": kind }),
+            Some(Thing::Ground(g)) => mv["uses"] = json!({ "kind": "ground", "ground": g }),
+            None => {}
+        }
+        if let Some((named, at)) = &uses.missing {
+            mv["whiff"] = json!({ "named": named, "where": at });
+            mv["setup"] = json!([]);
+            ev["stage"] = json!([{ "clip": "stagger_waist", "whiff": true }]);
+            return;
+        }
+        let thrown_steps = plan.steps.iter().any(|s| s.clip == "throw_object");
+        if uses.throw || thrown_steps {
+            let (kind, extra) = match &uses.thing {
+                Some(Thing::Ground(g)) => (*g, json!({ "ground": g })),
+                Some(Thing::Board(id, k)) => ("rock", json!({ "object_id": id, "object_kind": k })),
+                Some(Thing::Item(i)) => ("rock", json!({ "item": me.held.get(*i).map(|h| Ref::Item(h.item)), "name": me.held.get(*i).map(|h| h.name.clone()) })),
+                None => ("rock", json!({})),
+            };
+            let mut t = json!({ "kind": kind });
+            if let (Some(o), Value::Object(e)) = (t.as_object_mut(), extra) {
+                o.extend(e);
+            }
+            mv["throw"] = t;
+        }
+        if let Some(t) = plan.target {
+            mv["target"] = t.into();
+        }
+        let prop = mv["prop"].clone();
+        let drawn = mv["draw"].is_object();
+        let steps: Vec<Value> = plan.steps.iter().filter(|s| drawn || s.clip != "draw_from_nowhere")
+            .enumerate().map(|(k, s)| s.json(uses.thing.as_ref(), (s.draw && s.clip != "throw_object" || k == 0 && s.clip != "throw_object").then_some(&prop))).collect();
+        let special = steps.len() >= 2 || plan.steps.iter().any(|s| s.path.is_some() || s.object);
+        if special {
+            // One step that moves ("roll left"): the move's clip is the step's.
+            if let [one] = plan.steps.as_slice() {
+                if one.clip != "draw_from_nowhere" && one.clip != "throw_object" {
+                    mv["clip"] = one.clip.into();
+                }
+            }
+            mv["steps"] = steps.clone().into();
+            ev["stage"] = steps.into();
+            return;
+        }
+        // One plain step: a defence or a dodge plays the clip its words name ("duck", "block", "parry"); an attack keeps
+        // the move's own clip (its variety), and the stage is built from the move.
+        let attack = ["strike", "heavy", "throw", "grapple", "invoke", "command"].iter().any(|c| plan.steps.first().is_some_and(|s| crate::picker::serves(s.clip, c)));
+        match plan.steps.first().filter(|s| !attack && s.clip != "draw_from_nowhere") {
+            Some(s) => {
+                mv["clip"] = s.clip.into();
+                ev["stage"] = steps.into();
+            }
+            None => ev["stage"] = Value::Null,
+        }
+        let _ = text;
     }
 
     /// A typed line from `side` at `at_ms` (the core's receive stamp; 0 = unknown, then the arrival order `seq`
@@ -1941,8 +2166,9 @@ pub fn pick_ctx(b: &Bout, side: usize, text: &str) -> fn7_agents::duel_pick::Pic
         foe_stance: name(&b.flow.stance[1 - side]),
         foe_set: b.flow.set[1 - side].map(|c| name(&c)),
         weapon_class: crate::weapons::class_of_side(b, side).to_string(),
-        held: b.duel.f[side].weapons.iter().map(|x| x.name.clone()).collect(),
+        held: if b.words { b.duel.f[side].held.iter().map(|x| x.name.clone()).collect() } else { b.duel.f[side].weapons.iter().map(|x| x.name.clone()).collect() },
         objects,
+        steps: b.words,
     }
 }
 

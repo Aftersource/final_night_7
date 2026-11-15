@@ -17,7 +17,11 @@ fn tick(id: &str) -> Value {
 /// the army allow), its clip is one of the words' clips, and the panel plays it.
 #[test]
 fn the_logged_commands_play_their_clips_in_a_duel() {
-    let t = table(71, json!({ "duel_deadline_ms": 120000, "duel_damage_scale": 0.05 }));
+    // The schema-12/14 mapper (schema 21 reads movement commands as positioning: duel_words_tests).
+    let mut t = table(71, json!({ "duel_deadline_ms": 120000, "duel_damage_scale": 0.05 }));
+    let mut w0 = world::load(&t.state).unwrap();
+    w0.meta.schema = 20;
+    t.state = world::save(&w0);
     let lock = submit(&t, &instant(0, challenge(&t, "people"), 1, 1_000)).unwrap();
     let id = lock["duel_id"].as_str().unwrap().to_string();
     let mut seen = std::collections::BTreeSet::new();

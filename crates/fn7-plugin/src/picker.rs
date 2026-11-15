@@ -80,6 +80,12 @@ pub trait DuelData: Send + Sync {
 
 /// The cache key of a line: its normalized words, the range, the typist's weapon class (the clips a pick names
 /// depend on what is in hand) and the list's version.
+/// [`key`] of a line in `b`: a schema-21 duel's picks (with staged steps) are cached apart (`|w`).
+pub fn key_in(b: &crate::duel::Bout, text: &str, range: &str, weapon_class: &str) -> String {
+    let k = key(text, range, weapon_class, &crate::moves::list_version());
+    if b.words { format!("{k}|w") } else { k }
+}
+
 pub fn key(text: &str, range: &str, weapon_class: &str, list_version: &str) -> String {
     format!("{}|{range}|{weapon_class}|{list_version}", crate::moves::normalize(text))
 }

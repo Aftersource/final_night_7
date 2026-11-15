@@ -108,7 +108,13 @@ use serde::{Deserialize, Serialize};
 /// place is played out on the people-level board by the game tokens (`scene.play`: actors, a timed path of steps on
 /// the hex grid, captions, the d20 and the outcome the rules already decided), kept in [`dm::Dm::scenes`]. Rules that
 /// changed read [`World::token_play_rules`], so schema-4..17 recordings replay exactly.
-pub const STATE_SCHEMA: u32 = 20;
+///
+/// Schema 21 (duel words): a duel line's words reach the stage: a weapon or object it names is pulled out of
+/// hammer-space with the colour its words give (`prop.colour`), cover it names that the scene lacks is summoned into
+/// the scene (`summoned_by`, at most 3 a duel), a line plays as up to 4 staged steps (`move.steps`; the instant
+/// `stage` on every `duel.blow`), and each fighter carries its `look` on the lock and the scene. Rules that changed
+/// read [`World::duel_words_rules`], so schema-4..20 recordings replay exactly.
+pub const STATE_SCHEMA: u32 = 21;
 
 /// Match-wide settings and clocks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -510,6 +516,10 @@ impl World {
     /// Schema 14 rules: duel weapons, hammer-space, projectiles, the picker's recorded picks.
     pub fn duel_weapon_rules(&self) -> bool {
         self.meta.schema >= dm::DUEL_WEAPONS_SCHEMA
+    }
+    /// Schema 21 rules: a duel line's words reach the stage (props, summoned cover, staged steps, fighter looks).
+    pub fn duel_words_rules(&self) -> bool {
+        self.meta.schema >= dm::DUEL_WORDS_SCHEMA
     }
     /// Schema 19 rules: token play (a typed will's acts played out by the tokens on the people-level board).
     pub fn token_play_rules(&self) -> bool {

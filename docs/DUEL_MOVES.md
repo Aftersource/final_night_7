@@ -17,6 +17,7 @@ the picker"); the rules are in `docs/DM_RULEBOOK.md` 21.8.
 | Clip trims on segs (`at`, `speed`) | **built** (schema 14); the trims themselves are still estimated by rule |
 | Weapon classes, hammer-space draws, projectiles (§4.4-4.6) | **built** (schema 14) |
 | The duel sim on live panels (docs/DUEL_SIM.md) | **wired** (schema 14: skins locked at the lock; live stream and `present` only) |
+| Duel words (§5): the instant `stage`, only what is held or on the board (a whiff otherwise), up to 4 staged steps, fighter `look` and `usable` | **built** (schema 21) |
 
 ## 1. The list
 
@@ -250,4 +251,64 @@ bursts over the landing hex and its neighbours and knocks the objects in them. T
 - Trims are still the rule's estimates; nobody has corrected them by eye.
 - `duel_picker_for_ai` does not pick AI lines whose window was opened by a resolve (no instant action to carry the
   call); the picker does not detect draws (the rules do).
-- Hammer-space props are duel-only: they never become world items.
+- Hammer-space props are duel-only: they never become world items. From schema 21 there are no new hammer-space draws
+  (§5): a line uses only what its fighter holds and what is on the board.
+
+## 5. Duel words: what a line names reaches the stage (state schema 21)
+
+The designer asked why characters look like blank models in the duels. If the player says to pull out a sword, they should be able to
+to see it pulling out a sword" / "i should be able to say hide behind that tree then pop up and slit his throat or duck
+roll to the left ... then see that play out in real time" / "player will type roll left hit enter then quickly type jump
+so then enter then character jumps on screen" / "i dont want u to be able to do anything only what items u have in your
+inventory ... u can use all whats in the board and in ur inventory ... u could pick up dirt and throw in eyes etc".
+
+All in `crates/fn7-plugin/src/duel_words.rs` (pure rules on the words), the bout (`duel.rs`: `uses`, `plan`,
+`words_move`, `stage_of`), the panel (`panel.rs`: `stage_steps`) and the picker (`fn7_agents::duel_pick`: `steps`). The
+gate is `World::duel_words_rules` (`fn7_model::dm::DUEL_WORDS_SCHEMA`, 21); a schema-20 duel plays exactly as before.
+
+**5.1 Every Enter plays at once.** Every `duel.blow` carries `stage`: up to 4 steps `{clip, path?, object_id?, ground?,
+target_part?, prop?}` from the keyword fallback (no model, no wait for the panel), next to the d20 verdict it already
+had. Short commands map straight to clips: `roll left` / `roll right` → `evade_roll` with path `left` / `right` (`tumble
+back` → `dodge_roll_back`, `back`), `jump` → `jump_attack` with `leap`, `run in circles` → `run` with `circle`, `charge` →
+`run` with `in`, `duck` → `evade_stand`, `block` → `block`, `parry` → `parry_high`; an attack is its move's clip. A pure
+movement line is still a blow: it resolves as an `evade` (a d20 for positioning). The panel stages the line later
+(`move.steps`, or the picker's richer pick).
+
+**5.2 Only what is held or on the board.** A fighter can use (`usable`, on the lock and `duel.scene.fighters`): the
+items it holds (`Fighter::held`, from the state at the lock), the board's objects (the scene's trees, rocks, crates,
+walls, pillars ...; not the flat hazard patches) and the hex's ground (`ground_of`: by biome, plus what the Earth
+simulator left: snow, ash, mud ...). `duel_words::uses` reads what a line names:
+
+- a weapon named as its own ("pull out a sword", "my obsidian blade", "draw my pistol"): the held item whose name shares
+  a word with it, else one of the same weapon class. It is drawn (free, `draw.verdict: "drawn"`, `draw_from_nowhere`
+  first) unless already in hand; the prop is THAT item: its real name, and the material and colour its name gives
+  (`colour_of`: obsidian → black, golden → gold, silver, crimson → red, bone → ivory, ...: `prop.colour`,
+  `prop.colour_hex`);
+- a board object used ("hide behind that tree", "kick the crate", "throw a rock": the nearest of that kind; rock and
+  boulder are one), or the ground thrown ("throw dirt in his eyes"): `move.uses`, and a throw flies (`move.throw`, a
+  projectile `rock` or `dirt` with `thing`);
+- named but not there ("I draw a pistol" with none held, "that cart" with no cart, sand in a forest): a **whiff**: the
+  die is thrown, the verdict is `fail`, no damage, the caption says so ("you have no pistol", "no cart here"),
+  `move.whiff {named, where}`, and the wit takes `unavailable` (−2). A line that uses a real thing takes `uses` (+1),
+  which replaces the generic `item` tag. Nothing comes from hammer-space and nothing is summoned.
+
+**5.3 Up to 4 staged steps.** `duel_words::plan` cuts a line into clauses ("then", "and then", "and", "before", commas)
+and each into steps: to the cover (`run`, path `cover`, the object), hide (`kneel`), pop up (`rise` / `spin_rise`), a roll
+or side step (`left` / `right` / `back`), a jump, a run in circles, a pick-up (`kneel` at the object or the ground) and a
+throw (`throw_object`), and the blow (its clip; a slit or slash is `strike_slash`; the part from the words: throat →
+`neck`). "hide behind that tree then pop up and slit his throat" → `run`/`cover`/tree, `kneel`, `rise`, `strike_slash`
+at the neck. The blow is still one d20 and one matrix result: the steps are the staging. The panel plays them in order
+in the blow's slot (`stage_steps`: `cover` runs to the object's far side from the foe, the last attacking step closes in
+when the rules' range asks, its contact frame is the blow's), and a panel with steps plays 350 ms longer per step beyond
+the first (up to 4800). The picker's reply gains `steps` (an enum list: clip, step path, scene object, part with `neck`)
+in a schema-21 duel; its picks are cached apart (`|w` on the key) and journaled as before, so a replay feeds them back
+and never calls a model.
+
+**5.4 Looks.** Each fighter on the lock and on `duel.scene.fighters` has `look`: the demigod's look (loadout; images
+on: `portrait_image`, `diorama_image`), `aura`, `held` (each item's name, kind, weapon class, material, colour, `icon`,
+and when it has item art `art` and `image`), `figure_key` and `statue` (null from the plugin: the statue is at
+`GET /api/assets/figures?name=`). Item art is passed through, never asked for by a duel.
+
+Tests: `duel_words.rs` (the words), `duel_words_tests.rs` (the stage per command, held items and the whiff, a held
+sword drawn, the board and the ground with the steps on the panel and the dirt flying, a replay, schema 20
+untouched), `picker_tests.rs` (a pick with steps staged and replayed with no model call).

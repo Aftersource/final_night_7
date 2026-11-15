@@ -46,6 +46,40 @@ pub struct PickCtx {
     pub held: Vec<String>,
     /// The scene's objects: `(id, kind, affords)`.
     pub objects: Vec<(String, String, Vec<String>)>,
+    /// State schema 21 (duel words): the reply may stage the line as up to 4 `steps`, and aim at the `neck`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub steps: bool,
+}
+
+/// Paths a staged step may take (schema 21): to the far side of a scene object, a side step or roll, back, in to the
+/// foe, a jump on the spot, a run in a ring.
+pub const STEP_PATHS: &[&str] = &["cover", "left", "right", "back", "in", "leap", "circle"];
+/// Steps one line may stage.
+pub const MAX_STEPS: usize = 4;
+
+/// One staged step of a pick (schema 21).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PickStep {
+    pub clip: String,
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub object_id: Option<String>,
+    #[serde(default)]
+    pub target_part: Option<String>,
+}
+
+impl PickStep {
+    /// As a `move.steps[]` entry: `{clip, path?, object_id?, target_part?}`.
+    pub fn json(&self) -> Value {
+        let mut v = json!({ "clip": self.clip });
+        for (k, x) in [("path", &self.path), ("object_id", &self.object_id), ("target_part", &self.target_part)] {
+            if let Some(x) = x {
+                v[k] = x.clone().into();
+            }
+        }
+        v
+    }
 }
 
 /// The picker's choice.
@@ -59,6 +93,9 @@ pub struct Pick {
     #[serde(default)]
     pub object_id: Option<String>,
     pub target_part: String,
+    /// Schema 21: the line as staged steps (empty before, and when the line is one move).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub steps: Vec<PickStep>,
 }
 
 fn strings(v: &Value, key: &str) -> Vec<String> {
@@ -81,11 +118,23 @@ pub fn clips(list: &Value) -> Vec<String> {
         .collect()
 }
 
+/// The clips a staged step may play (schema 21): the pickable clips and getting up (`rise`, `spin_rise`: popping up from
+/// cover).
+pub fn step_clips(list: &Value) -> Vec<String> {
+    let mut c = clips(list);
+    for x in ["rise", "spin_rise"] {
+        if list["clips"].as_array().into_iter().flatten().any(|e| e["clip"] == x) && !c.iter().any(|y| y == x) {
+            c.push(x.to_string());
+        }
+    }
+    c
+}
+
 /// The reply's JSON schema: every choice an enum built from the list and the scene.
 pub fn schema(list: &Value, ctx: &PickCtx) -> Value {
     let ids: Vec<Value> = ctx.objects.iter().map(|o| Value::String(o.0.clone())).chain([Value::Null]).collect();
     let paths: Vec<Value> = PICK_PATHS.iter().map(|p| json!(p)).chain([Value::Null]).collect();
-    json!({
+    let mut s = json!({
         "type": "object",
         "properties": {
             "move_class": { "type": "string", "enum": classes(list) },
@@ -96,7 +145,34 @@ pub fn schema(list: &Value, ctx: &PickCtx) -> Value {
         },
         "required": ["move_class", "clips", "path", "object_id", "target_part"],
         "additionalProperties": false,
-    })
+    });
+    if ctx.steps {
+        let parts: Vec<&str> = parts(ctx);
+        s["properties"]["target_part"]["enum"] = json!(parts);
+        let step_paths: Vec<Value> = STEP_PATHS.iter().map(|p| json!(p)).chain([Value::Null]).collect();
+        s["properties"]["steps"] = json!({ "type": "array", "maxItems": MAX_STEPS, "items": {
+            "type": "object",
+            "properties": {
+                "clip": { "type": "string", "enum": step_clips(list) },
+                "path": { "type": ["string", "null"], "enum": step_paths },
+                "object_id": if ctx.objects.is_empty() { json!({ "type": "null" }) } else { json!({ "type": ["string", "null"], "enum": ids }) },
+                "target_part": { "type": ["string", "null"], "enum": parts.iter().map(|p| json!(p)).chain([Value::Null]).collect::<Vec<_>>() },
+            },
+            "required": ["clip", "path", "object_id", "target_part"],
+            "additionalProperties": false,
+        } });
+        s["required"].as_array_mut().expect("required").push("steps".into());
+    }
+    s
+}
+
+/// The parts a pick may aim at (schema 21 adds the neck).
+fn parts(ctx: &PickCtx) -> Vec<&'static str> {
+    let mut p = PARTS.to_vec();
+    if ctx.steps {
+        p.insert(1, "neck");
+    }
+    p
 }
 
 pub fn system_prompt() -> String {
@@ -125,7 +201,7 @@ pub fn user_prompt(list: &Value, ctx: &PickCtx) -> String {
     format!(
         "Situation: range {}; {} the initiative; your stance {}, the foe's {}{}; your weapon class {}{}.\n\n\
 MOVE CLASSES\n{}\n\nCLIPS [what they serve]\n{}\n\nPATHS\n- dash: running along the ground\n- leap: a jump\n- vault: over an object\n\
-- slide: under an object\n- wallkick: off an object\n\nSCENE OBJECTS\n{}\n\n{}\nReply with JSON: move_class, clips, path, object_id, target_part.",
+- slide: under an object\n- wallkick: off an object\n\nSCENE OBJECTS\n{}\n\n{}\nReply with JSON: move_class, clips, path, object_id, target_part{}.",
         ctx.range,
         if ctx.initiative { "you hold" } else { "the foe holds" },
         ctx.my_stance,
@@ -137,8 +213,14 @@ MOVE CLASSES\n{}\n\nCLIPS [what they serve]\n{}\n\nPATHS\n- dash: running along 
         clip_lines.join("\n"),
         if objects.is_empty() { "- none".to_string() } else { objects.join("\n") },
         untrusted("DUEL LINE", &ctx.line),
+        if ctx.steps { STEPS_NOTE } else { "" },
     )
 }
+
+/// Schema 21: what the reply's `steps` are.
+const STEPS_NOTE: &str = ", steps (a line with several actions, e.g. \"hide behind that tree then pop up and slit his throat\", as up to 4 \
+steps in order, each a clip, a step path (cover: to the far side of object_id; left, right, back, in, leap, circle) and the part aimed \
+at (neck for a throat); [] for a single move)";
 
 /// The request: [`MODEL`], temperature 0 (the Anthropic backend sends none: current models take the default), a
 /// small output budget, the enum schema.
@@ -165,8 +247,20 @@ pub fn parse(reply: &str, list: &Value, ctx: &PickCtx) -> Result<Pick, String> {
     }
     p.path = p.path.filter(|x| PICK_PATHS.contains(&x.as_str()));
     p.object_id = p.object_id.filter(|id| ctx.objects.iter().any(|o| &o.0 == id));
-    if !PARTS.contains(&p.target_part.as_str()) {
+    if !parts(ctx).contains(&p.target_part.as_str()) {
         p.target_part = "chest".into();
+    }
+    if ctx.steps {
+        let step_allowed = step_clips(list);
+        p.steps.retain(|s| step_allowed.contains(&s.clip));
+        p.steps.truncate(MAX_STEPS);
+        for s in p.steps.iter_mut() {
+            s.path = s.path.take().filter(|x| STEP_PATHS.contains(&x.as_str()));
+            s.object_id = s.object_id.take().filter(|id| ctx.objects.iter().any(|o| &o.0 == id));
+            s.target_part = s.target_part.take().filter(|x| parts(ctx).contains(&x.as_str()));
+        }
+    } else {
+        p.steps.clear();
     }
     Ok(p)
 }

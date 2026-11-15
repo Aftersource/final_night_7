@@ -1,8 +1,8 @@
 //! Duel weapons against the real server (state schema 14; docs/DUEL_MOVES.md): the `fn7-server` binary on a private
 //! port, mock images, a fake OpenAI-compatible gateway that answers only the duel picker. One human (Ash) and three
 //! bots: Ash arms its demigod by will, summons itself next to a rival, challenges it and types: a line the picker
-//! stages, a held weapon drawn, hammer-space rocket launchers (a success and a fumble), shots, a repeated line the
-//! cache picks at its arrival. Then the duel's data rows and rollups from `/api/duel/lines`, and the recording replays
+//! stages, a held weapon drawn, rocket launchers it does not hold (state schema 21: whiffs, no hammer-space), a roll
+//! left played at once (`stage`), a repeated line the cache picks at its arrival. Then the duel's data rows and rollups from `/api/duel/lines`, and the recording replays
 //! with 0 differences (the picks are fed back from `duel_picks`, no model).
 //!
 //! Prints what it saw (`cargo test -p fn7-server --test duel_weapons -- --nocapture`).
@@ -286,9 +286,8 @@ async fn a_private_server_duel_with_picks_draws_and_projectiles_replays_clean() 
     if !held.is_empty() {
         lines.push("I draw my blade and slash");
     }
-    lines.extend(["dance at him", "i pull out a rocket launcher and fire", "i pull out a rocket launcher and fire", "shoot him",
-                  "i pull out a rocket launcher and fire", "i pull out a longbow and shoot", "shoot him", "i pull out a rocket launcher and fire",
-                  "shoot him", "dance at him", "I hit him hard"]);
+    lines.extend(["dance at him", "i pull out a rocket launcher and fire", "roll left", "shoot him", "i pull out a rocket launcher and fire",
+                  "dance at him", "dance at him", "jump", "dance at him", "I hit him hard"]);
     for text in lines {
         if let Some(b) = a.instant(json!({ "duel": { "duel_id": id, "text": text } })).await {
             if b["event"] == "duel.blow" {
@@ -336,21 +335,22 @@ async fn a_private_server_duel_with_picks_draws_and_projectiles_replays_clean() 
     let pre = blows.iter().find(|b| b["move"]["picker"] == "pre").expect("a repeated line (same words, range, weapon) is picked at its arrival");
     eprintln!("picked at arrival (cache): {:?} -> class {}, clip {}", pre["text"], pre["choreo"]["a"]["move_class"], pre["move"]["clip"]);
     let draws: Vec<&str> = blows.iter().filter_map(|b| b["move"]["draw"]["verdict"].as_str()).collect();
-    assert!(draws.contains(&"success") && draws.contains(&"fumble"), "{draws:?}");
+    assert!(!draws.contains(&"success") && !draws.contains(&"fumble"), "state schema 21: no hammer-space: {draws:?}");
     if !held.is_empty() {
-        assert!(draws.contains(&"drawn"), "the held weapon was drawn: {draws:?}");
+        assert!(draws.contains(&"drawn") || blows.iter().any(|b| b["move"]["uses"]["kind"] == "item"), "the held weapon was used: {draws:?}");
     }
-    let projectiles: Vec<Value> = panels.iter().flat_map(|p| p["projectiles"].as_array().cloned().unwrap_or_default()).collect();
-    let rocket = projectiles.iter().find(|p| p["kind"] == "rocket").expect("a rocket flew");
-    assert_eq!(rocket["on_hit"]["aoe_hexes"].as_array().map(Vec::len), Some(7));
-    assert!(segs("a").iter().any(|s| s["prop"]["hammer"] == true), "a hammer-space prop in hand");
+    // State schema 21: a launcher it does not hold is a whiff; every typed blow carries the instant `stage`.
+    for b in blows.iter().filter(|b| b["text"].as_str().is_some_and(|t| t.contains("rocket launcher"))) {
+        assert!(b["move"]["whiff"]["where"] == "held" && (b["verdict"] == "fail" || b["verdict"] == "crit_fail") && b["flavor"].as_str().unwrap_or("").contains("you have no"), "{b}");
+    }
+    assert!(blows.iter().all(|b| b["stage"].is_array()), "every Enter plays at once");
+    if let Some(roll) = blows.iter().find(|b| b["text"] == "roll left") {
+        assert_eq!((roll["stage"][0]["clip"].as_str(), roll["stage"][0]["path"].as_str()), (Some("evade_roll"), Some("left")), "{roll}");
+    }
     assert!(panels.iter().any(|p| p["sim"].is_object()), "live panels carry the duel sim");
+    let projectiles: Vec<Value> = panels.iter().flat_map(|p| p["projectiles"].as_array().cloned().unwrap_or_default()).collect();
     eprintln!("picked line: {} -> clip {} (picker {}); draws {draws:?}; projectiles {:?}", picked["text"], picked["move"]["clip"],
               picked["move"]["picker"], projectiles.iter().map(|p| p["kind"].as_str().unwrap_or("?")).collect::<Vec<_>>());
-    eprintln!("a rocket: {}", rocket);
-    if let Some(arrow) = projectiles.iter().find(|p| p["kind"] == "arrow") {
-        eprintln!("an arrow: {arrow}");
-    }
 
     // ---- the data rows and the rollups -----------------------------------------------------------------------------------
     let get = |by: &str| reqwest::Client::new().get(format!("http://127.0.0.1:{port}/api/duel/lines?by={by}&key={KEY}")).send();
