@@ -5,7 +5,7 @@
 //! live view, the resolve, a replay all compute the same blow and the same panel from the same inputs), and none of
 //! them may wait for a model. So a pick is a **side input ordered with the duel's actions**:
 //!
-//! 1. A typed line arrives (`on_instant`). If the pick cache holds `(normalized line, range, list version)`, the pick
+//! 1. A typed line arrives (`on_instant`). If the pick cache holds `(normalized line, range, weapon class, list version)`, the pick
 //!    is known NOW: it is journaled as a pick record stamped with the line's own `(received_at_ms, seq)`, ordered just
 //!    before the line, so the line's blow takes the pick's **move class** (gated by range, bolts and armies as any
 //!    class) and its **presentation** (clips, path, object, body part). The d20 and the matrix decide the outcome.
@@ -61,7 +61,7 @@ pub struct PickRec {
     pub model: String,
     #[serde(default)]
     pub error: Option<String>,
-    /// The cache key: `normalized line|range|list version`.
+    /// The cache key: `normalized line|range|weapon class|list version`.
     #[serde(default)]
     pub key: String,
 }
@@ -78,9 +78,10 @@ pub trait DuelData: Send + Sync {
     fn cache(&self, _key: &str, _pick: &Pick, _model: &str) {}
 }
 
-/// The cache key of a line.
-pub fn key(text: &str, range: &str, list_version: &str) -> String {
-    format!("{}|{range}|{list_version}", crate::moves::normalize(text))
+/// The cache key of a line: its normalized words, the range, the typist's weapon class (the clips a pick names
+/// depend on what is in hand) and the list's version.
+pub fn key(text: &str, range: &str, weapon_class: &str, list_version: &str) -> String {
+    format!("{}|{range}|{weapon_class}|{list_version}", crate::moves::normalize(text))
 }
 
 /// $ per million tokens (input, output) of the picker's model.

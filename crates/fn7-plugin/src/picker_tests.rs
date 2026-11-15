@@ -165,7 +165,7 @@ fn a_timeout_leaves_the_mappers_pick_and_a_late_answer_fills_the_cache() {
     let range = serde_json::to_value(range).unwrap().as_str().unwrap().to_string();
     let parry: fn7_agents::duel_pick::Pick = serde_json::from_value(json!({ "move_class": "parry", "clips": ["parry_high"], "path": null,
                                                                            "object_id": null, "target_part": "arms" })).unwrap();
-    pk.prime(&picker::key("Grab him!", &range, &moves::list_version()), &parry);
+    pk.prime(&picker::key("Grab him!", &range, "unarmed", &moves::list_version()), &parry);
     let b2 = submit(&t, &at(0, line(&id, "Grab him!"), 3, theatre_trace::now_ms())).unwrap();
     let all = picks(&t);
     let pre = all.iter().find(|p| p.pre).expect("a cached pick, journaled at the line's arrival");

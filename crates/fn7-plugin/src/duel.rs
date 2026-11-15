@@ -259,12 +259,21 @@ pub fn wit(text: &str, me: &Fighter, foe: &Fighter, duel: &Duel, said: &[String]
 
 /// Schema 14: put a pick's presentation on a blow's `move` (clips, path, object, body part) when its first clip serves
 /// the class the rules resolved; else only the body part. `how`: `pre` (known at the line's arrival) or `used` (came
-/// before the panel's input close); `move.picker` says which, or `class` when the clip did not fit.
+/// before the panel's input close); `move.picker` says which, or `class` when the clip did not fit, or `weapon` when
+/// its clip belongs to a weapon the fighter does not wield (then only the body part is taken).
 pub fn apply_pick(mv: &mut Value, p: &fn7_agents::duel_pick::Pick, class: &str, how: &str) {
     mv["target"] = p.target_part.clone().into();
     let fits = p.clips.first().is_some_and(|c| crate::picker::serves(c, class));
     if !fits {
         mv["picker"] = "class".into();
+        return;
+    }
+    // A weapon's own clip (the list's `reserved: <weapon class>`) needs that weapon in hand: a pick cannot fire a
+    // launcher its fighter does not hold.
+    let wc = mv["weapon_class"].as_str().unwrap_or("unarmed");
+    let needs = crate::moves::current().clip_for(&p.clips[0]).and_then(|f| f.strip_prefix("reserved: ")).map(str::to_string);
+    if needs.is_some_and(|n| n != wc) {
+        mv["picker"] = "weapon".into();
         return;
     }
     mv["clip"] = p.clips[0].clone().into();
@@ -1893,6 +1902,7 @@ fn trace_lines_all(w: &World, beat: u32, bout: &Bout) -> Vec<Value> {
                 Some("pre") => "known at arrival (cache)",
                 Some("used") => "came before the panel's input close",
                 Some("class") => "its clip does not serve the class the rules made of the line",
+                Some("weapon") => "its clip belongs to a weapon the fighter does not wield",
                 _ if p.pick.is_none() => "no pick (timeout or error)",
                 _ => "came after the panel's input close",
             },

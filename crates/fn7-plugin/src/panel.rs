@@ -970,7 +970,7 @@ pub fn extras(b: &Bout, scene_too: bool, panels_from: usize, blows_from: usize) 
     }
     let mut out = vec![];
     if scene_too {
-        out.extend(b.scene.clone());
+        out.extend(live_scene(b));
     }
     let mut blows: Vec<&Value> = b.blows.iter().skip(blows_from).filter(|e| e["ai"] == true).collect();
     // Schema 14: on the live stream only (never in a recorded outcome), each panel carries the duel sim's `sim`.
@@ -1004,6 +1004,16 @@ pub fn live_sims(b: &Bout, from: usize) -> Option<Vec<Value>> {
     let skins = b.skins.as_ref().filter(|_| b.weapons)?;
     let scene = b.scene.as_ref()?;
     Some(fn7_duelsim::live_with_sims(&b.duel.id, scene, [&skins[0], &skins[1]], b.duel.seed, &b.panels, from))
+}
+
+/// The scene as the live stream sends it: schema 14 adds the duel sim's `sim` (masses, affordances, fighters).
+pub fn live_scene(b: &Bout) -> Option<Value> {
+    let mut sc = b.scene.clone()?;
+    if let Some(skins) = b.skins.as_ref().filter(|_| b.weapons) {
+        let f = fn7_duelsim::fighters_of(&sc, &skins[0], &skins[1]);
+        sc["sim"] = fn7_duelsim::scene_sim(&sc, &f);
+    }
+    Some(sc)
 }
 
 /// Schema 14: `present.duels[].sim` (`{at, sim}`: the stage as the newest panel starts and that panel's sim).

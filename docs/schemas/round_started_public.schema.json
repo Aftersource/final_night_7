@@ -1264,11 +1264,12 @@
               ]
             },
             "picker": {
-              "description": "State schema 14: the LLM picker staged it (`pre`: known at the line's arrival, it also chose the class; `used`: came before the panel's input close; `class`: its clip did not serve the class the rules resolved, only `target` was taken). Absent: the mapper's.",
+              "description": "State schema 14: the LLM picker staged it (`pre`: known at the line's arrival, it also chose the class; `used`: came before the panel's input close; `class`: its clip did not serve the class the rules resolved, `weapon`: its clip belongs to a weapon the fighter does not wield; in both only `target` was taken). Absent: the mapper's.",
               "enum": [
                 "pre",
                 "used",
-                "class"
+                "class",
+                "weapon"
               ],
               "type": "string"
             },
@@ -2799,6 +2800,11 @@
           "minimum": 0,
           "type": "integer"
         },
+        "sim": {
+          "additionalProperties": true,
+          "description": "State schema 14, live stream and present only: the duel sim's stage (masses, affordances, fighters; docs/DUEL_SIM.md).",
+          "type": "object"
+        },
         "source": {
           "enum": [
             "rules",
@@ -3482,11 +3488,12 @@
               ]
             },
             "picker": {
-              "description": "State schema 14: the LLM picker staged it (`pre`: known at the line's arrival, it also chose the class; `used`: came before the panel's input close; `class`: its clip did not serve the class the rules resolved, only `target` was taken). Absent: the mapper's.",
+              "description": "State schema 14: the LLM picker staged it (`pre`: known at the line's arrival, it also chose the class; `used`: came before the panel's input close; `class`: its clip did not serve the class the rules resolved, `weapon`: its clip belongs to a weapon the fighter does not wield; in both only `target` was taken). Absent: the mapper's.",
               "enum": [
                 "pre",
                 "used",
-                "class"
+                "class",
+                "weapon"
               ],
               "type": "string"
             },

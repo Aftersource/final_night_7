@@ -1619,7 +1619,7 @@ fn v08_defs() -> Map<String, Value> {
             &[("weapon_class", json!({ "type": "string", "enum": fn7_plugin::moves::WEAPON_CLASSES, "description": "State schema 14: what it fights with for this strike." })),
               ("prop", r("DuelProp")),
               ("draw", r("DuelDraw")),
-              ("picker", json!({ "type": "string", "enum": ["pre", "used", "class"], "description": "State schema 14: the LLM picker staged it (`pre`: known at the line's arrival, it also chose the class; `used`: came before the panel's input close; `class`: its clip did not serve the class the rules resolved, only `target` was taken). Absent: the mapper's." })),
+              ("picker", json!({ "type": "string", "enum": ["pre", "used", "class", "weapon"], "description": "State schema 14: the LLM picker staged it (`pre`: known at the line's arrival, it also chose the class; `used`: came before the panel's input close; `class`: its clip did not serve the class the rules resolved, `weapon`: its clip belongs to a weapon the fighter does not wield; in both only `target` was taken). Absent: the mapper's." })),
               ("target", json!({ "type": "string", "enum": ["head", "chest", "belly", "arms", "legs"], "description": "State schema 14: the body part the pick aimed at." })),
               ("object", string("State schema 14: the scene object the pick's path uses."))])),
     ];
@@ -1726,7 +1726,8 @@ fn v08_defs() -> Map<String, Value> {
                   "size": { "type": "array", "items": { "type": "number" }, "description": "box [w,h,d]; cylinder, cone [r,h]; the others [r]. Metres." },
                   "offset": { "type": "array", "items": { "type": "number" }, "description": "The part's centre from the object's origin on the floor." },
                   "rot": { "type": "array", "items": { "type": "number" } }, "material": { "type": "string" }, "fill": { "type": "number" }, "glow": { "type": "number" } } }), "Primitive parts."))], &[]), ""))],
-        &[("list_version", string("State schema 14: the duel move list the duel is read with (data/duel_moves.json's version).")),
+        &[("sim", json!({ "type": "object", "additionalProperties": true, "description": "State schema 14, live stream and present only: the duel sim's stage (masses, affordances, fighters; docs/DUEL_SIM.md)." })),
+          ("list_version", string("State schema 14: the duel move list the duel is read with (data/duel_moves.json's version).")),
           ("clip_fallbacks", json!({ "type": "object", "additionalProperties": { "type": "string" }, "description": "State schema 14: what a client without a clip plays instead (from the list)." }))],
     ));
     let seg = json!({ "type": "object", "required": ["clip", "ms"], "additionalProperties": true, "properties": {

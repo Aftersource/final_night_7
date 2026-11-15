@@ -349,7 +349,7 @@ impl FinalNight7Plugin {
         let bout = lv.bouts.iter().find(|x| x.duel.id == b.duel_id && x.weapons)?;
         let side = bout.duel.side_of(seat)?;
         let range = serde_json::to_value(bout.flow.range).ok()?.as_str()?.to_string();
-        let key = picker::key(&b.text, &range, &moves::list_version());
+        let key = picker::key(&b.text, &range, weapons::class_of_side(bout, side), &moves::list_version());
         let mut rec = picker::PickRec { duel_id: b.duel_id.clone(), line_seq: action.seq, line_at_ms: action.received_at_ms, pre: false,
                                         at_ms: action.received_at_ms, pick: None, cached: false, latency_ms: 0, tokens_in: 0, tokens_out: 0,
                                         cost_usd: 0.0, model: fn7_agents::duel_pick::MODEL.into(), error: None, key: key.clone() };
@@ -952,7 +952,7 @@ impl GamePlugin for FinalNight7Plugin {
                         let range = serde_json::to_value(bout.flow.range).ok().and_then(|r| r.as_str().map(str::to_string)).unwrap_or_default();
                         let rec = picker::PickRec { duel_id: id.into(), line_seq: 0, line_at_ms: ends, pre: true, at_ms: ends, pick: None, cached: false,
                                                     latency_ms: 0, tokens_in: 0, tokens_out: 0, cost_usd: 0.0, model: fn7_agents::duel_pick::MODEL.into(),
-                                                    error: None, key: picker::key(text, &range, &moves::list_version()) };
+                                                    error: None, key: picker::key(text, &range, weapons::class_of_side(bout, side), &moves::list_version()) };
                         let (journal, key, seed, beat) = (self.journal.clone(), present::Journal::key_of(&w), w.meta.seed, w.meta.beat);
                         p.spawn(moves::current().body.clone(), duel::pick_ctx(bout, side, text), rec,
                                 std::time::Duration::from_millis(st.duel_picker_timeout_ms as u64), move |r| journal.note_pick(&key, seed, beat, seat, &r));
