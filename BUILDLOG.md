@@ -1446,3 +1446,7 @@ gateways only, the polish off by default):
 > Make sure the login screen, settings, character selection and god statue creation offer six options for the player to pick a favourite from.
 
 Engineering: six switchable looks (1-6) for the welcome/login, settings, demigod (character) and god-statue screens and the lobby (the Mac); the god-form server endpoints per ACCOUNTS.md §14 (backend/god-form; previews by image, Meshy statues off by default).
+
+> For a reviewer asking what the data structure is, add a tree of consequence overlay button near the upper-left debug text that opens a rendered, exact tree of how the memory hierarchy works, covering recall of granular facts and density of detail.
+
+Engineering: the server query game.memory_tree (backend/memory-tree: the hierarchy with facts, density, roll-ups, recall paths, totals; read-only) and the Mac's overlay button + rendered tree.
