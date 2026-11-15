@@ -1173,16 +1173,25 @@ shuffles (`block`), `evade_stand`, `idle_guard`. A hit reaction goes by damage: 
 (under 2), `stagger_back` knocked a hex back (2+), `airborne_hit` + `downed` + `rise` / `spin_rise` (3+). A fighter
 left `downed` gets up when the panel has time.
 
-**New clips** (15, for the same rig; the vocabulary is now 50). A client that does not have one plays its fallback:
+**New clips** (15 in use; with 14 more reserved for weapon classes the vocabulary is 64). A client that does not
+have one plays its fallback:
 
 ```json
 "clip_fallbacks": { "flying_kick": "kick", "roundhouse_kick": "kick", "high_kick": "kick", "leg_sweep": "kick",
   "elbow_strike": "strike_side", "uppercut": "strike_side", "jab": "strike_side", "punch_combo": "combo_triple",
   "blade_spin": "strike_slash", "axe_spin": "heavy_hammer", "spin_rise": "rise", "mage_cast": "invoke",
-  "dodge_roll_back": "evade_roll", "knee_strike": "kick", "sword_judgment": "heavy_charged" }
+  "dodge_roll_back": "evade_roll", "knee_strike": "kick", "sword_judgment": "heavy_charged",
+  "bow_draw_shoot": "strike_slash", "bow_quick_shot": "strike_slash", "bow_aim_walk": "walk",
+  "gun_side_shot": "strike_side", "gun_run_shoot": "strike_side", "gun_quick_draw": "strike_side",
+  "gun_roll_fire": "evade_roll", "gun_reload": "strike_side", "launcher_fire": "heavy_charged",
+  "twohand_chop": "heavy_hammer", "twohand_reap": "heavy_hammer", "twohand_stance": "idle_guard",
+  "throw_object": "throw_shoulder", "draw_from_nowhere": "taunt" }
 ```
 
-(The table is fixed and lives here and in `fn7_plugin::panel::CLIP_FALLBACKS`; it is not sent on the wire.)
+The last 14 (bows, guns, the launcher, two-handed, thrown, hammer-space) are in the vocabulary so a client can ship
+them, but no panel plays them yet. The table is not sent on the wire: it is here, in
+`fn7_plugin::panel::CLIP_FALLBACKS` and, with each clip's description, length and estimated trim (`len_s`, `at_ms`,
+`use_ms`, `hit_ms`), in `data/duel_moves.json` (see `docs/DUEL_MOVES.md`: the list, the per-line data, the loop).
 
 ### One duel per player, and the duel ends at its deadline (state schema 12)
 
@@ -1190,7 +1199,9 @@ left `downed` gets up when the panel has time.
   demigods is in an open duel, a challenge **by or to any** of that player's demigods is refused with
   `busy:player` (match `busy` by its prefix), whoever challenges; the built-in AI's chooser skips such players, and
   an AI player also fights one duel at a time.
-- **The duel ends at `deadline_ms`,** not a beat later. The first duel action stamped past the deadline (a
+- **The duel ends at `deadline_ms`,** not a beat later and not a beat early (a duel with a clock no longer ends at
+  the resolve of `ends_beat` when that comes before the deadline; `ends_beat + 1` is only the backstop when no
+  stamped action ever arrives). The first duel action stamped past the deadline (a
   `duel_tick`, or a line: it is accepted but is no blow) closes the duel: its public event carries, in `also[]`, the
   panels left through the `outro` and then a **provisional** `challenge.end`:
 

@@ -88,6 +88,156 @@ pub fn defaults(class: MoveClass) -> &'static [&'static str] {
     }
 }
 
+/// What each clip is, for whoever (or whatever) picks from the list: `(clip, classes it serves, one line)`.
+pub const CLIP_INFO: &[(&str, &str, &str)] = &[
+    ("airborne_hit", "reaction", "knocked off the feet, flying back"),
+    ("block", "guard", "a forearm block; also a guard shuffle between blows"),
+    ("block_cross", "guard", "both arms crossed against a heavy blow"),
+    ("bow", "taunt", "a bow: an appeal, a draw, respect"),
+    ("combo_triple", "strike", "three fast hits in a row"),
+    ("command", "command", "an arm thrown forward: the army is ordered in"),
+    ("counter", "parry", "a parry that turns straight into a riposte"),
+    ("defeat", "reaction", "knocked out, down for good"),
+    ("downed", "reaction", "lying on the ground after a throw or a hard hit"),
+    ("evade_roll", "evade", "a forward tumble out of the way"),
+    ("evade_spin", "evade, feint", "a spin aside; a feint's turn"),
+    ("evade_stand", "evade, retreat", "a standing lean or step out of reach"),
+    ("grapple_throw_down", "grapple, throw", "taking hold and dragging the foe down"),
+    ("ground_slam", "heavy, invoke", "both fists into the ground: a shockwave"),
+    ("heavy_charged", "heavy", "a wound-up, charged heavy blow"),
+    ("heavy_hammer", "heavy", "an overhead hammer blow"),
+    ("idle_guard", "idle", "standing on guard"),
+    ("invoke", "invoke", "arms raised: a god is called"),
+    ("jump_attack", "strike, heavy", "a leap that comes down with a blow"),
+    ("kick", "strike", "a front kick"),
+    ("kneel", "taunt", "on one knee: pleading, begging, praying"),
+    ("lunge", "strike, close", "a long step in with a thrust"),
+    ("parry_back", "parry", "a parry stepping back"),
+    ("parry_high", "parry", "a high parry"),
+    ("rise", "reaction", "getting up from the ground"),
+    ("run", "close", "running (with a dash path)"),
+    ("shield_push", "guard", "a guard that shoves forward"),
+    ("stagger_back", "reaction", "hit and stumbling back"),
+    ("stagger_waist", "reaction", "hit in the body, doubling over"),
+    ("strike_side", "strike", "a side strike with the hand"),
+    ("strike_slash", "strike", "a slash"),
+    ("taunt", "taunt", "a beckoning taunt"),
+    ("throw_shoulder", "throw", "a shoulder throw (judo)"),
+    ("victory", "outro", "the winner's pose"),
+    ("walk", "idle, retreat", "walking (circling steps, stepping back)"),
+    ("flying_kick", "strike", "a flying kick, both feet off the ground"),
+    ("roundhouse_kick", "strike", "a roundhouse kick"),
+    ("high_kick", "strike", "a kick to the head"),
+    ("leg_sweep", "strike", "a low sweep at the legs"),
+    ("elbow_strike", "strike", "an elbow"),
+    ("uppercut", "heavy", "an uppercut"),
+    ("jab", "strike", "a quick jab"),
+    ("punch_combo", "strike", "a flurry of punches"),
+    ("blade_spin", "strike", "a spinning slash"),
+    ("axe_spin", "heavy", "a heavy spinning blow"),
+    ("spin_rise", "reaction", "spinning up from the ground"),
+    ("mage_cast", "invoke", "casting a spell with both hands"),
+    ("dodge_roll_back", "evade, retreat", "a roll backwards"),
+    ("knee_strike", "strike", "a knee"),
+    ("sword_judgment", "heavy", "a great downward judgment blow"),
+    ("bow_draw_shoot", "reserved: bow", "a full draw and a shot"),
+    ("bow_quick_shot", "reserved: bow", "a snap shot"),
+    ("bow_aim_walk", "reserved: bow", "walking with the bow drawn"),
+    ("gun_side_shot", "reserved: rifle", "a shot from the hip, side on"),
+    ("gun_run_shoot", "reserved: rifle", "shooting on the run"),
+    ("gun_quick_draw", "reserved: rifle", "a quick draw and a shot"),
+    ("gun_roll_fire", "reserved: rifle", "a roll that comes up firing"),
+    ("gun_reload", "reserved: rifle", "reloading"),
+    ("launcher_fire", "reserved: launcher", "a rocket launcher fired from the shoulder"),
+    ("twohand_chop", "reserved: two_handed", "a two-handed chop"),
+    ("twohand_reap", "reserved: two_handed", "a wide two-handed reaping swing"),
+    ("twohand_stance", "reserved: two_handed", "a two-handed guard stance"),
+    ("throw_object", "reserved: thrown", "throwing a held object"),
+    ("draw_from_nowhere", "reserved: hammer-space", "pulling an item out of nowhere"),
+];
+
+/// Measured clip lengths (seconds; the Unreal import, read from the GLBs). The others are not measured yet.
+pub const CLIP_LEN: &[(&str, f64)] = &[
+    ("flying_kick", 4.67), ("roundhouse_kick", 2.67), ("high_kick", 2.03), ("leg_sweep", 2.47), ("knee_strike", 2.50), ("elbow_strike", 2.47),
+    ("uppercut", 1.00), ("jab", 1.73), ("punch_combo", 2.47), ("blade_spin", 5.67), ("axe_spin", 2.50), ("spin_rise", 8.00), ("mage_cast", 3.00),
+    ("dodge_roll_back", 1.27), ("sword_judgment", 4.33), ("bow_draw_shoot", 5.00), ("bow_quick_shot", 3.73), ("bow_aim_walk", 1.20),
+    ("gun_side_shot", 4.00), ("gun_run_shoot", 0.67), ("gun_quick_draw", 7.30), ("gun_roll_fire", 3.33), ("gun_reload", 3.30), ("launcher_fire", 7.83),
+    ("twohand_chop", 7.67), ("twohand_reap", 5.90), ("twohand_stance", 6.10), ("throw_object", 5.80), ("draw_from_nowhere", 5.33),
+    ("idle_guard", 1.67), ("strike_slash", 1.50), ("run", 0.63), ("jump_attack", 5.87), ("evade_roll", 1.83),
+];
+
+/// A clip's first-guess trim from its length, by rule (nobody has looked at it: `trim: "estimated"`): a clip of 5 s
+/// or more starts 35% in and uses 40% of its length (the wind-up and the recovery are skipped), a shorter one plays
+/// whole; an attack's contact is 45% into the used part. `(len_s, at_ms, use_ms, hit_ms)`.
+pub fn trim(clip: &str) -> Option<(f64, i64, i64, Option<i64>)> {
+    let len = CLIP_LEN.iter().find(|c| c.0 == clip)?.1;
+    let ms = (len * 1000.0).round() as i64;
+    let (at, used) = if len >= 5.0 { (ms * 35 / 100, ms * 40 / 100) } else { (0, ms) };
+    let about = CLIP_INFO.iter().find(|c| c.0 == clip).map(|c| c.1).unwrap_or("");
+    let attack = ["strike", "heavy", "throw", "bow", "rifle", "launcher", "two_handed", "thrown", "invoke"].iter().any(|k| about.contains(k))
+        && !["twohand_stance", "bow_aim_walk", "gun_reload"].contains(&clip);
+    Some((len, at, used, attack.then_some(used * 45 / 100)))
+}
+
+/// What each move class means, in one line.
+pub const CLASS_INFO: &[(&str, &str)] = &[
+    ("strike", "a normal attack; from far it is a step in"),
+    ("heavy", "a slow, strong attack: breaks guards and parries, leaves its user committed"),
+    ("guard", "sets a guard: the next strike is absorbed"),
+    ("parry", "sets a parry: the next strike is turned and the initiative flips"),
+    ("feint", "wastes the defence the foe has set and takes the initiative"),
+    ("evade", "sets an evasion: a heavy misses and its user is left open"),
+    ("close", "steps one range band in"),
+    ("retreat", "steps one range band out"),
+    ("grapple", "takes hold (close range): the foe is off balance"),
+    ("throw", "throws the foe down (from close range or a grapple)"),
+    ("invoke", "a god's power: ignores range, costs a bolt (a taunt without one)"),
+    ("command", "orders the army in: needs one near (a taunt without one)"),
+    ("taunt", "words only: takes the initiative, unsettles the foe; also an appeal (plead, beg)"),
+];
+
+/// THE LIST (docs/DUEL_MOVES.md): everything a line can be mapped to, as data: the classes, the clips (with what
+/// they are, the classes they serve and the fallback of a new one), the paths, and the move words. `version` changes
+/// whenever any of it does.
+pub fn list() -> serde_json::Value {
+    use serde_json::json;
+    let fallback = |c: &str| crate::panel::CLIP_FALLBACKS.iter().find(|f| f.0 == c).map(|f| f.1);
+    let mut v = json!({
+        "classes": CLASS_INFO.iter().map(|(c, about)| json!({ "class": c, "about": about })).collect::<Vec<_>>(),
+        "clips": CLIP_INFO.iter().map(|(c, classes, about)| {
+            let mut e = json!({ "clip": c, "for": classes, "about": about, "fallback": fallback(c) });
+            // The trim a seg should play: start `at_ms` into the clip, play `use_ms` of it (speed = use_ms / seg.ms),
+            // the contact `hit_ms` into the used part. Estimated by rule until someone corrects it by eye.
+            if let Some((len, at, used, hit)) = trim(c) {
+                e["len_s"] = len.into();
+                e["at_ms"] = at.into();
+                e["use_ms"] = used.into();
+                e["hit_ms"] = hit.into();
+                e["trim"] = "estimated".into();
+            }
+            e
+        }).collect::<Vec<_>>(),
+        "paths": [
+            { "path": "dash", "about": "running or stepping along the ground" }, { "path": "leap", "about": "a jump to a hex (h: apex)" },
+            { "path": "knock", "about": "thrown or knocked back" }, { "path": "vault", "about": "over an object (over: its id)" },
+            { "path": "slide", "about": "under an object (under: its id)" }, { "path": "wallkick", "about": "off an object (on: its id)" },
+            { "path": "flip", "about": "reserved" }, { "path": "wallrun", "about": "reserved" }, { "path": "mantle", "about": "reserved" }, { "path": "drop", "about": "reserved" }],
+        "words": TABLE.iter().map(|r| json!({ "words": r.words, "class": r.class, "clips": r.clips, "leap": r.leap, "weak": r.weak, "typos": r.fuzzy })).collect::<Vec<_>>(),
+    });
+    v["version"] = format!("{:016x}", fn7_model::seed::hash_str(&v.to_string())).into();
+    v
+}
+
+/// The list's version ([`list`]).
+pub fn list_version() -> String {
+    list()["version"].as_str().unwrap_or("").to_string()
+}
+
+/// A line as the rollups count it: lower case, words only, single spaces.
+pub fn normalize(text: &str) -> String {
+    text.to_lowercase().split(|c: char| !(c.is_alphanumeric() || c == '-')).filter(|w| !w.is_empty()).collect::<Vec<_>>().join(" ")
+}
+
 /// Real words one edit from a move word: never a typo of it.
 const NOT_TYPOS: &[&str] = &[
     "fade", "face", "fame", "fate", "free", "flea", "play", "prey", "rash", "rust", "dish", "dove", "dime", "last", "lush", "slab", "star", "lean",
@@ -340,6 +490,20 @@ pub(crate) mod tests {
         assert_eq!(seen.len(), 3);
         assert!(["invoke", "mage_cast", "ground_slam"].contains(&clip(read("summon undead!").as_ref(), Taunt, None, &mut r)));
         assert!(defaults(CloseIn).contains(&clip(read("throw!").as_ref(), CloseIn, None, &mut r)), "a throw that became a step in plays the step");
+        // The list: every clip of the vocabulary is described, every new one has its fallback, the version is stable.
+        let l = list();
+        assert_eq!(l["clips"].as_array().unwrap().len(), crate::panel::CLIPS.len());
+        assert!(crate::panel::CLIPS.iter().all(|c| CLIP_INFO.iter().any(|i| i.0 == *c)));
+        assert!(l["clips"].as_array().unwrap().iter().filter(|c| c["fallback"].is_string()).count() == 29 && l["classes"].as_array().unwrap().len() == 13);
+        assert_eq!((l["version"].as_str().map(str::len), list_version()), (Some(16), list_version()));
+        assert_eq!(normalize("  Atack!!  the KNEE-cap, now"), "atack the knee-cap now");
+        // Trims: a long clip skips its wind-up, a short one plays whole; attacks have a contact frame inside the used part.
+        assert_eq!((trim("twohand_chop"), trim("jab"), trim("spin_rise"), trim("block")),
+                   (Some((7.67, 2684, 3068, Some(1380))), Some((1.73, 0, 1730, Some(778))), Some((8.0, 2800, 3200, None)), None));
+        assert!(CLIP_LEN.iter().all(|c| crate::panel::CLIPS.contains(&c.0)));
+        // data/duel_moves.json is this list (regenerate: `fn7-duel-lines --list > data/duel_moves.json`).
+        let file: serde_json::Value = serde_json::from_str(include_str!("../../../data/duel_moves.json")).expect("data/duel_moves.json");
+        assert_eq!(file, l, "data/duel_moves.json is stale: fn7-duel-lines --list > data/duel_moves.json");
         for class in [Strike, Heavy, Guard, Parry, Feint, Evade, CloseIn, Retreat, Grapple, Throw, Invoke, Command, Taunt] {
             assert!(defaults(class).iter().all(|c| crate::panel::CLIPS.contains(c)));
         }

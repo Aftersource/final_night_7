@@ -334,7 +334,8 @@ fn two_ais_with_a_clock_type_their_duel_out() {
     // Nobody ticks and the batch has no clock: at its last beat the duel is typed out to the deadline or a knockout.
     let mut w2 = w.clone();
     let ends_beat = bout.duel.ends_beat;
-    let r = duel::process(&mut w2, ends_beat, &duel::Acts::default(), &pantheon, &st);
+    assert!(duel::process(&mut w2.clone(), ends_beat, &duel::Acts::default(), &pantheon, &st).ended.is_empty(), "not before its deadline");
+    let r = duel::process(&mut w2, ends_beat + 1, &duel::Acts::default(), &pantheon, &st);
     let end = &r.ended[0];
     assert!(matches!(end.reason, "ko" | "deadline"), "{}", end.reason);
     assert!(end.bout.n >= 4 && end.bout.ai.as_ref().unwrap().struck == end.bout.n && end.bout.typed == 0);

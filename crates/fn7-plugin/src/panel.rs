@@ -51,6 +51,10 @@ pub const CLIPS: &[&str] = &[
     // Schema 12: the new clips of the same rig (a client without one plays its fallback: [`CLIP_FALLBACKS`]).
     "flying_kick", "roundhouse_kick", "high_kick", "leg_sweep", "elbow_strike", "uppercut", "jab", "punch_combo", "blade_spin", "axe_spin",
     "spin_rise", "mage_cast", "dodge_roll_back", "knee_strike", "sword_judgment",
+    // Reserved for weapon classes (docs/DUEL_MOVES.md: designed, not emitted yet): in the vocabulary and the fallback
+    // table now so a client can ship them ahead.
+    "bow_draw_shoot", "bow_quick_shot", "bow_aim_walk", "gun_side_shot", "gun_run_shoot", "gun_quick_draw", "gun_roll_fire", "gun_reload",
+    "launcher_fire", "twohand_chop", "twohand_reap", "twohand_stance", "throw_object", "draw_from_nowhere",
 ];
 /// Schema 12: what a client without a new clip plays instead (`clip_fallbacks`).
 pub const CLIP_FALLBACKS: &[(&str, &str)] = &[
@@ -58,6 +62,10 @@ pub const CLIP_FALLBACKS: &[(&str, &str)] = &[
     ("uppercut", "strike_side"), ("jab", "strike_side"), ("punch_combo", "combo_triple"), ("blade_spin", "strike_slash"),
     ("axe_spin", "heavy_hammer"), ("spin_rise", "rise"), ("mage_cast", "invoke"), ("dodge_roll_back", "evade_roll"), ("knee_strike", "kick"),
     ("sword_judgment", "heavy_charged"),
+    ("bow_draw_shoot", "strike_slash"), ("bow_quick_shot", "strike_slash"), ("bow_aim_walk", "walk"), ("gun_side_shot", "strike_side"),
+    ("gun_run_shoot", "strike_side"), ("gun_quick_draw", "strike_side"), ("gun_roll_fire", "evade_roll"), ("gun_reload", "strike_side"),
+    ("launcher_fire", "heavy_charged"), ("twohand_chop", "heavy_hammer"), ("twohand_reap", "heavy_hammer"), ("twohand_stance", "idle_guard"),
+    ("throw_object", "throw_shoulder"), ("draw_from_nowhere", "taunt"),
 ];
 /// The path vocabulary of `segs[].path`.
 pub const PATHS: &[&str] = &["dash", "leap", "flip", "knock", "vault", "wallrun", "wallkick", "mantle", "drop", "slide"];

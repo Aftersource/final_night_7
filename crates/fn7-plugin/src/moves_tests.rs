@@ -71,7 +71,7 @@ fn the_logged_commands_play_their_clips_in_a_duel() {
         }
     }
     // Every new clip has a fallback among the 35 old ones.
-    assert_eq!(panel::CLIP_FALLBACKS.len(), 15);
+    assert_eq!(panel::CLIP_FALLBACKS.len(), 29, "15 in use and 14 reserved for weapon classes");
     assert!(panel::CLIP_FALLBACKS.iter().all(|(new, old)| panel::CLIPS[35..].contains(new) && panel::CLIPS[..35].contains(old)));
     // A schema-11 state reads the same lines as 0.8.1 did: no `move`, the old classes.
     let mut w = world::load(&t.state).unwrap();
