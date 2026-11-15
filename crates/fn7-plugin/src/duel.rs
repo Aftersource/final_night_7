@@ -779,14 +779,14 @@ impl Bout {
     /// One strike by `side` (a typed line, a counter or an automatic blow).
     #[allow(clippy::too_many_arguments)]
     fn strike(&mut self, w: &World, st: &Settings, side: usize, text: &str, query: String, followup: bool, auto: bool) -> Value {
-        self.strike_capped(w, st, side, text, query, followup, auto, auto.then_some(2))
+        self.strike_capped(w, st, side, text, query, followup, auto, auto.then_some(2), 0)
     }
 
-    /// [`Bout::strike`] with the line's wit capped at `cap` (an automatic line: 2; an AI's typed line:
-    /// `duel_ai_wit_cap`).
+    /// [`Bout::strike`] with the line's wit capped at `cap` (an automatic line and an AI's typed line: 2) and
+    /// `handicap` taken off the modifier (an AI's typed line: `duel_ai_handicap`; shown as `modifiers.handicap`).
     #[allow(clippy::too_many_arguments)]
     fn strike_capped(&mut self, w: &World, st: &Settings, side: usize, text: &str, query: String, followup: bool, auto: bool,
-                     cap: Option<i32>) -> Value {
+                     cap: Option<i32>, handicap: i32) -> Value {
         let (me, foe) = (self.duel.f[side].clone(), self.duel.f[1 - side].clone());
         let (mut wit, tags) = wit(text, &me, &foe, &self.duel, &self.said[side]);
         if let Some(cap) = cap {
@@ -808,7 +808,7 @@ impl Bout {
         let asked = choreo::classify(text);
         let class = choreo::effective(asked, flow.range, me.bolts > self.invoked[side], me.army);
         let situ = choreo::situation(&flow, side);
-        let modifier = wit + health + gear + follow + home + situ;
+        let modifier = wit + health + gear + follow + home + situ - handicap;
         let dc = 10 + self.duel.night as i32 + foe.wardrobe as i32 / 2;
         let roll = dm::roll_d20(w, &query, modifier, dc);
         let ok = roll.verdict.ok();
@@ -836,11 +836,15 @@ impl Bout {
         let camera = anim["camera"].as_str().unwrap_or("wide").to_string();
         let choreo = choreo::choreo_json(self.duel.seed, &query, &flow, &x, side, text, damage, ko, &camera);
         self.strikes.push(Strike { query, by: me.id, roll: roll.clone() });
-        json!({ "by": Ref::Demigod(me.id), "by_name": me.name, "text": text, "roll": roll.roll, "modifier": modifier,
+        let mut ev = json!({ "by": Ref::Demigod(me.id), "by_name": me.name, "text": text, "roll": roll.roll, "modifier": modifier,
                 "total": roll.total, "target_dc": dc, "verdict": roll.verdict, "damage": n1(damage), "hp": self.hp_json(),
                 "flavor": flavor, "wit": wit, "tags": tags,
                 "modifiers": { "wit": wit, "health": health, "gear": gear, "follow_up": follow, "home": home, "situation": situ },
-                "ko": self.ko.is_some(), "auto": auto, "anim": anim, "choreo": choreo })
+                "ko": self.ko.is_some(), "auto": auto, "anim": anim, "choreo": choreo });
+        if handicap != 0 {
+            ev["modifiers"]["handicap"] = (-handicap).into();
+        }
+        ev
     }
 
     /// A typed line from `side` at `at_ms` (the core's receive stamp; 0 = unknown, then the arrival order `seq`
@@ -908,7 +912,8 @@ impl Bout {
 
     /// Schema 12: an AI's typed line is entered (its script's `ends_at_ms`): a blow like a human's line, by the same
     /// d20 and matrix, numbered in the duel's order, stamped at its Enter. It has no follow-up bonus, never trips the
-    /// rate limit, its wit is capped at `duel_ai_wit_cap`, and it draws no automatic counter. `ai: true` marks it.
+    /// rate limit, its wit is capped at 2, `duel_ai_handicap` comes off its modifier (against a human who
+    /// entered a line in the last 12 s), and it draws no automatic counter. `ai: true` marks it.
     pub fn ai_blow(&mut self, w: &World, st: &Settings, s: &crate::duel_ai::Script) -> Option<Value> {
         if self.ko.is_some() || s.side > 1 {
             return None;
@@ -917,8 +922,13 @@ impl Bout {
         let n = self.n;
         let query = format!("{}:{n}", self.duel.id);
         self.lines.push(s.text.clone());
+        // The handicap is the price of striking in every window: owed to a human, who cannot; not to another AI, and
+        // not to a human silent for 12 s (since the lock or its last line).
+        let foe = 1 - s.side;
+        let silent = s.ends_at_ms - self.last_ms[foe].unwrap_or(self.duel.started_ms) > crate::duel_ai::IDLE_MS;
+        let handicap = if self.duel.f[foe].ai || silent { 0 } else { st.duel_ai_handicap as i32 };
         self.last_ms[s.side] = Some(s.ends_at_ms);
-        let ev = self.strike_capped(w, st, s.side, &s.text, query, false, false, Some(st.duel_ai_wit_cap as i32));
+        let ev = self.strike_capped(w, st, s.side, &s.text, query, false, false, Some(2), handicap);
         let mut out = json!({ "event": "duel.blow", "duel_id": self.duel.id, "n": n });
         if let (Some(o), Value::Object(e)) = (out.as_object_mut(), ev) {
             o.extend(e);

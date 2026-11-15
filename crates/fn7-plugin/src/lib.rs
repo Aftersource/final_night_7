@@ -980,3 +980,5 @@ mod panel_tests;
 mod typing_tests;
 #[cfg(test)]
 mod look_tests;
+#[cfg(test)]
+mod duel_ai_tests;

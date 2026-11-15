@@ -42,6 +42,8 @@ use crate::settings::Settings;
 
 /// A script's Enter (`ends_at_ms`) is at least this long before its window's `input_closes_ms`.
 pub const GUARD_MS: i64 = 400;
+/// A human silent this long (since the lock or its last line) is idle: the AI's handicap is waived against it.
+pub const IDLE_MS: i64 = 12_000;
 /// The shortest and the longest line an AI types (characters).
 pub const MIN_CHARS: usize = 20;
 pub const MAX_CHARS: usize = 70;
@@ -173,6 +175,11 @@ pub fn choose(f: &Flow, me: usize, foe_last: Option<MoveClass>, hurt: bool, aggr
         Some(MoveClass::Evade) => return if x < 0.5 { MoveClass::Feint } else { MoveClass::Strike },
         _ => {}
     }
+    // An opponent who has done nothing yet is pressed: no defence, no taunt.
+    let Some(foe_did) = foe_last else {
+        return if y < 0.2 + 0.3 * a { MoveClass::Heavy } else { MoveClass::Strike };
+    };
+    let foe_last = Some(foe_did);
     // Shaken, hurt or just swung at: set a defence that answers the opponent's last move.
     let shaken = matches!(f.stance[me], Stance::OffBalance | Stance::Committed) as u8 as f64;
     let defend = (1.0 - a) * (0.25 + 0.25 * shaken + 0.15 * hurt as u8 as f64);
@@ -202,16 +209,19 @@ pub fn choose(f: &Flow, me: usize, foe_last: Option<MoveClass>, hurt: bool, aggr
 // ---------------------------------------------------------------------------------------------------------------------
 
 const PARTS: &[&str] = &["jaw", "ribs", "knee", "nose", "shin", "chin", "ego", "temple"];
+const HEADS: &[&str] = &["jaw", "nose", "chin", "temple", "ear"];
+const LEGS: &[&str] = &["knee", "shin", "ankle"];
 
-/// The sentences of each move class (`{part}` a body part, `{obj}` a scene object, `{foe}` the rival's first name).
-/// Every one classifies as its class ([`choreo::classify`]); [`rules_line`] checks the filled line again.
+/// The sentences of each move class (`{part}` a body part, `{head}` / `{leg}` one of the head or the leg, `{obj}` a
+/// scene object, `{foe}` the rival's first name). Every one classifies as its class ([`choreo::classify`]);
+/// [`rules_line`] checks the filled line again.
 fn cores(class: MoveClass) -> &'static [&'static str] {
     match class {
-        MoveClass::Strike => &["I kick your {part}", "I jab your {part} twice", "My fist finds your {part}", "I whip your {part} off {obj}",
-                               "I stomp on your {part}", "I hook your {part}, {foe}", "My elbow meets your {part}"],
-        MoveClass::Heavy => &["I smash your {part}", "Full force on your {part}", "I crush your {part} on {obj}",
-                              "An overhead onto your {part}", "I headbutt your {part}", "A haymaker to your {part}"],
-        MoveClass::Guard => &["I brace behind {obj}", "My guard is up, {foe}", "I block whatever comes", "I shield my {part}"],
+        MoveClass::Strike => &["I kick your {leg}", "I jab your {head} twice", "My fist finds your {part}", "I bounce your {head} off {obj}",
+                               "I stomp on your {leg}", "I hook your {head}, {foe}", "My elbow meets your {head}"],
+        MoveClass::Heavy => &["I smash your {part}", "Full force on your {part}", "I crush you against {obj}",
+                              "An overhead onto your {head}", "I headbutt your {head}", "A haymaker to your {head}"],
+        MoveClass::Guard => &["I brace behind {obj}", "My guard is up, {foe}", "I block whatever comes", "I shield my {head}"],
         MoveClass::Parry => &["I parry and wait for you", "I deflect it past my ear", "I counter off the back foot", "I parry, {foe}. Try again"],
         MoveClass::Feint => &["I feint at your {part}", "A fake left, then right", "I bluff a swing at you", "I pretend to stumble"],
         MoveClass::Evade => &["I sidestep around {obj}", "I duck under your arm", "I weave out of reach", "I vanish behind {obj}",
@@ -219,11 +229,11 @@ fn cores(class: MoveClass) -> &'static [&'static str] {
         MoveClass::CloseIn => &["I rush you past {obj}", "I close in on you, {foe}", "I advance, eyes on you", "I charge straight at you",
                                 "I step in, fists up"],
         MoveClass::Retreat => &["I step back behind {obj}", "I back off and breathe", "I withdraw two paces", "I fall back to {obj}"],
-        MoveClass::Grapple => &["I grab your {part}, {foe}", "I seize your {part} hard", "I clinch and hang on", "I grab you by the collar"],
-        MoveClass::Throw => &["I throw you into {obj}", "I hurl you at {obj}", "I toss you on your {part}", "I suplex you onto {obj}",
+        MoveClass::Grapple => &["I grab your arm, {foe}", "I seize your wrist hard", "I clinch and hang on", "I grab you by the collar"],
+        MoveClass::Throw => &["I throw you into {obj}", "I hurl you at {obj}", "I toss you on your back", "I suplex you onto {obj}",
                               "I throw you over my hip"],
-        MoveClass::Taunt | MoveClass::Invoke | MoveClass::Command => &["I yawn at you, {foe}", "I laugh at your {part}", "I mock your footwork",
-                                                                       "I sneer at your stance"],
+        MoveClass::Taunt | MoveClass::Invoke | MoveClass::Command => &["I yawn at you, {foe}", "I laugh at your stance", "I mock your footwork",
+                                                                       "I sneer at your {part}"],
     }
 }
 
@@ -316,6 +326,8 @@ pub fn rules_line(ctx: &LineCtx, r: &mut Rng) -> String {
     let (me, foe) = (&ctx.duel.f[ctx.side], &ctx.duel.f[1 - ctx.side]);
     let closers = VOICES[(hash_str(&me.name) % VOICES.len() as u64) as usize].1;
     let part = PARTS[r.below(PARTS.len() as u64) as usize];
+    let head = HEADS[r.below(HEADS.len() as u64) as usize];
+    let leg = LEGS[r.below(LEGS.len() as u64) as usize];
     let obj = (!ctx.objects.is_empty()).then(|| format!("the {}", ctx.objects[r.below(ctx.objects.len() as u64) as usize]));
     let first = foe.name.split(['\'', ' ']).next().unwrap_or("").to_string();
     let first = Some(first).filter(|n| (2..=10).contains(&n.chars().count()) && n.chars().all(char::is_alphabetic));
@@ -335,7 +347,8 @@ pub fn rules_line(ctx: &LineCtx, r: &mut Rng) -> String {
         }) else {
             continue;
         };
-        text = text.replace("{part}", part).replace("{obj}", obj.as_deref().unwrap_or("")).replace("{foe}", first.as_deref().unwrap_or(""));
+        text = text.replace("{part}", part).replace("{head}", head).replace("{leg}", leg).replace("{obj}", obj.as_deref().unwrap_or(""))
+            .replace("{foe}", first.as_deref().unwrap_or(""));
         text.push('.');
         for (o, c) in [(want_open, want_close), (want_open, !want_close), (!want_open, want_close), (!want_open, !want_close)] {
             let mut s = String::new();
@@ -479,8 +492,10 @@ mod tests {
             let f = fallback(class);
             assert!(fits(f, class, MIN_CHARS + 2), "the fallback of {class:?}: {f:?} ({} chars)", f.chars().count());
             for core in cores(class) {
-                let filled = core.replace("{part}", "temple").replace("{obj}", "the boulder").replace("{foe}", "Brix");
-                assert_eq!(choreo::classify(&filled), class, "{filled}");
+                for (part, head, leg) in [("temple", "temple", "ankle"), ("ego", "ear", "knee"), ("ribs", "jaw", "shin"), ("chin", "nose", "shin")] {
+                    let filled = core.replace("{part}", part).replace("{head}", head).replace("{leg}", leg).replace("{obj}", "the boulder").replace("{foe}", "Brix");
+                    assert!(!filled.contains('{') && choreo::classify(&filled) == class, "{filled}");
+                }
             }
             for seed in 0..200u64 {
                 for (cap, objects) in [(22, vec![]), (23, vec!["crate".to_string(), "boulder".into()]), (35, vec!["pillar".into()]), (44, vec!["altar".into()])] {
@@ -530,6 +545,8 @@ mod tests {
             (0..2000).filter(|_| matches!(choose(&f, 1, Some(MoveClass::Strike), true, a, &mut r), MoveClass::Strike | MoveClass::Heavy | MoveClass::Grapple)).count()
         };
         assert!(share(0.0) < share(0.6) && share(0.6) < share(1.0), "{} {} {}", share(0.0), share(0.6), share(1.0));
-        assert!((0..500).all(|_| !matches!(choose(&f, 1, None, false, 1.0, &mut Rng::new(3)), MoveClass::Guard | MoveClass::Parry | MoveClass::Evade)));
+        let mut r = Rng::new(3);
+        assert!((0..500).all(|_| matches!(choose(&f, 1, None, true, 0.0, &mut r), MoveClass::Strike | MoveClass::Heavy)), "an idle opponent is pressed");
+        assert!((0..500).all(|_| !matches!(choose(&f, 1, Some(MoveClass::Strike), true, 1.0, &mut r), MoveClass::Guard | MoveClass::Parry | MoveClass::Evade)));
     }
 }

@@ -274,8 +274,10 @@ pub struct Settings {
     /// Schema 12: how often the AI attacks rather than sets a defence, repositions or taunts (0 = cautious, 1 = it
     /// only ever swings).
     pub duel_ai_aggression: f32,
-    /// Schema 12: the most wit the AI's typed line may score (a human's good line scores 3 to 4).
-    pub duel_ai_wit_cap: u32,
+    /// Schema 12: the AI's handicap: subtracted from the d20 modifier of the lines it types against a human (it
+    /// strikes in every window, which no human does; its wit is capped at 2 like an automatic line's). Waived
+    /// against a human silent for 12 s and between two AIs. 0 = none.
+    pub duel_ai_handicap: u32,
 }
 
 impl Default for Settings {
@@ -402,7 +404,7 @@ impl Default for Settings {
             duel_deadline_ms: 30_000,
             duel_ai_lines_per_window: 1.0,
             duel_ai_aggression: 0.6,
-            duel_ai_wit_cap: 2,
+            duel_ai_handicap: 6,
         }
     }
 }
@@ -614,7 +616,7 @@ impl Settings {
             duel_deadline_ms: int("duel_deadline_ms", d.duel_deadline_ms, 1000, 600_000)?,
             duel_ai_lines_per_window: num("duel_ai_lines_per_window", d.duel_ai_lines_per_window, 0.0, 1.0)?,
             duel_ai_aggression: num("duel_ai_aggression", d.duel_ai_aggression, 0.0, 1.0)?,
-            duel_ai_wit_cap: int("duel_ai_wit_cap", d.duel_ai_wit_cap, 0, 4)?,
+            duel_ai_handicap: int("duel_ai_handicap", d.duel_ai_handicap, 0, 10)?,
         };
         let s = Settings { start_bolts: s.bolt_start, ..s };
         let mut out = match serde_json::to_value(&s).map_err(|e| e.to_string())? {
