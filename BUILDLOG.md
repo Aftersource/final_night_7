@@ -1277,3 +1277,25 @@ Engineering (branch backend/duel-weapons; state schema 14, 13 being the earth si
 - **Weapon classes, hammer-space, projectiles** (§4.2-4.4): `weapon_class` on items and loadouts; a duellist wields its best held weapon, plays its clips and carries a seg `prop`; ranged weapons shoot from far, weak in a grapple; held items are drawn free, anything else is an item-engine roll (sparks, odds, d20) whose success is a duel prop and whose failure flips the initiative; ranged blows and invokes put `projectiles[]` on panels (a rocket's `aoe_hexes` and knocked `objects`).
 - **The duel sim** is wired (skins locked at the lock; `sim` on live panels, the live scene and `present` only).
 - **Replay finding**: recording 79b32d4b (159 differences from beat 4) was the engine's recorder writing two identical concurrent LLM calls (one player's same god invocation twice in a beat) in finish order while replay hands identical requests their answers in file order: the answers swapped. `fn7-sim --replay` now orders `llm_call` records by id (start order): 0 differences.
+
+## 2026-11-15: the hand of god, the star world, statues for every demigod (verbatim)
+
+> The idea is Molyneux-style: a hand grab that rotates the planet, with a double-click to zoom in and a right-click to zoom out. However, this must not happen when the cursor is over the extended click box of one of the demigods, since that has been a source of frustration. Correct?
+
+> The Molyneux-style hand scrolling and the designer's notes were never confirmed as completed, and the update was never sent.
+
+> The background plane and backdrop should be 3-5 layers of quick parallax, using nebula and stars for a mystical feel. They should be discrete rather than drawing much attention, but pretty on closer look. Motion should be relative to the globe itself, so the star background spins or moves as the globe is moved, at the same projected rate, with the parallax configured. Benito has a reference star image; ask him for it and have the respective Unreal teammates implement this.
+
+> Is there a goal to make a Meshy model for the players' demigods and at least the default AI?
+
+> For the weather effects on the board, such as raising and lowering terrain, is there enough in place to run the simulation of how that would operate back to front? It is similar to Populous: a real-time change, with its effects altering the prompt for that area if anyone is in it, and so on. It is unclear how this will integrate fully.
+
+Benito asked that the star reference image be sent to Chris's agents, and that they be asked how to avoid frustrating him.
+
+Engineering:
+- The hand of god (sent late, my miss): a hand cursor; grabbing the globe keeps the grabbed point under the hand (quaternion from hit vector to hit vector) with fling and inertia; grabbing the board pans the land; double-click zooms in, right-click zooms out, never inside a demigod's extended click zone; a plain click never moves the view. Mac: mac/hand-of-god, top of its queue.
+- The star world: Unreal main 0fd4b44 (mac/star-backdrop), Benito's approved black image as the look, 4 layers at parallax 0.12/0.24/0.38/0.55 off the globe's quaternion, the walls and tablet hidden; cooked (benito/cook-stars, b51ca39).
+- Zoom: no rebuild storm, animated level changes, an empty-board double-click zooms (only a near miss on a figure blocks; the log names the rule). Unreal main 6ae878e.
+- Meshy: heroic statues for Chris's and Benito's Right Hands and one demigod per default AI (11, 330 credits, 259 left; Chris chose "Players + one per AI"). Unreal main e071cc2; import pending.
+- Server main 59301a6 LIVE: earth simulator (schema 13), duel weapons + hammer-space + projectiles + the picker + duel sim on live panels (14), no items named after entities + gear in the hands (15), fault junctions and tiers + hover queries (16). The 79b32d4b replay mismatch was concurrent identical LLM calls swapped on replay; fixed in our replay.
+- In progress: backend/earth-prompts (the earth underfoot in every place prompt, schema 17). A playtest package for Benito's friend (docs/playtest/, a 364 MB zip on his PC; the key is sent privately).
