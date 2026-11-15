@@ -25,9 +25,11 @@ pub(crate) struct Table {
 }
 
 /// A match at beat 2's start with seat 0's Left demigod and seat 1's Left demigod 1 km apart, both at full health.
+/// The AI does not type its own lines (`duel_ai_lines_per_window: 0`, the 0.8.2 duel: `duel_ai_tests` turn it on).
 pub(crate) fn table(seed: u64, extra: Value) -> Table {
     let p = FinalNight7Plugin::new();
-    let mut s = json!({ "seed": seed, "beats_total": 30, "llm": false, "dm_encounters_per_beat": 0, "duel_ai_chance": 0.0 });
+    let mut s = json!({ "seed": seed, "beats_total": 30, "llm": false, "dm_encounters_per_beat": 0, "duel_ai_chance": 0.0,
+                        "duel_ai_lines_per_window": 0.0 });
     if let (Some(o), Some(x)) = (s.as_object_mut(), extra.as_object()) {
         o.extend(x.clone());
     }
@@ -84,6 +86,12 @@ pub(crate) fn submit(t: &Table, a: &Action) -> Result<Value, String> {
     t.p.on_instant(&t.state, a.seat, a).ok_or_else(|| "no event".to_string())
 }
 
+/// An action stamped long past any duel's deadline (schema 12: a duel with a clock ends by its deadline's stamp, so
+/// a resolve that should end one needs a batch that is past it).
+pub(crate) fn past_deadline() -> Action {
+    instant(3, json!({ "duel_tick": { "duel_id": "duel:s999999:0:1" } }), 9_999, 600_000)
+}
+
 pub(crate) fn resolve(t: &Table, extra: &[Action]) -> RoundOutcome {
     resolve_with(&FinalNight7Plugin::new(), t, extra)
 }
@@ -130,7 +138,7 @@ fn challenges_are_refused_with_the_clients_reasons() {
     assert_eq!(v(challenge(&t, "villages"), 0), Err("busy".into()));
     // Cooldown (duel_cooldown_beats 2): last beat's challenge still counts (a one-resolve duel, so it's over by then).
     let t2 = table(21, json!({ "duel_cooldown_beats": 2, "flow_ms": 30000 }));
-    let o = resolve(&t2, &[instant(0, challenge(&t2, "villages"), 1, 1_000)]);
+    let o = resolve(&t2, &[instant(0, challenge(&t2, "villages"), 1, 1_000), past_deadline()]);
     let s = block(t2.p.commit_round(&o.state, 2, &[], &Failing)).unwrap().state;
     let s = block(t2.p.on_round_start(&s, 3, &Failing)).unwrap().state;
     let mut w = world::load(&s).unwrap();
@@ -407,7 +415,7 @@ fn a_challenge_right_after_a_teleport_fights_at_the_reduced_health() {
     let lock = submit(&t, &instant(0, challenge(&t, "villages"), 2, 2_000)).expect("valid from the destination");
     assert!((lock["a"]["health"].as_f64().unwrap() - (10.0 - lost)).abs() < 1e-6, "{} vs {lost}", lock["a"]["health"]);
     assert_eq!(lock["b"]["health"], 10.0);
-    let o = resolve(&t, &[instant(0, summon, 1, 1_000), instant(0, challenge(&t, "villages"), 2, 2_000)]);
+    let o = resolve(&t, &[instant(0, summon, 1, 1_000), instant(0, challenge(&t, "villages"), 2, 2_000), past_deadline()]);
     // The resolve applied the same mishap and fought the same duel.
     let summoned = o.public["summons"].as_array().unwrap().first().cloned().expect("summoned");
     assert_eq!((summoned["roll"].clone(), summoned["health_lost"].as_f64()), (s["roll"].clone(), Some(lost)));
@@ -577,7 +585,7 @@ fn a_duel_lasts_across_beats_until_its_deadline() {
     assert_eq!(late.public["duels"][0]["reason"], "deadline");
     // Beat 4 (ends_beat): the last resolve ends it.
     let t4 = next_beat(&t3, &o3, 3);
-    let o4 = resolve_at(&t4.p, &t4, 4, &[]);
+    let o4 = resolve_at(&t4.p, &t4, 4, &[past_deadline()]);
     let end = &o4.public["duels"][0];
     assert_eq!((end["event"].as_str(), end["duel_id"].as_str(), end["reason"].as_str()), (Some("challenge.end"), Some(id.as_str()), Some("deadline")));
     assert_eq!((end["typed"].as_u64(), end["locked_beat"].as_u64()), (Some(3), Some(2)));

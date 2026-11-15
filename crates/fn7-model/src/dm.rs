@@ -39,6 +39,10 @@ pub const WILLS_SCHEMA: u32 = 10;
 /// The schema gear looks switch on at (with the room setting `looks_enabled`): loadouts, `look` records, item art.
 pub const LOOK_SCHEMA: u32 = 11;
 
+/// The schema AI duellists type at (with the room setting `duel_ai_lines_per_window`): in a duel with a clock a
+/// built-in AI or bot fighter types a line of its own in every input window (a public typing script, then a blow).
+pub const AI_DUEL_SCHEMA: u32 = 12;
+
 /// Scars kept per demigod (the newest).
 pub const SCARS_KEPT: usize = 12;
 

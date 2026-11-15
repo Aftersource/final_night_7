@@ -235,7 +235,7 @@ async fn the_exact_present_survives_reconnects_a_kill_and_a_fork() {
     let mut a = Client::connect(port, "Ash").await;
     let me = a.login().await;
     let token = me["resume_token"].as_str().unwrap().to_string();
-    let settings = json!({ "seed": 4242, "beats_total": 400, "llm": false, "flow_ms": 4000, "duel_ai_chance": 0.0,
+    let settings = json!({ "seed": 4242, "beats_total": 400, "llm": false, "flow_ms": 4000, "duel_ai_chance": 0.0, "duel_ai_lines_per_window": 0.0,
                            "dm_encounters_per_beat": 0, "duel_deadline_ms": 240_000, "duel_damage_scale": 0.05,
                            "slow_ms": 20_000, "allow_midmatch_join": true });
     let (t, room) = a.ask("room.create", json!({ "visibility": "private", "settings": settings })).await;

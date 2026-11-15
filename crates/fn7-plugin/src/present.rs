@@ -450,7 +450,7 @@ pub fn duel_json(w: &World, b: &Bout, at_ms: i64, paused: bool) -> Value {
     let clock = b.clock(at_ms);
     let over = b.ko.is_some() || (d.deadline_ms > 0 && at_ms > d.deadline_ms);
     let lock = duel::lock_json(w, d);
-    json!({
+    let mut v = json!({
         "duel_id": d.id,
         "a": lock["a"], "b": lock["b"],
         "lock": lock,
@@ -470,7 +470,12 @@ pub fn duel_json(w: &World, b: &Bout, at_ms: i64, paused: bool) -> Value {
         "clock": clock.map(|(elapsed, left)| json!({ "at_ms": at_ms, "elapsed_ms": elapsed, "remaining_ms": left.max(0),
                                                      "running": !paused && !over })),
         "over": over,
-    })
+    });
+    // Schema 12: the lines its AI fighters are typing right now (`duel.typing_script`: seek to `server_time_ms`).
+    if b.ai.is_some() {
+        v["typing_scripts"] = crate::duel_ai::pending_json(b).into();
+    }
+    v
 }
 
 fn n1(x: f32) -> f64 {

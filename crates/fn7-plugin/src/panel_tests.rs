@@ -102,7 +102,7 @@ fn a_lock_builds_the_scene_and_panel_zero_and_the_cycle_runs_on_stamps() {
     assert_eq!(p1["blows"], json!([b1["n"]]));
     assert_eq!((p1["a"]["line"].as_str(), p1["a"]["line_masked_len"].as_u64()), (Some("I kick your knee into the mud"), Some(29)));
     assert_eq!(p1["hp"], b1.get("hp_after").unwrap_or(&b1["hp"]).clone(), "the panel shows what the blows decided");
-    assert_eq!(p1["caption"], b1["flavor"]);
+    assert!(p1["caption"] == b1["flavor"] || p1["caption"] == b1["counter"]["flavor"], "the decisive strike's flavor");
     // The opponent's second tick for the same close changes nothing.
     assert!(submit(&t, &instant(1, tick(&id), 5, 2_950)).is_err());
     // Nobody ticks for a while: the next line closes every window its stamp has passed (idle panels: circle and guard).
@@ -162,6 +162,10 @@ fn a_knockout_plays_its_panel_and_the_outro() {
     let ev = submit(&t, &instant(0, tick(&id), 90, last + 4_000)).expect("the knockout's panel falls due");
     let mut all = vec![ev.clone()];
     all.extend(ev["also"].as_array().cloned().unwrap_or_default());
+    // Schema 12: the action that brings the outro also shows who won, at once (the resolve sends the deed).
+    let live_end = all.pop().unwrap();
+    assert_eq!((live_end["event"].as_str(), live_end["provisional"].as_bool(), live_end["reason"].as_str(), live_end["deed"].as_str()),
+               (Some("challenge.end"), Some(true), Some("ko"), Some("")));
     let kinds: Vec<&str> = all.iter().map(|p| p["kind"].as_str().unwrap()).collect();
     assert_eq!(&kinds[kinds.len() - 2..], ["ko", "outro"], "{kinds:?}");
     let (ko, outro) = (&all[all.len() - 2], &all[all.len() - 1]);

@@ -316,6 +316,19 @@ pub struct Settings {
     pub earth_ruin_scale: f32,
     /// Most Earth entries written to the DM's memory in one beat.
     pub earth_events_per_beat: u32,
+    /// Schema 12: a player fights one duel at a time: while one of its demigods is in an open duel, a challenge by
+    /// or to any of its demigods is refused (`busy:player`) and the AI's chooser skips it.
+    pub duel_one_per_player: bool,
+    /// Schema 12 (AI duellists type): the chance an AI fighter types a line of its own in an input window of a duel
+    /// with a clock (1 = every window; 0 = off: it only counters, as in 0.8.2).
+    pub duel_ai_lines_per_window: f32,
+    /// Schema 12: how often the AI attacks rather than sets a defence, repositions or taunts (0 = cautious, 1 = it
+    /// only ever swings).
+    pub duel_ai_aggression: f32,
+    /// Schema 12: the AI's handicap: subtracted from the d20 modifier of the lines it types against a human (it
+    /// strikes in every window, which no human does; its wit is capped at 2 like an automatic line's). Waived
+    /// against a human silent for 12 s and between two AIs. 0 = none.
+    pub duel_ai_handicap: u32,
 }
 
 impl Default for Settings {
@@ -464,6 +477,10 @@ impl Default for Settings {
             earth_crowd_effects: 6,
             earth_ruin_scale: 1.0,
             earth_events_per_beat: 6,
+            duel_one_per_player: true,
+            duel_ai_lines_per_window: 1.0,
+            duel_ai_aggression: 0.6,
+            duel_ai_handicap: 5,
         }
     }
 }
@@ -487,8 +504,10 @@ const F32_KEYS: &[&str] =
       "fault_near_magnitude", "fault_far_magnitude", "fault_near_radius", "fault_far_radius", "fault_near_damage",
       "fault_far_damage", "summon_loss_scale", "challenge_min_km", "challenge_contact_km_regions", "challenge_contact_km_villages",
       "challenge_contact_km_houses", "challenge_contact_km_people", "duel_damage_scale", "duel_ai_chance", "duel_ai_reach_km",
+      "duel_ai_lines_per_window", "duel_ai_aggression",
       "will_debt_cap", "will_debt_per_spark", "will_entropy_per_spark", "heal_token", "heal_scale", "arms_scale", "raise_years", "raise_health_fraction", "curse_entropy", "wills_ai_chance",
       "earth_km_per_cell", "earth_spread_scale", "earth_spontaneous_scale", "earth_energy_scale", "earth_mini_scale", "earth_damage_scale", "earth_damage_cap", "earth_fire_damage", "earth_lava_damage", "earth_flood_damage", "earth_quake_damage", "earth_storm_damage", "earth_cold_damage", "earth_swarm_damage", "earth_crowd_scale", "earth_ruin_scale"];
+
 
 /// The shortest decimal that reads back as `x` (so `0.04f32` is `0.04`, not `0.03999999910593033`).
 fn f32_decimal(x: f32) -> f64 {
@@ -697,6 +716,10 @@ impl Settings {
             earth_crowd_effects: int("earth_crowd_effects", d.earth_crowd_effects, 0, 100)?,
             earth_ruin_scale: num("earth_ruin_scale", d.earth_ruin_scale, 0.0, 10.0)?,
             earth_events_per_beat: int("earth_events_per_beat", d.earth_events_per_beat, 0, 50)?,
+            duel_one_per_player: boolean("duel_one_per_player", d.duel_one_per_player)?,
+            duel_ai_lines_per_window: num("duel_ai_lines_per_window", d.duel_ai_lines_per_window, 0.0, 1.0)?,
+            duel_ai_aggression: num("duel_ai_aggression", d.duel_ai_aggression, 0.0, 1.0)?,
+            duel_ai_handicap: int("duel_ai_handicap", d.duel_ai_handicap, 0, 10)?,
         };
         let s = Settings { start_bolts: s.bolt_start, ..s };
         let mut out = match serde_json::to_value(&s).map_err(|e| e.to_string())? {
@@ -766,6 +789,13 @@ impl Settings {
         // The Earth simulator (schema 13): settings recorded before it have no `earth_sim_enabled`: off.
         if v.get("earth_sim_enabled").is_none() {
             s.earth_sim_enabled = false;
+        }
+        // AI duellists type (schema 12): settings recorded before it have no `duel_ai_lines_per_window`: off.
+        if v.get("duel_ai_lines_per_window").is_none() {
+            s.duel_ai_lines_per_window = 0.0;
+        }
+        if v.get("duel_one_per_player").is_none() {
+            s.duel_one_per_player = false;
         }
         // Settings recorded before flow/slow (schema 2) had only `beat_ms`.
         if v.get("flow_ms").is_none() {

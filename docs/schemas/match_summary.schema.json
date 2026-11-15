@@ -180,6 +180,7 @@
           "const": "item"
         },
         "image_prompt": {
+          "description": "State schema 11: absent when the item has no picture of its own yet (gear looks on).",
           "type": [
             "string",
             "null"
@@ -298,8 +299,7 @@
         "name",
         "at",
         "region",
-        "public",
-        "image_prompt"
+        "public"
       ],
       "type": "object"
     },

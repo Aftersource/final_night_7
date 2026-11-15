@@ -65,7 +65,9 @@ use serde::{Deserialize, Serialize};
 /// `look` records and the item art granted this match), `look.changed` in the DM's memory, item art by descriptor.
 /// Rules that changed read [`World::look_rules`], so schema-4..10 recordings replay exactly.
 ///
-/// Schema 12 is reserved (the duel-typing work); nothing reads it here.
+/// Schema 12 (AI duellists type): in a duel with a clock an AI fighter types a line in every input window: a bout's
+/// `ai` (the typing scripts not yet entered), blows marked `ai`, panels with `typing_script` and a `play_ms` that
+/// fits the line. Rules that changed read [`World::ai_duel_rules`], so schema-4..11 recordings replay exactly.
 ///
 /// Schema 13 (the Earth simulator, room setting `earth_sim_enabled`): the voxel field the god powers act on
 /// ([`dm::Dm::earth`], [`earth::EarthState`]; docs/EARTH_SIM.md). Rules that changed read [`World::earth_rules`], so
@@ -424,6 +426,10 @@ impl World {
     /// Schema 11 rules may be on (gear looks; the room setting `looks_enabled` decides).
     pub fn look_rules(&self) -> bool {
         self.meta.schema >= dm::LOOK_SCHEMA
+    }
+    /// Schema 12 rules may be on (AI duellists type; the room setting `duel_ai_lines_per_window` decides).
+    pub fn ai_duel_rules(&self) -> bool {
+        self.meta.schema >= dm::AI_DUEL_SCHEMA
     }
     /// The Earth simulator (schema 13): the god powers act on a simulated voxel field.
     pub fn earth_rules(&self) -> bool {
