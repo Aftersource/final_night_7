@@ -2105,6 +2105,107 @@ and lying where they fell, from these lists, at any beat.
   {"beat": 4, "cause": 1, "cell": "1:houses:-13154:-108435", "count": 750, "level": "houses", "phenomenon": "blizzard", "power": 9, "seat": 1, "thing": {"kind": "crowd", "ref": "cl:0"}, "to_cell": "1:villages:-130:-1091", "what": "returned"}
   {"amount": 0.28, "beat": 2, "cause": 1, "cell": "1:people:-139228:-1086138", "level": "people", "phenomenon": "blizzard", "power": 9, "seat": 1, "thing": {"kind": "person", "ref": "ch:0"}, "what": "damaged"}
   ```
+## People and houses
+
+Benito asked what the beige and brown poles on the micro scales are, and why the houses look so plain and blocky
+they should be interesting and unique … and based around who's living in that village or house", "i need like sprites
+for each individual person how am i supposed to tell a hot girl from an ugly witch or a warrior from a fisherman?" and
+"why are these random people just standing there i want a living breathing world".
+
+Two public queries (WebSocket, and `GET /api/rooms/{code}/query/people?cell=…`), read-only and deterministic (the same
+state gives the same answer; nothing is written, no schema change), bounded like the others. Code:
+`crates/fn7-plugin/src/people.rs`; pictures: MEDIA.md "Sprites and buildings".
+
+### `game.people {cell, level?, limit?}`
+
+Every living person in the **board disc** (22 rings at `level`, default the cell key's level) around `cell`, nearest
+first, at most `limit` (default 100, most 300): the **named people** (`ch:`, public fields only, as `game.person`
+gives everyone) and the **residents** of the settlements' houses (2-4 per house, drawn from the crowds of that
+settlement, `ref: null` until the story names one of them). Everyone is listed, idle or not, each with what they are
+doing now:
+
+```json
+{ "cell": "1:villages:-1310:-10845", "level": "villages", "rings": 22, "beat": 12, "phase": "day",
+  "total": 22, "named": 2, "residents": 20, "moving": 16,
+  "people": [
+    { "ref": "ch:123", "name": "Fiona Ashworth", "resident": false, "title": "ringleader of the Sydney bread riot",
+      "role": "beggar", "look": 1,
+      "sprite": { "key": "sprite/beggar/1", "kind": "sprite", "status": "ready", "hash": "9b1f…", "url": "/media/9b1f….png" },
+      "cell": "1:people:-137321:-1076722", "pos": [151.141601, -33.666465],
+      "doing": "rioting with the Sydney bread riot", "activity": "rioting", "why": "mob", "moving": true,
+      "to_cell": "1:people:-134532:-1077074", "home_cell": "1:houses:-13153:-108437",
+      "work_cell": "1:houses:-13151:-108436", "work": "market", "settlement": "pl:2", "group": null },
+    { "ref": null, "name": "fisherman of the Trawler crews, who lives in the cottage", "resident": true, "title": null,
+      "role": "fisherman", "look": 2, "sprite": { "key": "sprite/fisherman/2", "kind": "sprite", "status": "pending", "hash": "c40e…", "url": null },
+      "cell": "1:people:-131508:-1084365", "pos": [151.2101, -33.8679], "doing": "fishing off the dock", "activity": "fishing",
+      "why": "routine", "moving": false, "to_cell": null, "home_cell": "1:houses:-13153:-108436",
+      "work_cell": "1:houses:-13151:-108437", "work": "dock", "settlement": "pl:2", "group": 1 } ] }
+```
+
+- **`role`** (16): warrior, fisherman, farmer, merchant, priest, witch, beauty, elder, child, soldier, noble, beggar,
+  sailor, smith, hunter, healer; **`look`** 1..3. From the person's own words first (their aliases, title and traits:
+  "a witch", "the maiden by the well", "a fisherman"), then their society role (general and hero → warrior, captain →
+  warrior or soldier, soldier → soldier, paladin and prophet → priest, ringleader → beggar or warrior, deserter → beggar
+  or soldier), then the crowd and quarter they came from ("Trawler crews" → fisherman, "Cathedral clergy" → priest),
+  then notability (noble, merchant, elder, priest), then a hash. The look is a stable hash of the ref, narrowed to the
+  role's women or men when their words say ("fishwife", "lord").
+- **`sprite`**: the library picture of `role` × `look` (`sprite/<role>/<look>`), the same picture for everyone with that
+  role and look in every match. `status` `pending` → watch `GET /media/index` for `hash`; `ready` → fetch `url`; `off`
+  (images off, the budget refused it): draw your placeholder. The bare plugin always sends `off` with null `hash`.
+- **`doing`** (a few words), **`activity`** (the animation to play, one of `training fishing farming trading praying
+  brewing strolling storytelling playing patrolling holding_court begging sailing smithing hunting healing resting sleeping
+  chatting going_to_work going_home fleeing sheltering rioting fighting marching cheering acting`) and **`why`**: an
+  event overrides the routine, in this order: an earth refuge (`fleeing` to the shelter hex on the beat they fled, then
+  `sheltering` there: `to_cell` is the shelter, as in `earth.effects` fled / sheltered), a live mob (`rioting`), their
+  own **public** act this beat (`acting`, "punching Vex"; private acts never show), the army they march with
+  (`marching`, `to_cell` its destination), their crowd's stance (rioting, fleeing, worshipping → praying, fighting), an
+  army within 10 km (`cheering` it if their crowd loves its demigod, `fleeing` home if it hates it), fear (`goal: flee`).
+  Otherwise the **routine**: by role and the DM's time of day (`phase`): at night most sleep at home (soldiers keep the
+  night watch, witches brew), at dawn people walk to work, by day they work (a fifth of them chat at work), at dusk they
+  head home, chat with the neighbours or rest.
+- **`moving`** is a hint: they walk about doing it (toward `to_cell` when set). **`home_cell`**: a house hex of their
+  settlement (a noble's is the manor; a resident's is their house). **`work_cell`** / **`work`**: the dock (fisherman,
+  sailor), the market stall (merchant, beauty, beggar), the temple (priest, healer), the manor (noble), the tower or the
+  wall three rings out (warrior, soldier), a field four rings out (farmer, hunter), a house for the forge (smith), home
+  (witch, elder, child). All houses-level hex keys.
+- **`group`**: people doing the same activity at the same spot in this reply share a small id (1, 2, …): animate them
+  together (chatting in a ring, working side by side); `null` = alone.
+
+`game.node` (place, hex, crowd, cell, mob) and `game.region` list people as `people: {items, next_cursor, total}` of
+`Who`; each item now carries **`live`**: the same object as a `game.people` item (groups within the page). Place (not
+the arena: ask `game.people` there) and region pages are the living people under it, nearest its centre first; a hex's are the people standing in it.
+
+### `game.buildings {cell, level?}`
+
+Every settlement house hex in the disc around `cell`, nearest first: the earth sim's buildings of each settlement (3 +
+its level of them, at most 9, within two houses rings of its centre: the same hexes people shelter in and wrecks
+stay on):
+
+```json
+{ "cell": "1:houses:-13153:-108435", "level": "houses", "rings": 22, "beat": 12,
+  "buildings": [
+    { "cell": "1:houses:-13151:-108437", "kind": "dock", "look": "common", "settlement": "pl:2", "settlement_name": "Sydney",
+      "settlement_level": 4, "wrecked": false,
+      "sprite": { "key": "building/dock/common", "kind": "building", "status": "ready", "hash": "51aa…", "url": "/media/51aa….png" } } ] }
+```
+
+- **`kind`**: the special buildings first (a `dock` on a coast, a `temple` where a shrine stands or from level 3, a
+  `market_stall` from level 2, a `manor` from level 3 or when rich, a `tower` from level 4), the rest dwellings (`hut` in a
+  hamlet, `cottage`, `longhouse` in the north and in bigger towns). **`look`**: the settlement's wealth band (`poor`,
+  `common`, `rich` from its prosperity, nudged by its level; one dwelling in four a band poorer; a manor never poor).
+- **`wrecked`**: the earth sim destroyed it (draw the wreck, as `game.earth {scars}` does).
+
+### How to draw them
+
+- **Houses**: on each house hex, a **picture card** of its `sprite` (an upright billboard or a card standing on the hex,
+  facing the camera), instead of the beige and brown blocks; a wreck as rubble. Placeholder while `pending` / `off`.
+- **People**: an **upright sprite billboard** per person at `pos` (their people hex), always facing the camera, scaled
+  to read at the board's zoom. Animate by `activity`: walk toward `to_cell` when `moving` (bob the billboard), idle sway
+  otherwise, gather `group` members in a ring; sleeping people can be hidden at night (they are at `home_cell`).
+- **Hover**: name and role ("Fiona Ashworth, beggar"; title if any) and `doing`.
+- Poll `game.people` when the board moves or a beat resolves (it is cheap); fetch each sprite once by `hash` and cache
+  it forever (72 pictures in all).
+
 ## Token play (state schema 19)
 
 Benito described typing an in-game action, such as going into the house to the left and approaching its occupant, and wanting to see it play out
@@ -2936,6 +3037,8 @@ Unknown args are ignored, including the ngrok gate's `?key=`.
 | `faults_overview` | yes | none | State schema 16: every junction and the tier thresholds, for the globe overlay |
 | `duel_odds` | yes | `demigod`, `target` (`dg:` refs), `level`? | State schema 18: `win_pct`, `idle_win_pct`, health (exact or a band), modifiers, reach, `why` ("`game.duel_odds`") |
 | `memory_tree` | yes (your own private facts too) | `focus?` (hex key / `pl:` / `dg:` / `ch:`), `beat?`, `depth?` (6, 1..6), `per_node?` (6, ≤ 12) | The tree of consequence: the DM's memory as the exact tree it is, recall paths, totals ("Tree of consequence") |
+| `people` | yes | `cell` (hex key), `level?` (the cell's), `limit?` (100, ≤ 300) | Every living person in the board disc with their sprite and what they are doing now ("People and houses"; schema [`query_people`](schemas/query_people.schema.json)) |
+| `buildings` | yes | `cell` (hex key), `level?` (the cell's) | Every settlement house hex in the board disc with its kind, look and picture ("People and houses"; schema [`query_buildings`](schemas/query_buildings.schema.json)) |
 | `piles_final` | yes | none | The end-of-match piles; an error until the match is over |
 | `media` | yes (public refs) | `kind` (`portrait` / `place` / `event` / `army`), `ref` | An image of that thing, by reference: an image object at once (pending, then ready via the manifest) |
 | `profile` | yes | `name?` (default: your seat's name) | A player's persistent profile (see "Profiles, history and library") |

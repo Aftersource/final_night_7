@@ -72,6 +72,13 @@ async fn main() -> anyhow::Result<()> {
                            "media prewarm: {} queued, {} already cached", w.queued, w.cached);
         }
     }
+    // The people-and-houses library (FN7_SPRITES_PREWARM=on; default off): 48 sprites and 24 buildings asked for once,
+    // through the queue and the global budget (otherwise each is asked for lazily the first time a payload shows it).
+    if media.enabled() && fn7_server::media::library_prewarm_on(|k| std::env::var(k).ok()) {
+        let w = fn7_server::media::prewarm_library(&media);
+        tracing::info!(queued = w.queued, cached = w.cached, refused = w.refused,
+                       "sprite library prewarm: {} queued, {} already cached, {} refused", w.queued, w.cached, w.refused);
+    }
     // Profiles: open (and migrate) the store before the plugin, so its queries are in the core's manifest.
     let env = |k: &str| std::env::var(k).ok();
     let (store, db) = fn7_server::profile::open(&cfg.data_dir, env)?;

@@ -47,7 +47,7 @@ pub fn name_key(name: &str) -> Option<String> {
 /// descriptor; moment cards, armies and anything unreadable belong to the match that asked (`match_id`).
 pub fn from_prompt(kind: &str, prompt: &str, match_id: Option<&str>) -> Subject {
     let body = prompt.split(" Style: ").next().unwrap_or(prompt);
-    let of_match = |label: &str| match match_id.filter(|m| !m.is_empty() && *m != "-" && *m != "prewarm") {
+    let of_match = |label: &str| match match_id.filter(|m| !m.is_empty() && !matches!(*m, "-" | "prewarm" | "library")) {
         Some(m) => Subject::new("match", m, clip(label, 80)),
         None => Subject::new("shared", "unknown", clip(label, 80)),
     };
@@ -91,6 +91,14 @@ pub fn from_prompt(kind: &str, prompt: &str, match_id: Option<&str>) -> Subject 
             let s = Subject::named("place", label.trim_end_matches('.'));
             if s.key != "unknown" { s } else { of_match(after_framing) }
         }
+        // The people-and-houses library: `<role or kind> (look <look> of 3): …` → shared `sprite/<role>/<look>`.
+        "sprite" | "building" => match after_framing.split_once(" (look ").and_then(|(head, rest)| Some((head, rest.split_once(' ')?.0))) {
+            Some((head, look)) if !head.trim().is_empty() && !head.contains(' ') || head.trim() == "market stall" => {
+                let id = head.trim().replace(' ', "_");
+                Subject::shared(&format!("{kind}/{id}/{look}"), &format!("{} ({look})", head.trim()))
+            }
+            _ => of_match(after_framing),
+        },
         _ => of_match(after_framing),
     }
 }
@@ -134,6 +142,11 @@ mod tests {
         let e = from_prompt("event", ev, Some("m9"));
         assert_eq!((e.kind, e.key.as_str()), ("match", "m9"));
         assert_eq!(from_prompt("event", ev, Some("prewarm")).key, "unknown");
+        let sp = "One full-body game sprite of a single character, on a plain flat background: fisherman (look 2 of 3): a sturdy fishwife. Style: x.";
+        let s = from_prompt("sprite", sp, Some("library"));
+        assert_eq!((s.kind, s.key.as_str()), ("shared", "sprite/fisherman/2"));
+        let b = "A single building shown alone, on a plain flat background: market stall (look rich of 3): a covered pavilion. Style: x.";
+        assert_eq!(from_prompt("building", b, Some("library")).key, "building/market_stall/rich");
         assert_eq!(name_key(" Chris (2) ").as_deref(), Some("chris"));
         assert_eq!(name_key("Ｃｈｒｉｓ").as_deref(), Some("chris"));
     }

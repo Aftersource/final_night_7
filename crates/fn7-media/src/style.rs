@@ -86,6 +86,17 @@ fn builtin_kind(kind: ImageKind) -> KindStyle {
             "1536x1024",
         ),
         ImageKind::Diorama => (DIORAMA_FRAMING, "1024x1024"),
+        ImageKind::Sprite => (
+            "one full-body game sprite of a single character standing in a relaxed three-quarter view, the whole \
+             figure from head to feet in frame and centered, a clear silhouette readable at a small size, on a plain \
+             flat background with no scenery and no ground: {subject}",
+            "1024x1024",
+        ),
+        ImageKind::Building => (
+            "a single building shown alone as a chunky low-poly miniature game piece on one raised hexagonal tile, \
+             three-quarter view from slightly above, centered, on a plain flat background with no scenery: {subject}",
+            "1024x1024",
+        ),
     };
     KindStyle {
         framing: framing.into(),
@@ -317,6 +328,11 @@ impl MediaStyle {
                     let mut v: Value = serde_json::from_str(BUILTIN_STYLE_JSON).expect("data/media_style.json");
                     if let Some(o) = v.as_object_mut() {
                         o.remove("references");
+                    }
+                    if let Some(kinds) = v.get_mut("kinds").and_then(Value::as_object_mut) {
+                        for k in kinds.values_mut().filter_map(Value::as_object_mut) {
+                            k.remove("references");
+                        }
                     }
                     Self::from_value_in(v, "builtin", Path::new(BUILTIN_STYLE_DIR))
                         .expect("data/media_style.json (compiled in) is invalid")
@@ -691,7 +707,9 @@ mod tests {
         std::fs::create_dir_all(dir.join("refs")).unwrap();
         let mut v = base.clone();
         v["references"] = json!({ "geometry": ["refs/table.png"], "mood": [], "note": "match them" });
-        v["kinds"]["portrait"].as_object_mut().unwrap().remove("references");
+        for k in v["kinds"].as_object_mut().unwrap().values_mut() {
+            k.as_object_mut().unwrap().remove("references");
+        }
         std::fs::write(dir.join("style.json"), serde_json::to_string(&v).unwrap()).unwrap();
         let e = MediaStyle::load(&dir.join("style.json")).unwrap_err();
         assert!(e.contains("references.geometry[0]") && e.contains("table.png"), "{e}");

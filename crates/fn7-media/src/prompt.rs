@@ -46,10 +46,14 @@ pub enum ImageKind {
     Army,
     /// A demigod as a tiny geometric miniature on a hex diorama tile themed on its home region (the table piece).
     Diorama,
+    /// One full-body inhabitant of the world (a library sprite: role × look, docs/MEDIA.md "Sprites and buildings").
+    Sprite,
+    /// One building (a library picture: kind × look, drawn on house hexes).
+    Building,
 }
 
 impl ImageKind {
-    pub const ALL: [ImageKind; 7] = [
+    pub const ALL: [ImageKind; 9] = [
         Self::Portrait,
         Self::Item,
         Self::Event,
@@ -57,6 +61,8 @@ impl ImageKind {
         Self::Place,
         Self::Army,
         Self::Diorama,
+        Self::Sprite,
+        Self::Building,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -68,6 +74,8 @@ impl ImageKind {
             Self::Place => "place",
             Self::Army => "army",
             Self::Diorama => "diorama",
+            Self::Sprite => "sprite",
+            Self::Building => "building",
         }
     }
 
@@ -81,19 +89,19 @@ impl ImageKind {
     pub const PRIORITIES: usize = 4;
 
     /// Queue priority (0 = first): portrait and diorama (players look at them all match), then statue, then
-    /// army/place/item, then event (moment cards; skippable when late).
+    /// army/place/item and the sprite/building library, then event (moment cards; skippable when late).
     pub fn priority(self) -> usize {
         match self {
             Self::Portrait | Self::Diorama => 0,
             Self::Statue => 1,
-            Self::Army | Self::Place | Self::Item => 2,
+            Self::Army | Self::Place | Self::Item | Self::Sprite | Self::Building => 2,
             Self::Event => 3,
         }
     }
 
     /// Images that want a transparent background where the model supports it.
     pub fn wants_transparency(self) -> bool {
-        matches!(self, Self::Item | Self::Statue | Self::Diorama)
+        matches!(self, Self::Item | Self::Statue | Self::Diorama | Self::Sprite | Self::Building)
     }
 }
 
@@ -500,7 +508,9 @@ mod tests {
         // Without references there is no note, and a list-form avoid renders as before.
         let mut v: serde_json::Value = serde_json::from_str(crate::style::BUILTIN_STYLE_JSON).unwrap();
         v.as_object_mut().unwrap().remove("references");
-        v["kinds"]["portrait"].as_object_mut().unwrap().remove("references");
+        for k in v["kinds"].as_object_mut().unwrap().values_mut() {
+            k.as_object_mut().unwrap().remove("references");
+        }
         v["avoid"] = serde_json::json!(["text", "logos"]);
         let plain = MediaStyle::from_value(v, "plain").unwrap();
         let q = ImagePrompt::styled(&plain, ImageKind::Item, "a cursed box").unwrap();

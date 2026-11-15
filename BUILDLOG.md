@@ -1586,3 +1586,58 @@ recordings replay with 0 differences). docs/DUEL_MOVES.md §5, docs/CLIENT_API.m
   `duel.scene.fighters`. `statue` is null from the plugin (the statue is at `GET /api/assets/figures?name=`).
 - Tests: `duel_words.rs`, `duel_words_tests.rs`, `picker_tests.rs` (a pick with steps replayed with no model call);
   schemas regenerated.
+
+## 2026-11-15: people and houses (Benito)
+
+> What are the beige and brown poles on the micro scales, and why do the houses look so plain and blocky?
+> Houses should be interesting and unique, image-generated in real time, and based on who lives in that village or house.
+> Terrain and similar details should follow the same approach.
+
+> People should only appear when they are moving around living their lives, and should look like individuals.
+> Each individual person needs characteristics and detail, such as their own sprite, so people can be told apart at a glance.
+> Players need to be able to tell one character type from another at a glance, such as a warrior from a fisherman.
+
+> Beyond movement, the question is why random people just stand around, when the designer wants a
+> A living, breathing world.
+
+Engineering (no state change, no schema bump; docs/CLIENT_API.md "People and houses", MEDIA.md "Sprites and buildings"):
+
+- **A picture library** (`fn7-plugin/src/people.rs`, `fn7-media` kinds `sprite` and `building` in
+  `data/media_style.json`): 16 roles × 3 looks = 48 full-body sprites (warrior, fisherman, farmer, merchant, priest,
+  witch, beauty, elder, child, soldier, noble, beggar, sailor, smith, hunter, healer; every look a distinct individual:
+  the ugly old witch with warts and a crooked hat is not the gorgeous golden-haired maiden) and 8 kinds × 3 looks = 24
+  buildings (hut, cottage, longhouse, manor, temple, market stall, dock, tower × poor, common, rich), on plain
+  backgrounds (transparent where the model allows), in the house style's palette and mood with its four mood references.
+  One picture per stable key (`sprite/<role>/<look>`, `building/<kind>/<look>`), generated once and cached forever:
+  lazily the first time a payload shows the key (`MediaPlugin::library_pass` fills the plugin's `sprite` stub), or all
+  72 at startup with `FN7_SPRITES_PREWARM=on` (default off), through the normal queue and the global budget (bucket
+  `library`; ~$1.80 for all 72 at gpt-image-1-mini medium with 4 references); a refusal leaves `refused` in the manifest
+  and `off` in payloads. Every picture is an asset row (`subkind` sprite / building, subject `shared` + the library key,
+  the exact prompt, the cost, `requested_by: library`).
+- **Assignment**, read-only and deterministic: a person's role from their own words (aliases, title, traits), then
+  their society role (general → warrior, paladin → priest, ringleader → beggar or warrior …), then the crowd and quarter
+  they came from, then notability, then a hash; their look from a stable hash of the ref, narrowed by sex words. A
+  settlement's house hexes (the earth sim's buildings, `earth::effects::site`) get a dock on a coast, a temple by a
+  shrine, a market, a manor, a tower by level and wealth, and dwellings by level and latitude; the look from prosperity.
+- **A living world** (Benito's correction): `game.people {cell, level?, limit?}` lists everyone in the board disc,
+  nearest first (≤ 300): the named people plus 2-4 residents per house drawn from the settlement's crowds, each with
+  `doing` / `activity` / `why`: an event reaction (an earth refuge → fleeing to the shelter hex, a mob → rioting, their
+  own public act this beat, the army they march with, their crowd's stance, an army passing → cheering or fleeing by the
+  crowd's allegiance) else a routine by role and the DM's time of day (asleep at night, to work at dawn, fishing,
+  farming, trading, praying, smithing, patrolling by day, home or chatting at dusk), with `home_cell`, `work_cell`, a
+  `group` id for people doing the same thing at the same spot, and `moving` as a hint. `game.buildings {cell, level?}`
+  lists the house hexes with kind, look and picture. `game.node` and `game.region` people pages carry the same object as
+  `live`.
+- Tests: `fn7-plugin/src/people_tests.rs` (a fisherman, a witch, a general, a maiden, a paladin, a soldier; words beat
+  the society role; sex words narrow the look; coast → dock, inland → none; wealth moves the look; determinism; the
+  limit; public acts only, no seat-scoped fields; routines follow the clock; groups), `fn7-server/tests/sprites.rs`
+  (FN7_IMAGES=mock only: one picture per key, cached; the budget refuses 70 of 72 and the payloads stay `off`; 72 asset
+  rows with prompt and cost; a second process finds all cached), `fn7-assets` subject keys, `fn7-tools` strict
+  validation of real `people`, `buildings`, hex `node` and region replies against the regenerated schemas, and
+  `query_timing` cases for the biggest boards.
+- **Cheap**: partial tables only (places, groups, crowds, characters, mobs, the DM's light state), the latest beat's
+  ledger rows by index, houses computed once per settlement per call, the land lookups of the coast test and the word
+  scans of the role assignment remembered per process (keyed by everything they read, so the answer never goes stale).
+  Release at beat 50 (345 people): `game.people` ~0.9-1.1 ms median at every level with 300 asked, `game.buildings`
+  0.1-0.3 ms, a hex `game.node` with its people 1.2 ms; residents are drawn below the regions level only, and the arena
+  node has no people page (ask `game.people` for a board).

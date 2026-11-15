@@ -1,0 +1,194 @@
+{
+  "$defs": {
+    "LibrarySprite": {
+      "description": "A picture from the people-and-houses library (docs/MEDIA.md \"Sprites and buildings\"): one per key, generated once and cached forever. The bare plugin sends `status: off` with null `hash` and `url`; the server's media layer fills them (`pending`, then `ready` via GET /media/index; `off` = images off, refused by the budget or failed: draw your placeholder).",
+      "properties": {
+        "hash": {
+          "description": "The media key (null from the bare plugin or with images off).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "key": {
+          "description": "`sprite/<role>/<look>` or `building/<kind>/<look>`: the stable library key.",
+          "type": "string"
+        },
+        "kind": {
+          "description": "",
+          "enum": [
+            "sprite",
+            "building"
+          ],
+          "type": "string"
+        },
+        "status": {
+          "description": "",
+          "enum": [
+            "pending",
+            "ready",
+            "off"
+          ],
+          "type": "string"
+        },
+        "url": {
+          "description": "`/media/<hash>.<ext>` once ready.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "key",
+        "kind",
+        "status",
+        "url",
+        "hash"
+      ],
+      "type": "object"
+    },
+    "Ref": {
+      "description": "A pointer to any row of the world: dg demigod, ch character, cl cluster, gr group, gd god, pl place, it item, ag agent, lg ledger row, ce cell, mb mob. Stable for the whole match.",
+      "examples": [
+        "ch:12"
+      ],
+      "pattern": "^(dg|ch|cl|gr|gd|pl|it|ag|lg|ce|mb):\\d+$",
+      "type": "string"
+    }
+  },
+  "$id": "query_buildings.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "`game.buildings`: every settlement house hex in the board disc around `cell`, nearest first, with its building kind, look and library picture.",
+  "properties": {
+    "beat": {
+      "description": "",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "buildings": {
+      "description": "Nearest first.",
+      "items": {
+        "description": "One house hex.",
+        "properties": {
+          "cell": {
+            "description": "Its houses-level hex.",
+            "type": "string"
+          },
+          "kind": {
+            "description": "",
+            "enum": [
+              "hut",
+              "cottage",
+              "longhouse",
+              "manor",
+              "temple",
+              "market_stall",
+              "dock",
+              "tower"
+            ],
+            "type": "string"
+          },
+          "look": {
+            "description": "The settlement's wealth band.",
+            "enum": [
+              "poor",
+              "common",
+              "rich"
+            ],
+            "type": "string"
+          },
+          "settlement": {
+            "$ref": "#/$defs/Ref"
+          },
+          "settlement_level": {
+            "description": "1 hamlet .. 5 great city; null before the DM founded it.",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "settlement_name": {
+            "description": "",
+            "type": "string"
+          },
+          "sprite": {
+            "$ref": "#/$defs/LibrarySprite"
+          },
+          "wrecked": {
+            "description": "The earth sim destroyed it (draw the wreck).",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "cell",
+          "kind",
+          "look",
+          "settlement",
+          "settlement_name",
+          "settlement_level",
+          "wrecked",
+          "sprite"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "cell": {
+      "description": "The board's centre at `level`.",
+      "type": "string"
+    },
+    "level": {
+      "description": "",
+      "enum": [
+        "regions",
+        "villages",
+        "houses",
+        "people"
+      ],
+      "type": "string"
+    },
+    "rings": {
+      "description": "",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "cell",
+    "level",
+    "rings",
+    "beat",
+    "buildings"
+  ],
+  "title": "game.buildings",
+  "type": "object",
+  "x-applies-to": "game.buildings reply (WebSocket), GET /api/rooms/{code}/query/buildings",
+  "x-args": {
+    "additionalProperties": true,
+    "description": "Over HTTP every arg is a query-string parameter (numbers as numeric strings). Unknown args are ignored.",
+    "properties": {
+      "cell": {
+        "description": "A hex cell key (\"<face>:<level>:<q>:<r>\"): the board's centre.",
+        "type": "string"
+      },
+      "level": {
+        "description": "The board's level (default: the cell key's).",
+        "enum": [
+          "regions",
+          "villages",
+          "houses",
+          "people"
+        ],
+        "type": "string"
+      }
+    },
+    "required": [
+      "cell"
+    ],
+    "type": "object"
+  },
+  "x-description": "People and houses: every settlement house hex in the board disc (22 rings at `level`) around `cell`: its building kind (hut, cottage, longhouse, manor, temple, market_stall, dock, tower), look (poor, common, rich) and library picture (`sprite`). Read-only, deterministic, cheap.",
+  "x-public": true
+}

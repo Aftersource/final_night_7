@@ -42,6 +42,7 @@ pub mod scene;
 pub mod memtree;
 pub mod merge;
 pub mod payload;
+pub mod people;
 pub mod persona;
 pub mod phases;
 pub mod present;

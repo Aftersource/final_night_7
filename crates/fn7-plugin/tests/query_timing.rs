@@ -39,6 +39,15 @@ async fn every_query_is_cheap_at_beat_50() {
         .id;
     let (army, owner) = fn7_society::armies(&w).map(|(c, a)| (c.id, a.demigod)).next().expect("an army");
     let owner_seat = w.seats.iter().find(|s| s.demigod == owner).map(|s| s.seat);
+    // The city with the most people (the people-and-houses boards centre on it).
+    use fn7_model::hexgrid;
+    let busy = w
+        .places
+        .iter()
+        .filter(|p| p.kind == PlaceKind::Site)
+        .max_by_key(|p| w.characters.iter().filter(|c| fn7_society::geo::distance_km(c.pos, p.center) < 30.0).count())
+        .unwrap()
+        .center;
     let mut over = state.clone();
     over["meta"]["beats_total"] = json!(w.meta.beat);
 
@@ -82,6 +91,14 @@ async fn every_query_is_cheap_at_beat_50() {
         ("media", None, json!({ "kind": "place", "ref": Ref::Place(region).to_string() }), &state),
         ("media", None, json!({ "kind": "army", "ref": Ref::Cluster(army).to_string() }), &state),
         ("media", Some(0), json!({ "kind": "event", "ref": Ref::Ledger(public_row).to_string() }), &state),
+        // People and houses: the biggest boards around the busiest city, at each level, and a hex zoomed into.
+        ("people", None, json!({ "cell": hexgrid::cell_at(busy, hexgrid::HexLevel::Regions).key(), "limit": 300 }), &state),
+        ("people", None, json!({ "cell": hexgrid::cell_at(busy, hexgrid::HexLevel::Villages).key(), "limit": 300 }), &state),
+        ("people", None, json!({ "cell": hexgrid::cell_at(busy, hexgrid::HexLevel::Houses).key(), "limit": 300 }), &state),
+        ("people", Some(0), json!({ "cell": hexgrid::people_cell(busy) }), &state),
+        ("buildings", None, json!({ "cell": hexgrid::cell_at(busy, hexgrid::HexLevel::Regions).key() }), &state),
+        ("buildings", None, json!({ "cell": hexgrid::cell_at(busy, hexgrid::HexLevel::Houses).key() }), &state),
+        ("node", None, json!({ "cell": hexgrid::cell_at(busy, hexgrid::HexLevel::Houses).key(), "limit": 100 }), &state),
     ];
     let mut worst = Duration::ZERO;
     for (name, seat, args, st) in &cases {

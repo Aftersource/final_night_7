@@ -29,7 +29,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use fn7_media::{ImageKind, LookSeen, Media, Status};
+use fn7_media::{ImageKind, ImagePrompt, LookSeen, Media, Status};
 use fn7_plugin::payload::{diorama_prompt_for, hand_names, portrait_prompt_for};
 use fn7_profile::NewImage;
 use serde_json::Value;
@@ -43,6 +43,8 @@ pub struct MediaPlugin<P> {
     profiles: Option<Arc<Profiles>>,
     /// Per match (run id): the `look.changed` events sent while their gear images were still rendering.
     waiting: Mutex<HashMap<String, Vec<Waiting>>>,
+    /// The people-and-houses library's prompts, by key (at most 72; built once).
+    library: Mutex<HashMap<String, Option<ImagePrompt>>>,
 }
 
 /// A `look.changed` event waiting for its images.
@@ -58,7 +60,7 @@ const WAITING_MAX: usize = 64;
 
 impl<P: GamePlugin> MediaPlugin<P> {
     pub fn new(inner: P, media: Media) -> Self {
-        Self { inner, media, profiles: None, waiting: Mutex::new(HashMap::new()) }
+        Self { inner, media, profiles: None, waiting: Mutex::new(HashMap::new()), library: Mutex::new(HashMap::new()) }
     }
 
     /// Answer the profile queries, record history at match end and register library images (see the module doc).
@@ -72,11 +74,55 @@ impl<P: GamePlugin> MediaPlugin<P> {
     }
 
     fn mark(&self, v: &mut Value) {
+        self.library_pass(v);
         let run = Self::run();
         let (_, looks) = self.media.annotate_seen(v, run.as_deref());
         for l in looks {
             self.saw_look(l, run.as_deref());
         }
+    }
+
+    /// The people-and-houses library (docs/MEDIA.md "Sprites and buildings"): every `sprite` object the plugin wrote
+    /// (`{key: "sprite/<role>/<look>" | "building/<kind>/<look>", status: "off", …}`) gets its picture: asked for once
+    /// (budget bucket `library`, the global budget applies), cached forever by its key's fixed prompt. `hash`,
+    /// `status` and `url` are filled in; refused or failed stays `off` (the client keeps its placeholder). Images off:
+    /// untouched.
+    fn library_pass(&self, v: &mut Value) {
+        if !self.media.enabled() {
+            return;
+        }
+        match v {
+            Value::Array(a) => a.iter_mut().for_each(|x| self.library_pass(x)),
+            Value::Object(o) => {
+                if let Some(Value::Object(sp)) = o.get_mut("sprite") {
+                    if let Some(key) = sp.get("key").and_then(Value::as_str).map(str::to_string) {
+                        if let Some(img) = self.library_image(&key) {
+                            sp.insert("hash".into(), img.hash.into());
+                            sp.insert("status".into(), img.status.into());
+                            sp.insert("url".into(), img.url.map(Value::String).unwrap_or(Value::Null));
+                        }
+                    }
+                }
+                for (k, x) in o.iter_mut() {
+                    if k != "sprite" {
+                        self.library_pass(x);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// One library picture by key (asked for at most once per process; the media layer dedupes after that).
+    fn library_image(&self, key: &str) -> Option<fn7_media::ImageRef> {
+        let p = {
+            let mut lib = self.library.lock().unwrap_or_else(|e| e.into_inner());
+            if lib.len() > 256 && !lib.contains_key(key) {
+                return None;
+            }
+            lib.entry(key.to_string()).or_insert_with(|| library_prompt(&self.media, key)).clone()?
+        };
+        Some(self.media.request_with(&p, Some(LIBRARY), false))
     }
 
     /// A look went out: its gear images go to the player's library once ready, and a `look.changed` event whose
@@ -430,6 +476,39 @@ pub fn prewarm(media: &Media, names: &[String]) -> Prewarm {
                 "pending" => out.queued += 1,
                 _ => out.refused += 1,
             }
+        }
+    }
+    out
+}
+
+/// The budget bucket (match id) of the people-and-houses library: its pictures belong to no match.
+pub const LIBRARY: &str = "library";
+
+/// The styled prompt of a library key (`sprite/<role>/<look>`, `building/<kind>/<look>`; `None` for anything else).
+pub fn library_prompt(media: &Media, key: &str) -> Option<ImagePrompt> {
+    let (kind, subject) = fn7_plugin::people::subject(key)?;
+    let kind = if kind == "sprite" { ImageKind::Sprite } else { ImageKind::Building };
+    media.prompt(kind, &subject)
+}
+
+/// Is the library prewarm on (`FN7_SPRITES_PREWARM` = `on` / `1` / `true` / `yes`; default off)?
+pub fn library_prewarm_on(get: impl Fn(&str) -> Option<String>) -> bool {
+    get("FN7_SPRITES_PREWARM").is_some_and(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "on" | "1" | "true" | "yes"))
+}
+
+/// Ask once for every library picture (48 sprites, 24 buildings) through the normal queue and budget (bucket
+/// `library`). Cached ones cost nothing; a refusal (the budget) marks that picture refused and the payloads keep `off`.
+pub fn prewarm_library(media: &Media) -> Prewarm {
+    let mut out = Prewarm::default();
+    if !media.enabled() {
+        return out;
+    }
+    for key in fn7_plugin::people::library_keys() {
+        let Some(p) = library_prompt(media, &key) else { continue };
+        match media.request_with(&p, Some(LIBRARY), false).status {
+            "ready" => out.cached += 1,
+            "pending" => out.queued += 1,
+            _ => out.refused += 1,
         }
     }
     out
