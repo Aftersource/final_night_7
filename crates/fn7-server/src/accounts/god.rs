@@ -216,7 +216,7 @@ pub trait MeshyClient: Send + Sync {
 
 /// The parameters every god statue is made with (the house's statues of 2026-11-14).
 pub fn statue_params() -> Value {
-    json!({ "ai_model": "latest", "should_texture": true, "enable_pbr": true, "texture_resolution": "2k", "target_formats": ["glb"] })
+    json!({ "ai_model": "latest", "should_texture": true, "enable_pbr": true, "texture_resolution": "2k", "target_formats": ["glb"], "should_remesh": true, "target_polycount": 30000 })
 }
 
 /// Meshy's REST API (`POST /openapi/v1/image-to-3d`, then `GET /openapi/v1/image-to-3d/{id}` until it ends).
