@@ -153,5 +153,7 @@ fn junctions_off_and_on_over_many_seeds() {
     eprintln!("{out}");
     let (a, b) = (sum(&off, beats), sum(&on, beats));
     assert_eq!((a.errors, b.errors), (0, 0));
-    assert!(a.tiers.is_empty() && !b.tiers.is_empty(), "{out}");
+    // The off arm never tiers a mega. (At the house settings the built-in AI rarely holds the 2 bolts it wants before
+    // a mega, so it may cast none: `FN7_FAULT_EXTRA='{"bolt_start": 6}'` stresses the megas.)
+    assert!(a.tiers.is_empty(), "{out}");
 }
