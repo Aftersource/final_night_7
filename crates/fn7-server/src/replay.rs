@@ -286,6 +286,10 @@ pub async fn verify(path: impl AsRef<Path>, mut log: impl FnMut(&str)) -> anyhow
     // The side inputs the live plugin read outside its hook inputs (state schema 8: the Start's clock and pause, the
     // actions recovered from its journal after a restart) are recorded as events and fed back here.
     let p = FinalNight7Plugin::new().with_feed(fn7_plugin::present::Feed::from_records(&records));
+    // Schema 14: the duel move list the match was played with (its ruleset records it when it was not the compiled
+    // one): the mapper's reading decides classes.
+    let ruleset = records.iter().find(|r| r["type"] == "ruleset").map(|r| &r["body"]);
+    fn7_plugin::moves::install_recorded(ruleset).map_err(|e| anyhow!("run {run}: {e}"))?;
     let mut rep = Report {
         run: run.clone(),
         ..Default::default()

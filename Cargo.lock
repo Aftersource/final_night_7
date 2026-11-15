@@ -619,6 +619,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "axum",
  "clap",
  "dotenvy",
  "fn7-agents",
@@ -631,6 +632,7 @@ dependencies = [
  "http-body-util",
  "reqwest",
  "ring",
+ "rusqlite",
  "serde",
  "serde_json",
  "theatre-llm",
