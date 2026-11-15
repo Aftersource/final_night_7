@@ -63,7 +63,11 @@ use serde::{Deserialize, Serialize};
 /// Schema 11 (gear looks): the loadout each demigod carries and the image identity it shows ([`dm::Dm::looks`]: the
 /// `look` records and the item art granted this match), `look.changed` in the DM's memory, item art by descriptor.
 /// Rules that changed read [`World::look_rules`], so schema-4..10 recordings replay exactly.
-pub const STATE_SCHEMA: u32 = 11;
+///
+/// Schema 12 (AI duellists type): in a duel with a clock an AI fighter types a line in every input window: a bout's
+/// `ai` (the typing scripts not yet entered), blows marked `ai`, panels with `typing_script` and a `play_ms` that
+/// fits the line. Rules that changed read [`World::ai_duel_rules`], so schema-4..11 recordings replay exactly.
+pub const STATE_SCHEMA: u32 = 12;
 
 /// Match-wide settings and clocks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -417,6 +421,10 @@ impl World {
     /// Schema 11 rules may be on (gear looks; the room setting `looks_enabled` decides).
     pub fn look_rules(&self) -> bool {
         self.meta.schema >= dm::LOOK_SCHEMA
+    }
+    /// Schema 12 rules may be on (AI duellists type; the room setting `duel_ai_lines_per_window` decides).
+    pub fn ai_duel_rules(&self) -> bool {
+        self.meta.schema >= dm::AI_DUEL_SCHEMA
     }
     /// A seat's demigods, in id order (Left then Right in schema 5).
     pub fn bodies_of_seat(&self, seat: u8) -> impl Iterator<Item = &Demigod> {

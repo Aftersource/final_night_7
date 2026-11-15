@@ -1,0 +1,1144 @@
+{
+  "classes": [
+    {
+      "about": "a normal attack; from far it is a step in",
+      "class": "strike"
+    },
+    {
+      "about": "a slow, strong attack: breaks guards and parries, leaves its user committed",
+      "class": "heavy"
+    },
+    {
+      "about": "sets a guard: the next strike is absorbed",
+      "class": "guard"
+    },
+    {
+      "about": "sets a parry: the next strike is turned and the initiative flips",
+      "class": "parry"
+    },
+    {
+      "about": "wastes the defence the foe has set and takes the initiative",
+      "class": "feint"
+    },
+    {
+      "about": "sets an evasion: a heavy misses and its user is left open",
+      "class": "evade"
+    },
+    {
+      "about": "steps one range band in",
+      "class": "close"
+    },
+    {
+      "about": "steps one range band out",
+      "class": "retreat"
+    },
+    {
+      "about": "takes hold (close range): the foe is off balance",
+      "class": "grapple"
+    },
+    {
+      "about": "throws the foe down (from close range or a grapple)",
+      "class": "throw"
+    },
+    {
+      "about": "a god's power: ignores range, costs a bolt (a taunt without one)",
+      "class": "invoke"
+    },
+    {
+      "about": "orders the army in: needs one near (a taunt without one)",
+      "class": "command"
+    },
+    {
+      "about": "words only: takes the initiative, unsettles the foe; also an appeal (plead, beg)",
+      "class": "taunt"
+    }
+  ],
+  "clips": [
+    {
+      "about": "knocked off the feet, flying back",
+      "clip": "airborne_hit",
+      "fallback": null,
+      "for": "reaction"
+    },
+    {
+      "about": "a forearm block; also a guard shuffle between blows",
+      "clip": "block",
+      "fallback": null,
+      "for": "guard"
+    },
+    {
+      "about": "both arms crossed against a heavy blow",
+      "clip": "block_cross",
+      "fallback": null,
+      "for": "guard"
+    },
+    {
+      "about": "a bow: an appeal, a draw, respect",
+      "clip": "bow",
+      "fallback": null,
+      "for": "taunt"
+    },
+    {
+      "about": "three fast hits in a row",
+      "clip": "combo_triple",
+      "fallback": null,
+      "for": "strike"
+    },
+    {
+      "about": "an arm thrown forward: the army is ordered in",
+      "clip": "command",
+      "fallback": null,
+      "for": "command"
+    },
+    {
+      "about": "a parry that turns straight into a riposte",
+      "clip": "counter",
+      "fallback": null,
+      "for": "parry"
+    },
+    {
+      "about": "knocked out, down for good",
+      "clip": "defeat",
+      "fallback": null,
+      "for": "reaction"
+    },
+    {
+      "about": "lying on the ground after a throw or a hard hit",
+      "clip": "downed",
+      "fallback": null,
+      "for": "reaction"
+    },
+    {
+      "about": "a forward tumble out of the way",
+      "at_ms": 0,
+      "clip": "evade_roll",
+      "fallback": null,
+      "for": "evade",
+      "hit_ms": null,
+      "len_s": 1.83,
+      "trim": "estimated",
+      "use_ms": 1830
+    },
+    {
+      "about": "a spin aside; a feint's turn",
+      "clip": "evade_spin",
+      "fallback": null,
+      "for": "evade, feint"
+    },
+    {
+      "about": "a standing lean or step out of reach",
+      "clip": "evade_stand",
+      "fallback": null,
+      "for": "evade, retreat"
+    },
+    {
+      "about": "taking hold and dragging the foe down",
+      "clip": "grapple_throw_down",
+      "fallback": null,
+      "for": "grapple, throw"
+    },
+    {
+      "about": "both fists into the ground: a shockwave",
+      "clip": "ground_slam",
+      "fallback": null,
+      "for": "heavy, invoke"
+    },
+    {
+      "about": "a wound-up, charged heavy blow",
+      "clip": "heavy_charged",
+      "fallback": null,
+      "for": "heavy"
+    },
+    {
+      "about": "an overhead hammer blow",
+      "clip": "heavy_hammer",
+      "fallback": null,
+      "for": "heavy"
+    },
+    {
+      "about": "standing on guard",
+      "at_ms": 0,
+      "clip": "idle_guard",
+      "fallback": null,
+      "for": "idle",
+      "hit_ms": null,
+      "len_s": 1.67,
+      "trim": "estimated",
+      "use_ms": 1670
+    },
+    {
+      "about": "arms raised: a god is called",
+      "clip": "invoke",
+      "fallback": null,
+      "for": "invoke"
+    },
+    {
+      "about": "a leap that comes down with a blow",
+      "at_ms": 2054,
+      "clip": "jump_attack",
+      "fallback": null,
+      "for": "strike, heavy",
+      "hit_ms": 1056,
+      "len_s": 5.87,
+      "trim": "estimated",
+      "use_ms": 2348
+    },
+    {
+      "about": "a front kick",
+      "clip": "kick",
+      "fallback": null,
+      "for": "strike"
+    },
+    {
+      "about": "on one knee: pleading, begging, praying",
+      "clip": "kneel",
+      "fallback": null,
+      "for": "taunt"
+    },
+    {
+      "about": "a long step in with a thrust",
+      "clip": "lunge",
+      "fallback": null,
+      "for": "strike, close"
+    },
+    {
+      "about": "a parry stepping back",
+      "clip": "parry_back",
+      "fallback": null,
+      "for": "parry"
+    },
+    {
+      "about": "a high parry",
+      "clip": "parry_high",
+      "fallback": null,
+      "for": "parry"
+    },
+    {
+      "about": "getting up from the ground",
+      "clip": "rise",
+      "fallback": null,
+      "for": "reaction"
+    },
+    {
+      "about": "running (with a dash path)",
+      "at_ms": 0,
+      "clip": "run",
+      "fallback": null,
+      "for": "close",
+      "hit_ms": null,
+      "len_s": 0.63,
+      "trim": "estimated",
+      "use_ms": 630
+    },
+    {
+      "about": "a guard that shoves forward",
+      "clip": "shield_push",
+      "fallback": null,
+      "for": "guard"
+    },
+    {
+      "about": "hit and stumbling back",
+      "clip": "stagger_back",
+      "fallback": null,
+      "for": "reaction"
+    },
+    {
+      "about": "hit in the body, doubling over",
+      "clip": "stagger_waist",
+      "fallback": null,
+      "for": "reaction"
+    },
+    {
+      "about": "a side strike with the hand",
+      "clip": "strike_side",
+      "fallback": null,
+      "for": "strike"
+    },
+    {
+      "about": "a slash",
+      "at_ms": 0,
+      "clip": "strike_slash",
+      "fallback": null,
+      "for": "strike",
+      "hit_ms": 675,
+      "len_s": 1.5,
+      "trim": "estimated",
+      "use_ms": 1500
+    },
+    {
+      "about": "a beckoning taunt",
+      "clip": "taunt",
+      "fallback": null,
+      "for": "taunt"
+    },
+    {
+      "about": "a shoulder throw (judo)",
+      "clip": "throw_shoulder",
+      "fallback": null,
+      "for": "throw"
+    },
+    {
+      "about": "the winner's pose",
+      "clip": "victory",
+      "fallback": null,
+      "for": "outro"
+    },
+    {
+      "about": "walking (circling steps, stepping back)",
+      "clip": "walk",
+      "fallback": null,
+      "for": "idle, retreat"
+    },
+    {
+      "about": "a flying kick, both feet off the ground",
+      "at_ms": 0,
+      "clip": "flying_kick",
+      "fallback": "kick",
+      "for": "strike",
+      "hit_ms": 2101,
+      "len_s": 4.67,
+      "trim": "estimated",
+      "use_ms": 4670
+    },
+    {
+      "about": "a roundhouse kick",
+      "at_ms": 0,
+      "clip": "roundhouse_kick",
+      "fallback": "kick",
+      "for": "strike",
+      "hit_ms": 1201,
+      "len_s": 2.67,
+      "trim": "estimated",
+      "use_ms": 2670
+    },
+    {
+      "about": "a kick to the head",
+      "at_ms": 0,
+      "clip": "high_kick",
+      "fallback": "kick",
+      "for": "strike",
+      "hit_ms": 913,
+      "len_s": 2.03,
+      "trim": "estimated",
+      "use_ms": 2030
+    },
+    {
+      "about": "a low sweep at the legs",
+      "at_ms": 0,
+      "clip": "leg_sweep",
+      "fallback": "kick",
+      "for": "strike",
+      "hit_ms": 1111,
+      "len_s": 2.47,
+      "trim": "estimated",
+      "use_ms": 2470
+    },
+    {
+      "about": "an elbow",
+      "at_ms": 0,
+      "clip": "elbow_strike",
+      "fallback": "strike_side",
+      "for": "strike",
+      "hit_ms": 1111,
+      "len_s": 2.47,
+      "trim": "estimated",
+      "use_ms": 2470
+    },
+    {
+      "about": "an uppercut",
+      "at_ms": 0,
+      "clip": "uppercut",
+      "fallback": "strike_side",
+      "for": "heavy",
+      "hit_ms": 450,
+      "len_s": 1.0,
+      "trim": "estimated",
+      "use_ms": 1000
+    },
+    {
+      "about": "a quick jab",
+      "at_ms": 0,
+      "clip": "jab",
+      "fallback": "strike_side",
+      "for": "strike",
+      "hit_ms": 778,
+      "len_s": 1.73,
+      "trim": "estimated",
+      "use_ms": 1730
+    },
+    {
+      "about": "a flurry of punches",
+      "at_ms": 0,
+      "clip": "punch_combo",
+      "fallback": "combo_triple",
+      "for": "strike",
+      "hit_ms": 1111,
+      "len_s": 2.47,
+      "trim": "estimated",
+      "use_ms": 2470
+    },
+    {
+      "about": "a spinning slash",
+      "at_ms": 1984,
+      "clip": "blade_spin",
+      "fallback": "strike_slash",
+      "for": "strike",
+      "hit_ms": 1020,
+      "len_s": 5.67,
+      "trim": "estimated",
+      "use_ms": 2268
+    },
+    {
+      "about": "a heavy spinning blow",
+      "at_ms": 0,
+      "clip": "axe_spin",
+      "fallback": "heavy_hammer",
+      "for": "heavy",
+      "hit_ms": 1125,
+      "len_s": 2.5,
+      "trim": "estimated",
+      "use_ms": 2500
+    },
+    {
+      "about": "spinning up from the ground",
+      "at_ms": 2800,
+      "clip": "spin_rise",
+      "fallback": "rise",
+      "for": "reaction",
+      "hit_ms": null,
+      "len_s": 8.0,
+      "trim": "estimated",
+      "use_ms": 3200
+    },
+    {
+      "about": "casting a spell with both hands",
+      "at_ms": 0,
+      "clip": "mage_cast",
+      "fallback": "invoke",
+      "for": "invoke",
+      "hit_ms": 1350,
+      "len_s": 3.0,
+      "trim": "estimated",
+      "use_ms": 3000
+    },
+    {
+      "about": "a roll backwards",
+      "at_ms": 0,
+      "clip": "dodge_roll_back",
+      "fallback": "evade_roll",
+      "for": "evade, retreat",
+      "hit_ms": null,
+      "len_s": 1.27,
+      "trim": "estimated",
+      "use_ms": 1270
+    },
+    {
+      "about": "a knee",
+      "at_ms": 0,
+      "clip": "knee_strike",
+      "fallback": "kick",
+      "for": "strike",
+      "hit_ms": 1125,
+      "len_s": 2.5,
+      "trim": "estimated",
+      "use_ms": 2500
+    },
+    {
+      "about": "a great downward judgment blow",
+      "at_ms": 0,
+      "clip": "sword_judgment",
+      "fallback": "heavy_charged",
+      "for": "heavy",
+      "hit_ms": 1948,
+      "len_s": 4.33,
+      "trim": "estimated",
+      "use_ms": 4330
+    },
+    {
+      "about": "a full draw and a shot",
+      "at_ms": 1750,
+      "clip": "bow_draw_shoot",
+      "fallback": "strike_slash",
+      "for": "reserved: bow",
+      "hit_ms": 900,
+      "len_s": 5.0,
+      "trim": "estimated",
+      "use_ms": 2000
+    },
+    {
+      "about": "a snap shot",
+      "at_ms": 0,
+      "clip": "bow_quick_shot",
+      "fallback": "strike_slash",
+      "for": "reserved: bow",
+      "hit_ms": 1678,
+      "len_s": 3.73,
+      "trim": "estimated",
+      "use_ms": 3730
+    },
+    {
+      "about": "walking with the bow drawn",
+      "at_ms": 0,
+      "clip": "bow_aim_walk",
+      "fallback": "walk",
+      "for": "reserved: bow",
+      "hit_ms": null,
+      "len_s": 1.2,
+      "trim": "estimated",
+      "use_ms": 1200
+    },
+    {
+      "about": "a shot from the hip, side on",
+      "at_ms": 0,
+      "clip": "gun_side_shot",
+      "fallback": "strike_side",
+      "for": "reserved: rifle",
+      "hit_ms": 1800,
+      "len_s": 4.0,
+      "trim": "estimated",
+      "use_ms": 4000
+    },
+    {
+      "about": "shooting on the run",
+      "at_ms": 0,
+      "clip": "gun_run_shoot",
+      "fallback": "strike_side",
+      "for": "reserved: rifle",
+      "hit_ms": 301,
+      "len_s": 0.67,
+      "trim": "estimated",
+      "use_ms": 670
+    },
+    {
+      "about": "a quick draw and a shot",
+      "at_ms": 2555,
+      "clip": "gun_quick_draw",
+      "fallback": "strike_side",
+      "for": "reserved: rifle",
+      "hit_ms": 1314,
+      "len_s": 7.3,
+      "trim": "estimated",
+      "use_ms": 2920
+    },
+    {
+      "about": "a roll that comes up firing",
+      "at_ms": 0,
+      "clip": "gun_roll_fire",
+      "fallback": "evade_roll",
+      "for": "reserved: rifle",
+      "hit_ms": 1498,
+      "len_s": 3.33,
+      "trim": "estimated",
+      "use_ms": 3330
+    },
+    {
+      "about": "reloading",
+      "at_ms": 0,
+      "clip": "gun_reload",
+      "fallback": "strike_side",
+      "for": "reserved: rifle",
+      "hit_ms": null,
+      "len_s": 3.3,
+      "trim": "estimated",
+      "use_ms": 3300
+    },
+    {
+      "about": "a rocket launcher fired from the shoulder",
+      "at_ms": 2740,
+      "clip": "launcher_fire",
+      "fallback": "heavy_charged",
+      "for": "reserved: launcher",
+      "hit_ms": 1409,
+      "len_s": 7.83,
+      "trim": "estimated",
+      "use_ms": 3132
+    },
+    {
+      "about": "a two-handed chop",
+      "at_ms": 2684,
+      "clip": "twohand_chop",
+      "fallback": "heavy_hammer",
+      "for": "reserved: two_handed",
+      "hit_ms": 1380,
+      "len_s": 7.67,
+      "trim": "estimated",
+      "use_ms": 3068
+    },
+    {
+      "about": "a wide two-handed reaping swing",
+      "at_ms": 2065,
+      "clip": "twohand_reap",
+      "fallback": "heavy_hammer",
+      "for": "reserved: two_handed",
+      "hit_ms": 1062,
+      "len_s": 5.9,
+      "trim": "estimated",
+      "use_ms": 2360
+    },
+    {
+      "about": "a two-handed guard stance",
+      "at_ms": 2135,
+      "clip": "twohand_stance",
+      "fallback": "idle_guard",
+      "for": "reserved: two_handed",
+      "hit_ms": null,
+      "len_s": 6.1,
+      "trim": "estimated",
+      "use_ms": 2440
+    },
+    {
+      "about": "throwing a held object",
+      "at_ms": 2030,
+      "clip": "throw_object",
+      "fallback": "throw_shoulder",
+      "for": "reserved: thrown",
+      "hit_ms": 1044,
+      "len_s": 5.8,
+      "trim": "estimated",
+      "use_ms": 2320
+    },
+    {
+      "about": "pulling an item out of nowhere",
+      "at_ms": 1865,
+      "clip": "draw_from_nowhere",
+      "fallback": "taunt",
+      "for": "reserved: hammer-space",
+      "hit_ms": null,
+      "len_s": 5.33,
+      "trim": "estimated",
+      "use_ms": 2132
+    }
+  ],
+  "paths": [
+    {
+      "about": "running or stepping along the ground",
+      "path": "dash"
+    },
+    {
+      "about": "a jump to a hex (h: apex)",
+      "path": "leap"
+    },
+    {
+      "about": "thrown or knocked back",
+      "path": "knock"
+    },
+    {
+      "about": "over an object (over: its id)",
+      "path": "vault"
+    },
+    {
+      "about": "under an object (under: its id)",
+      "path": "slide"
+    },
+    {
+      "about": "off an object (on: its id)",
+      "path": "wallkick"
+    },
+    {
+      "about": "reserved",
+      "path": "flip"
+    },
+    {
+      "about": "reserved",
+      "path": "wallrun"
+    },
+    {
+      "about": "reserved",
+      "path": "mantle"
+    },
+    {
+      "about": "reserved",
+      "path": "drop"
+    }
+  ],
+  "version": "b9bdc8d3f2f5a2e2",
+  "words": [
+    {
+      "class": "strike",
+      "clips": [
+        "flying_kick"
+      ],
+      "leap": true,
+      "typos": true,
+      "weak": false,
+      "words": [
+        "jumpkick",
+        "flying kick",
+        "jump kick",
+        "dropkick"
+      ]
+    },
+    {
+      "class": "strike",
+      "clips": [
+        "roundhouse_kick"
+      ],
+      "leap": false,
+      "typos": true,
+      "weak": false,
+      "words": [
+        "roundhouse"
+      ]
+    },
+    {
+      "class": "strike",
+      "clips": [
+        "kick",
+        "roundhouse_kick",
+        "high_kick"
+      ],
+      "leap": false,
+      "typos": true,
+      "weak": false,
+      "words": [
+        "kick"
+      ]
+    },
+    {
+      "class": "strike",
+      "clips": [
+        "leg_sweep"
+      ],
+      "leap": false,
+      "typos": true,
+      "weak": false,
+      "words": [
+        "sweep",
+        "trip"
+      ]
+    },
+    {
+      "class": "strike",
+      "clips": [
+        "jump_attack"
+      ],
+      "leap": true,
+      "typos": true,
+      "weak": false,
+      "words": [
+        "jump",
+        "leap",
+        "vault",
+        "pounce",
+        "dive"
+      ]
+    },
+    {
+      "class": "strike",
+      "clips": [
+        "jab",
+        "punch_combo",
+        "strike_side"
+      ],
+      "leap": false,
+      "typos": true,
+      "weak": false,
+      "words": [
+        "punch",
+        "attack",
+        "strike",
+        "fight",
+        "hit",
+        "bash",
+        "pummel",
+        "batter"
+      ]
+    },
+    {
+      "class": "strike",
+      "clips": [
+        "jab"
+      ],
+      "leap": false,
+      "typos": true,
+      "weak": false,
+      "words": [
+        "jab"
+      ]
+    },
+    {
+      "class": "heavy",
+      "clips": [
+        "uppercut"
+      ],
+      "leap": false,
+      "typos": true,
+      "weak": false,
+      "words": [
+        "uppercut"
+      ]
+    },
+    {
+      "class": "strike",
+      "clips": [
+        "elbow_strike"
+      ],
+      "leap": false,
+      "typos": true,
+      "weak": true,
+      "words": [
+        "elbow"
+      ]
+    },
+    {
+      "class": "strike",
+      "clips": [
+        "knee_strike"
+      ],
+      "leap": false,
+      "typos": true,
+      "weak": true,
+      "words": [
+        "knee"
+      ]
+    },
+    {
+      "class": "strike",
+      "clips": [
+        "combo_triple",
+        "punch_combo"
+      ],
+      "leap": false,
+      "typos": true,
+      "weak": false,
+      "words": [
+        "flail",
+        "frenzy",
+        "combo",
+        "flurry"
+      ]
+    },
+    {
+      "class": "strike",
+      "clips": [
+        "blade_spin",
+        "axe_spin"
+      ],
+      "leap": false,
+      "typos": true,
+      "weak": false,
+      "words": [
+        "spin",
+        "whirl"
+      ]
+    },
+    {
+      "class": "strike",
+      "clips": [
+        "strike_slash",
+        "blade_spin"
+      ],
+      "leap": false,
+      "typos": true,
+      "weak": false,
+      "words": [
+        "slash",
+        "slice",
+        "cut",
+        "lash",
+        "whip",
+        "claw",
+        "rake"
+      ]
+    },
+    {
+      "class": "strike",
+      "clips": [
+        "lunge"
+      ],
+      "leap": false,
+      "typos": true,
+      "weak": false,
+      "words": [
+        "stab",
+        "pierce",
+        "impale",
+        "skewer",
+        "lunge",
+        "thrust",
+        "spear"
+      ]
+    },
+    {
+      "class": "heavy",
+      "clips": [
+        "heavy_hammer",
+        "heavy_charged",
+        "ground_slam",
+        "sword_judgment"
+      ],
+      "leap": false,
+      "typos": true,
+      "weak": false,
+      "words": [
+        "smash",
+        "crush",
+        "cleave",
+        "overhead",
+        "haymaker",
+        "headbutt",
+        "pulverize",
+        "obliterate",
+        "full force",
+        "all my strength"
+      ]
+    },
+    {
+      "class": "guard",
+      "clips": [
+        "block",
+        "block_cross",
+        "shield_push"
+      ],
+      "leap": false,
+      "typos": true,
+      "weak": false,
+      "words": [
+        "block",
+        "guard",
+        "shield",
+        "brace",
+        "defend"
+      ]
+    },
+    {
+      "class": "parry",
+      "clips": [
+        "parry_high",
+        "parry_back",
+        "counter"
+      ],
+      "leap": false,
+      "typos": true,
+      "weak": false,
+      "words": [
+        "parry",
+        "deflect",
+        "counter",
+        "riposte"
+      ]
+    },
+    {
+      "class": "throw",
+      "clips": [
+        "throw_shoulder",
+        "grapple_throw_down"
+      ],
+      "leap": false,
+      "typos": true,
+      "weak": false,
+      "words": [
+        "throw",
+        "judo",
+        "toss",
+        "slam",
+        "hurl",
+        "suplex",
+        "flip",
+        "body-slam"
+      ]
+    },
+    {
+      "class": "grapple",
+      "clips": [
+        "grapple_throw_down"
+      ],
+      "leap": false,
+      "typos": true,
+      "weak": false,
+      "words": [
+        "grab",
+        "choke",
+        "wrestle",
+        "clinch",
+        "seize",
+        "headlock",
+        "throttle",
+        "hold you",
+        "pin",
+        "hug"
+      ]
+    },
+    {
+      "class": "evade",
+      "clips": [
+        "evade_roll",
+        "dodge_roll_back",
+        "evade_spin"
+      ],
+      "leap": false,
+      "typos": true,
+      "weak": false,
+      "words": [
+        "tumble",
+        "roll",
+        "dodge",
+        "duck",
+        "sidestep",
+        "evade",
+        "weave",
+        "vanish"
+      ]
+    },
+    {
+      "class": "close",
+      "clips": [
+        "lunge"
+      ],
+      "leap": false,
+      "typos": true,
+      "weak": false,
+      "words": [
+        "run",
+        "charge",
+        "rush",
+        "advance",
+        "approach",
+        "dash",
+        "close in",
+        "step in"
+      ]
+    },
+    {
+      "class": "retreat",
+      "clips": [
+        "dodge_roll_back",
+        "evade_stand"
+      ],
+      "leap": false,
+      "typos": true,
+      "weak": false,
+      "words": [
+        "retreat",
+        "withdraw",
+        "flee",
+        "back off",
+        "step back",
+        "fall back",
+        "back away"
+      ]
+    },
+    {
+      "class": "invoke",
+      "clips": [
+        "invoke",
+        "mage_cast",
+        "ground_slam"
+      ],
+      "leap": false,
+      "typos": true,
+      "weak": false,
+      "words": [
+        "summon",
+        "cast",
+        "spell",
+        "magic",
+        "the force",
+        "force",
+        "curse",
+        "conjure",
+        "enchant",
+        "invoke",
+        "smite",
+        "hex"
+      ]
+    },
+    {
+      "class": "invoke",
+      "clips": [
+        "invoke",
+        "mage_cast"
+      ],
+      "leap": false,
+      "typos": false,
+      "weak": false,
+      "words": [
+        "time",
+        "nature",
+        "consequence",
+        "death",
+        "chance",
+        "memory",
+        "entropy",
+        "god",
+        "gods",
+        "divine",
+        "heavens"
+      ]
+    },
+    {
+      "class": "command",
+      "clips": [
+        "command"
+      ],
+      "leap": false,
+      "typos": true,
+      "weak": false,
+      "words": [
+        "army",
+        "armies",
+        "legion",
+        "troops",
+        "soldiers",
+        "followers",
+        "host",
+        "horde",
+        "battalion",
+        "faithful",
+        "minions"
+      ]
+    },
+    {
+      "class": "taunt",
+      "clips": [
+        "kneel",
+        "bow"
+      ],
+      "leap": false,
+      "typos": true,
+      "weak": false,
+      "words": [
+        "plead",
+        "beg",
+        "pray",
+        "mercy",
+        "please"
+      ]
+    },
+    {
+      "class": "taunt",
+      "clips": [
+        "taunt"
+      ],
+      "leap": false,
+      "typos": true,
+      "weak": false,
+      "words": [
+        "taunt",
+        "mock",
+        "laugh",
+        "insult",
+        "jeer",
+        "sneer",
+        "yawn",
+        "scoff"
+      ]
+    },
+    {
+      "class": "feint",
+      "clips": [
+        "evade_spin"
+      ],
+      "leap": false,
+      "typos": true,
+      "weak": false,
+      "words": [
+        "feint",
+        "fake",
+        "trick",
+        "bluff",
+        "pretend"
+      ]
+    }
+  ]
+}
