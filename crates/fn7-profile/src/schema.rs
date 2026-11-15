@@ -225,6 +225,64 @@ CREATE TABLE profile_tombstones (
 ALTER TABLE library_matches ADD COLUMN beat INTEGER;
 ALTER TABLE library_matches ADD COLUMN detail TEXT;   -- JSON {loadout_hash, loadout: [item names]}
 "#,
+    // 3 → 4: the god form (docs/ACCOUNTS.md § 14). Each account's stone godform as the player wrote it (moderated like
+    // the demigod sheets; the passes go to demigod_moderation with hand = 'god'), every reference image it asked for,
+    // the image it accepted (the god's portrait), and the statues queued from it.
+    r#"
+CREATE TABLE account_gods (
+    account_id   TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+    description  TEXT NOT NULL DEFAULT '',         -- the player's words (or the minimal rewrite)
+    stone        TEXT NOT NULL DEFAULT 'white_marble', -- a preset id, or the player's own words
+    pose         TEXT NOT NULL DEFAULT 'thinker',  -- a preset id, or 'custom'
+    original     TEXT NOT NULL DEFAULT '{}',       -- JSON: what the player submitted
+    verdict      TEXT NOT NULL DEFAULT 'ok',       -- 'ok' | 'rephrase'
+    reason       TEXT NOT NULL DEFAULT '',
+    model        TEXT NOT NULL DEFAULT '',
+    moderated_at INTEGER NOT NULL,
+    updated_at   INTEGER NOT NULL
+);
+
+-- Every preview asked for: a new picture (charged = 1, counts toward the day's cap) or a cached one (charged = 0).
+CREATE TABLE god_previews (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id  TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    media_hash  TEXT NOT NULL,                     -- the fn7-media key: GET /media/<hash>.<ext>
+    description TEXT NOT NULL,
+    stone       TEXT NOT NULL,
+    pose        TEXT NOT NULL,
+    prompt      TEXT NOT NULL,                     -- exactly as sent to the image model
+    charged     INTEGER NOT NULL,
+    at          INTEGER NOT NULL
+);
+CREATE INDEX god_previews_account ON god_previews(account_id, at);
+
+-- Accepted previews, newest last: the newest is the account's god portrait; the older ones stay (the library).
+CREATE TABLE god_accepted (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id  TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    media_hash  TEXT NOT NULL,
+    description TEXT NOT NULL,
+    stone       TEXT NOT NULL,
+    pose        TEXT NOT NULL,
+    accepted_at INTEGER NOT NULL
+);
+CREATE INDEX god_accepted_account ON god_accepted(account_id, id);
+
+-- Statues queued from an accepted preview (Meshy image-to-3D; only when the server's god_statue_meshy is on).
+CREATE TABLE god_statues (
+    task_id     TEXT PRIMARY KEY,                  -- the provider's task id
+    account_id  TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    media_hash  TEXT NOT NULL,                     -- the accepted preview it was made from
+    provider    TEXT NOT NULL,                     -- 'meshy'
+    status      TEXT NOT NULL,                     -- 'queued' | 'ready' | 'failed'
+    credits     REAL,
+    asset_id    TEXT,                              -- the registry's model asset, once ready
+    error       TEXT,
+    requested_at INTEGER NOT NULL,
+    finished_at INTEGER
+);
+CREATE INDEX god_statues_account ON god_statues(account_id);
+"#,
 ];
 
 /// The schema version a fully migrated store has.

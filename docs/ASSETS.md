@@ -30,6 +30,7 @@ build) the server logs the error and runs without it: the game and `/media` neve
   images/event/<sha256>.png           moment cards, storyboard shots
   images/item/<sha256>.png
   images/statue/<sha256>.png          the end-of-match statue PICTURE (the media layer's `statue` kind)
+  images/god_preview/<sha256>.<ext>   a player's god form reference image (ACCOUNTS.md § 14)
   images/place/…  images/army/…
   images/reference/<sha256>.jpg|png   style references sent with requests; heroic-pose and A-pose images made for Meshy
   images/preview/<sha256>.png         a provider's thumbnail of a model or skin
@@ -38,7 +39,9 @@ build) the server logs the error and runs without it: the game and `/media` neve
   models/mannequin/<sha256>.fbx       the shared duel mannequin
   textures/skin/<sha256>.png          one map of one mannequin skin (base_color, metallic, normal, roughness)
   animations/clip/<sha256>.glb|fbx    a clip, or the bundle of all clips
-  incoming/                           (optional) where an operator drops a big file for `POST /api/assets/register`
+  incoming/                           (optional) where an operator drops a big file for `POST /api/assets/register`;
+                                      incoming/god/<task id>/ holds a god statue job's files as recorded
+  jobs/god_statues.jsonl              every god statue job the server recorded (job records, below)
 ```
 
 - The file name is the **sha256 of the file's bytes** plus its extension. The directory is `<kind>s/<subkind>/`.
@@ -60,7 +63,7 @@ step, and refuses a database from a newer build. Times are unix milliseconds (UT
 | `id` | TEXT PK | `ast_` + 24 hex. Derived from the asset's identity, so re-ingesting gives the same id: for a media-layer image `sha256("media:" + media hash)`; for an imported file `sha256("file:<sha256>:<kind>/<subkind>:<subject kind>:<subject key>:<variant>")`; for a recorded result with no file, from its task |
 | `sha256` | TEXT | sha256 of the file's bytes. NULL until there is a file |
 | `kind` | TEXT | `image` \| `model` \| `texture` \| `animation` |
-| `subkind` | TEXT | `portrait` \| `diorama` \| `event` \| `item` \| `statue` \| `place` \| `army` \| `reference` \| `preview` (images); `statue` \| `figure` \| `mannequin` (models); `skin` (textures); `clip` (animations) |
+| `subkind` | TEXT | `portrait` \| `diorama` \| `event` \| `item` \| `statue` \| `place` \| `army` \| `reference` \| `preview` \| `god_preview` (images); `statue` \| `figure` \| `mannequin` (models); `skin` (textures); `clip` (animations) |
 | `subject_kind` | TEXT | `demigod` \| `god` \| `item` \| `place` \| `match` \| `shared` \| `person` |
 | `subject_key` | TEXT | Who or what it shows. A demigod, god or person: the **normalized name** (the profile rule: NFKC, invisibles dropped, whitespace collapsed, lowercased, 40 characters; a trailing ` (2)` counter dropped first, as the visual sheet does). An item: its normalized descriptor. `match`: the match id (moment cards, armies). `shared`: a fixed key (`mannequin`, `style_ref:img_3751.jpg`, `unknown`) |
 | `variant` | TEXT | Which one of several for the subject: `heroic` / `apose` / `style` (reference images), `wood/base_color` (skin and map), a clip name, `rigged` / `mesh`, `fbx`. Empty for the default |
@@ -303,7 +306,20 @@ credits, created / started / finished). Then `fn7-assets import-jobs production_
 job in SQL; importing the whole file again after each run is fine. A job with no primary output (the figure's
 untextured model, never downloaded) is registered as `external`.
 
-### 4.4 By hand: `POST /api/assets/register` (admin)
+### 4.4 The god form (ACCOUNTS.md § 14)
+
+A player's stone god adds two things, written by the server as they happen:
+
+| What | Row | How |
+|---|---|---|
+| **A god preview** (`POST /api/me/god/preview`) | `kind image`, `subkind god_preview`, `subject_kind god`, `subject_key` = the account's display name (normalized), `meta.account` = the account id (and `meta.description`, `stone`, `pose`, `size`); `meta.accepted_at` / `accepted_by` once accepted | The server **claims** the row (id `ast_` + sha256("media:" + media hash), status `pending`) before asking fn7-media, then the media layer's live rows land on it: the generation (`req:<hash>:-`) has the exact prompt, the reserved price, the cost (`usage` / `price_table` / `free`), and `requested_account`; the file goes to `images/god_preview/` (live ingest keeps a claimed row's subkind). A budget refusal is a `refused` generation, cost 0 |
+| **A god statue** (`POST /api/me/god/accept` with `god_statue_meshy` on; off by default) | `kind model`, `subkind statue`, `subject_kind god`, the display name; its thumbnail `image/preview`; lineage `source` from the accepted `god_preview` | When the Meshy task ends, the server writes a **job record** (§ 4.3, `provider meshy`, `operation image-to-3d`, the task id, `credits` with `cost_basis` `credits_reported`, or `estimated` when Meshy reports none, `requested_by: account:<id>`) to `jobs/god_statues.jsonl` with its files under `incoming/god/<task id>/`, and imports it with `import_jobs`; then sets the generation's `requested_account` |
+
+Nothing of the god form is kind `god`: a god is a subject (`subject_kind god`), and the images and models are the
+usual kinds. `GET /api/assets/figures?name=<display name>` answers `god` from these rows (below);
+`GET /api/assets/mine` lists them under the account's name; `GET /api/assets/costs?by=kind` shows `image/god_preview`.
+
+### 4.5 By hand: `POST /api/assets/register` (admin)
 
 See the API.
 
@@ -332,7 +348,7 @@ Like the profile routes: with a key configured (`FN7_ASSETS_KEY`, else `FN7_PROF
 | `GET /api/assets/{id}` | `{asset, current, generations[], lineage: {parents[], children[]}, uses[], uses_total}`. `{id}` is an asset id or a media hash |
 | `GET /api/assets/{id}/file` | The bytes. `Cache-Control: public, max-age=31536000, immutable`, `ETag: "<sha256>"`, `X-Asset-Sha256`, `Accept-Ranges: bytes`; `Range: bytes=a-b` → 206 (`416` when unsatisfiable); `If-None-Match` → 304. Streamed |
 | `GET /api/assets/{id}/chain` | `{id, chain[]}`: every ancestor and descendant, oldest first, with `depth` (0 = the asset) and `parents` (`role:parent_id`) |
-| `GET /api/assets/figures?name=&subject_kind=` | What to put on a seat (below). Without `name`: every figure |
+| `GET /api/assets/figures?name=&subject_kind=` | What to put on a seat (below), and `god`: the player's stone god. Without `name`: every figure |
 | `GET /api/assets/costs?by=day\|kind\|provider\|match\|subject\|basis\|model&usd_per_credit=` | Roll-ups (below) |
 | `GET /api/assets/at?match=&beat=&demigod=` | Time travel (below) |
 | `GET /api/assets/mine` | The assets of the signed-in account (`Authorization: Bearer <session token>`): its display name, its profiles, its demigods' names, and anything a seat bound to it asked for. Same paging and filters as the list |
@@ -380,6 +396,12 @@ A generation (`GET /api/assets/{id}` → `generations[]`):
   "fallback": null,
   "mannequin": { "models": [ { "variant": "rigged", "…": "…" } ], "clips": [ "…" ], "skins": [ "…" ] } }
 ```
+
+With `name`, the answer also has **`god`**: the stone god at that player's seat (ACCOUNTS.md § 14). The account that
+holds the name and accepted a god form → `{"source": "account", "account", "status", "image": {hash, url, status, sha256,
+asset_id, file_url}, "statue": <its ready god statue or null>, "statue_status", "description", "stone", "pose",
+"accepted_at"}`; else the house's marble god of that name (the `reference`/`heroic` image and the `model/statue`
+imported from `figures.json`) → `{"source": "house", "image": {…, "url": <its file_url>}, "statue"}`; else `null`.
 
 `statue` is the current static statue (the GLB), `figure` the current rigged figure; either is `null` when there is
 none. A demigod and a god may share a name (the god "Chris", a demigod "Chris"): `statue` is then the demigod's and

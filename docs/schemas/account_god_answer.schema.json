@@ -1,0 +1,282 @@
+{
+  "$defs": {
+    "God": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "description": "What the preview draws.",
+          "maxLength": 600,
+          "type": "string"
+        },
+        "limits": {
+          "required": [
+            "description",
+            "stone",
+            "preview_per_day",
+            "previews_left_today",
+            "statues_per_account"
+          ],
+          "type": "object"
+        },
+        "moderation": {
+          "description": "The pass that judged the saved form: {verdict, reason, model, at, original}.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "options": {
+          "description": "The presets: [{id, label}].",
+          "required": [
+            "stones",
+            "poses"
+          ],
+          "type": "object"
+        },
+        "portrait": {
+          "description": "The accepted preview: the god's portrait at the seat (with accepted_at, description, stone, pose).",
+          "properties": {
+            "hash": {
+              "description": "The fn7-media key.",
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "pending",
+                "ready",
+                "failed",
+                "refused",
+                "off",
+                "missing"
+              ],
+              "type": "string"
+            },
+            "url": {
+              "description": "/media/<hash>.<ext> once on disk.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "hash",
+            "url",
+            "status"
+          ],
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "pose": {
+          "type": "string"
+        },
+        "preview": {
+          "description": "The newest preview asked for, with prompt, at, description, stone, pose and accepted.",
+          "properties": {
+            "hash": {
+              "description": "The fn7-media key.",
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "pending",
+                "ready",
+                "failed",
+                "refused",
+                "off",
+                "missing"
+              ],
+              "type": "string"
+            },
+            "url": {
+              "description": "/media/<hash>.<ext> once on disk.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "hash",
+            "url",
+            "status"
+          ],
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "saved": {
+          "description": "false until the account saves a god form (the defaults are shown).",
+          "type": "boolean"
+        },
+        "statue_meshy": {
+          "description": "Whether accepting queues a 3D statue on this server (default false).",
+          "type": "boolean"
+        },
+        "statues": {
+          "items": {
+            "properties": {
+              "asset_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "credits": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "error": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "finished_at": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "media_hash": {
+                "type": "string"
+              },
+              "provider": {
+                "type": "string"
+              },
+              "requested_at": {
+                "type": "integer"
+              },
+              "status": {
+                "enum": [
+                  "queued",
+                  "ready",
+                  "failed"
+                ],
+                "type": "string"
+              },
+              "task_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "task_id",
+              "media_hash",
+              "provider",
+              "status",
+              "requested_at"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "stone": {
+          "type": "string"
+        },
+        "stone_custom": {
+          "description": "true when the stone is the player's own words.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "saved",
+        "description",
+        "stone",
+        "stone_custom",
+        "pose",
+        "moderation",
+        "preview",
+        "portrait",
+        "statues",
+        "statue_meshy",
+        "limits",
+        "options"
+      ],
+      "type": "object"
+    },
+    "GodDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "description": "The player's words.",
+          "maxLength": 600,
+          "type": "string"
+        },
+        "pose": {
+          "description": "A preset id or custom.",
+          "type": "string"
+        },
+        "stone": {
+          "description": "A preset id or the player's own words.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "description",
+        "stone",
+        "pose"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "account_god_answer.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "categories": {
+      "items": {
+        "enum": [
+          "hate",
+          "sexual",
+          "harassment",
+          "instructions",
+          "personal_data"
+        ],
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "detail": {
+      "type": "string"
+    },
+    "error": {
+      "const": "refused"
+    },
+    "final": {
+      "$ref": "#/$defs/GodDoc"
+    },
+    "god": {
+      "$ref": "#/$defs/God"
+    },
+    "model": {
+      "description": "claude-haiku-5-5, or rules.",
+      "type": "string"
+    },
+    "original": {
+      "$ref": "#/$defs/GodDoc"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "verdict": {
+      "description": "ok: saved exactly as sent. rephrase: saved as `final`. refuse (HTTP 422): nothing saved.",
+      "enum": [
+        "ok",
+        "rephrase",
+        "refuse"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "verdict",
+    "model",
+    "god"
+  ],
+  "title": "PUT /api/me/god: the moderation answer (200 for ok and rephrase, 422 for refuse)",
+  "type": "object"
+}

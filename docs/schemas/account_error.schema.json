@@ -25,6 +25,10 @@
         "refused",
         "rate_limited",
         "google_not_configured",
+        "images_off",
+        "budget_reached",
+        "image_refused",
+        "preview_not_ready",
         "store",
         "internal"
       ],

@@ -16,6 +16,8 @@
 //! Accounts (`fn7_server::accounts`, docs/ACCOUNTS.md): `/api/auth/*`, `/api/me*`, `/api/game/bind`, in the same store.
 //! Google sign-in needs `FN7_GOOGLE_CLIENT_ID`, `FN7_GOOGLE_CLIENT_SECRET` and `FN7_PUBLIC_URL` (guests work without);
 //! `FN7_NAME_GUARD=off` stops the name guard; `FN7_MODERATION=rules` judges demigod sheets by rules only.
+//! The god form (`/api/me/god*`, ACCOUNTS.md § 14): `FN7_GOD_PREVIEW_PER_DAY` (6), `FN7_GOD_STATUE_MESHY` (off),
+//! `FN7_GOD_STATUES_PER_ACCOUNT` (1), `MESHY_API_KEY`.
 
 use std::sync::Arc;
 
@@ -132,6 +134,16 @@ async fn main() -> anyhow::Result<()> {
     let accounts = fn7_server::accounts::Accounts::from_env(store.clone(), moderator, env);
     tracing::info!(google = accounts.google_configured(), moderation = accounts.moderation_label(),
                    name_guard = accounts.guard_on(), "accounts");
+    // The god form (docs/ACCOUNTS.md § 14): /api/me/god*, previews through the media layer, Meshy statues only when
+    // FN7_GOD_STATUE_MESHY is on (default off) and MESHY_API_KEY is set.
+    let gods = fn7_server::accounts::god::GodForm::from_env(
+        accounts.clone(),
+        media.clone(),
+        assets.as_ref().map(|(reg, _)| reg.clone()),
+        env,
+    );
+    tracing::info!(preview_per_day = gods.config().preview_per_day, statue_meshy = gods.config().statue_meshy,
+                   statues_per_account = gods.config().statues_per_account, "god form");
     let with_media = fn7_server::media::MediaPlugin::new(
         fn7_server::accounts::plugin::AccountsPlugin::new(
             game,
@@ -182,7 +194,8 @@ async fn main() -> anyhow::Result<()> {
     let mut extra = fn7_media::http::router(media)
         .merge(fn7_server::simapi::router(sim))
         .merge(fn7_profile::http::router(store.clone(), fn7_profile::http::HttpConfig::from_env(env)))
-        .merge(fn7_server::accounts::http::router(accounts));
+        .merge(fn7_server::accounts::http::router(accounts))
+        .merge(fn7_server::accounts::god::router(gods.clone()));
     if let Some(d) = duel_lines {
         extra = extra.merge(fn7_server::duel_lines::router(d, fn7_server::duel_lines::key_from(env, cfg.admin_token.clone())));
     }
@@ -190,6 +203,7 @@ async fn main() -> anyhow::Result<()> {
         let mut http = fn7_assets::http::HttpConfig::from_env(env);
         http.admin_token = cfg.admin_token.clone().filter(|t| !t.is_empty());
         http.sessions = Some(Arc::new(fn7_server::assets::AccountSessions(store)));
+        http.gods = Some(gods as Arc<dyn fn7_assets::http::Gods>);
         extra = extra.merge(fn7_assets::http::router(reg, http));
     }
     theatre_server::serve_with(listener, app, extra, async {

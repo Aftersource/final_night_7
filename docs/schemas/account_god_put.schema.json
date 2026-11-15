@@ -1,0 +1,35 @@
+{
+  "$defs": {},
+  "$id": "account_god_put.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Every key optional: description \"\", stone white_marble, pose thinker.",
+  "properties": {
+    "description": {
+      "description": "How your stone godform looks, in your words: the figure, the pose, what it holds. Kept character for character when the verdict is ok. Newlines and tabs allowed; other control characters refused.",
+      "maxLength": 600,
+      "type": "string"
+    },
+    "pose": {
+      "description": "A classical pose, or custom (then the description says the pose and may not be empty).",
+      "enum": [
+        "thinker",
+        "david",
+        "moses_seated",
+        "discus_thrower",
+        "atlas",
+        "winged_victory",
+        "boxer_at_rest",
+        "custom"
+      ],
+      "type": "string"
+    },
+    "stone": {
+      "description": "A preset id (white_marble, black_onyx, granite, sandstone, jade, bronze, gold_leaf) or your own words (one line, at least one letter; judged by the same pass).",
+      "maxLength": 60,
+      "type": "string"
+    }
+  },
+  "title": "PUT /api/me/god: the request",
+  "type": "object"
+}

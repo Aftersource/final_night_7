@@ -6,7 +6,7 @@
 //! | `GET /api/assets/{id}` | `{asset, current, generations, lineage: {parents, children}, uses}`; `{id}` may be a media hash |
 //! | `GET /api/assets/{id}/file` | the bytes: immutable cache headers, `ETag` = sha256, `Range` requests |
 //! | `GET /api/assets/{id}/chain` | the whole lineage chain, oldest ancestor first |
-//! | `GET /api/assets/figures?name=&subject_kind=` | the current statue / figure of a demigod or god, and the mannequin |
+//! | `GET /api/assets/figures?name=&subject_kind=` | the current statue / figure of a demigod or god, the mannequin, and `god` (the god at that player's seat: docs/ACCOUNTS.md § 14) |
 //! | `GET /api/assets/costs?by=day\|kind\|provider\|match\|subject\|basis\|model&usd_per_credit=` | roll-ups |
 //! | `GET /api/assets/at?match=&beat=&demigod=` | time travel: what was shown at that beat |
 //! | `GET /api/assets/mine` | the assets of the signed-in account's names (`Authorization: Bearer <session>`) |
@@ -46,6 +46,12 @@ pub trait Sessions: Send + Sync {
     fn me(&self, token: &str) -> Option<Me>;
 }
 
+/// Resolves a display name to the god its account accepted (the server implements it over the accounts store and the
+/// media layer). `None`: no account holds the name, or it accepted no god yet.
+pub trait Gods: Send + Sync {
+    fn god(&self, name: &str) -> Option<crate::query::AccountGod>;
+}
+
 #[derive(Clone, Default)]
 pub struct HttpConfig {
     /// When set, every request needs `?key=<this>`.
@@ -53,13 +59,15 @@ pub struct HttpConfig {
     /// The engine's admin token (`register`).
     pub admin_token: Option<String>,
     pub sessions: Option<Arc<dyn Sessions>>,
+    /// The accounts' god forms (`figures?name=` adds `god`).
+    pub gods: Option<Arc<dyn Gods>>,
 }
 
 impl HttpConfig {
     /// `FN7_ASSETS_KEY`, else `FN7_PROFILE_KEY` (empty = no app-level check; the tunnel's gate still applies).
     pub fn from_env(env: impl Fn(&str) -> Option<String>) -> Self {
         let key = env("FN7_ASSETS_KEY").filter(|k| !k.trim().is_empty()).or_else(|| env("FN7_PROFILE_KEY").filter(|k| !k.trim().is_empty()));
-        Self { key, admin_token: None, sessions: None }
+        Self { key, admin_token: None, sessions: None, gods: None }
     }
 }
 
@@ -234,7 +242,17 @@ async fn figures(State(app): State<App>, Query(q): Query<Q>) -> Response {
         return r;
     }
     let (name, kind) = (nonempty(&q.name), nonempty(&q.subject_kind));
-    answer(&app, move |r| r.figures(name.as_deref(), kind.as_deref()).map(Some)).await
+    let gods = app.cfg.gods.clone();
+    answer(&app, move |r| {
+        let mut v = r.figures(name.as_deref(), kind.as_deref())?;
+        // The god at the seat of that name: the account's accepted god form, else the house's marble god, else null.
+        if let Some(n) = name.as_deref() {
+            let account = gods.as_ref().and_then(|g| g.god(n));
+            v["god"] = r.god_figure(n, account.as_ref())?;
+        }
+        Ok(Some(v))
+    })
+    .await
 }
 
 async fn costs(State(app): State<App>, Query(q): Query<Q>) -> Response {
