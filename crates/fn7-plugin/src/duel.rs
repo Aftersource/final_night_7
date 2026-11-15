@@ -712,6 +712,10 @@ pub struct Bout {
     pub panels: Vec<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cycle: Option<crate::panel::Cycle>,
+    /// Schema 12 ([`crate::moves`]): a line's words pick its move class and its clip (`duel.blow.move`), and the
+    /// panels fill idle time with steps and shuffles.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub moves: bool,
     /// Schema 12 ([`crate::duel_ai`]): its AI fighters type a line in every input window: the scripts not yet entered.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ai: Option<crate::duel_ai::Plan>,
@@ -723,13 +727,14 @@ impl Bout {
         let flow = crate::choreo::Flow::new(&duel.level);
         Bout { duel, hp, n: 0, last_ms: [None; 2], last_seq: [None; 2], said: [vec![], vec![]], log: vec![], strikes: vec![],
                ko: None, typed: 0, lines: vec![], flow, invoked: [0; 2], applied: [0.0; 2], paid: [0; 2], opened: false, delivered_seq: 0,
-               blows: vec![], full: false, pauses: vec![], scene: None, panels: vec![], cycle: None, ai: None }
+               blows: vec![], full: false, pauses: vec![], scene: None, panels: vec![], cycle: None, moves: false, ai: None }
     }
 
     /// [`Bout::new`] in `w`'s rules: a schema-8 state keeps the duel's whole timeline.
     pub fn new_in(w: &World, duel: Duel) -> Bout {
         let mut b = Bout::new(duel);
         b.full = w.resume_rules();
+        b.moves = w.ai_duel_rules();
         crate::panel::open(&mut b, w);
         b
     }
@@ -805,8 +810,14 @@ impl Bout {
         // The formal model: the line's move class, gated by range, bolts and armies; the situation's modifier.
         use crate::choreo::{self, MoveClass};
         let flow = self.flow.clone();
-        let asked = choreo::classify(text);
-        let class = choreo::effective(asked, flow.range, me.bolts > self.invoked[side], me.army);
+        // Schema 12: the line's words pick the class (typos and short commands included) and the clip.
+        let read = if self.moves { crate::moves::read(text) } else { None };
+        let (has_bolt, has_army) = (me.bolts > self.invoked[side], me.army);
+        let class = if self.moves {
+            crate::moves::effective(read.as_ref().map(|r| r.class).unwrap_or_else(|| choreo::classify(text)), flow.range, has_bolt, has_army)
+        } else {
+            choreo::effective(choreo::classify(text), flow.range, has_bolt, has_army)
+        };
         let situ = choreo::situation(&flow, side);
         let modifier = wit + health + gear + follow + home + situ - handicap;
         let dc = 10 + self.duel.night as i32 + foe.wardrobe as i32 / 2;
@@ -843,6 +854,13 @@ impl Bout {
                 "ko": self.ko.is_some(), "auto": auto, "anim": anim, "choreo": choreo });
         if handicap != 0 {
             ev["modifiers"]["handicap"] = (-handicap).into();
+        }
+        if self.moves {
+            let last = self.last_clip(side);
+            let mut r = Rng::derive(self.duel.seed, &[PHRASE_SALT, hash_str(&self.duel.id), hash_str(text), self.n as u64, self.said[side].len() as u64, side as u64, 7]);
+            let clip = crate::moves::clip(read.as_ref(), class, last.as_deref(), &mut r);
+            ev["move"] = json!({ "clip": clip, "word": read.as_ref().map(|x| x.word), "setup": read.as_ref().map(|x| x.setup.clone()).unwrap_or_default(),
+                                 "path": read.as_ref().filter(|x| x.leap && x.class == class).map(|_| "leap") });
         }
         ev
     }
@@ -946,6 +964,15 @@ impl Bout {
         self.log.push(out.clone());
         self.keep(&out);
         Some(out)
+    }
+
+    /// The clip `side` played for its last move (schema 12: the next one of the same list differs).
+    fn last_clip(&self, side: usize) -> Option<String> {
+        let who = json!(Ref::Demigod(self.duel.f[side].id));
+        self.blows.iter().rev().find_map(|ev| {
+            let own = if ev["counter"]["by"] == who { &ev["counter"] } else if ev["by"] == who { ev } else { return None };
+            own["move"]["clip"].as_str().map(str::to_string)
+        })
     }
 
     /// A penalty's choreography: its author stumbles, the other waits; the state is unchanged but its author is off
@@ -1069,10 +1096,19 @@ pub fn check_challenge(w: &World, seat: u8, c: &ChallengeOrder, beat: u32, st: &
     if bouts.iter().any(|b| b.ko.is_none() && b.duel.f.iter().any(|f| f.id == me.id || f.id == foe.id)) {
         return Err("busy".into());
     }
+    // Schema 12: a player fights one duel at a time (it can only type in one).
+    if w.ai_duel_rules() && st.duel_one_per_player && player_busy(w, bouts, &[me.id, foe.id]) {
+        return Err("busy:player".into());
+    }
     if on_cooldown(w, me.id, beat, st) {
         return Err("cooldown".into());
     }
     Ok(())
+}
+
+/// Schema 12 (`duel_one_per_player`): is the player of any of `who` already in a duel under way (with any demigod)?
+fn player_busy(w: &World, bouts: &[Bout], who: &[DemigodId]) -> bool {
+    bouts.iter().filter(|b| b.ko.is_none()).flat_map(|b| b.duel.f.iter()).any(|f| who.iter().any(|d| w.same_player(f.id, *d)))
 }
 
 /// The built-in AI's challenges this beat (decided from the state at the round's start; recomputed identically at
@@ -1086,7 +1122,12 @@ pub fn ai_challenges(w: &World, beat: u32, st: &Settings) -> Vec<AiChallenge> {
     let far = (st.duel_ai_reach_km as f64).max(reach);
     let fighting: Vec<DemigodId> = open_bouts(w).iter().flat_map(|b| b.duel.f.iter().map(|f| f.id)).collect();
     let mut out: Vec<AiChallenge> = vec![];
-    let busy = |out: &[AiChallenge], d: DemigodId| fighting.contains(&d) || out.iter().any(|x| x.a == d || x.b == d);
+    // Schema 12: a player with a demigod in a duel (or about to be in one) is busy with all its demigods.
+    let per_player = w.ai_duel_rules() && st.duel_one_per_player;
+    let busy = |out: &[AiChallenge], d: DemigodId| {
+        let same = |x: DemigodId| x == d || (per_player && w.same_player(x, d));
+        fighting.iter().any(|x| same(*x)) || out.iter().any(|x| same(x.a) || same(x.b))
+    };
     for d in w.alive_demigods() {
         if crate::table::controller(w, d) != "ai" || busy(&out, d.id) {
             continue;
@@ -1246,7 +1287,10 @@ fn find<'a>(bouts: &'a mut [Bout], w: &World, seat: u8, b: &BlowOrder) -> Result
     }
     let bout = bouts.iter_mut().find(|x| x.duel.id == b.duel_id).ok_or("no_duel")?;
     let side = bout.duel.side_of(seat).ok_or("not_yours")?;
-    if bout.ko.is_some() || bout.past_deadline(theatre_trace::now_ms()) {
+    // Schema 12: the first action past the deadline closes the duel (its outro and `challenge.end` are that action's
+    // event): such a line is taken, though it is no blow. After that the duel is over for lines.
+    let closing = bout.moves && bout.ko.is_none() && crate::panel::running(bout);
+    if bout.ko.is_some() || (bout.past_deadline(theatre_trace::now_ms()) && !closing) {
         return Err("duel_over".into());
     }
     if !w.demigods[bout.duel.f[side].id.ix()].alive {
@@ -1383,7 +1427,7 @@ pub fn on_instant_now(j: &crate::present::Journal, w: &World, seat: u8, a: &Acti
             also.remove(k)
         }
         // A line that came too late (the AI's line, entered first, ended the duel): what happened instead.
-        None if i.blow.is_some() && bout.ai.is_some() && !also.is_empty() => also.remove(0),
+        None if i.blow.is_some() && bout.moves && !also.is_empty() => also.remove(0),
         None => return None,
     };
     match (&i.challenge, &i.blow) {
@@ -1395,6 +1439,7 @@ pub fn on_instant_now(j: &crate::present::Journal, w: &World, seat: u8, a: &Acti
         Some("duel.scene") => "duel_scene",
         Some("duel.blow") => "duel_blow",
         Some("duel.typing_script") => "duel_typing_script",
+        Some("challenge.end") => "duel_end_live",
         _ => "duel_panel",
     };
     for p in &also {
@@ -1804,6 +1849,22 @@ pub fn end_json(p: &Pending, deed: &str) -> Value {
         v["panels_total"] = b.panels.len().into();
     }
     v
+}
+
+/// Schema 12: the `challenge.end` shown at once when a duel action closes the duel (a knockout's outro, or the
+/// first action stamped past the deadline): who won and the healths, `provisional: true`, no deed and no log yet.
+/// The next resolve applies the result and sends the full `challenge.end` (the same `duel_id`) as before.
+pub fn end_live_json(b: &Bout) -> Value {
+    let d = &b.duel;
+    let r = b.result();
+    let t = b.taken();
+    json!({ "event": "challenge.end", "duel_id": d.id, "provisional": true, "a": Ref::Demigod(d.f[0].id), "b": Ref::Demigod(d.f[1].id),
+            "a_name": d.f[0].name, "b_name": d.f[1].name,
+            "winner": r.map(|x| Ref::Demigod(d.f[x.0].id)), "loser": r.map(|x| Ref::Demigod(d.f[x.1].id)),
+            "ko": b.ko.is_some(), "reason": if b.ko.is_some() { "ko" } else { "deadline" },
+            "damage": { "a": n1(t[0]), "b": n1(t[1]) }, "hp": { "a": n1(b.hp[0]), "b": n1(b.hp[1]) },
+            "blows": b.n, "typed": b.typed, "deed": null, "at": d.at, "pos": d.at, "cell": d.cell, "level": d.level, "place": d.place,
+            "locked_beat": d.beat, "panels_total": b.panels.len() })
 }
 
 /// Record the told deeds: `duel.end` in the memory at the duel's hex, a tale for both duellists. Returns the public

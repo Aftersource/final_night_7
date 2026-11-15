@@ -48,6 +48,16 @@ pub const CLIPS: &[&str] = &[
     "evade_spin", "evade_stand", "grapple_throw_down", "ground_slam", "heavy_charged", "heavy_hammer", "idle_guard", "invoke",
     "jump_attack", "kick", "kneel", "lunge", "parry_back", "parry_high", "rise", "run", "shield_push", "stagger_back",
     "stagger_waist", "strike_side", "strike_slash", "taunt", "throw_shoulder", "victory", "walk",
+    // Schema 12: the new clips of the same rig (a client without one plays its fallback: [`CLIP_FALLBACKS`]).
+    "flying_kick", "roundhouse_kick", "high_kick", "leg_sweep", "elbow_strike", "uppercut", "jab", "punch_combo", "blade_spin", "axe_spin",
+    "spin_rise", "mage_cast", "dodge_roll_back", "knee_strike", "sword_judgment",
+];
+/// Schema 12: what a client without a new clip plays instead (`clip_fallbacks`).
+pub const CLIP_FALLBACKS: &[(&str, &str)] = &[
+    ("flying_kick", "kick"), ("roundhouse_kick", "kick"), ("high_kick", "kick"), ("leg_sweep", "kick"), ("elbow_strike", "strike_side"),
+    ("uppercut", "strike_side"), ("jab", "strike_side"), ("punch_combo", "combo_triple"), ("blade_spin", "strike_slash"),
+    ("axe_spin", "heavy_hammer"), ("spin_rise", "rise"), ("mage_cast", "invoke"), ("dodge_roll_back", "evade_roll"), ("knee_strike", "kick"),
+    ("sword_judgment", "heavy_charged"),
 ];
 /// The path vocabulary of `segs[].path`.
 pub const PATHS: &[&str] = &["dash", "leap", "flip", "knock", "vault", "wallrun", "wallkick", "mantle", "drop", "slide"];
@@ -297,6 +307,11 @@ pub fn advance(b: &mut Bout, w: &World, st: &Settings, now_ms: i64, mut tick: bo
         if now_ms > 0 {
             crate::duel_ai::enter_due(b, w, st, Some(now_ms));
         }
+        // Schema 12: the duel ends AT its deadline: the first stamp past it closes it (every panel left, the outro).
+        if b.moves && b.duel.deadline_ms > 0 && now_ms > b.duel.deadline_ms && running(b) {
+            finish(b, w, st, false);
+            break;
+        }
         let Some(c) = b.cycle.as_ref().filter(|c| !c.done) else { break };
         let due = now_ms >= c.closes_ms || (tick && now_ms + TICK_GRACE_MS >= c.closes_ms);
         if !due {
@@ -453,8 +468,13 @@ fn exchange(b: &mut Bout, st: &Settings, starts: i64, typing: bool) {
             continue; // more blows than a panel can stage: they still count (hp, range), unseen
         }
         let t0 = slot * k as i64;
-        let foot = ch["contacts"][0]["limb"].as_str().is_some_and(|l| l.contains("foot")) || cls == "strike" && s.ev["text"].as_str().is_some_and(|t| t.to_lowercase().contains("kick"));
-        let (mine, theirs) = stage(&mut r, &objects, &mut pos, me, cls, foot, result, dmg, down, c.range, slot);
+        let mv = &s.ev["move"];
+        let foot = match mv["clip"].as_str() {
+            // Schema 12: the clip the words picked says which limb.
+            Some(clip) => clip.contains("kick") || clip.contains("sweep") || clip.contains("knee"),
+            None => ch["contacts"][0]["limb"].as_str().is_some_and(|l| l.contains("foot")) || cls == "strike" && s.ev["text"].as_str().is_some_and(|t| t.to_lowercase().contains("kick")),
+        };
+        let (mine, theirs) = stage(&mut r, &objects, &mut pos, me, cls, foot, result, dmg, down, c.range, slot, mv);
         segs[me].extend(mine);
         segs[foe].extend(theirs);
         // The contact: on the foe when it lands, on the scenery or the air when it does not.
@@ -504,20 +524,37 @@ fn exchange(b: &mut Bout, st: &Settings, starts: i64, typing: bool) {
             if hex_dist(to, pos[foe]) >= 1 {
                 pos[s] = to;
             }
-            segs[s] = vec![json!({ "clip": "walk", "ms": play, "loop": true, "to": pos[s], "path": "dash", "face": "foe" })];
+            segs[s] = vec![json!({ "clip": "walk", "ms": if b.moves { play.min(1200) } else { play }, "loop": true, "to": pos[s], "path": "dash", "face": "foe" })];
         } else if segs[s].is_empty() {
             default[s] = "guard".into();
-            segs[s] = vec![json!({ "clip": "idle_guard", "ms": play, "loop": true, "face": "foe" })];
+            if !b.moves {
+                segs[s] = vec![json!({ "clip": "idle_guard", "ms": play, "loop": true, "face": "foe" })];
+            }
         } else {
             default[s] = "guard".into();
         }
     }
-    // Pad each track to the panel's length.
-    for track in segs.iter_mut() {
-        let used: i64 = track.iter().map(|x| x["ms"].as_i64().unwrap_or(0)).sum();
+    // Pad each track to the panel's length. (Schema 12: with steps around the foe, guard shuffles and feints of the
+    // feet, not only a held guard; a fighter knocked down gets up when there is time.)
+    for s in 0..2 {
+        let used: i64 = segs[s].iter().map(|x| x["ms"].as_i64().unwrap_or(0)).sum();
         if used < play {
-            let downed = track.last().is_some_and(|x| matches!(x["clip"].as_str(), Some("downed" | "defeat")));
-            track.push(json!({ "clip": if downed { "downed" } else { "idle_guard" }, "ms": play - used, "loop": !downed }));
+            let last = segs[s].last().and_then(|x| x["clip"].as_str()).unwrap_or("").to_string();
+            let downed = matches!(last.as_str(), "downed" | "defeat");
+            if !b.moves {
+                segs[s].push(json!({ "clip": if downed { "downed" } else { "idle_guard" }, "ms": play - used, "loop": !downed }));
+            } else if last == "defeat" || (downed && play - used < 1400) {
+                segs[s].push(json!({ "clip": "downed", "ms": play - used, "loop": false }));
+            } else {
+                let mut left = play - used;
+                if downed {
+                    segs[s].push(json!({ "clip": "downed", "ms": 500, "loop": false }));
+                    segs[s].push(json!({ "clip": if r.below(2) == 0 { "rise" } else { "spin_rise" }, "ms": 800 }));
+                    left -= 1300;
+                }
+                let more = filler(&mut r, &objects, &mut pos, s, left);
+                segs[s].extend(more);
+            }
         }
     }
     if let Some(last) = window.last() {
@@ -571,6 +608,42 @@ fn exchange(b: &mut Bout, st: &Settings, starts: i64, typing: bool) {
     note_scripts(b, scripts);
 }
 
+/// Schema 12: `ms` of idle time for fighter `s` as short chunks: a step to a neighbouring hex at the same distance
+/// from the foe (circling), a guard shuffle, a feint of the feet, a held guard. Moves `pos[s]`; the chunks sum to `ms`.
+fn filler(r: &mut Rng, objects: &[Value], pos: &mut [[i32; 2]; 2], s: usize, ms: i64) -> Vec<Value> {
+    let mut out = vec![];
+    let mut left = ms;
+    let mut last = usize::MAX;
+    while left > 0 {
+        let mut take = if left < 1300 { left } else { 700 + r.below(500) as i64 };
+        if left - take < 500 {
+            take = left;
+        }
+        left -= take;
+        let foe = pos[1 - s];
+        let steps: Vec<[i32; 2]> = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]]
+            .iter()
+            .map(|d| [pos[s][0] + d[0], pos[s][1] + d[1]])
+            .filter(|h| hex_dist(*h, foe) == hex_dist(pos[s], foe).max(1) && hex_dist(*h, [0, 0]) <= 5 && !objects.iter().any(|o| obj_at(o) == *h))
+            .collect();
+        let mut kind = r.below(5) as usize;
+        if kind == last || (kind <= 1 && (steps.is_empty() || take < 600)) {
+            kind = 2 + (kind + 1) % 3;
+        }
+        last = kind;
+        out.push(match kind {
+            0 | 1 => {
+                pos[s] = steps[r.below(steps.len() as u64) as usize];
+                json!({ "clip": "walk", "ms": take, "loop": true, "to": pos[s], "path": "dash", "face": "foe" })
+            }
+            2 => json!({ "clip": "idle_guard", "ms": take, "loop": true, "face": "foe" }),
+            3 => json!({ "clip": "evade_stand", "ms": take, "face": "foe" }),
+            _ => json!({ "clip": "block", "ms": take, "face": "foe" }),
+        });
+    }
+    out
+}
+
 /// The nearest object within `reach` hexes of `at` that affords one of `paths` (any object when `paths` is empty).
 fn nearest<'a>(objects: &'a [Value], at: [i32; 2], reach: i32, paths: &[&str]) -> Option<&'a Value> {
     objects
@@ -594,28 +667,44 @@ fn obj_at(o: &Value) -> [i32; 2] {
 /// objects give the evasions their vaults, slides and wall kicks.
 #[allow(clippy::too_many_arguments)]
 fn stage(r: &mut Rng, objects: &[Value], pos: &mut [[i32; 2]; 2], me: usize, cls: &str, foot: bool, result: &str, dmg: f64, down: bool,
-         range_after: Range, ms: i64) -> (Vec<Value>, Vec<Value>) {
+         range_after: Range, ms: i64, mv: &Value) -> (Vec<Value>, Vec<Value>) {
     let foe = 1 - me;
     let mut mine: Vec<Value> = vec![];
     let mut theirs: Vec<Value> = vec![];
+    // Schema 12 (`duel.blow.move`): the clip the line's words picked, its setups and its leap.
+    let word_clip = mv["clip"].as_str();
+    let leaps = mv["path"] == "leap";
     let want = sep(range_after);
     let dir = if pos[me][0] <= pos[foe][0] { -1 } else { 1 }; // my side of the foe along q
     let spot = |p: [i32; 2], k: i32| [p[0] + dir * k, p[1]];
     // The run-in (or the step back): end the slot at the range the rules left them at.
     let mut left = ms;
+    // The setups first ("plead! jump": the kneel, then the jump): a short beat each.
+    for c in mv["setup"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+        let t = (ms / 5).clamp(250, 450);
+        mine.push(json!({ "clip": c, "ms": t, "face": "foe" }));
+        left -= t;
+    }
+    let mut leapt = false;
     let moving = hex_dist(pos[me], pos[foe]) != want && !matches!(cls, "invoke" | "command" | "taunt" | "guard" | "parry");
     if moving {
         let to = spot(pos[foe], want);
         let run = (ms * 3 / 10).max(300);
         let leap = cls == "heavy" && hex_dist(pos[me], pos[foe]) > want + 1;
-        if leap {
+        if leaps {
+            // The words asked for a leap: the whole move is the jump across.
+            mine.push(json!({ "clip": word_clip.unwrap_or("jump_attack"), "ms": left, "to": to, "path": "leap", "h": 1.6, "face": "foe" }));
+            leapt = true;
+        } else if leap {
             mine.push(json!({ "clip": "jump_attack", "ms": run, "to": to, "path": "leap", "h": 1.6, "face": "foe" }));
         } else {
             let clip = if matches!(cls, "retreat") { "walk" } else { "run" };
             mine.push(json!({ "clip": clip, "ms": run, "loop": true, "to": to, "path": "dash", "face": "foe" }));
         }
         pos[me] = to;
-        left -= run;
+        if !leapt {
+            left -= run;
+        }
     }
     let pick = |r: &mut Rng, xs: &[&'static str]| xs[r.below(xs.len() as u64) as usize];
     let atk = match cls {
@@ -636,7 +725,13 @@ fn stage(r: &mut Rng, objects: &[Value], pos: &mut [[i32; 2]; 2], me: usize, cls
         _ => "stagger_waist", // a penalty: the words knotted into string
     };
     let crit = dmg >= 3.0 && cls == "strike";
-    mine.push(json!({ "clip": if crit { "combo_triple" } else { atk }, "ms": left, "face": "foe" }));
+    match word_clip {
+        _ if leapt => {}
+        // A leap from where it stands: up and down on its own hex.
+        Some(c) if leaps && !moving => mine.push(json!({ "clip": c, "ms": left, "to": pos[me], "path": "leap", "h": 1.2, "face": "foe" })),
+        Some(c) => mine.push(json!({ "clip": c, "ms": left, "face": "foe" })),
+        None => mine.push(json!({ "clip": if crit { "combo_triple" } else { atk }, "ms": left, "face": "foe" })),
+    }
     // A move that attacks nobody (a guard, a step, a taunt, a failed dodge): the other just holds.
     if !matches!(cls, "strike" | "heavy" | "grapple" | "throw" | "invoke" | "command" | "feint") {
         theirs.push(json!({ "clip": "idle_guard", "ms": ms, "loop": true, "face": "foe" }));
@@ -658,6 +753,15 @@ fn stage(r: &mut Rng, objects: &[Value], pos: &mut [[i32; 2]; 2], me: usize, cls
             let to = away(pos[foe], 2);
             theirs.push(json!({ "clip": "airborne_hit", "ms": react / 2, "to": to, "path": "knock", "h": 2.2, "spin": true }));
             theirs.push(json!({ "clip": "downed", "ms": react - react / 2 }));
+            pos[foe] = to;
+        }
+        // Schema 12: a hard hit lifts it off its feet and it gets up again.
+        "landed" if word_clip.is_some() && dmg >= 3.0 && react >= 900 => {
+            let to = away(pos[foe], 1);
+            let (fly, lie) = (react * 4 / 10, react * 25 / 100);
+            theirs.push(json!({ "clip": "airborne_hit", "ms": fly, "to": to, "path": "knock", "h": 1.0, "spin": true }));
+            theirs.push(json!({ "clip": "downed", "ms": lie }));
+            theirs.push(json!({ "clip": if r.below(2) == 0 { "rise" } else { "spin_rise" }, "ms": react - fly - lie }));
             pos[foe] = to;
         }
         "landed" if dmg >= 2.0 => {
@@ -708,7 +812,7 @@ fn stage(r: &mut Rng, objects: &[Value], pos: &mut [[i32; 2]; 2], me: usize, cls
 /// since `blows_from` (`duel.blow` with `ai: true`, each before the panel that stages it; one not staged yet comes
 /// last) and, after each panel, the typing scripts of the window it opens (`duel.typing_script`).
 pub fn extras(b: &Bout, scene_too: bool, panels_from: usize, blows_from: usize) -> Vec<Value> {
-    if b.ai.is_none() {
+    if !b.moves {
         return since(b, scene_too, panels_from);
     }
     let mut out = vec![];
@@ -728,6 +832,10 @@ pub fn extras(b: &Bout, scene_too: bool, panels_from: usize, blows_from: usize) 
         }
     }
     out.extend(blows.into_iter().cloned());
+    // The outro came out with this action: the duel is closed, here is who won (the resolve sends the deed).
+    if b.panels.iter().skip(panels_from).any(|p| p["kind"] == "outro") {
+        out.push(crate::duel::end_live_json(b));
+    }
     out
 }
 

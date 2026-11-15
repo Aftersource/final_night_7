@@ -268,6 +268,9 @@ pub struct Settings {
     /// breath"); without engine holds the world keeps beating, lines after it are refused, and the duel ends at the
     /// first resolve past it (at most `ceil(duel_deadline_ms / flow_ms)` resolves from its lock).
     pub duel_deadline_ms: u32,
+    /// Schema 12: a player fights one duel at a time: while one of its demigods is in an open duel, a challenge by
+    /// or to any of its demigods is refused (`busy:player`) and the AI's chooser skips it.
+    pub duel_one_per_player: bool,
     /// Schema 12 (AI duellists type): the chance an AI fighter types a line of its own in an input window of a duel
     /// with a clock (1 = every window; 0 = off: it only counters, as in 0.8.2).
     pub duel_ai_lines_per_window: f32,
@@ -402,6 +405,7 @@ impl Default for Settings {
             duel_min_gap_ms: 500,
             duel_followup_ms: 1500,
             duel_deadline_ms: 30_000,
+            duel_one_per_player: true,
             duel_ai_lines_per_window: 1.0,
             duel_ai_aggression: 0.6,
             duel_ai_handicap: 6,
@@ -614,6 +618,7 @@ impl Settings {
             duel_min_gap_ms: int("duel_min_gap_ms", d.duel_min_gap_ms, 0, 5000)?,
             duel_followup_ms: int("duel_followup_ms", d.duel_followup_ms, 0, 10_000)?,
             duel_deadline_ms: int("duel_deadline_ms", d.duel_deadline_ms, 1000, 600_000)?,
+            duel_one_per_player: boolean("duel_one_per_player", d.duel_one_per_player)?,
             duel_ai_lines_per_window: num("duel_ai_lines_per_window", d.duel_ai_lines_per_window, 0.0, 1.0)?,
             duel_ai_aggression: num("duel_ai_aggression", d.duel_ai_aggression, 0.0, 1.0)?,
             duel_ai_handicap: int("duel_ai_handicap", d.duel_ai_handicap, 0, 10)?,
@@ -686,6 +691,9 @@ impl Settings {
         // AI duellists type (schema 12): settings recorded before it have no `duel_ai_lines_per_window`: off.
         if v.get("duel_ai_lines_per_window").is_none() {
             s.duel_ai_lines_per_window = 0.0;
+        }
+        if v.get("duel_one_per_player").is_none() {
+            s.duel_one_per_player = false;
         }
         // Settings recorded before flow/slow (schema 2) had only `beat_ms`.
         if v.get("flow_ms").is_none() {

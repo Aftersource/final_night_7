@@ -36,7 +36,7 @@ use fn7_model::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::choreo::{self, Flow, MoveClass, Range, Stance};
+use crate::choreo::{Flow, MoveClass, Range, Stance};
 use crate::duel::{Bout, Duel};
 use crate::settings::Settings;
 
@@ -153,7 +153,7 @@ fn last_move(b: &Bout, foe: usize) -> Option<(MoveClass, bool)> {
 
 /// The AI's move for a window, by rules: what the range allows, what the opponent's stance and set defence invite,
 /// how shaken it is itself, and `aggression` (0 = cautious, 1 = it only swings). Seeded by `r`.
-pub fn choose(f: &Flow, me: usize, foe_last: Option<MoveClass>, hurt: bool, aggression: f32, r: &mut Rng) -> MoveClass {
+pub fn choose(f: &Flow, me: usize, foe_last: Option<MoveClass>, hurt: bool, army: bool, aggression: f32, r: &mut Rng) -> MoveClass {
     let foe = 1 - me;
     let a = aggression.clamp(0.0, 1.0) as f64;
     let (x, y) = (r.f64(), r.f64());
@@ -192,7 +192,10 @@ pub fn choose(f: &Flow, me: usize, foe_last: Option<MoveClass>, hurt: bool, aggr
         };
     }
     if f.range == Range::Close && y < 0.06 + 0.12 * a {
-        MoveClass::Grapple
+        // Take hold, or (as often) throw outright.
+        if x < 0.5 { MoveClass::Grapple } else { MoveClass::Throw }
+    } else if army && y > 0.9 {
+        MoveClass::Command
     } else if f.initiative != me && y < 0.22 {
         MoveClass::Taunt
     } else if y < 0.22 + 0.28 * a {
@@ -232,8 +235,8 @@ fn cores(class: MoveClass) -> &'static [&'static str] {
         MoveClass::Grapple => &["I grab your arm, {foe}", "I seize your wrist hard", "I clinch and hang on", "I grab you by the collar"],
         MoveClass::Throw => &["I throw you into {obj}", "I hurl you at {obj}", "I toss you on your back", "I suplex you onto {obj}",
                               "I throw you over my hip"],
-        MoveClass::Taunt | MoveClass::Invoke | MoveClass::Command => &["I yawn at you, {foe}", "I laugh at your stance", "I mock your footwork",
-                                                                       "I sneer at your {part}"],
+        MoveClass::Command => &["My legion, bury you now", "My faithful, swarm {foe}", "My army answers me, {foe}", "Soldiers, take the {leg}"],
+        MoveClass::Taunt | MoveClass::Invoke => &["I yawn at you, {foe}", "I laugh at your stance", "I mock your footwork", "I sneer at your {part}"],
     }
 }
 
@@ -250,7 +253,8 @@ fn fallback(class: MoveClass) -> &'static str {
         MoveClass::Retreat => "I step back two paces.",
         MoveClass::Grapple => "I grab you by the arm.",
         MoveClass::Throw => "I throw you in the mud",
-        MoveClass::Taunt | MoveClass::Invoke | MoveClass::Command => "I yawn. Is that all?",
+        MoveClass::Command => "My army, onto you now.",
+        MoveClass::Taunt | MoveClass::Invoke => "I yawn. Is that all?",
     }
 }
 
@@ -297,7 +301,7 @@ pub struct LineCtx<'a> {
 
 fn fits(text: &str, class: MoveClass, cap: usize) -> bool {
     let n = text.chars().count();
-    (MIN_CHARS..=cap.min(MAX_CHARS)).contains(&n) && choreo::classify(text) == class
+    (MIN_CHARS..=cap.min(MAX_CHARS)).contains(&n) && crate::moves::classify(text) == class
 }
 
 /// >>> LLM HOOK <<<
@@ -395,7 +399,7 @@ fn plan(b: &Bout, st: &Settings, window: u32, opens_ms: i64) -> Vec<Script> {
         }
         let foe_last = last_move(b, 1 - side);
         let hurt = b.hp[side] <= 3.0;
-        let class = choose(&b.flow, side, foe_last.map(|x| x.0), hurt, st.duel_ai_aggression, &mut r);
+        let class = choose(&b.flow, side, foe_last.map(|x| x.0), hurt, me.army, st.duel_ai_aggression, &mut r);
         let (cps, key_ms) = typist(d.seed, me.id);
         let ctx = LineCtx { duel: d, side, class, flow: &b.flow, objects: objects.clone(), foe_last, cap: cap(key_ms) };
         let text = line(&ctx, &mut r);
@@ -480,8 +484,8 @@ pub fn pending_json(b: &Bout) -> Vec<Value> {
 mod tests {
     use super::*;
 
-    const ALL: [MoveClass; 11] = [MoveClass::Strike, MoveClass::Heavy, MoveClass::Guard, MoveClass::Parry, MoveClass::Feint, MoveClass::Evade,
-                                  MoveClass::CloseIn, MoveClass::Retreat, MoveClass::Grapple, MoveClass::Throw, MoveClass::Taunt];
+    const ALL: [MoveClass; 12] = [MoveClass::Strike, MoveClass::Heavy, MoveClass::Guard, MoveClass::Parry, MoveClass::Feint, MoveClass::Evade,
+                                  MoveClass::CloseIn, MoveClass::Retreat, MoveClass::Grapple, MoveClass::Throw, MoveClass::Taunt, MoveClass::Command];
 
     #[test]
     fn every_line_is_a_sentence_of_its_class_that_fits() {
@@ -494,7 +498,7 @@ mod tests {
             for core in cores(class) {
                 for (part, head, leg) in [("temple", "temple", "ankle"), ("ego", "ear", "knee"), ("ribs", "jaw", "shin"), ("chin", "nose", "shin")] {
                     let filled = core.replace("{part}", part).replace("{head}", head).replace("{leg}", leg).replace("{obj}", "the boulder").replace("{foe}", "Brix");
-                    assert!(!filled.contains('{') && choreo::classify(&filled) == class, "{filled}");
+                    assert!(!filled.contains('{') && crate::moves::classify(&filled) == class, "{filled}");
                 }
             }
             for seed in 0..200u64 {
@@ -502,7 +506,7 @@ mod tests {
                     let last = [None, Some((MoveClass::Heavy, false)), Some((MoveClass::Strike, true)), Some((MoveClass::Parry, false))][(seed % 4) as usize];
                     let ctx = LineCtx { duel: &d, side: (seed % 2) as usize, class, flow: &flow, objects, foe_last: last, cap };
                     let t = rules_line(&ctx, &mut Rng::derive(seed, &[1]));
-                    assert!(fits(&t, class, cap), "{class:?} cap {cap}: {t:?} ({} chars) is {:?}", t.chars().count(), choreo::classify(&t));
+                    assert!(fits(&t, class, cap), "{class:?} cap {cap}: {t:?} ({} chars) is {:?}", t.chars().count(), crate::moves::classify(&t));
                     assert_eq!(t, rules_line(&ctx, &mut Rng::derive(seed, &[1])), "seeded");
                     assert!(t.chars().count() <= crate::actions::MAX_DUEL_CHARS);
                 }
@@ -529,24 +533,24 @@ mod tests {
         let mut f = Flow::new("regions");
         let mut r = Rng::new(5);
         f.range = Range::Far;
-        assert_eq!(choose(&f, 1, None, false, 0.6, &mut r), MoveClass::CloseIn);
+        assert_eq!(choose(&f, 1, None, false, false, 0.6, &mut r), MoveClass::CloseIn);
         f.range = Range::Grapple;
-        assert!((0..50).all(|_| matches!(choose(&f, 1, None, false, 0.6, &mut r), MoveClass::Throw | MoveClass::Strike)));
+        assert!((0..50).all(|_| matches!(choose(&f, 1, None, false, false, 0.6, &mut r), MoveClass::Throw | MoveClass::Strike)));
         f.range = Range::Mid;
         f.stance[0] = Stance::Committed;
-        assert!((0..50).all(|_| matches!(choose(&f, 1, None, false, 0.6, &mut r), MoveClass::Heavy | MoveClass::Strike)), "an opening is hit");
+        assert!((0..50).all(|_| matches!(choose(&f, 1, None, false, false, 0.6, &mut r), MoveClass::Heavy | MoveClass::Strike)), "an opening is hit");
         f.stance[0] = Stance::Guarding;
         f.set[0] = Some(MoveClass::Guard);
-        assert!((0..50).all(|_| matches!(choose(&f, 1, None, false, 0.6, &mut r), MoveClass::Heavy | MoveClass::Feint)), "a guard is broken or wasted");
+        assert!((0..50).all(|_| matches!(choose(&f, 1, None, false, false, 0.6, &mut r), MoveClass::Heavy | MoveClass::Feint)), "a guard is broken or wasted");
         // Aggression: it swings more and defends less.
         let f = Flow::new("regions");
         let share = |a: f32| {
             let mut r = Rng::new(11);
-            (0..2000).filter(|_| matches!(choose(&f, 1, Some(MoveClass::Strike), true, a, &mut r), MoveClass::Strike | MoveClass::Heavy | MoveClass::Grapple)).count()
+            (0..2000).filter(|_| matches!(choose(&f, 1, Some(MoveClass::Strike), true, false, a, &mut r), MoveClass::Strike | MoveClass::Heavy | MoveClass::Grapple)).count()
         };
         assert!(share(0.0) < share(0.6) && share(0.6) < share(1.0), "{} {} {}", share(0.0), share(0.6), share(1.0));
         let mut r = Rng::new(3);
-        assert!((0..500).all(|_| matches!(choose(&f, 1, None, true, 0.0, &mut r), MoveClass::Strike | MoveClass::Heavy)), "an idle opponent is pressed");
-        assert!((0..500).all(|_| !matches!(choose(&f, 1, Some(MoveClass::Strike), true, 1.0, &mut r), MoveClass::Guard | MoveClass::Parry | MoveClass::Evade)));
+        assert!((0..500).all(|_| matches!(choose(&f, 1, None, true, false, 0.0, &mut r), MoveClass::Strike | MoveClass::Heavy)), "an idle opponent is pressed");
+        assert!((0..500).all(|_| !matches!(choose(&f, 1, Some(MoveClass::Strike), true, false, 1.0, &mut r), MoveClass::Guard | MoveClass::Parry | MoveClass::Evade)));
     }
 }

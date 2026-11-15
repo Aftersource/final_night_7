@@ -46,6 +46,7 @@ pub mod table;
 pub mod testkit;
 pub mod typing;
 pub mod duel_ai;
+pub mod moves;
 pub mod visual;
 pub mod wills;
 pub mod world;
@@ -982,3 +983,5 @@ mod typing_tests;
 mod look_tests;
 #[cfg(test)]
 mod duel_ai_tests;
+#[cfg(test)]
+mod moves_tests;
