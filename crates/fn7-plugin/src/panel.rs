@@ -30,6 +30,7 @@ use serde_json::{json, Value};
 
 use crate::choreo::Range;
 use crate::duel::{Bout, Duel};
+use crate::settings::Settings;
 
 /// The render lead: a panel's input closes this long before it ends.
 pub const LEAD_MS: i64 = 700;
@@ -231,21 +232,49 @@ pub fn open(b: &mut Bout, w: &World) {
     let t0 = b.duel.started_ms;
     let pos = starts(b.flow.range);
     let hp = [n1(b.hp[0]), n1(b.hp[1])];
-    b.cycle = Some(Cycle { closes_ms: t0 + INTRO_MS - LEAD_MS, next_ms: t0 + INTRO_MS, fed: 0, pos, hp,
+    // Schema 12: its AI fighters type their first lines in window 0, and the intro plays as long as they need.
+    let st = crate::world::settings(w);
+    let mut play = INTRO_MS;
+    let mut scripts = vec![];
+    if crate::duel_ai::enabled(w, &st, &b.duel) {
+        b.ai = Some(Default::default());
+        (scripts, play) = crate::duel_ai::open_window(b, &st, 0, t0, t0, INTRO_MS);
+    }
+    b.cycle = Some(Cycle { closes_ms: t0 + play - LEAD_MS, next_ms: t0 + play, fed: 0, pos, hp,
                            range: b.flow.range, initiative: b.flow.initiative, done: false });
+    let typing = b.ai.is_some();
+    let id = b.duel.id.clone();
     let (a, bb) = (&b.duel.f[0].name, &b.duel.f[1].name);
-    let seg = |clip: &str| json!([{ "clip": clip, "ms": INTRO_MS, "loop": clip == "idle_guard" }]);
-    let fighter = |s: usize, clip: &str| json!({ "line": null, "line_masked_len": 0, "lines": 0, "move_class": null, "default": null,
-                                                  "auto": false, "segs": seg(clip), "at": pos[s] });
-    b.panels.push(json!({
+    let seg = |clip: &str| json!([{ "clip": clip, "ms": play, "loop": clip == "idle_guard" }]);
+    let fighter = |s: usize, clip: &str| {
+        let mut f = json!({ "line": null, "line_masked_len": 0, "lines": 0, "move_class": null, "default": null,
+                            "auto": false, "segs": seg(clip), "at": pos[s] });
+        if typing {
+            f["typing_script"] = scripts.iter().find(|x| x.side == s).map(|x| x.json(&id)).unwrap_or(Value::Null);
+        }
+        f
+    };
+    let intro = json!({
         "event": "duel.panel", "duel_id": b.duel.id, "n": 0, "kind": "intro",
-        "starts_at_ms": t0, "play_ms": INTRO_MS, "input_opens_ms": t0, "input_closes_ms": t0 + INTRO_MS - LEAD_MS,
+        "starts_at_ms": t0, "play_ms": play, "input_opens_ms": t0, "input_closes_ms": t0 + play - LEAD_MS,
         "caption": format!("{a} and {bb}: two wills, one hex. The box opens."), "shot": "wide",
         "a": fighter(0, if b.flow.initiative == 0 { "taunt" } else { "idle_guard" }),
         "b": fighter(1, if b.flow.initiative == 1 { "taunt" } else { "idle_guard" }),
         "contacts": [], "blows": [], "flip": false,
         "hp": { "a": hp[0], "b": hp[1] }, "range": b.flow.range, "initiative": side_name(b.flow.initiative),
-    }));
+    });
+    b.panels.push(intro);
+    note_scripts(b, scripts);
+}
+
+/// The scripts of the window that just opened are now being typed.
+fn note_scripts(b: &mut Bout, scripts: Vec<crate::duel_ai::Script>) {
+    if let Some(p) = b.ai.as_mut() {
+        for s in &scripts {
+            p.window[s.side.min(1)] = Some(s.window);
+        }
+        p.pending = scripts;
+    }
 }
 
 fn n1(x: f32) -> f64 {
@@ -259,24 +288,32 @@ pub fn running(b: &Bout) -> bool {
 
 /// Emit every panel that is due at `now_ms`: each window whose close has passed (`tick`: a duellist's tick may close
 /// the current one up to [`TICK_GRACE_MS`] early). Returns how many panels were added.
-pub fn advance(b: &mut Bout, now_ms: i64, mut tick: bool) -> usize {
+///
+/// Schema 12: in the same pass, in time order, every AI line whose Enter (`ends_at_ms`) has come by `now_ms` becomes
+/// a blow ([`crate::duel_ai::enter_due`]); a window that closes enters what is left of its own.
+pub fn advance(b: &mut Bout, w: &World, st: &Settings, now_ms: i64, mut tick: bool) -> usize {
     let before = b.panels.len();
-    while let Some(c) = b.cycle.as_ref().filter(|c| !c.done) {
+    loop {
+        if now_ms > 0 {
+            crate::duel_ai::enter_due(b, w, st, Some(now_ms));
+        }
+        let Some(c) = b.cycle.as_ref().filter(|c| !c.done) else { break };
         let due = now_ms >= c.closes_ms || (tick && now_ms + TICK_GRACE_MS >= c.closes_ms);
         if !due {
             break;
         }
         tick = false;
-        next(b);
+        next(b, w, st, true);
     }
     b.panels.len() - before
 }
 
 /// The duel is over (the resolve ended it): every remaining panel, through the outro, whatever the clock says.
-pub fn finish(b: &mut Bout) -> usize {
+/// `typing` (schema 12, two AIs): the AI fighters keep typing and entering their lines in the windows left.
+pub fn finish(b: &mut Bout, w: &World, st: &Settings, typing: bool) -> usize {
     let before = b.panels.len();
     while running(b) {
-        next(b);
+        next(b, w, st, typing);
     }
     b.panels.len() - before
 }
@@ -287,9 +324,23 @@ pub fn shift(b: &mut Bout, ms: i64) {
         c.closes_ms += ms;
         c.next_ms += ms;
     }
+    // Schema 12: so do the lines being typed.
+    if let Some(p) = b.ai.as_mut() {
+        for s in p.pending.iter_mut() {
+            s.starts_at_ms += ms;
+            s.ends_at_ms += ms;
+            s.input_closes_ms += ms;
+        }
+    }
 }
 
-fn next(b: &mut Bout) {
+fn next(b: &mut Bout, w: &World, st: &Settings, typing: bool) {
+    // Schema 12: the window closes: an AI line of it not entered yet is entered now (or dropped: the duel was ended).
+    if typing {
+        crate::duel_ai::enter_due(b, w, st, None);
+    } else {
+        crate::duel_ai::drop_pending(b);
+    }
     let Some(c) = b.cycle.clone() else { return };
     let starts = c.next_ms;
     let deadline = b.duel.deadline_ms;
@@ -301,7 +352,7 @@ fn next(b: &mut Bout) {
         outro(b, starts);
         return;
     }
-    exchange(b, starts);
+    exchange(b, st, starts, typing);
 }
 
 fn outro(b: &mut Bout, starts: i64) {
@@ -341,7 +392,7 @@ struct Strike<'a> {
     typed: bool,
 }
 
-fn exchange(b: &mut Bout, starts: i64) {
+fn exchange(b: &mut Bout, st: &Settings, starts: i64, typing: bool) {
     let Some(mut c) = b.cycle.clone() else { return };
     let n = b.panels.len();
     let window: Vec<Value> = b.blows[c.fed..].to_vec();
@@ -358,8 +409,19 @@ fn exchange(b: &mut Bout, starts: i64) {
     let mut r = Rng::derive(b.duel.seed, &[PANEL_SALT, hash_str(&b.duel.id), n as u64]);
     let objects: Vec<Value> = b.scene.as_ref().and_then(|s| s["objects"].as_array().cloned()).unwrap_or_default();
     let shown = strikes.len().min(3);
-    let play = if shown == 0 { IDLE_MS } else { (600 + 1000 * shown as i64).clamp(2400, 3600) };
-    let slot = if shown == 0 { play } else { play / shown as i64 };
+    let base = if shown == 0 { IDLE_MS } else { (600 + 1000 * shown as i64).clamp(2400, 3600) };
+    let slot = if shown == 0 { base } else { base / shown as i64 };
+    // Schema 12: the AI's lines for the window this panel opens, and the play time that fits them (the strikes are
+    // staged in `base`; the rest is guard). None after a knockout or when the slot reaches the deadline.
+    let deadline = b.duel.deadline_ms;
+    let opens = if c.closes_ms > 0 { c.closes_ms } else { starts };
+    let (scripts, play) = if typing && b.ko.is_none() && !(deadline > 0 && starts + base >= deadline) {
+        crate::duel_ai::open_window(b, st, n as u32, opens, starts, base)
+    } else {
+        (vec![], base)
+    };
+    let ai_types = b.ai.is_some();
+    let duel_id = b.duel.id.clone();
     let mut segs: [Vec<Value>; 2] = [vec![], vec![]];
     let mut contacts: Vec<Value> = vec![];
     let mut class: [Value; 2] = [Value::Null, Value::Null];
@@ -466,9 +528,13 @@ fn exchange(b: &mut Bout, starts: i64) {
     let line_of = |s: usize| strikes.iter().rev().find(|x| x.side == s && x.typed).and_then(|x| x.ev["text"].as_str());
     let fighter = |s: usize| {
         let line = line_of(s);
-        json!({ "line": line, "line_masked_len": line.map(|l| l.chars().count()).unwrap_or(0),
+        let mut f = json!({ "line": line, "line_masked_len": line.map(|l| l.chars().count()).unwrap_or(0),
                 "lines": strikes.iter().filter(|x| x.side == s && x.typed).count(), "move_class": class[s],
-                "default": default[s], "auto": strikes.iter().any(|x| x.side == s && !x.typed), "segs": segs[s], "at": pos[s] })
+                "default": default[s], "auto": strikes.iter().any(|x| x.side == s && !x.typed), "segs": segs[s], "at": pos[s] });
+        if ai_types {
+            f["typing_script"] = scripts.iter().find(|x| x.side == s).map(|x| x.json(&duel_id)).unwrap_or(Value::Null);
+        }
+        f
     };
     let idle = ["They circle. Nobody blinks.", "A breath. The hex holds still.", "Feet shift on the stone. Not yet."];
     let caption = match decisive {
@@ -486,23 +552,23 @@ fn exchange(b: &mut Bout, starts: i64) {
         },
     };
     // No input after a knockout, nor when the next slot starts at or past the deadline.
-    let deadline = b.duel.deadline_ms;
     let closed = ko.is_some() || (deadline > 0 && starts + play >= deadline);
     let closes = starts + play - LEAD_MS;
-    let opens = if c.closes_ms > 0 { c.closes_ms } else { starts };
     // (A knockout's outro comes with it: close 0 is always due.)
     c.closes_ms = if ko.is_some() { 0 } else if closed { starts + play } else { closes };
     c.next_ms = starts + play;
     let kind = if ko.is_some() { "ko" } else if shown == 0 { "idle" } else { "exchange" };
-    b.panels.push(json!({
+    let panel = json!({
         "event": "duel.panel", "duel_id": b.duel.id, "n": n, "kind": kind,
         "starts_at_ms": starts, "play_ms": play, "input_opens_ms": (!closed).then_some(opens), "input_closes_ms": (!closed).then_some(closes),
         "caption": caption, "shot": shot, "a": fighter(0), "b": fighter(1), "contacts": contacts,
         // The blows this panel stages (their `n`; the full `duel.blow` events are in the duel's `blows`).
         "blows": window.iter().map(|e| e["n"].clone()).collect::<Vec<_>>(),
         "flip": init_before != c.initiative, "hp": { "a": c.hp[0], "b": c.hp[1] }, "range": c.range, "initiative": side_name(c.initiative),
-    }));
+    });
+    b.panels.push(panel);
     b.cycle = Some(c);
+    note_scripts(b, scripts);
 }
 
 /// The nearest object within `reach` hexes of `at` that affords one of `paths` (any object when `paths` is empty).
@@ -636,6 +702,33 @@ fn stage(r: &mut Rng, objects: &[Value], pos: &mut [[i32; 2]; 2], me: usize, cls
         _ => theirs.push(json!({ "clip": "idle_guard", "ms": react, "loop": true, "face": "foe" })),
     }
     (mine, theirs)
+}
+
+/// The live `also[]` of a duel action: [`since`], and in a duel whose AI types (schema 12) also the AI's blows entered
+/// since `blows_from` (`duel.blow` with `ai: true`, each before the panel that stages it; one not staged yet comes
+/// last) and, after each panel, the typing scripts of the window it opens (`duel.typing_script`).
+pub fn extras(b: &Bout, scene_too: bool, panels_from: usize, blows_from: usize) -> Vec<Value> {
+    if b.ai.is_none() {
+        return since(b, scene_too, panels_from);
+    }
+    let mut out = vec![];
+    if scene_too {
+        out.extend(b.scene.clone());
+    }
+    let mut blows: Vec<&Value> = b.blows.iter().skip(blows_from).filter(|e| e["ai"] == true).collect();
+    for p in b.panels.iter().skip(panels_from) {
+        let staged = |e: &Value| p["blows"].as_array().is_some_and(|a| a.contains(&e["n"]));
+        out.extend(blows.iter().filter(|e| staged(e)).map(|e| (*e).clone()));
+        blows.retain(|e| !staged(e));
+        out.push(p.clone());
+        for s in ["a", "b"] {
+            if p[s]["typing_script"].is_object() {
+                out.push(p[s]["typing_script"].clone());
+            }
+        }
+    }
+    out.extend(blows.into_iter().cloned());
+    out
 }
 
 /// The events a duel action made beyond its own: the scene and the panels added since `from` (for `also[]`).

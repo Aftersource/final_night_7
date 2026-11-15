@@ -25,9 +25,11 @@ pub(crate) struct Table {
 }
 
 /// A match at beat 2's start with seat 0's Left demigod and seat 1's Left demigod 1 km apart, both at full health.
+/// The AI does not type its own lines (`duel_ai_lines_per_window: 0`, the 0.8.2 duel: `duel_ai_tests` turn it on).
 pub(crate) fn table(seed: u64, extra: Value) -> Table {
     let p = FinalNight7Plugin::new();
-    let mut s = json!({ "seed": seed, "beats_total": 30, "llm": false, "dm_encounters_per_beat": 0, "duel_ai_chance": 0.0 });
+    let mut s = json!({ "seed": seed, "beats_total": 30, "llm": false, "dm_encounters_per_beat": 0, "duel_ai_chance": 0.0,
+                        "duel_ai_lines_per_window": 0.0 });
     if let (Some(o), Some(x)) = (s.as_object_mut(), extra.as_object()) {
         o.extend(x.clone());
     }

@@ -45,6 +45,7 @@ pub mod summon;
 pub mod table;
 pub mod testkit;
 pub mod typing;
+pub mod duel_ai;
 pub mod visual;
 pub mod wills;
 pub mod world;

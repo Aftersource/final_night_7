@@ -268,6 +268,14 @@ pub struct Settings {
     /// breath"); without engine holds the world keeps beating, lines after it are refused, and the duel ends at the
     /// first resolve past it (at most `ceil(duel_deadline_ms / flow_ms)` resolves from its lock).
     pub duel_deadline_ms: u32,
+    /// Schema 12 (AI duellists type): the chance an AI fighter types a line of its own in an input window of a duel
+    /// with a clock (1 = every window; 0 = off: it only counters, as in 0.8.2).
+    pub duel_ai_lines_per_window: f32,
+    /// Schema 12: how often the AI attacks rather than sets a defence, repositions or taunts (0 = cautious, 1 = it
+    /// only ever swings).
+    pub duel_ai_aggression: f32,
+    /// Schema 12: the most wit the AI's typed line may score (a human's good line scores 3 to 4).
+    pub duel_ai_wit_cap: u32,
 }
 
 impl Default for Settings {
@@ -392,6 +400,9 @@ impl Default for Settings {
             duel_min_gap_ms: 500,
             duel_followup_ms: 1500,
             duel_deadline_ms: 30_000,
+            duel_ai_lines_per_window: 1.0,
+            duel_ai_aggression: 0.6,
+            duel_ai_wit_cap: 2,
         }
     }
 }
@@ -415,6 +426,7 @@ const F32_KEYS: &[&str] =
       "fault_near_magnitude", "fault_far_magnitude", "fault_near_radius", "fault_far_radius", "fault_near_damage",
       "fault_far_damage", "summon_loss_scale", "challenge_min_km", "challenge_contact_km_regions", "challenge_contact_km_villages",
       "challenge_contact_km_houses", "challenge_contact_km_people", "duel_damage_scale", "duel_ai_chance", "duel_ai_reach_km",
+      "duel_ai_lines_per_window", "duel_ai_aggression",
       "will_debt_cap", "will_debt_per_spark", "will_entropy_per_spark", "heal_token", "heal_scale", "arms_scale", "raise_years", "raise_health_fraction", "curse_entropy", "wills_ai_chance"];
 
 /// The shortest decimal that reads back as `x` (so `0.04f32` is `0.04`, not `0.03999999910593033`).
@@ -600,6 +612,9 @@ impl Settings {
             duel_min_gap_ms: int("duel_min_gap_ms", d.duel_min_gap_ms, 0, 5000)?,
             duel_followup_ms: int("duel_followup_ms", d.duel_followup_ms, 0, 10_000)?,
             duel_deadline_ms: int("duel_deadline_ms", d.duel_deadline_ms, 1000, 600_000)?,
+            duel_ai_lines_per_window: num("duel_ai_lines_per_window", d.duel_ai_lines_per_window, 0.0, 1.0)?,
+            duel_ai_aggression: num("duel_ai_aggression", d.duel_ai_aggression, 0.0, 1.0)?,
+            duel_ai_wit_cap: int("duel_ai_wit_cap", d.duel_ai_wit_cap, 0, 4)?,
         };
         let s = Settings { start_bolts: s.bolt_start, ..s };
         let mut out = match serde_json::to_value(&s).map_err(|e| e.to_string())? {
@@ -665,6 +680,10 @@ impl Settings {
         // Gear looks (schema 11): settings recorded before them have no `looks_enabled`: off.
         if v.get("looks_enabled").is_none() {
             s.looks_enabled = false;
+        }
+        // AI duellists type (schema 12): settings recorded before it have no `duel_ai_lines_per_window`: off.
+        if v.get("duel_ai_lines_per_window").is_none() {
+            s.duel_ai_lines_per_window = 0.0;
         }
         // Settings recorded before flow/slow (schema 2) had only `beat_ms`.
         if v.get("flow_ms").is_none() {
