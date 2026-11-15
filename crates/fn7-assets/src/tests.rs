@@ -535,6 +535,39 @@ fn job_records_import_and_are_idempotent() {
     assert!(reg.figures(Some("Consequence")).unwrap()["statue"].is_null(), "a failed statue is never current");
 }
 
+/// The records exactly as the patched Unreal scripts write them (docs/patches/meshy_job_records.patch; produced by
+/// running the patch's record writers against Meshy-CLI-shaped task files): a statue, then a figure's model and rig.
+#[test]
+fn the_tool_scripts_job_records_import() {
+    let t = Temp::new("tooljobs");
+    let prod = t.path().join("meshy");
+    std::fs::create_dir_all(prod.join("figures/mara")).unwrap();
+    for (f, bytes) in [("heroic.png", png(1024, 1536, "h")), ("apose.png", png(1024, 1536, "a")), ("preview.png", png(64, 64, "p")),
+                       ("mara_statue.glb", glb_with_tris(100)), ("mara_rigged.glb", glb_with_tris(80))] {
+        std::fs::write(prod.join("figures/mara").join(f), bytes).unwrap();
+    }
+    let records = r#"{"asset": {"kind": "model", "subkind": "statue", "variant": ""}, "at": "2026-11-15T00:22:43Z", "credits": 30, "endpoint": "/openapi/v1/image-to-3d", "error": null, "finished_at": 61100, "inputs": [{"path": "figures/mara/heroic.png", "role": "source", "variant": "heroic"}], "operation": "image-to-3d", "outputs": [{"path": "figures/mara/mara_statue.glb", "role": "primary"}, {"optional": true, "path": "figures/mara/preview.png", "role": "preview"}, {"optional": true, "path": "figures/mara/mara_statue.fbx", "role": "fbx"}], "params": {"enable_pbr": true, "model_type": "standard", "should_texture": true, "target_formats": "glb,fbx", "texture_resolution": "2k"}, "provider": "meshy", "requested_at": 1000, "requested_by": "operator", "started_at": 1100, "status": "SUCCEEDED", "subject": {"kind": "demigod", "name": "Mara's Left Hand", "slug": "mara"}, "task_id": "t-statue", "tool": "tools/meshy/make_statue.sh", "v": 1}
+{"asset": {"kind": "model", "subkind": "figure", "variant": "mesh"}, "at": "2026-11-15T00:22:44Z", "credits": 30, "endpoint": "/openapi/v1/image-to-3d", "error": null, "finished_at": 61100, "inputs": [{"path": "figures/mara/apose.png", "role": "source", "variant": "apose"}], "lineage": [], "operation": "image-to-3d", "outputs": [{"optional": true, "path": "figures/mara/preview.png", "role": "preview"}], "params": {"enable_pbr": true, "model_type": "standard", "pose_mode": "a-pose", "should_texture": true, "target_formats": "glb,fbx", "texture_resolution": "2k"}, "provider": "meshy", "requested_at": 1000, "requested_by": "operator", "started_at": 1100, "status": "SUCCEEDED", "subject": {"kind": "demigod", "name": "Mara's Left Hand", "slug": "mara"}, "task_id": "t-model", "tool": "tools/meshy/make_figure.sh", "v": 1}
+{"asset": {"kind": "model", "subkind": "figure", "variant": ""}, "at": "2026-11-15T00:22:44Z", "credits": 5, "endpoint": "/openapi/v1/rigging", "error": null, "finished_at": 90000, "inputs": [], "lineage": [{"parent_task_id": "t-model", "role": "rig_of"}], "operation": "rigging", "outputs": [{"path": "figures/mara/mara_rigged.glb", "role": "primary"}, {"optional": true, "path": "figures/mara/mara_rigged.fbx", "role": "fbx"}], "params": {"height_meters": 1.7, "skeleton_template": "ue5_mannequin"}, "provider": "meshy", "requested_at": 70000, "requested_by": "operator", "started_at": 70010, "status": "SUCCEEDED", "subject": {"kind": "demigod", "name": "Mara's Left Hand", "slug": "mara"}, "task_id": "t-rig", "tool": "tools/meshy/make_figure.sh", "v": 1}
+"#;
+    std::fs::write(prod.join("jobs.jsonl"), records).unwrap();
+    let reg = Registry::open(t.path().join("assets")).unwrap();
+    let rep = provenance::import_jobs(&reg, &prod.join("jobs.jsonl"), None).unwrap();
+    assert_eq!((rep.jobs, rep.credits, rep.notes.len(), rep.missing_files.len()), (3, 65.0, 0, 0), "{:?} {:?}", rep.notes, rep.missing_files);
+    let before = dump(&reg);
+    provenance::import_jobs(&reg, &prod.join("jobs.jsonl"), None).unwrap();
+    assert_eq!(dump(&reg), before);
+    let f = reg.figures(Some("mara's left hand")).unwrap();
+    assert_eq!((f["statue"]["tris"].as_u64(), f["figure"]["tris"].as_u64(), f["figure"]["variant"].as_str()), (Some(100), Some(80), Some("")));
+    // The figure's untextured model was never downloaded: on record with its cost, no file; the rig is its child.
+    let mesh = one(&reg, "SELECT a.status, a.path, g.cost_credits, g.duration_ms FROM assets a JOIN generations g ON g.asset_id = a.id WHERE g.provider_task_id = 't-model'");
+    assert_eq!(mesh, json!({ "status": "external", "path": null, "cost_credits": 30.0, "duration_ms": 60000.0 }));
+    let chain = reg.chain(f["figure"]["id"].as_str().unwrap()).unwrap();
+    let got: Vec<(&str, &str, &str)> = chain.iter().filter(|c| c["depth"].as_i64().unwrap() <= 0).map(|c| (c["subkind"].as_str().unwrap(), c["variant"].as_str().unwrap(), c["status"].as_str().unwrap())).collect();
+    assert_eq!(got, [("reference", "apose", "ready"), ("figure", "mesh", "external"), ("figure", "", "ready")]);
+    assert_eq!(reg.costs("subject", None).unwrap()["items"][0]["cost_credits"], 65.0);
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Costs and time travel
 // ---------------------------------------------------------------------------------------------------------------------
@@ -961,6 +994,9 @@ fn a_sidecar_that_did_not_know_its_match_is_not_counted_twice() {
     let ref_sha = files::sha256_bytes(&jpg);
     MediaCache::new(&media).store(&png(8, 8, "x"), &Sidecar { key: h.clone(), kind: ImageKind::Portrait, prompt: PORTRAIT.into(), provider: "openai".into(),
         model: "gpt-image-1-mini".into(), ext: "png".into(), bytes: 0, created_at: 5000, cost_usd: 0.03, latency_ms: 900.0, match_id: None }).unwrap();
+    // The base picture this one was drawn on (a gear look): in the cache too.
+    MediaCache::new(&media).store(&png(8, 8, "base"), &Sidecar { key: hash_of(0x45), kind: ImageKind::Portrait, prompt: PORTRAIT.replace("wiry", "tall"), provider: "mock".into(),
+        model: "mock".into(), ext: "png".into(), bytes: 0, created_at: 3000, cost_usd: 0.0, latency_ms: 1.0, match_id: None }).unwrap();
     let reg = Registry::open(t.path().join("assets")).unwrap();
     ingest::media_cache(&reg, &media).unwrap();
     let recs = t.path().join("rec");
@@ -969,17 +1005,23 @@ fn a_sidecar_that_did_not_know_its_match_is_not_counted_twice() {
     let lines = [
         format!(r#"{{"type":"event","id":1,"ctx":{ctx},"kind":"media_request","actor":null,"at":4000,"data":{}}}"#, json!({ "hash": h, "kind": "portrait", "model": "openai:gpt-image-1-mini:medium", "price_usd": 0.0302, "prompt": PORTRAIT, "provider": "openai", "refs": ["IMG_1.jpg"] })),
         format!(r#"{{"type":"http","sample":0,"attempt":0,"started_at":4100,"duration_ms":890.0,"url":"https://api.openai.com/v1/images/edits","status":200,"request":{},"response":{{"usage":{{"input_tokens_details":{{"image_tokens":1128,"text_tokens":300}}}}}},"error":null,"request_headers":{{}},"response_headers":{{}},"ctx":{ctx}}}"#,
-                json!({ "prompt": PORTRAIT, "size": "1024x1024", "image[]": [ { "file": "IMG_1.jpg", "bytes": jpg.len(), "sha256": ref_sha } ] })),
+                json!({ "prompt": PORTRAIT, "size": "1024x1024", "image[]": [ { "file": format!("base/{}.png", hash_of(0x45)), "bytes": 9, "sha256": "ab".repeat(32) }, { "file": "IMG_1.jpg", "bytes": jpg.len(), "sha256": ref_sha } ] })),
         format!(r#"{{"type":"event","id":2,"ctx":{ctx},"kind":"media_ready","actor":null,"at":5001,"data":{}}}"#, json!({ "bytes": 1, "cost_usd": 0.03, "hash": h, "kind": "portrait", "latency_ms": 900.0, "model": "gpt-image-1-mini", "path": "runs/media/x.png", "provider": "openai", "status": "ready" })),
     ];
     std::fs::write(recs.join("run-9.jsonl"), lines.join("\n") + "\n").unwrap();
     for _ in 0..2 {
         ingest::recordings(&reg, &recs, None).unwrap();
         ingest::media_cache(&reg, &media).unwrap();
-        let g = reg.with(|c| crate::query::rows(c, "SELECT status, cost_usd, cost_basis, requested_match, requested_beat, source FROM generations", &[])).unwrap();
+        let g = reg.with(|c| crate::query::rows(c, "SELECT status, cost_usd, cost_basis, requested_match, requested_beat, source FROM generations WHERE provider = 'openai'", &[])).unwrap();
         assert_eq!(g, vec![json!({ "status": "ok", "cost_usd": 0.03, "cost_basis": "usage", "requested_match": "run-9", "requested_beat": 3, "source": "recording" })],
                    "one generation, now with its match, beat and usage; the cost counted once");
     }
+    // The base image named in the exchange is the base picture's asset (its parent), not a new reference image.
+    let (gear, base) = (asset_id_for_media(&h), asset_id_for_media(&hash_of(0x45)));
+    let roles = reg.with(|c| crate::query::rows(c, "SELECT role FROM lineage WHERE parent_id = ?1 AND child_id = ?2 ORDER BY role", &[&base, &gear])).unwrap();
+    assert_eq!(roles, vec![json!({ "role": "reference" }), json!({ "role": "variant_of" })]);
+    assert_eq!(one(&reg, &format!("SELECT reference_asset_ids FROM generations WHERE asset_id = '{gear}'"))["reference_asset_ids"][0], base);
+    assert_eq!(n(&reg, "SELECT COUNT(*) FROM assets WHERE subkind = 'reference'"), 1, "only the style reference");
     // The reference it was made with: known by hash, then given its file.
     let refs_dir = t.path().join("style_refs");
     std::fs::create_dir_all(&refs_dir).unwrap();

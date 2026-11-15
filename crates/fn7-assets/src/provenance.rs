@@ -665,17 +665,18 @@ fn import_job(x: &mut Ctx<'_>, j: &Value, line: usize) -> Result<()> {
         inputs.push((id, role));
     }
     let outs: Vec<&Value> = j["outputs"].as_array().into_iter().flatten().collect();
-    let primary = outs.iter().find(|o| o["role"].as_str().unwrap_or("primary") == "primary").or(outs.first()).copied();
+    let primary = outs.iter().find(|o| o["role"].as_str().unwrap_or("primary") == "primary").copied();
     let fallback = format!("task:{}", task.map(str::to_string).unwrap_or_else(|| format!("job:{provider}:{op}:{}:{variant}:{}", subject.key, created)));
     let meta = json!({ "tool": j["tool"], "slug": s["slug"], "note": j["note"] });
     let id = match primary {
         Some(o) if ok => x.asset(kind, subkind, &subject, variant, o["path"].as_str(), o["sha256"].as_str(), &fallback, created, meta)?,
         _ => {
-            // No output (a failed or still-running job): the asset is the record of the attempt.
+            // No primary output (a failed job, or a result that was never downloaded): the asset is the record of it.
             let id = asset_id_for_key(&format!("nofile:{fallback}"));
             upsert_asset(x.c, &AssetIn {
                 id: id.clone(), kind: kind.into(), subkind: subkind.into(), subject: Some(subject.clone()), subject_strong: true, variant: variant.into(),
-                created_at: created, status: if ok { "pending".into() } else { "failed".into() }, status_reason: j["error"].as_str().map(str::to_string),
+                created_at: created, status: if ok { "external".into() } else { "failed".into() },
+                status_reason: j["error"].as_str().map(str::to_string).or_else(|| ok.then(|| "the job's result was not downloaded".to_string())),
                 source: "job".into(), meta: Some(meta), ..Default::default()
             })?;
             x.rep.assets += 1;

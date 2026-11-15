@@ -281,8 +281,15 @@ with `#` and blank lines are skipped. Paths are relative to the file's directory
 | `subject` | `kind` (`demigod` \| `god` \| `item` \| `place` \| `shared`), `name`, `slug` |
 | `asset` | `kind`, `subkind`, `variant` of the primary output |
 | `inputs[]` | `{path, role}` (`source` or `reference`): matched to a known asset by content, else registered as a reference image |
-| `outputs[]` | `{path, role, sha256?, optional?}`: `primary` is the asset; `preview` an `images/preview`; others variants |
+| `outputs[]` | `{path, role, sha256?, optional?}`: `primary` is the asset (none = the result was not downloaded: the asset is `external`); `preview` an `images/preview`; others variants. `optional: true` = skip silently when the file is absent |
 | `lineage[]` | `{role, parent_task_id}`: what the output is to an earlier task's output (`rig_of`, `retexture_of`, `clip_of`) |
+
+**The tool side.** `docs/patches/meshy_job_records.patch` is a proposed patch for the Unreal repo's
+`tools/meshy/make_statue.sh` and `make_figure.sh` (apply there with `patch -p1`; not applied by this repo): after each
+job they append one record to `production_assets/meshy/jobs.jsonl` from the Meshy CLI's task file (status, consumed
+credits, created / started / finished). Then `fn7-assets import-jobs production_assets/meshy/jobs.jsonl` puts every
+job in SQL; importing the whole file again after each run is fine. A job with no primary output (the figure's
+untextured model, never downloaded) is registered as `external`.
 
 ### 4.4 By hand: `POST /api/assets/register` (admin)
 

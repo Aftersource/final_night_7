@@ -169,8 +169,20 @@ fn params_of(call: &Call) -> Value {
     p
 }
 
+/// `base/<64 hex>.<ext>` → the media key.
+fn base_key(name: &str) -> Option<&str> {
+    name.strip_prefix("base/")?.split('.').next().filter(|k| is_hash(k))
+}
+
 /// Make sure a reference image is an asset (`image/reference`, shared), storing its file when we have it.
 fn reference_asset(c: &Connection, reg_root: &std::path::Path, r: &RefFile, at_ms: i64, source: &str) -> Result<Option<String>> {
+    // A base image (`base/<media key>.<ext>` in a recorded exchange: the picture a gear look was drawn on) is the
+    // asset of that key.
+    if let Some(key) = base_key(&r.name) {
+        let id = asset_id_for_media(key);
+        let known: bool = c.query_row("SELECT 1 FROM assets WHERE id=?1", [&id], |_| Ok(true)).optional()?.unwrap_or(false);
+        return Ok(known.then_some(id));
+    }
     // By content when known, else by name (a recording's request lists names; its http record adds the hashes).
     if let Some(sha) = &r.sha256 {
         let id = asset_id_for_key(&format!("file:{sha}:image/reference"));
@@ -286,7 +298,15 @@ pub fn apply(c: &Connection, root: &std::path::Path, r: &MediaRecord) -> Result<
     // (The mock sends nothing: its references are only named in the parameters.)
     for rf in r.refs.iter().filter(|_| r.provider != "mock") {
         if let Some(rid) = reference_asset(c, root, rf, r.at_ms, r.source)? {
-            add_lineage(c, &rid, &id, "reference", Some("style reference sent with the request"))?;
+            if rid == id {
+                continue;
+            }
+            if base_key(&rf.name).is_some() {
+                add_lineage(c, &rid, &id, "variant_of", Some("drawn on this base image (the same character, with its gear)"))?;
+                add_lineage(c, &rid, &id, "reference", Some("the base image, sent as the first reference"))?;
+            } else {
+                add_lineage(c, &rid, &id, "reference", Some("style reference sent with the request"))?;
+            }
             ref_ids.push(rid);
         }
     }
