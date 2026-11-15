@@ -4503,6 +4503,9 @@
                 ],
                 "description": "State schema 16, megas only: the junction it falls near (its multipliers are in fault_factor, radius_km and the magnitude), or null."
               },
+              "own_hit": {
+                "$ref": "#/$defs/Ref"
+              },
               "place": {
                 "description": "The most specific place aimed at.",
                 "type": "string"
@@ -4544,7 +4547,7 @@
                 ]
               },
               "text": {
-                "description": "custom only: what it is.",
+                "description": "State schema 22: the cast in plain words, naming the place, never coordinates (\"Benito casts lightning in Moscow\"); it says when it covers the caster's own demigod.",
                 "type": "string"
               },
               "tier": {
@@ -4601,6 +4604,9 @@
           ],
           "description": "State schema 16, megas only: the junction it falls near (its multipliers are in fault_factor, radius_km and the magnitude), or null."
         },
+        "own_hit": {
+          "$ref": "#/$defs/Ref"
+        },
         "place": {
           "description": "First cast: place aimed at.",
           "type": "string"
@@ -4645,6 +4651,10 @@
             "string",
             "null"
           ]
+        },
+        "text": {
+          "description": "State schema 22: first cast in plain words (the place by name, never coordinates).",
+          "type": "string"
         }
       },
       "required": [

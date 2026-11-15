@@ -1155,6 +1155,7 @@
           "enum": [
             "duel",
             "danger",
+            "own_hit",
             "resurrect",
             "break_curse",
             "watch",

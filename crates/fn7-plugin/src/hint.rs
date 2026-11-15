@@ -15,6 +15,7 @@
 //! 1. `danger`: a demigod of yours about to fall (health ≤ 40% of its cap) with a threat at hand: the earth field's
 //!    hazard on its cell (lava, fire, flood, the sea, a rift, a quake, a swarm), Time's circle closing past it, a rival
 //!    army within [`ARMY_KM`] (or hunting it within [`HUNT_KM`]), a rival demigod within [`RIVAL_KM`].
+//!    Schema 22, after it: `own_hit`: a cast of yours last beat covered one of your own demigods (urgency 2).
 //! 2. `resurrect` / `break_curse`: a fallen demigod of yours Death can raise (or whose raising quest is open), or one
 //!    under a seal of no resurrection (name the counter-quest's step).
 //! 3. `watch` (spectators: no demigod standing and none to raise): the biggest thing happening.
@@ -24,6 +25,10 @@
 //! 7. `gear`: one of yours carries nothing: the nearest marked encounter hex or loot pile, or a will to arm it.
 //! 8. `quest`: the current step of an open quest of yours (a curse's counter, a heal, a tempering, a raising).
 //! 9. `will`: a concrete will from the demigod's situation (heal it, raise an army, march on the nearest rival).
+//!
+//! **Schema 22 (clear words).** Plain words (no tier jargon; a distance under 1 km is "right here"), and a low-urgency
+//! hint (5..9, urgency ≤ 1) takes turns with the other low-urgency rules that apply, [`ROTATE_BEATS`] beats each,
+//! from the state's beat, so no hint sits unchanged for 9 beats while there is something else to do.
 //!
 //! **Hidden information.** The hint reads only what the seat already sees: its own demigods in full; rivals' public
 //! fields (position, name, alive; never health); armies' public fields (never orders); the earth field (public);
@@ -89,7 +94,11 @@ impl HintAction {
 }
 
 /// Which rule picked a hint.
-pub const KINDS: [&str; 11] = ["duel", "danger", "resurrect", "break_curse", "watch", "challenge", "event", "mega", "gear", "quest", "will"];
+pub const KINDS: [&str; 12] = ["duel", "danger", "own_hit", "resurrect", "break_curse", "watch", "challenge", "event", "mega", "gear", "quest", "will"];
+
+/// Schema 22: a low-urgency hint (urgency ≤ 1) stays at most this many beats while another low-urgency rule applies:
+/// the applicable ones take turns, this many beats each, from the state's beat (no stored history).
+pub const ROTATE_BEATS: u32 = 3;
 
 /// Where the arrow points: a thing (`ref`), a point (`at`, `[lon, lat]`), a hex (`cell`); any of them.
 #[derive(Debug, Clone, PartialEq, Default, Serialize)]
@@ -165,16 +174,38 @@ pub fn for_seat(w: &World, seat: u8) -> Option<Hint> {
     if cx.mine.is_empty() {
         return None;
     }
-    in_duel(&cx)
+    if !cx.clear {
+        return in_duel(&cx)
+            .or_else(|| danger(&cx))
+            .or_else(|| fallen(&cx))
+            .or_else(|| cx.live().next().is_none().then(|| watch(&cx)))
+            .or_else(|| duel(&cx))
+            .or_else(|| event(&cx))
+            .or_else(|| mega(&cx))
+            .or_else(|| gear(&cx))
+            .or_else(|| quest(&cx))
+            .or_else(|| will(&cx));
+    }
+    // Schema 22: the own-hit warning after danger; a low-urgency hint takes turns with the other applicable ones.
+    if let Some(h) = in_duel(&cx)
         .or_else(|| danger(&cx))
+        .or_else(|| own_hit(&cx))
         .or_else(|| fallen(&cx))
         .or_else(|| cx.live().next().is_none().then(|| watch(&cx)))
         .or_else(|| duel(&cx))
-        .or_else(|| event(&cx))
-        .or_else(|| mega(&cx))
-        .or_else(|| gear(&cx))
-        .or_else(|| quest(&cx))
-        .or_else(|| will(&cx))
+    {
+        return Some(h);
+    }
+    let rules: [fn(&Cx) -> Option<Hint>; 5] = [event, mega, gear, quest, will];
+    let mut found = rules.iter().filter_map(|r| r(&cx));
+    let top = found.next()?;
+    if top.urgency > 1 {
+        return Some(top);
+    }
+    let mut pool = vec![top];
+    pool.extend(found.filter(|h| h.urgency <= 1));
+    let i = (cx.w.meta.beat / ROTATE_BEATS) as usize % pool.len();
+    Some(pool.swap_remove(i))
 }
 
 /// The seat's goal line, every beat (human seats from schema 18): "Last standing wins. You: 2 alive, 3 rivals. Beat 41
@@ -208,6 +239,8 @@ struct Cx<'a> {
     beat: u32,
     /// The wills' book when the wills are on.
     book: Option<crate::wills::Book>,
+    /// Schema 22: clear words.
+    clear: bool,
 }
 
 impl<'a> Cx<'a> {
@@ -223,6 +256,7 @@ impl<'a> Cx<'a> {
             k: if w.is_planet() { 1.0 } else { 0.01 },
             beat: w.meta.beat.max(1),
             book: crate::wills::on(w).then(|| crate::wills::book(w)),
+            clear: w.clear_words_rules(),
         }
     }
     fn live(&self) -> impl Iterator<Item = &&'a Demigod> {
@@ -246,6 +280,14 @@ impl<'a> Cx<'a> {
         } else {
             format!("{} km", km.round() as i64)
         }
+    }
+    /// Schema 22: is `km` "right here" (under 1 km on the planet; what would print as 0.0 km in a city)?
+    fn here(&self, km: f64) -> bool {
+        self.clear && km < if self.k < 1.0 { 0.05 } else { 1.0 }
+    }
+    /// "620 km away", or (schema 22) "right here" for a distance that rounds to nothing.
+    fn away(&self, km: f64) -> String {
+        if self.here(km) { "right here".into() } else { format!("{} away", self.km(km)) }
     }
     fn withered(&self, d: &Demigod) -> bool {
         self.book.as_ref().is_some_and(|b| curses::active(b, d.id, CurseKind::Wither, self.beat).is_some())
@@ -396,7 +438,7 @@ fn danger(cx: &Cx) -> Option<Hint> {
 
 #[allow(clippy::too_many_arguments)]
 fn attacked(cx: &Cx, d: &Demigod, who: &str, place: &str, h: &str, r: Ref, at: LonLat, foe: &str, km: f64) -> Hint {
-    let dist = cx.km(km);
+    let dist = cx.away(km);
     let foe_c = cap(foe);
     let who_c = cap(who);
     let lower = who;
@@ -406,19 +448,48 @@ fn attacked(cx: &Cx, d: &Demigod, who: &str, place: &str, h: &str, r: Ref, at: L
                     format!("{who_c} is under attack in {place}: drag a power onto it"),
                     format!("{who_c} is under attack: drag a power onto {foe}"),
                     format!("{who_c} is under attack: drag a power onto it")],
-                  &[format!("{foe_c} is {dist} away and {lower} has {h} health"), format!("{foe_c} is {dist} away; {h} health left")],
+                  &[format!("{foe_c} is {dist} and {lower} has {h} health"), format!("{foe_c} is {dist}; {h} health left")],
                   Some(Target::thing(r, at)))
     } else if !cx.withered(d) {
         Hint::new("danger", HintAction::Heal, 3,
                   &[format!("{who_c} is under attack in {place}: type a will to heal it"), format!("Heal {lower}: type a will to mend it")],
-                  &[format!("{foe_c} is {dist} away, {lower} has {h} health and you have no bolts"), format!("{foe_c} is {dist} away; {h} health, no bolts")],
+                  &[format!("{foe_c} is {dist}, {lower} has {h} health and you have no bolts"), format!("{foe_c} is {dist}; {h} health, no bolts")],
                   Some(Target::thing(Ref::Demigod(d.id), d.pos)))
     } else {
         Hint::new("danger", HintAction::Flee, 3,
                   &[format!("{who_c} is under attack in {place}: order it away from {foe}"), format!("Get {lower} away from {foe}")],
-                  &[format!("{foe_c} is {dist} away, {lower} has {h} health and a withering blocks heals"), format!("{foe_c} is {dist} away; {h} health, no heals")],
+                  &[format!("{foe_c} is {dist}, {lower} has {h} health and a withering blocks heals"), format!("{foe_c} is {dist}; {h} health, no heals")],
                   Some(Target::thing(Ref::Demigod(d.id), d.pos)))
     }
+}
+
+/// Schema 22, 1b. `own_hit`: a cast of yours in the last beat covered one of your own demigods (its row names it as a
+/// witness or target). No rule change: it was hurt as anyone there; the hint warns, once, the beat after.
+fn own_hit(cx: &Cx) -> Option<Hint> {
+    let w = cx.w;
+    let mine: Vec<Ref> = cx.mine.iter().map(|d| Ref::Demigod(d.id)).collect();
+    // The beat just resolved (rows of the last two beats, as the event rule reads them).
+    let since = w.meta.beat.saturating_sub(1);
+    let (r, d) = w.ledger.rows.iter().rev().take(SCAN_ROWS).take_while(|r| r.beat >= since).find_map(|r| {
+        if r.verb != "cast" || !mine.contains(&r.actor) {
+            return None;
+        }
+        let hit = r.targets.iter().chain(r.witnessed_by.iter()).find(|x| mine.contains(x))?;
+        let Ref::Demigod(id) = *hit else { return None };
+        Some((r, w.demigods.get(id.ix())?))
+    })?;
+    let who = me(d);
+    let at = r.at.unwrap_or(d.pos);
+    let (wh, _) = crate::payload::where_words(w, at);
+    let power = r.act.split_once(" casts ").map(|(_, x)| x.split(" on ").next().unwrap_or(x).trim().to_string()).filter(|x| !x.is_empty());
+    let what = power.map(|p| format!("Your {p}")).unwrap_or_else(|| "Your cast".into());
+    let why = [format!("{} stood inside your cast's reach and took the blow like anyone there", cap(&who)), "Your casts hurt your own demigods too".into()];
+    let text = [format!("{what} hit your own {} {wh}: aim clear of it", who.trim_start_matches("your ")),
+                format!("{what} hit {who}: aim clear of it"), format!("Your cast hit {who}")];
+    if d.alive && d.health < d.max_health && !cx.withered(d) {
+        return Some(Hint::new("own_hit", HintAction::Heal, 2, &text, &why, Some(Target::thing(Ref::Demigod(d.id), d.pos))));
+    }
+    Some(Hint::new("own_hit", HintAction::CastPower, 2, &text, &why, Some(Target::thing(Ref::Demigod(d.id), d.pos))))
 }
 
 /// A calm cell next to `at` (rings 1 and 2), the one nearest the arena's centre (then the lowest index).
@@ -600,7 +671,7 @@ fn duel(cx: &Cx) -> Option<Hint> {
     let place = cx.place(d);
     Some(Hint::new("challenge", HintAction::Challenge, 2,
         &[format!("{} stands by {who} in {place}: challenge it", r.name), format!("Challenge {} with {who}", r.name), format!("Challenge {}", r.name)],
-        &[format!("It is {} away, in reach: a duel won by knockout eliminates it", cx.km(km)), "In reach: a knockout eliminates it".into()],
+        &[format!("It is {}, in reach: a duel won by knockout eliminates it", cx.away(km)), "In reach: a knockout eliminates it".into()],
         Some(Target::thing(Ref::Demigod(r.id), r.pos))))
 }
 
@@ -653,7 +724,7 @@ fn event(cx: &Cx) -> Option<Hint> {
     let act = r.act.trim().trim_end_matches('.');
     Some(Hint::new("event", HintAction::TypeWill, if r.magnitude >= 7 { 2 } else { 1 },
         &[format!("{word} near {who} in {region}: type a will to react"), format!("{word} near {who}: type a will to react")],
-        &[format!("{} away: {act}", cap(&cx.km(km))), act.to_string()],
+        &[if cx.here(km) { format!("Right where {who} stands: {act}") } else { format!("{} away: {act}", cap(&cx.km(km))) }, act.to_string()],
         Some(Target { r#ref: Some(Ref::Ledger(r.id)), at: Some(at), cell: Some(people_cell(at)) })))
 }
 
@@ -679,6 +750,19 @@ fn mega(cx: &Cx) -> Option<Hint> {
         None => "on a fault line".into(),
     };
     let x = (a.damage as f64 * 10.0).round() / 10.0;
+    if cx.clear {
+        // Schema 22: plain words, no tier jargon.
+        let because = match &a.junction {
+            Some((j, _, _)) if j.kind == crate::faults::JunctionKind::Knot => "fault lines tangle there",
+            Some(_) => "plate boundaries meet there",
+            None => "it sits on a fault line",
+        };
+        return Some(Hint::new("mega", HintAction::CastPower, 1,
+            &[format!("Cast a mega on {} {wh}: drag a power there", r.name), format!("Cast a mega on {} {wh}", r.name), format!("Cast a mega on {}", r.name)],
+            &[format!("{}, so it hits {x}x as hard; you have {}", cap(because), plural(bolts, "bolt")), format!("{}: {x}x as hard; {} left", cap(because), plural(bolts, "bolt")),
+              format!("It hits {x}x as hard there; {} left", plural(bolts, "bolt"))],
+            Some(Target::thing(Ref::Demigod(r.id), r.pos))));
+    }
     Some(Hint::new("mega", HintAction::CastPower, 1,
         &[format!("Cast a mega on {} {wh}: drag a power there", r.name), format!("Cast a mega on {} {wh}", r.name), format!("Cast a mega on {}", r.name)],
         &[format!("A mega there hits {x}x as hard ({} tier); you have {}", a.tier, plural(bolts, "bolt")), format!("{x}x damage there; {} left", plural(bolts, "bolt"))],
@@ -721,13 +805,14 @@ fn gear(cx: &Cx) -> Option<Hint> {
     }
     if let Some((km, t, what, enc)) = best {
         let region = cx.region(t.at.unwrap_or(d.pos));
-        let dist = cx.km(km);
+        let dist = cx.away(km);
+        let short = if cx.here(km) { dist.clone() } else { cx.km(km) };
         let (text, why) = if enc {
             (vec![format!("Send {who} to the marked hex in {region}: gear may wait there"), format!("Send {who} to the marked hex in {region}")],
-             vec![format!("{} carries nothing; an encounter won there drops gear ({dist} away)", cap(&who)), format!("No gear; a won encounter drops some ({dist})")])
+             vec![format!("{} carries nothing; an encounter won there drops gear ({dist})", cap(&who)), format!("No gear; a won encounter drops some ({short})")])
         } else {
             (vec![format!("Send {who} to {what} in {region}: pick it up"), format!("Send {who} to the loot in {region}")],
-             vec![format!("{} carries nothing; whoever steps on the pile takes it ({dist} away)", cap(&who)), format!("No gear; the pile is {dist} away")])
+             vec![format!("{} carries nothing; whoever steps on the pile takes it ({dist})", cap(&who)), format!("No gear; the pile is {dist}")])
         };
         return Some(Hint::new("gear", HintAction::SeekGear, 1, &text, &why, Some(t)));
     }
@@ -814,16 +899,16 @@ fn will(cx: &Cx) -> Option<Hint> {
     };
     let armies = cx.mine.iter().map(|x| fn7_society::armies(w).filter(|(_, a)| a.demigod == x.id && !a.rogue).count()).sum::<usize>();
     let region = cx.region(r.pos);
-    let dist = cx.km(km);
+    let dist = cx.away(km);
     if armies == 0 {
         return Some(Hint::new("will", HintAction::TypeWill, 0,
             &[format!("Type a will: raise an army in {place} for {who}"), format!("Type a will: raise an army for {who}")],
-            &[format!("You have no army and {} is {dist} away", r.name), format!("No army; nearest rival {dist} away")],
+            &[format!("You have no army and {} is {dist}", r.name), format!("No army; nearest rival {dist}")],
             Some(Target::thing(Ref::Demigod(d.id), d.pos))));
     }
     Some(Hint::new("will", HintAction::TypeWill, 0,
         &[format!("Type a will: march {who} on {} in {region}", r.name), format!("Type a will: march {who} on {}", r.name)],
-        &[format!("{} is {dist} away and you have {}", r.name, plural(armies as u32, "army").replace("armys", "armies")), format!("Nearest rival {dist} away")],
+        &[format!("{} is {dist} and you have {}", r.name, plural(armies as u32, "army").replace("armys", "armies")), format!("Nearest rival {dist}")],
         Some(Target::thing(Ref::Demigod(r.id), r.pos))))
 }
 

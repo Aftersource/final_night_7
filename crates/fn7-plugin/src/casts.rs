@@ -204,6 +204,10 @@ pub fn streak(w: &World, d: DemigodId, seat: u8, casts: &[CastOrder]) -> Option<
                     v["place"] = w.name_of(Ref::Place(place_at(w, at))).into();
                     v["target"] = json!(target);
                     v["target_name"] = json!(target.map(|r| w.name_of(r)));
+                    if w.clear_words_rules() {
+                        let radius = v["radius_km"].as_f64().unwrap_or(0.0) as f32;
+                        clear_text(w, &mut v, d, &p.name, at, own_hit(w, d, at, radius, target), target);
+                    }
                 }
                 None => v["fizzled"] = "no such target".into(),
             }
@@ -214,7 +218,7 @@ pub fn streak(w: &World, d: DemigodId, seat: u8, casts: &[CastOrder]) -> Option<
     let mut out = json!({ "event": "streak", "by": name, "by_ref": Ref::Demigod(d), "by_seat": seat,
                           "casts": lines });
     for k in ["power", "power_name", "icon", "cost", "at", "region", "region_ref", "place", "target", "target_name", "fault_km",
-              "fault_factor", "fault_tier", "junction"] {
+              "fault_factor", "fault_tier", "junction", "text", "own_hit"] {
         if let Some(x) = first.get(k) {
             out[k] = x.clone();
         }
@@ -225,6 +229,51 @@ pub fn streak(w: &World, d: DemigodId, seat: u8, casts: &[CastOrder]) -> Option<
 fn region_name(w: &World, p: LonLat) -> (PlaceId, String) {
     let r = region_at(w, p);
     (r, w.name_of(Ref::Place(r)))
+}
+
+/// Schema 22: the caster's own demigod (the same player's, standing) the cast covers: the one it targets, else the
+/// nearest within its radius.
+pub fn own_hit(w: &World, d: DemigodId, at: LonLat, radius_km: f32, target: Option<Ref>) -> Option<DemigodId> {
+    let seat = w.demigods.get(d.ix())?.seat;
+    let mine = |x: &Demigod| x.seat == seat && x.alive;
+    if let Some(Ref::Demigod(t)) = target {
+        if w.demigods.get(t.ix()).is_some_and(mine) {
+            return Some(t);
+        }
+    }
+    w.demigods
+        .iter()
+        .filter(|x| mine(x))
+        .map(|x| (distance_km(x.pos, at), x.id))
+        .filter(|(km, _)| *km <= radius_km.max(0.0) as f64)
+        .min_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)))
+        .map(|x| x.1)
+}
+
+/// "Left Hand" for a default-named body (its player's "... Left Hand"), else its name.
+pub fn body_word(x: &Demigod) -> String {
+    match x.side {
+        Some(Hand::Left) if x.name.ends_with("'s Left Hand") => "Left Hand".into(),
+        Some(Hand::Right) if x.name.ends_with("'s Right Hand") => "Right Hand".into(),
+        _ => x.name.clone(),
+    }
+}
+
+/// Schema 22: a cast in plain words, the place by name (never coordinates): "Benito casts lightning in Moscow", "...
+/// on Ana's Left Hand near Kyiv", "... right on their own Left Hand in Moscow". Sets `text` (and `own_hit`) on `v`.
+fn clear_text(w: &World, v: &mut Value, d: DemigodId, power_name: &str, at: LonLat, own: Option<DemigodId>, target: Option<Ref>) {
+    let by = w.demigods[d.ix()].player_name().to_string();
+    let (wh, _) = crate::payload::where_words(w, at);
+    let what = power_name.to_lowercase();
+    let text = match (own, target) {
+        (Some(o), _) => {
+            v["own_hit"] = json!(Ref::Demigod(o));
+            format!("{by} casts {what} right on their own {} {wh}", body_word(&w.demigods[o.ix()]))
+        }
+        (None, Some(t)) => format!("{by} casts {what} on {} {wh}", w.name_of(t)),
+        (None, None) => format!("{by} casts {what} {wh}"),
+    };
+    v["text"] = text.into();
 }
 
 /// Settle this beat's casts (spend, gifts, Entropy, the strike), record them, and prepare the ramifications calls.
@@ -387,6 +436,12 @@ pub fn process(
                 witnesses,
                 cause: None,
             };
+            // Schema 22: whether it covers one of the caster's own (read before it lands: the strike may fell it).
+            let own_pre = if w.clear_words_rules() {
+                own_hit(w, d, at, if scale.is_some() { p.radius_km } else { 0.0 }, target)
+            } else {
+                None
+            };
             let (_, applied) = merge::run(w, vec![prop], pantheon, beat, st.max_witnesses as usize);
             let row = applied.rows.first().map(|x| x.1);
             let mut v = base;
@@ -398,6 +453,9 @@ pub fn process(
             v["target_name"] = json!(tname);
             v["off_target"] = off.into();
             v["row"] = json!(row.map(Ref::Ledger));
+            if w.clear_words_rules() {
+                clear_text(w, &mut v, d, &p.name, at, own_pre, target);
+            }
             if !fault.is_null() {
                 v["fault_km"] = fault["fault_km"].clone();
                 v["fault_factor"] = fault["fault_factor"].clone();

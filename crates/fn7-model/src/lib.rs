@@ -114,7 +114,13 @@ use serde::{Deserialize, Serialize};
 /// the scene (`summoned_by`, at most 3 a duel), a line plays as up to 4 staged steps (`move.steps`; the instant
 /// `stage` on every `duel.blow`), and each fighter carries its `look` on the lock and the scene. Rules that changed
 /// read [`World::duel_words_rules`], so schema-4..20 recordings replay exactly.
-pub const STATE_SCHEMA: u32 = 21;
+///
+/// Schema 22 (clear words): the next-move hint speaks plainly (no tier jargon; "right here" for a distance under 1
+/// km), rotates off a low-urgency hint it has shown for 3 beats when another rule applies, and warns the beat after a
+/// cast of yours covered one of your own demigods; cast lines (`streak`, the `casts` lines) carry a plain `text` naming
+/// the place, not coordinates, and saying when the cast covers the caster's own demigod. Rules that changed read
+/// [`World::clear_words_rules`], so schema-4..21 recordings replay exactly.
+pub const STATE_SCHEMA: u32 = 22;
 
 /// Match-wide settings and clocks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -520,6 +526,10 @@ impl World {
     /// Schema 21 rules: a duel line's words reach the stage (props, summoned cover, staged steps, fighter looks).
     pub fn duel_words_rules(&self) -> bool {
         self.meta.schema >= dm::DUEL_WORDS_SCHEMA
+    }
+    /// Schema 22 rules: clear words (plain hints that rotate and warn of own hits; cast lines name places).
+    pub fn clear_words_rules(&self) -> bool {
+        self.meta.schema >= dm::CLEAR_WORDS_SCHEMA
     }
     /// Schema 19 rules: token play (a typed will's acts played out by the tokens on the people-level board).
     pub fn token_play_rules(&self) -> bool {

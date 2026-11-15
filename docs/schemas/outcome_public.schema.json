@@ -56,6 +56,10 @@
           "description": "Entropy ≥ 40: physics threw it off its aim.",
           "type": "boolean"
         },
+        "own_hit": {
+          "$ref": "#/$defs/Ref",
+          "description": "State schema 22: the caster's own demigod its area covered (no rule change: it is hurt as anyone there)."
+        },
         "place": {
           "description": "The most specific place it struck (a city, or the region).",
           "type": "string"
@@ -111,6 +115,10 @@
             "string",
             "null"
           ]
+        },
+        "text": {
+          "description": "State schema 22: the cast in plain words, naming the place, never coordinates (\"Benito casts lightning in Moscow\", \"... right on their own Left Hand in Moscow\")).",
+          "type": "string"
         },
         "tier": {
           "description": "Rules 0.7.0: mega (cost a bolt) or mini (cost a spark).",
