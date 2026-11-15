@@ -331,7 +331,8 @@ impl Registry {
             // started at or before it; else (asked for a beat before anything was seen) the earliest.
             let mut slots: std::collections::BTreeMap<(String, String), Vec<&Value>> = Default::default();
             for u in &all {
-                if matches!(u["role"].as_str(), Some("refused")) {
+                // Not what was on screen: a refusal, a picture still rendering, an announcement.
+                if u["role"].as_str().is_some_and(|r| r == "refused" || r.starts_with("pending.") || r.starts_with("event.")) {
                     continue;
                 }
                 let subject = u["subject_key"].as_str().unwrap_or("").to_string();
@@ -345,7 +346,9 @@ impl Registry {
                 let single = demigod.is_some() || matches!(subkind.as_str(), "portrait" | "diorama" | "statue");
                 let covering: Vec<&&Value> = us.iter().filter(|u| beat.is_none() || (first(u) <= b && last(u) >= b)).collect();
                 let pick_one = |cands: Vec<&&Value>, how: &str| -> Option<Value> {
-                    let best = cands.into_iter().max_by_key(|u| (first(u), last(u), u["created_at"].as_i64().unwrap_or(0)))?;
+                    // A look (what the demigod looked like, gear and all) before its identity picture.
+                    let is_look = |u: &Value| u["role"].as_str().is_some_and(|r| r.starts_with("look."));
+                    let best = cands.into_iter().max_by_key(|u| (is_look(u), first(u), last(u), u["created_at"].as_i64().unwrap_or(0)))?;
                     let mut v = with_urls((**best).clone());
                     v["matched"] = json!(how);
                     Some(v)

@@ -107,20 +107,23 @@ pub fn profile_library(reg: &Registry, profiles_db: &Path) -> Result<LibraryRepo
     let t0 = now_ms();
     let src = Connection::open_with_flags(profiles_db, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI)?;
     let mut rep = LibraryReport::default();
-    let mut st = src.prepare(
-        "SELECT l.hash, l.kind, l.subject, l.subject_name, m.match_id, COALESCE(m.at, l.first_seen)
+    // Profile schema 3 (gear looks) adds the beat an image became the demigod's look and the loadout it shows.
+    let has_beat = src.prepare("SELECT beat, detail FROM library_matches LIMIT 0").is_ok();
+    let extra = if has_beat { "m.beat, m.detail" } else { "NULL, NULL" };
+    let mut st = src.prepare(&format!(
+        "SELECT l.hash, l.kind, l.subject, l.subject_name, m.match_id, COALESCE(m.at, l.first_seen), {extra}
          FROM library l LEFT JOIN library_matches m ON m.profile_key = l.profile_key AND m.hash = l.hash
-         ORDER BY l.hash",
-    )?;
-    type Row = (String, String, Option<String>, Option<String>, Option<String>, i64);
+         ORDER BY l.hash, m.match_id, l.profile_key"
+    ))?;
+    type Row = (String, String, Option<String>, Option<String>, Option<String>, i64, Option<i64>, Option<String>);
     let rows: Vec<Row> = st
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?)))?
         .collect::<rusqlite::Result<_>>()?;
     rep.library_rows = src.query_row("SELECT COUNT(*) FROM library", [], |r| r.get::<_, i64>(0))? as u64;
     let mut missing = std::collections::BTreeSet::new();
     reg.tx(|c| {
         let before = count(c, "SELECT COUNT(*) FROM uses")?;
-        for (hash, _kind, subject, subject_name, match_id, at) in &rows {
+        for (hash, _kind, subject, subject_name, match_id, at, beat, detail) in &rows {
             let Some(m) = match_id else { continue };
             rep.links += 1;
             let found: Option<(String, String, String)> = c
@@ -141,12 +144,15 @@ pub fn profile_library(reg: &Registry, profiles_db: &Path) -> Result<LibraryRepo
             note_use(c, &UseIn {
                 asset_id: id,
                 match_id: m.clone(),
-                beat: None,
+                beat: *beat,
                 role: "library".into(),
                 subject_ref: sref,
                 subject_kind: Some(skind),
                 subject_key: Some(skey),
-                loadout_hash: None,
+                loadout_hash: detail
+                    .as_deref()
+                    .and_then(|d| serde_json::from_str::<Value>(d).ok())
+                    .and_then(|d| d["loadout_hash"].as_str().filter(|h| !h.is_empty()).map(str::to_string)),
                 seat: None,
                 at_ms: *at,
                 source: "library".into(),

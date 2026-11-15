@@ -77,6 +77,8 @@ pub struct MediaRecord {
     pub prompt: Option<String>,
     pub size: Option<String>,
     pub refs: Vec<RefFile>,
+    /// The media key of the image this one is drawn on (a gear look on its base portrait), when it has one.
+    pub base: Option<String>,
     /// `mock | openai`.
     pub provider: String,
     /// The generator label (`openai:<model>:<quality>`) or the model alone.
@@ -108,7 +110,7 @@ pub struct MediaRecord {
 impl MediaRecord {
     pub fn new(what: What, hash: &str, kind: &str, provider: &str, source: &'static str) -> Self {
         Self {
-            what, hash: hash.into(), kind: kind.into(), prompt: None, size: None, refs: vec![], provider: provider.into(),
+            what, hash: hash.into(), kind: kind.into(), prompt: None, size: None, refs: vec![], base: None, provider: provider.into(),
             label: None, match_id: None, beat: None, at_ms: 0, price_usd: None, reason: None, file: None,
             created_at: None, cost_usd: None, latency_ms: None, model: None, first_match: None, calls: vec![],
             asker: None, source, style_version: None, avoid: None, cost_basis: None,
@@ -288,7 +290,20 @@ pub fn apply(c: &Connection, root: &std::path::Path, r: &MediaRecord) -> Result<
             ref_ids.push(rid);
         }
     }
-    let refs_known = !r.refs.is_empty() && r.provider != "mock" && ref_ids.len() == r.refs.len();
+    // A picture drawn on a base image (a gear look on the demigod's own portrait): the base is its first reference
+    // and its parent.
+    if let Some(base) = r.base.as_deref() {
+        let bid = asset_id_for_media(base);
+        let known: bool = c.query_row("SELECT 1 FROM assets WHERE id=?1", [&bid], |_| Ok(true)).optional()?.unwrap_or(false);
+        if known && bid != id {
+            add_lineage(c, &bid, &id, "variant_of", Some("drawn on this base image (the same character, with its gear)"))?;
+            if r.provider != "mock" {
+                add_lineage(c, &bid, &id, "reference", Some("the base image, sent as the first reference"))?;
+            }
+            ref_ids.insert(0, bid);
+        }
+    }
+    let refs_known = (!r.refs.is_empty() || r.base.is_some()) && r.provider != "mock" && ref_ids.len() == r.refs.len() + r.base.is_some() as usize;
 
     // The generation of this request cycle: one per (image, match that had it generated).
     // A refusal is a row of its own (a server restarted mid-match may refuse what it made before, or the reverse).
@@ -310,6 +325,9 @@ pub fn apply(c: &Connection, root: &std::path::Path, r: &MediaRecord) -> Result<
         }
         if let Some(p) = r.price_usd {
             o.insert("price_reserved_usd".into(), json!(p));
+        }
+        if let Some(b) = &r.base {
+            o.insert("base_media_hash".into(), json!(b));
         }
     }
     let params = params.as_object().is_some_and(|o| !o.is_empty()).then_some(params);
@@ -485,36 +503,64 @@ fn is_hash(s: &str) -> bool {
 }
 
 /// Every image object (`{hash, kind, status, …}` under a key ending in `image`) in `v` that is or will be a picture
-/// (`ready` or `pending`), with its owner's `ref`, `name` and loadout hash.
+/// (`ready` or `pending`), with what it sits on.
+///
+/// - **Whose it is**: the nearest object above it with a `ref` (or a `demigod` ref) and a `name`.
+/// - **The role** is the key, prefixed by where its owner sits: `portrait_image` (on a demigod: its identity
+///   picture), `look.portrait_image` (in a demigod's `look`: what it looks like NOW, gear and all),
+///   `pending.portrait_image` (in a look's `pending`: asked for, not shown yet), `event.portrait_image` (in an event
+///   object such as `look.changed`: an announcement).
+/// - **The loadout**: the image's own `loadout_hash`, else its owner's `image_loadout_hash` / `loadout_hash` /
+///   `gear_hash`; none when the owner has a `pending` picture (what is shown then is a stand-in for the new gear).
 pub fn images_in(v: &Value) -> Vec<Seen> {
-    fn walk(v: &Value, out: &mut Vec<Seen>, depth: u32) {
+    #[derive(Clone, Default)]
+    struct Above {
+        r: Option<String>,
+        name: Option<String>,
+    }
+    fn text(o: &serde_json::Map<String, Value>, k: &str) -> Option<String> {
+        o.get(k).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string)
+    }
+    fn is_ref(s: &str) -> bool {
+        s.split_once(':').is_some_and(|(a, b)| a.len() <= 3 && !a.is_empty() && !b.is_empty() && b.bytes().all(|c| c.is_ascii_digit()))
+    }
+    fn walk(v: &Value, key: &str, above: &Above, out: &mut Vec<Seen>, depth: u32) {
         if depth > 24 {
             return;
         }
         match v {
-            Value::Array(a) => a.iter().for_each(|x| walk(x, out, depth + 1)),
+            Value::Array(a) => a.iter().for_each(|x| walk(x, key, above, out, depth + 1)),
             Value::Object(o) => {
+                let here = Above {
+                    r: text(o, "ref").filter(|r| is_ref(r)).or_else(|| text(o, "demigod").filter(|r| is_ref(r))).or_else(|| above.r.clone()),
+                    name: text(o, "name").or_else(|| above.name.clone()),
+                };
+                let prefix = match key {
+                    "look" | "pending" => key,
+                    _ if o.get("event").is_some_and(Value::is_string) => "event",
+                    _ => "",
+                };
                 for (k, x) in o {
                     let img = x.as_object().filter(|_| k == "image" || k.ends_with("_image"));
                     let hash = img.and_then(|i| i.get("hash")).and_then(Value::as_str).filter(|h| is_hash(h));
                     match (img, hash) {
                         (Some(i), Some(h)) => {
                             if matches!(i.get("status").and_then(Value::as_str), Some("ready" | "pending")) {
-                                let s = |o: &serde_json::Map<String, Value>, k: &str| {
-                                    o.get(k).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string)
+                                let owners = if o.contains_key("pending") {
+                                    None
+                                } else {
+                                    text(o, "image_loadout_hash").or_else(|| text(o, "loadout_hash")).or_else(|| text(o, "gear_hash"))
                                 };
                                 out.push(Seen {
                                     hash: h.to_string(),
-                                    role: k.clone(),
-                                    subject_ref: s(o, "ref").unwrap_or_default(),
-                                    name: s(o, "name"),
-                                    loadout_hash: s(i, "loadout_hash")
-                                        .or_else(|| s(o, "loadout_hash"))
-                                        .or_else(|| s(o, "gear_hash")),
+                                    role: if prefix.is_empty() { k.clone() } else { format!("{prefix}.{k}") },
+                                    subject_ref: here.r.clone().unwrap_or_default(),
+                                    name: here.name.clone(),
+                                    loadout_hash: text(i, "loadout_hash").or(owners),
                                 });
                             }
                         }
-                        _ => walk(x, out, depth + 1),
+                        _ => walk(x, k, &here, out, depth + 1),
                     }
                 }
             }
@@ -522,7 +568,7 @@ pub fn images_in(v: &Value) -> Vec<Seen> {
         }
     }
     let mut out = vec![];
-    walk(v, &mut out, 0);
+    walk(v, "", &Above::default(), &mut out, 0);
     out
 }
 
@@ -643,6 +689,7 @@ impl MediaObserver for LiveHook {
             .iter()
             .map(|x| RefFile { name: x.file_name(), sha256: Some(x.sha256.clone()), path: Some(x.path.clone()), bytes: None })
             .collect();
+        r.base = ev.prompt.base.clone();
         r.label = Some(ev.label.to_string());
         r.match_id = ev.match_id.map(str::to_string);
         r.beat = ev.round;

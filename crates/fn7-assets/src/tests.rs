@@ -754,6 +754,75 @@ async fn the_live_observer_writes_every_request_outcome_and_refusal() {
     assert!(d["uses"].as_array().unwrap().iter().any(|u| u["match_id"] == "m2" && u["role"] == "cached"));
 }
 
+/// Gear looks (state schema 11): a picture drawn on its base is a variant of it, and the registry knows which
+/// loadout each shown picture is of.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_gear_look_is_a_variant_of_its_base_and_time_travel_prefers_the_look() {
+    let t = Temp::new("looks");
+    let reg = Arc::new(Registry::open(t.path().join("assets")).unwrap());
+    let media = media_with(t.path(), MockGenerator::new(), 1.0);
+    let hook = LiveHook::for_media(reg.clone(), &media);
+    media.set_observer(hook.clone());
+    let base = media.prompt(ImageKind::Portrait, "Vex, a demigod: wiry and long-limbed").unwrap();
+    let gear = media.prompt_on(ImageKind::Portrait, "Vex, a demigod: wiry and long-limbed, wielding a blade of butterfly-wing membrane", &base).unwrap();
+    let gear2 = media.prompt_on(ImageKind::Portrait, "Vex, a demigod: wiry and long-limbed, wearing a crown of antlers", &base).unwrap();
+    let (b, g, g2) = (media.request(&base, Some("m1")), media.request(&gear, Some("m1")), media.request(&gear2, Some("m1")));
+    assert!(media.wait_idle(Duration::from_secs(10)).await);
+    hook.flush();
+    let (bid, gid) = (asset_id_for_media(&b.hash), asset_id_for_media(&g.hash));
+    let d = reg.detail(&gid).unwrap().unwrap();
+    assert_eq!((d["asset"]["status"].as_str(), d["asset"]["subject_key"].as_str()), (Some("ready"), Some("vex")));
+    assert_eq!((d["lineage"]["parents"][0]["id"].as_str(), d["lineage"]["parents"][0]["role"].as_str()), (Some(bid.as_str()), Some("variant_of")));
+    assert_eq!(d["generations"][0]["params"]["base_media_hash"], b.hash.as_str());
+    assert_eq!(d["generations"][0]["prompt"].as_str().unwrap().as_bytes(), gear.text.as_bytes());
+    let chain = reg.chain(&bid).unwrap();
+    assert_eq!(chain.len(), 3, "the base and both gear pictures: {chain:?}");
+
+    // A demigod as the server sends it: its identity picture, its look (what it looks like now), a picture still
+    // rendering, and the announcement of the change.
+    let img = |h: &str, status: &str| json!({ "hash": h, "kind": "portrait", "status": status, "url": null, "prompt": "…" });
+    let payload = |shown: &str, image_loadout: &str, pending: Option<(&str, &str)>| {
+        let mut look = json!({ "loadout_hash": pending.map(|p| p.1).unwrap_or(image_loadout), "image_loadout_hash": image_loadout, "since_beat": 3,
+                               "loadout": [ { "slot": "weapon", "item": "it:4", "name": "Wingblade" } ], "portrait_image": img(shown, "ready") });
+        if let Some((h, l)) = pending {
+            look["pending"] = json!({ "loadout_hash": l, "portrait_image": img(h, "pending") });
+        }
+        json!({ "demigods": [ { "ref": "dg:0", "name": "Vex", "portrait_image": img(&b.hash, "ready"), "look": look } ],
+                "looks": [ { "event": "look.changed", "demigod": "dg:0", "name": "Vex", "player": "Ash", "loadout_hash": "L1", "portrait_image": img(shown, "ready") } ] })
+    };
+    let seen = live::images_in(&payload(&g.hash, "L1", None));
+    let got: Vec<(&str, &str, &str, Option<&str>)> = seen.iter().map(|s| (s.role.as_str(), s.hash.as_str(), s.subject_ref.as_str(), s.loadout_hash.as_deref())).collect();
+    assert!(got.contains(&("portrait_image", b.hash.as_str(), "dg:0", None)), "{got:?}");
+    assert!(got.contains(&("look.portrait_image", g.hash.as_str(), "dg:0", Some("L1"))), "the look's owner is the demigod above it: {got:?}");
+    assert!(got.contains(&("event.portrait_image", g.hash.as_str(), "dg:0", Some("L1"))), "{got:?}");
+    // While the next gear picture renders, what is shown is a stand-in: no loadout is claimed for it.
+    let seen = live::images_in(&payload(&g.hash, "L1", Some((&g2.hash, "L2"))));
+    let got: Vec<(&str, &str, Option<&str>)> = seen.iter().map(|s| (s.role.as_str(), s.hash.as_str(), s.loadout_hash.as_deref())).collect();
+    assert!(got.contains(&("look.portrait_image", g.hash.as_str(), None)), "{got:?}");
+    assert!(got.contains(&("pending.portrait_image", g2.hash.as_str(), Some("L2"))), "{got:?}");
+
+    // Beats 1–2 the base look, 3–5 the first gear, 6 the second gear arriving (pending), 7–8 shown.
+    let base_look = json!({ "demigods": [ { "ref": "dg:0", "name": "Vex", "portrait_image": img(&b.hash, "ready"),
+                                            "look": { "loadout_hash": "", "image_loadout_hash": "", "portrait_image": img(&b.hash, "ready") } } ] });
+    for beat in 1..=2 { hook.saw("m1", beat, None, &base_look); }
+    for beat in 3..=5 { hook.saw("m1", beat, None, &payload(&g.hash, "L1", None)); }
+    hook.saw("m1", 6, None, &payload(&g.hash, "L1", Some((&g2.hash, "L2"))));
+    for beat in 7..=8 { hook.saw("m1", beat, None, &payload(&g2.hash, "L2", None)); }
+    hook.flush();
+    let look_at = |beat: i64| -> (String, Option<String>, String) {
+        let v = reg.at("m1", Some(beat), Some("Vex")).unwrap();
+        let p = v["items"].as_array().unwrap().iter().find(|i| i["subkind"] == "portrait").cloned().unwrap();
+        (p["media_hash"].as_str().unwrap().to_string(), p["loadout_hash"].as_str().map(str::to_string), p["role"].as_str().unwrap().to_string())
+    };
+    assert_eq!(look_at(2), (b.hash.clone(), None, "look.portrait_image".into()));
+    assert_eq!(look_at(4), (g.hash.clone(), Some("L1".into()), "look.portrait_image".into()));
+    assert_eq!(look_at(6).0, g.hash, "the stand-in is what was on screen while the new picture rendered");
+    assert_eq!(look_at(8), (g2.hash.clone(), Some("L2".into()), "look.portrait_image".into()));
+    // The identity picture is one run for the whole match; the looks are runs of their own.
+    assert_eq!(one(&reg, "SELECT beat, last_beat FROM uses WHERE role = 'portrait_image' AND match_id = 'm1'"), json!({ "beat": 1, "last_beat": 8 }));
+    assert_eq!(n(&reg, "SELECT COUNT(*) FROM uses WHERE role = 'look.portrait_image' AND match_id = 'm1'"), 4, "base 1–2, L1 3–5, the stand-in at 6, L2 7–8");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_failed_generation_is_recorded_and_a_later_success_replaces_nothing() {
     let t = Temp::new("fail");
