@@ -922,6 +922,99 @@ async fn a_failed_generation_is_recorded_and_a_later_success_replaces_nothing() 
     assert_eq!(outcomes, [("m1", "failed"), ("m2", "ok")]);
 }
 
+/// The paid path, against a local stand-in for the OpenAI Images API (nothing leaves this machine): an edits call
+/// whose first attempt is refused (transparent background) and whose second answers with usage. Everything the
+/// provider was sent and said about cost and time must be in SQL, and the key must be nowhere.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_openai_edits_call_lands_in_sql_with_usage_request_id_and_both_exchanges() {
+    use axum::{body::Bytes, routing::post, Router};
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let c2 = calls.clone();
+    let app = Router::new().route(
+        "/images/edits",
+        post(move |body: Bytes| {
+            let n = c2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            async move {
+                let text = String::from_utf8_lossy(&body).to_string();
+                if n == 0 && text.contains("name=\"background\"") {
+                    return (StatusCode::BAD_REQUEST, [("x-request-id", "req_first")], axum::Json(json!({ "error": { "message": "Invalid value for background: transparent" } })));
+                }
+                tokio::time::sleep(Duration::from_millis(40)).await;
+                (StatusCode::OK, [("x-request-id", "req_second")], axum::Json(json!({
+                    "data": [ { "b64_json": b64(&png(1024, 1024, "made by the stand-in")) } ],
+                    "usage": { "input_tokens": 4812, "input_tokens_details": { "image_tokens": 4512, "text_tokens": 300 }, "output_tokens": 1056, "total_tokens": 5868 } })))
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let t = Temp::new("openai");
+    let reg = Arc::new(Registry::open(t.path().join("assets")).unwrap());
+    let openai = fn7_media::OpenAiConfig { api_key: "sk-test-SECRET-NEVER-STORED".into(), base_url: format!("http://{addr}"), model: "gpt-image-1-mini".into(),
+        size: "1024x1024".into(), quality: "medium".into(), price_override: None, timeout: Duration::from_secs(10), retries: 0 };
+    let cfg = MediaConfig { mode: Mode::OpenAi, dir: t.path().join("media"), budget_usd: 1.0, match_budget_usd: 1.0, openai: Some(openai.clone()), ..Default::default() };
+    let gen: Arc<dyn ImageGenerator> = Arc::new(fn7_media::OpenAiImages::new(openai).unwrap());
+    let media = Media::start(cfg, Some(gen));
+    let hook = LiveHook::for_media(reg.clone(), &media);
+    media.set_observer(hook.clone());
+
+    let p = media.prompt(ImageKind::Diorama, "Vex, a demigod: wiry; as a tiny geometric miniature").unwrap();
+    assert_eq!(p.refs.len(), 4, "the shipped style sends four mood references with a diorama");
+    let r = media.request(&p, Some("m1"));
+    assert!(media.wait_idle(Duration::from_secs(20)).await);
+    hook.flush();
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+
+    let d = reg.detail(&asset_id_for_media(&r.hash)).unwrap().unwrap();
+    let a = &d["asset"];
+    assert_eq!((a["status"].as_str(), a["mime"].as_str(), a["width"].as_u64(), a["style_version"].as_str()), (Some("ready"), Some("image/png"), Some(1024), Some(media.style().version.as_str())));
+    assert_eq!(std::fs::read(reg.file_path(a["path"].as_str().unwrap()).unwrap()).unwrap(), png(1024, 1024, "made by the stand-in"));
+    let gens = d["generations"].as_array().unwrap();
+    assert_eq!(gens.len(), 2, "the refused exchange and the one that made the picture: {gens:?}");
+    let (first, g) = (&gens[0], &gens[1]);
+    assert_eq!((first["status"].as_str(), first["cost_usd"].as_f64(), first["provider_task_id"].as_str()), (Some("failed"), Some(0.0), Some("req_first")));
+    assert!(first["error"].as_str().unwrap().contains("background"));
+    assert_eq!(first["params"]["background"], "transparent");
+    // The call that made it: the prompt as sent, the endpoint, the provider's id, measured times, usage, the cost.
+    assert_eq!(g["prompt"].as_str().unwrap().as_bytes(), p.text.as_bytes());
+    assert_eq!((g["status"].as_str(), g["provider"].as_str(), g["model"].as_str(), g["operation"].as_str()), (Some("ok"), Some("openai"), Some("gpt-image-1-mini"), Some("images/edits")));
+    assert_eq!(g["endpoint"], format!("http://{addr}/images/edits"));
+    assert_eq!(g["provider_task_id"], "req_second");
+    assert_eq!(g["usage"]["input_tokens_details"]["image_tokens"], 4512);
+    let want = 0.011 + 4512.0 * 2.5e-6 + 300.0 * 2.0e-6;
+    assert!((g["cost_usd"].as_f64().unwrap() - want).abs() < 1e-12, "the per-image price plus the measured input tokens: {}", g["cost_usd"]);
+    assert_eq!(g["cost_basis"], "usage");
+    let (req_at, start, fin, dur) = (g["requested_at"].as_i64().unwrap(), g["started_at"].as_i64().unwrap(), g["finished_at"].as_i64().unwrap(), g["duration_ms"].as_f64().unwrap());
+    assert!(req_at <= start && start <= fin && dur >= 40.0 && dur < 10_000.0, "{req_at} {start} {fin} {dur}");
+    assert_eq!((g["params"]["size"].as_str(), g["params"]["quality"].as_str(), g["params"]["model"].as_str()), (Some("1024x1024"), Some("medium"), Some("gpt-image-1-mini")));
+    assert!(g["params"].get("background").is_none(), "the second call dropped the transparent background");
+    assert_eq!(g["params"]["image[]"].as_array().unwrap().len(), 4);
+    assert!((g["params"]["price_reserved_usd"].as_f64().unwrap() - (0.011 + 4.0 * 1200.0 * 2.5e-6 + 600.0 * 2.0e-6)).abs() < 1e-9);
+    assert_eq!((g["requested_match"].as_str(), g["requested_by"].as_str()), (Some("m1"), Some("match:m1")));
+    // The four references: stored once as assets of their own, named on the call, parents of the picture.
+    let refs = g["reference_asset_ids"].as_array().unwrap();
+    assert_eq!(refs.len(), 4);
+    let parents = d["lineage"]["parents"].as_array().unwrap();
+    assert_eq!(parents.len(), 4);
+    for (i, pr) in p.refs.iter().enumerate() {
+        let ra = reg.detail(refs[i].as_str().unwrap()).unwrap().unwrap()["asset"].clone();
+        assert_eq!((ra["sha256"].as_str(), ra["status"].as_str(), ra["subkind"].as_str(), ra["subject_kind"].as_str()), (Some(pr.sha256.as_str()), Some("ready"), Some("reference"), Some("shared")));
+        assert!(ra["path"].as_str().unwrap().starts_with("images/reference/"));
+        assert_eq!(g["params"]["image[]"][i]["sha256"], pr.sha256.as_str());
+    }
+    assert!(parents.iter().all(|x| x["role"] == "reference"));
+    // Money: one paid call, counted once.
+    let c = reg.costs("provider", None).unwrap();
+    assert_eq!((c["items"][0]["key"].as_str(), c["items"][0]["calls"].as_i64(), c["items"][0]["ok"].as_i64(), c["items"][0]["failed"].as_i64()), (Some("openai"), Some(2), Some(1), Some(1)));
+    assert!((c["total"]["cost_usd"].as_f64().unwrap() - want).abs() < 1e-6);
+    // The key is in no row and no file of the registry.
+    assert!(!dump(&reg).contains("sk-test"), "no credential in SQL");
+    let db = std::fs::read(reg.db_path()).unwrap();
+    assert!(!db.windows(7).any(|w| w == b"sk-test"), "no credential in the database file");
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Recordings
 // ---------------------------------------------------------------------------------------------------------------------
