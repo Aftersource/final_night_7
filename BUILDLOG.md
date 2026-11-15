@@ -1497,3 +1497,9 @@ changes; nothing spent: mock images, a scripted gateway, a fake Meshy client):
   preview, `jobs/god_statues.jsonl`), the same image cached, a new one `cap_reached` with one submit, on without a key
   → `not_configured`; figures before (house god, null) and after (account image, then statue); deletion cascades.
   Schemas: `docs/schemas/account_god*.schema.json`.
+
+> The Meshy 3D setting appears to be off. Turn it on, and ask Benito for a new API key if credits are low.
+
+> The designer is going to sleep. Run the editor-side work overnight, but shut it down when it is not actively in use.
+
+Engineering: god form live (server main 228c4ea) with Meshy statues ON (1 per account; 259 credits); Benito asked for another key. The Mac keeps her editor shut unless a task needs it.
