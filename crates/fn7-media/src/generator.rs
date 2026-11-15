@@ -510,7 +510,7 @@ impl ImageGenerator for OpenAiImages {
                 Err(e) => {
                     rec.duration_ms = t0.elapsed().as_secs_f64() * 1000.0;
                     rec.error = Some(e.to_string());
-                    theatre_trace::http(rec);
+                    crate::observe::http(rec);
                     if attempt < self.cfg.retries && (e.is_timeout() || e.is_connect()) {
                         attempt += 1;
                         tokio::time::sleep(Duration::from_secs(2u64.pow(attempt))).await;
@@ -540,7 +540,7 @@ impl ImageGenerator for OpenAiImages {
                     .unwrap_or("request failed")
                     .to_string();
                 rec.error = Some(format!("{status}: {msg}"));
-                theatre_trace::http(rec);
+                crate::observe::http(rec);
                 if edits
                     && transparent
                     && req.kind.wants_transparency()
@@ -560,7 +560,7 @@ impl ImageGenerator for OpenAiImages {
                 }
                 anyhow::bail!("openai images {status}: {msg}");
             }
-            theatre_trace::http(rec);
+            crate::observe::http(rec);
             let first = parsed.pointer("/data/0").cloned().unwrap_or(Value::Null);
             let bytes = if let Some(b64) = first.get("b64_json").and_then(Value::as_str) {
                 base64::engine::general_purpose::STANDARD.decode(b64)?

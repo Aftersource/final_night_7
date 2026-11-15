@@ -19,6 +19,7 @@ fn7-model.workspace = true
 fn7-media.workspace = true
 fn7-agents.workspace = true
 fn7-profile = { path = "../fn7-profile" }
+fn7-assets.workspace = true
 theatre-plugin-api.workspace = true
 theatre-llm.workspace = true
 theatre-server.workspace = true

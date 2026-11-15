@@ -11,6 +11,7 @@ members = [
     "crates/fn7-tools",
     "crates/fn7-media",
     "crates/fn7-profile",
+    "crates/fn7-assets",
 ]
 
 [workspace.package]
@@ -35,6 +36,7 @@ fn7-pantheon = { path = "crates/fn7-pantheon" }
 fn7-agents = { path = "crates/fn7-agents" }
 fn7-plugin = { path = "crates/fn7-plugin" }
 fn7-media = { path = "crates/fn7-media" }
+fn7-assets = { path = "crates/fn7-assets" }
 
 tokio = { version = "1.54", features = ["full"] }
 futures = "0.3"

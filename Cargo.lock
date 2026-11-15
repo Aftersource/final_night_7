@@ -503,6 +503,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "fn7-assets"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "clap",
+ "fn7-media",
+ "fn7-profile",
+ "futures-core",
+ "hex",
+ "http-body-util",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "tower",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "fn7-media"
 version = "0.1.0"
 dependencies = [
@@ -600,6 +622,7 @@ dependencies = [
  "clap",
  "dotenvy",
  "fn7-agents",
+ "fn7-assets",
  "fn7-media",
  "fn7-model",
  "fn7-plugin",

@@ -23,6 +23,7 @@ pub mod annotate;
 pub mod cache;
 pub mod generator;
 pub mod http;
+pub mod observe;
 pub mod prompt;
 pub mod style;
 
@@ -42,6 +43,7 @@ pub use generator::{
     GenRequest, Generated, ImageGenerator, MockGenerator, OpenAiConfig, OpenAiImages,
 };
 pub use annotate::LookSeen;
+pub use observe::{HttpCall, MediaEvent, MediaObserver, Stage};
 pub use prompt::{ImageKind, ImagePrompt, PROMPT_VERSION};
 pub use style::{EventSelection, KindStyle, MediaStyle, RefImage, References, RefsSpec};
 
@@ -316,6 +318,21 @@ struct Inner {
     seen_image_prompt: AtomicBool,
     /// Jobs accepted but not yet started (bounded by `cfg.queue`).
     queued: AtomicUsize,
+    /// Told about every image as it is recorded ([`Media::set_observer`]; the asset registry).
+    observer: std::sync::OnceLock<Arc<dyn MediaObserver>>,
+}
+
+impl Inner {
+    fn observe(&self, ev: MediaEvent<'_>) {
+        if let Some(o) = self.observer.get() {
+            o.on_media(&ev);
+        }
+    }
+}
+
+/// The beat of the hook this runs in, if any.
+fn trace_round() -> Option<u32> {
+    theatre_trace::current().and_then(|c| c.round)
 }
 
 /// The image service. Cheap to clone. All methods return at once; generation happens on a background queue.
@@ -375,6 +392,7 @@ impl Media {
             tx,
             seen_image_prompt: AtomicBool::new(false),
             queued: AtomicUsize::new(0),
+            observer: std::sync::OnceLock::new(),
         });
         if let Some(rx) = rx {
             tokio::spawn(worker(Arc::downgrade(&inner), rx));
@@ -384,6 +402,17 @@ impl Media {
 
     pub fn mode(&self) -> Mode {
         self.inner.cfg.mode
+    }
+
+    /// Attach the observer (once; later calls are ignored): it is told about every image this service records from
+    /// now on. See [`observe`].
+    pub fn set_observer(&self, observer: Arc<dyn MediaObserver>) {
+        let _ = self.inner.observer.set(observer);
+    }
+
+    /// The generator label (`openai:<model>:<quality>`, `mock`, `off`): part of every image key.
+    pub fn label(&self) -> &str {
+        &self.inner.label
     }
 
     pub fn enabled(&self) -> bool {
@@ -480,6 +509,9 @@ impl Media {
             }
         }
         let now = st.tick();
+        // The wall clock at the request (taken before the job is queued: an observer's `requested` never follows its
+        // `ready` in time).
+        let asked = theatre_trace::now_ms();
         // On disk already (an earlier process or match made it).
         if let Some(side) = self.inner.cache.lookup(&key) {
             let e = Entry {
@@ -497,6 +529,12 @@ impl Media {
             let r = self.image_ref(&e);
             st.entries.insert(key.clone(), e);
             drop(st);
+            let path = self.inner.cache.image_path(&key, &side.ext);
+            self.inner.observe(MediaEvent {
+                stage: Stage::Cached, hash: &key, prompt, provider: gen.provider(), label: &self.inner.label,
+                match_id, round: trace_round(), at_ms: asked, price_usd: 0.0, reason: None, sidecar: Some(&side),
+                path: Some(&path), latency_ms: None, calls: &[],
+            });
             theatre_trace::event(
                 "media_cached",
                 None,
@@ -581,6 +619,12 @@ impl Media {
         let r = self.image_ref(&e);
         st.entries.insert(key.clone(), e);
         drop(st);
+        self.inner.observe(MediaEvent {
+            stage: if reason.is_some() { Stage::Refused } else { Stage::Requested },
+            hash: &key, prompt, provider: gen.provider(), label: &self.inner.label, match_id, round: trace_round(),
+            at_ms: asked, price_usd: price, reason: reason.as_deref(), sidecar: None, path: None, latency_ms: None,
+            calls: &[],
+        });
         let (kind, data) = match reason {
             Some(why) => (
                 "media_refused",
@@ -835,8 +879,8 @@ async fn run_job(inner: Arc<Inner>, job: Job) {
         None => Ok(None),
     };
     let t0 = Instant::now();
-    let res = match base {
-        Err(e) => Err(e),
+    let (res, calls) = match base {
+        Err(e) => (Err(e), Vec::new()),
         Ok(base) => {
             let req = GenRequest {
                 key: job.key.clone(),
@@ -845,7 +889,7 @@ async fn run_job(inner: Arc<Inner>, job: Job) {
                 size: job.prompt.size.clone(),
                 refs: base.into_iter().chain(job.prompt.refs.iter().cloned()).collect(),
             };
-            gen.generate(&req).await
+            observe::collect(gen.generate(&req)).await
         }
     };
     let latency_ms = t0.elapsed().as_secs_f64() * 1000.0;
@@ -883,6 +927,12 @@ async fn run_job(inner: Arc<Inner>, job: Job) {
                 e.updated_at = now;
             }
             drop(st);
+            inner.observe(MediaEvent {
+                stage: Stage::Ready, hash: &job.key, prompt: &job.prompt, provider: gen.provider(), label: &inner.label,
+                match_id: job.match_id.as_deref(), round: job.ctx.as_ref().and_then(|c| c.round), at_ms: theatre_trace::now_ms(),
+                price_usd: job.price, reason: None, sidecar: Some(&side), path: Some(&path),
+                latency_ms: Some(latency_ms), calls: &calls,
+            });
             tracing::debug!(hash = %job.key, kind = side.kind.as_str(), latency_ms, "image ready");
             theatre_trace::event(
                 "media_ready",
@@ -901,6 +951,13 @@ async fn run_job(inner: Arc<Inner>, job: Job) {
                 e.updated_at = now;
             }
             drop(st);
+            let why = err.to_string();
+            inner.observe(MediaEvent {
+                stage: Stage::Failed, hash: &job.key, prompt: &job.prompt, provider: gen.provider(), label: &inner.label,
+                match_id: job.match_id.as_deref(), round: job.ctx.as_ref().and_then(|c| c.round), at_ms: theatre_trace::now_ms(),
+                price_usd: job.price, reason: Some(&why), sidecar: None, path: None, latency_ms: Some(latency_ms),
+                calls: &calls,
+            });
             tracing::warn!(hash = %job.key, error = %err, "image failed");
             theatre_trace::event(
                 "media_failed",

@@ -2449,6 +2449,85 @@ any. From schema 5 each demigod also has `hand` (`left`/`right`).
 To show an image, find its `hash` in `GET /media/index` (`{hash, url}`) or fetch `/media/<hash>.<ext>`. A hash from
 an older build may no longer be on disk.
 
+## Assets (`/api/assets`): statues, figures and every generated file
+
+The server keeps one registry of every generated asset (full reference: [`ASSETS.md`](ASSETS.md)): each picture and
+3D model as a file named by the sha256 of its bytes, with the exact prompt, timing and cost that made it. Clients use
+it for two things: **putting a 3D statue or figure on a seat**, and **looking a picture up in time**. Pictures in
+payloads keep working as before (`/media/<hash>.<ext>`, "Images" above); nothing there changed.
+
+Same origin as `/ws`; with the host's key configured, add `?key=<KEY>` to every request (as for `/api/profiles`).
+
+### A seat's statue: fetch once, cache by sha256
+
+```
+GET /api/assets/figures?name=<demigod or god name>&key=<KEY>
+```
+
+```json
+{ "name": "Chris's Left Hand", "key": "chris's left hand", "found": true,
+  "statue": { "id": "ast_c6d1e521036539dfe2410eb6", "kind": "model", "subkind": "statue", "variant": "",
+              "sha256": "c358e92dbd22eff3a9d5eeff70873941893a6eff0f41a121e475a613fe7ab87f",
+              "bytes": 43081148, "mime": "model/gltf-binary", "tris": 1225996,
+              "path": "models/statue/c358e92d….glb", "file_url": "/api/assets/ast_c6d1e521036539dfe2410eb6/file",
+              "created_at": 1794698319490 },
+  "figure": null,
+  "previews": [ { "id": "ast_…", "subkind": "preview", "file_url": "/api/assets/ast_…/file", "sha256": "b02516c8…" } ],
+  "fallback": null,
+  "mannequin": { "models": [ { "variant": "rigged", "mime": "application/vnd.autodesk.fbx", "sha256": "4a689d9e…", "file_url": "…" } ],
+                 "clips":  [ { "variant": "all_clips", "sha256": "4dea2c75…", "file_url": "…" }, { "variant": "idle_guard", "…": "…" } ],
+                 "skins":  [ { "variant": "gold/base_color", "sha256": "…", "file_url": "…" }, "…" ] } }
+```
+
+What the Unreal client does for each seat:
+
+1. **Ask** `figures?name=<the demigod's name>` when the seat's demigod is known (`demigods[].name`; any spelling: the
+   server normalizes it, and a trailing ` (2)` counter is ignored). Hands are demigods: ask with the hand's name
+   (`Chris's Left Hand`).
+2. **Pick**: `statue` (a static posed GLB) for the end screen and the table; `figure` (a rigged GLB on the mannequin's
+   skeleton) where it must animate. Either may be `null`. With `found: false` the answer has
+   `"fallback": "mannequin"`: use `mannequin.models` (the rig), `mannequin.clips` and a skin from `mannequin.skins`.
+3. **Check the cache**: look for a local file named `<sha256>.<ext>`. Present → use it; no request.
+4. **Fetch** `file_url` (+ `?key=`) otherwise. The response is immutable (`Cache-Control: public, max-age=31536000,
+   immutable`, `ETag: "<sha256>"`, `X-Asset-Sha256`, `Content-Length`). Models are big (the two statues today are 24
+   and 43 MB): the route supports `Range: bytes=<from>-` (206 with `Content-Range`), so an interrupted download
+   resumes from the bytes already on disk.
+5. **Verify** the bytes hash to `sha256`, then save as `<sha256>.<ext>`. A new statue for the same name is a new
+   asset with a new sha256: the next `figures` answer names it, and the old file can be evicted at leisure.
+6. **Re-ask** at each match start (the answer is small). `bytes` and `tris` are there to budget before fetching.
+
+`GET /api/assets/figures` without `name` lists every statue and figure there is, to prefetch. A god's statue is
+asked for the same way (`name=Chris&subject_kind=god`); when a demigod and a god share a name and no `subject_kind` is
+given, `statue` is the demigod's and `god_statue` the god's.
+
+### Any asset
+
+| Route | Answer |
+|---|---|
+| `GET /api/assets?subject_kind=&subject=&kind=&match=&beat=&status=&current=&limit=&after=` | A page, newest first: `{items, next, limit, total}`. `kind` = `image` \| `model` \| `texture` \| `animation`, a subkind (`portrait`, `statue`, `skin`, `clip`, …) or `kind/subkind`; `subject` = a name (normalized); `match` (and `beat`) = shown in that match (at that beat); `current=1` = newest version only; pass `next` back as `after` |
+| `GET /api/assets/{id}` | `{asset, current, generations[], lineage: {parents[], children[]}, uses[]}`: the exact prompts, parameters, timing and cost of every provider call; what it was made from; where it was shown. `{id}` may be a **media hash** from a payload's image object |
+| `GET /api/assets/{id}/file` | The bytes (immutable, ranges, as above) |
+| `GET /api/assets/{id}/chain` | The whole lineage, oldest first (`portrait → heroic image → statue → preview`) |
+| `GET /api/assets/at?match=&beat=&demigod=` | What that demigod looked like at that beat of that match (below) |
+| `GET /api/assets/costs?by=day\|kind\|provider\|match\|subject` | Totals (USD and Meshy credits), counts, durations |
+| `GET /api/assets/mine` | The signed-in account's assets (`Authorization: Bearer <session token>`): its names, its demigods |
+
+Statuses: `ready` (has `file_url`), `pending`, `failed`, `refused` (budget or cap: no picture will come), `external`
+(on record, file not kept). Only `ready` assets have a file.
+
+### A picture in time
+
+```
+GET /api/assets/at?match=<match id>&beat=7&demigod=Vex&key=<KEY>
+```
+
+answers `{items: [{role, subkind, first_beat, last_beat, loadout_hash, matched, id, sha256, path, file_url, media_url,
+…}], models: […]}`: per picture kind (`portrait`, `diorama`, the statue image) the image that was on that demigod at
+that beat. `demigod` is a name or that match's ref (`dg:0`). Use it for time travel and replays (a history row's
+`match_id` from `/api/profiles/{name}/history` is the `match`), so a past beat is drawn with the pictures it had, not
+today's. `media_url` is the same picture on the `/media` route, which a client that already caches by media hash can
+keep using.
+
 ## Accounts, settings and demigod personalities
 
 The whole flow, the reasoning and the security notes are in [`ACCOUNTS.md`](ACCOUNTS.md); this section is the

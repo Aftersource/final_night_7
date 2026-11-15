@@ -10,6 +10,9 @@
 //! `game.profile`/`game.history`/`game.library` queries; history rows at every match end. At startup an empty store
 //! (or `FN7_PROFILE_BACKFILL=1`) is backfilled in the background from `FN7_PROFILE_BACKFILL_DIR`, else the recordings
 //! directory (`THEATRE_RECORD_DIR`); recordings are only read.
+//! Assets (`fn7-assets`, docs/ASSETS.md): the registry at `FN7_ASSETS_DIR`, else `<THEATRE_DATA_DIR>/fn7/assets`
+//! (`assets.sqlite` + content-addressed files), written live from the media layer; the `/api/assets` routes
+//! (`FN7_ASSETS_KEY`, else `FN7_PROFILE_KEY`, gates them); `FN7_ASSETS=off` turns it off.
 //! Accounts (`fn7_server::accounts`, docs/ACCOUNTS.md): `/api/auth/*`, `/api/me*`, `/api/game/bind`, in the same store.
 //! Google sign-in needs `FN7_GOOGLE_CLIENT_ID`, `FN7_GOOGLE_CLIENT_SECRET` and `FN7_PUBLIC_URL` (guests work without);
 //! `FN7_NAME_GUARD=off` stops the name guard; `FN7_MODERATION=rules` judges demigod sheets by rules only.
@@ -46,6 +49,17 @@ async fn main() -> anyhow::Result<()> {
     let style = media.style();
     tracing::info!(images = %media.config().note, dir = %media.config().dir.display(), style = %style.source,
                    style_version = %style.version, style_hash = %&style.hash[..12], "media");
+    // The asset registry (docs/ASSETS.md): attached before the prewarm, so every image the media layer touches from
+    // here on is written to SQL as it happens.
+    // A registry that cannot be opened never stops the game: the server runs without it and says so.
+    let assets = fn7_server::assets::open(&cfg.data_dir, |k| std::env::var(k).ok()).unwrap_or_else(|e| {
+        tracing::error!(error = %e, "assets: the registry could not be opened; running without it (no /api/assets, no asset rows)");
+        None
+    });
+    let asset_hook = assets.as_ref().map(|(reg, root)| {
+        tracing::info!(dir = %root.display(), schema = reg.schema_version().unwrap_or(0), "assets");
+        fn7_server::assets::attach(reg.clone(), &media)
+    });
     // Prewarm (FN7_MEDIA_PREWARM, default on; FN7_MEDIA_PREWARM_NAMES adds names): every built-in AI demigod's
     // portrait and diorama, identity-only, so they are cached before any match needs them.
     if media.enabled() {
@@ -83,14 +97,18 @@ async fn main() -> anyhow::Result<()> {
     let accounts = fn7_server::accounts::Accounts::from_env(store.clone(), moderator, env);
     tracing::info!(google = accounts.google_configured(), moderation = accounts.moderation_label(),
                    name_guard = accounts.guard_on(), "accounts");
-    let plugin: Arc<dyn GamePlugin> =
-        Arc::new(fn7_server::media::MediaPlugin::new(
-            fn7_server::accounts::plugin::AccountsPlugin::new(
-                game,
-                accounts.clone(),
-            ),
-            media.clone(),
-        ).with_profiles(profiles.clone()));
+    let with_media = fn7_server::media::MediaPlugin::new(
+        fn7_server::accounts::plugin::AccountsPlugin::new(
+            game,
+            accounts.clone(),
+        ),
+        media.clone(),
+    ).with_profiles(profiles.clone());
+    // The registry's wrapper is outermost: it only reads what goes out (which images, at which beat, on whom).
+    let plugin: Arc<dyn GamePlugin> = match asset_hook {
+        Some(hook) => Arc::new(fn7_server::assets::AssetsPlugin::new(with_media, hook)),
+        None => Arc::new(with_media),
+    };
     let app = AppState::new(cfg.clone(), plugin, built.llm);
     restore(&app);
     // The accounts layer sees the engine's players (to bind a session to one) and runs the name guard.
@@ -123,13 +141,19 @@ async fn main() -> anyhow::Result<()> {
 
     let listener = TcpListener::bind(cfg.bind).await?;
     tracing::info!(addr = %listener.local_addr()?, game = fn7_plugin::PLUGIN_ID, rules = fn7_plugin::RULES_VERSION,
-                   "final night 7 listening (ws at /ws, images at /media, simulator at /sim, profiles at /api/profiles, accounts at /api/auth and /api/me)");
+                   "final night 7 listening (ws at /ws, images at /media, simulator at /sim, profiles at /api/profiles, assets at /api/assets, accounts at /api/auth and /api/me)");
     // The engine's own serve, with the /media, /sim and /api/profiles routes merged in (engine route extension,
     // theatre 330896e).
-    let extra = fn7_media::http::router(media)
+    let mut extra = fn7_media::http::router(media)
         .merge(fn7_server::simapi::router(sim))
-        .merge(fn7_profile::http::router(store, fn7_profile::http::HttpConfig::from_env(env)))
+        .merge(fn7_profile::http::router(store.clone(), fn7_profile::http::HttpConfig::from_env(env)))
         .merge(fn7_server::accounts::http::router(accounts));
+    if let Some((reg, _)) = assets {
+        let mut http = fn7_assets::http::HttpConfig::from_env(env);
+        http.admin_token = cfg.admin_token.clone().filter(|t| !t.is_empty());
+        http.sessions = Some(Arc::new(fn7_server::assets::AccountSessions(store)));
+        extra = extra.merge(fn7_assets::http::router(reg, http));
+    }
     theatre_server::serve_with(listener, app, extra, async {
         let _ = tokio::signal::ctrl_c().await;
     })

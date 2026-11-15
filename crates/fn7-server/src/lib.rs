@@ -6,6 +6,7 @@
 
 pub mod accounts;
 pub mod anthropic;
+pub mod assets;
 pub mod llm;
 pub mod media;
 pub mod profile;

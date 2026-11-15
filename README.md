@@ -57,6 +57,9 @@ cargo run --release -p fn7-server --bin fn7-server            # THEATRE_BIND=0.0
   credentials). JSONL is the store of record; `fn7-project` loads it into SQLite for analysis (see
   `docs/DATA_MODEL.md` §3–4). `THEATRE_REPLAY_FROM=<recording.jsonl>` answers every LLM call from a recording.
 - **Images:** `FN7_IMAGES` (off by default) and the `/media` routes, see `docs/MEDIA.md`.
+- **Assets:** every generated image and 3D model in one registry (`<THEATRE_DATA_DIR>/fn7/assets/`: content-addressed
+  files + `assets.sqlite` with the exact prompts, timing, costs, lineage and uses), the `/api/assets` routes and the
+  `fn7-assets` CLI, see `docs/ASSETS.md`.
 
 Runbook (LAN / tunnel):
 ```
