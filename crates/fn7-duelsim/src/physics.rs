@@ -17,6 +17,8 @@ const FLOOR_RESTITUTION: f64 = 0.1;
 const ITER: usize = 10;
 const SLOP: f64 = 0.004;
 const BETA: f64 = 0.2;
+/// With `support_wake`, a sleeper wakes when what it rests on moves faster than this at the contact (0.5 m/s, squared).
+const SUPPORT_V2: f64 = 0.25;
 
 fn tangents(n: V3) -> (V3, V3) { let a = if n[1].abs() < 0.9 { UP } else { [1.0, 0.0, 0.0] }; let t1 = norm(cross(n, a)); (t1, cross(n, t1)) }
 
@@ -138,11 +140,13 @@ pub struct World {
     pub loads: Vec<Load>,
     touching: Vec<(u8, usize)>,
     pub rnd: Rng,
+    /// Wake a sleeper when what it rests on moves (default true). `false` is the lab's engine exactly (parity runs).
+    pub support_wake: bool,
 }
 
 impl World {
     pub fn new(scene: &Scene, seed: u32) -> World {
-        let mut w = World { bodies: vec![], events: vec![], step: 0, kin: vec![], loads: vec![], touching: vec![], rnd: Rng(seed) };
+        let mut w = World { bodies: vec![], events: vec![], step: 0, kin: vec![], loads: vec![], touching: vec![], rnd: Rng(seed), support_wake: true };
         for (oi, o) in scene.objects.iter().enumerate() {
             let parts = o.parts.iter().map(|p| Part::new(p.prim.clone(), p.mat, p.fill, p.lp, p.lq, p.pi, false)).collect();
             w.spawn(oi, o.fixed, o.hidden, o.p, o.q, parts, Z3, Z3, true, false);
@@ -318,6 +322,11 @@ impl World {
         let vn = dot(sub(self.bodies[a].vel_at(ra), self.bodies[b].vel_at(rb)), n);
         if self.bodies[a].asleep && !self.bodies[b].fixed && !self.bodies[b].asleep && vn.abs() > 0.3 { self.wake(a, false); }
         if self.bodies[b].asleep && !self.bodies[a].asleep && vn.abs() > 0.3 { self.wake(b, false); }
+        // a sleeper resting ON a moving body wakes: a support that moves away must not leave what it carries hanging in
+        // the air (a sleeper is solved as if fixed). The lab only wakes the neighbours of a struck body; this is the one
+        // place this engine differs from it, and `support_wake = false` turns it off (docs/DUEL_SIM.md, "Parity").
+        if self.support_wake && self.bodies[a].asleep && !self.bodies[b].asleep && !self.bodies[b].fixed && n[1] > 0.5 && dot(self.bodies[b].vel_at(rb), self.bodies[b].vel_at(rb)) > SUPPORT_V2 { self.wake(a, false); }
+        if self.support_wake && self.bodies[b].asleep && !self.bodies[a].asleep && !self.bodies[a].fixed && n[1] < -0.5 && dot(self.bodies[a].vel_at(ra), self.bodies[a].vel_at(ra)) > SUPPORT_V2 { self.wake(b, false); }
         let (ma, mb) = (self.bodies[a].parts[pa].mat, self.bodies[b].parts[pb].mat);
         c.push(Contact { a, b: Some(b), kin: None, pa, pb, p, n, depth, ra, rb, vn0: vn, mu: (ma.friction * mb.friction).sqrt(), e: ma.restitution.min(mb.restitution), max_n: None,
             t1: Z3, t2: Z3, jn: 0.0, j1: 0.0, j2: 0.0, ia: 0.0, ib: 0.0, kn: 0.0, k1: 0.0, k2: 0.0, target: 0.0 });
@@ -327,14 +336,6 @@ impl World {
         let dt = DT; let nb = self.bodies.len();
         let mut cs: Vec<Contact> = vec![];
         for i in 0..nb { let b = &mut self.bodies[i]; if b.dead { continue; } if !b.fixed && !b.asleep { b.v = [b.v[0], b.v[1] - G * dt, b.v[2]]; } self.pose(i); }
-        // a body on the move wakes the sleepers it overlaps: a stack must not hang in the air when its support leaves
-        // (the lab wakes only the neighbours of a struck body; this goes one step further, every step)
-        for i in 0..nb {
-            let a = &self.bodies[i];
-            if a.dead || a.fixed || a.asleep || (dot(a.v, a.v) < 0.09 && dot(a.w, a.w) < 0.25) { continue; }
-            let (ap, ar) = (a.p, a.radius);
-            for o in &mut self.bodies { if o.asleep && !o.dead && !o.fixed && len(sub(o.p, ap)) < o.radius + ar + 0.05 { o.asleep = false; o.still = 0.0; } }
-        }
         for l in self.loads.clone() { let b = &self.bodies[l.body]; if !b.dead && !b.fixed && !b.asleep { self.push(l.body, mul(l.f, dt), l.at); } }
         // ---- contacts ----
         let floor = |b: &Body, pa: usize, p: V3, depth: f64| -> Contact {

@@ -22,9 +22,17 @@ fn main() {
     let panels = lab_panels(&d);
     let seed = 7;
 
+    // --repeat N: bake the whole duel N more times first and print the fastest (for timing and profiling)
+    if let Some(n) = opt("--repeat").and_then(|n| n.parse::<usize>().ok()) {
+        let mut best = vec![u128::MAX; panels.len()];
+        for _ in 0..n { let mut s = Sim::new(&d["scene"], &fighters, seed); s.world.support_wake = !args.iter().any(|a| a == "--lab-exact"); for (i, p) in panels.iter().enumerate() { let t = Instant::now(); let _ = s.panel(p); best[i] = best[i].min(t.elapsed().as_micros()); } }
+        println!("fastest of {n}: {:?} us per panel, {} us the duel", best, best.iter().sum::<u128>());
+    }
     let t = Instant::now();
     let mut sim = Sim::new(&d["scene"], &fighters, seed);
     sim.keep_raw = lab.is_some();
+    // --lab-exact: the lab's engine to the letter (no support waking), to show the port is faithful
+    if args.iter().any(|a| a == "--lab-exact") { sim.world.support_wake = false; }
     // per body: where it started, its up axis then, the farthest it got, the most it tilted
     let mut track: Vec<Option<([f64; 3], [f64; 3], f64, f64)>> = vec![];
     let setup_us = t.elapsed().as_micros();
