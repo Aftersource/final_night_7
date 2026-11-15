@@ -56,6 +56,13 @@ pub const ITEM_NAME_SCHEMA: u32 = 15;
 /// the state itself is unchanged; only the payloads (`round.brief.private`, `round.private_state`, `game.me`) grow.
 pub const HINT_SCHEMA: u32 = 18;
 
+/// The schema token play switches on at (18 and 20 are taken by other branches): a typed will's acts at a place are
+/// played out by the tokens on the people-level board (`scene.play`, kept in [`Dm::scenes`]).
+pub const TOKEN_PLAY_SCHEMA: u32 = 19;
+
+/// Token-play scenes kept in the state (the newest).
+pub const SCENES_KEPT: usize = 24;
+
 /// Scars kept per demigod (the newest).
 pub const SCARS_KEPT: usize = 12;
 
@@ -406,6 +413,10 @@ pub struct Dm {
     /// dirty cells and the keyframes. Absent = nothing serialized, so states without it stay byte-identical.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub earth: Option<Box<crate::earth::EarthState>>,
+    /// Schema 19 (token play): the newest [`SCENES_KEPT`] `scene.play` scenes. The plugin owns the shape
+    /// (`fn7-plugin::scene::Scene`); empty = nothing serialized, so states without it stay byte-identical.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scenes: Vec<Value>,
 }
 
 /// Schema 8: the delivery mark and clocks of a state (all epoch ms; 0 = unknown).

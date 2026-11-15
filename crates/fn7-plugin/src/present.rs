@@ -109,6 +109,8 @@ pub struct Feed {
     pub recovered: BTreeMap<u32, Vec<Action>>,
     /// Schema 14: the duel picks each resolve was handed (`duel_picks`, [`crate::picker`]).
     pub picks: BTreeMap<u32, Vec<crate::picker::PickRec>>,
+    /// Schema 19: the polished captions each resolve was handed (`scene_captions`, [`crate::polish`]).
+    pub captions: BTreeMap<u32, Vec<crate::polish::CaptionRec>>,
 }
 
 impl Feed {
@@ -132,6 +134,10 @@ impl Feed {
                     let p: Vec<crate::picker::PickRec> = serde_json::from_value(r["data"]["picks"].clone()).unwrap_or_default();
                     f.picks.insert(round, p);
                 }
+                Some("scene_captions") => {
+                    let c: Vec<crate::polish::CaptionRec> = serde_json::from_value(r["data"]["captions"].clone()).unwrap_or_default();
+                    f.captions.insert(round, c);
+                }
                 _ => {}
             }
         }
@@ -139,7 +145,7 @@ impl Feed {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.clocks.is_empty() && self.recovered.is_empty() && self.picks.is_empty()
+        self.clocks.is_empty() && self.recovered.is_empty() && self.picks.is_empty() && self.captions.is_empty()
     }
 }
 
@@ -309,6 +315,48 @@ impl Journal {
         run.entries.push(e);
     }
 
+    /// Schema 19: journal a caption polish ([`crate::polish`]) for the match `key` (captured in the resolve that made
+    /// the scene: the answer comes back outside any hook), stamped with its own `at_ms`.
+    pub fn note_captions(&self, key: &str, seed: u64, rec: &crate::polish::CaptionRec) {
+        let e = Entry { boot: self.boot, beat: rec.beat, seat: crate::SYNTHETIC_SEAT, text: String::new(),
+                        fields: json!({ "scene_captions": rec }), seq: 0, at_ms: rec.at_ms, seed, event: None };
+        let mut inner = self.lock();
+        if let Some(dir) = &self.dir {
+            let line = serde_json::to_string(&e).unwrap_or_default();
+            let res = std::fs::create_dir_all(dir).and_then(|_| {
+                let mut f = std::fs::OpenOptions::new().create(true).append(true).open(dir.join(file_name(key)))?;
+                writeln!(f, "{line}")
+            });
+            if let Err(err) = res {
+                eprintln!("fn7 journal: append to {} failed: {err}", dir.display());
+            }
+        }
+        let run = inner.runs.entry(key.to_string()).or_default();
+        run.seed = seed;
+        run.entries.push(e);
+    }
+
+    fn caption_recs(run: &Run, w: &World) -> Vec<crate::polish::CaptionRec> {
+        let mut out: Vec<crate::polish::CaptionRec> = vec![];
+        let mut v: Vec<&Entry> = run.entries.iter().filter(|e| e.fields.get("scene_captions").is_some()).collect();
+        v.sort_by_key(|e| e.at_ms);
+        for e in v {
+            let Ok(rec) = serde_json::from_value::<crate::polish::CaptionRec>(e.fields["scene_captions"].clone()) else { continue };
+            let open = w.dm.scenes.iter().any(|s| s["scene_id"] == rec.scene_id.as_str() && s.get("polished").is_none());
+            if rec.captions.is_some() && open && !out.iter().any(|x| x.scene_id == rec.scene_id) {
+                out.push(rec);
+            }
+        }
+        out
+    }
+
+    /// Schema 19, at a resolve: the journaled caption polishes of the kept scenes still unpolished, oldest first.
+    pub fn captions(&self, w: &World) -> Vec<crate::polish::CaptionRec> {
+        let mut inner = self.lock();
+        let run = self.run(&mut inner, &Self::hook_key(w), w);
+        Self::caption_recs(run, w)
+    }
+
     /// The hook key of the match `w` is in (captured by a picker before it leaves the hook).
     pub fn key_of(w: &World) -> String {
         Self::hook_key(w)
@@ -389,8 +437,8 @@ impl Journal {
         self.entries(w)
             .iter()
             .filter(|e| e.boot != boot && !actions.iter().any(|a| a.seat == e.seat && a.seq == e.seq && a.received_at_ms == e.at_ms))
-            // Picks are handed over on their own ([`Journal::picks`]).
-            .filter(|e| e.fields.get("duel_pick").is_none())
+            // Picks and caption polishes are handed over on their own ([`Journal::picks`], [`Journal::captions`]).
+            .filter(|e| e.fields.get("duel_pick").is_none() && e.fields.get("scene_captions").is_none())
             .map(Entry::action)
             .collect()
     }
@@ -408,12 +456,14 @@ impl Journal {
     pub fn present(&self, w: &World) -> Value {
         let st = crate::world::settings(w);
         let now_ms = theatre_trace::now_ms();
+        let mut polished: Vec<crate::polish::CaptionRec> = vec![];
         let (entries, idle, live_state) = {
             let mut inner = self.lock();
             match self.view_key(&mut inner, w) {
                 Some(key) => {
                     let durable = self.is_durable();
                     let run = self.run(&mut inner, &key, w);
+                    polished = Self::caption_recs(run, w);
                     // The plugin is not told about pauses: the room stands still when this boot's last Commit was
                     // [`PAUSE_MIN_MS`] ago with no Start since, or the match was restored and has not started.
                     let idle = match run.idle_since {
@@ -443,7 +493,22 @@ impl Journal {
             })
             .collect();
         let earth = crate::earth::view::summary_of(w, &st);
-        json!({
+        // Schema 19 (token play): the newest resolve's scenes, with any polished captions already back (display
+        // only: the next resolve makes them part of the state).
+        let scenes: Vec<Value> = if w.token_play_rules() {
+            let mut kept = w.dm.scenes.clone();
+            for c in &polished {
+                if let Some(caps) = &c.captions {
+                    crate::scene::apply_to(&mut kept, &c.scene_id, caps);
+                }
+            }
+            // The newest resolve's scenes (the state's beat, or the one before once the next beat has started).
+            let newest = kept.iter().filter_map(|v| v["beat"].as_u64()).max().map(|b| b as u32).filter(|b| b + 1 >= w.meta.beat);
+            newest.map(|b| crate::scene::scenes_in(&kept, b).iter().map(|s| s.json()).collect()).unwrap_or_default()
+        } else {
+            vec![]
+        };
+        let mut out = json!({
             "server_time_ms": now_ms,
             "beat": w.meta.beat,
             // This is the match's live state (else: a state of the past, shown as it was).
@@ -456,7 +521,12 @@ impl Journal {
             // The Earth simulator (schema 13; `null` when off): the field's beat, hash, dirty count and phenomena. A
             // reconnecting client compares the hash with its own and fetches the cells with `game.earth` if they differ.
             "earth": earth,
-        })
+        });
+        // Schema 19 (token play): the newest resolve's `scene.play` scenes (absent before schema 19).
+        if w.token_play_rules() {
+            out["scenes"] = scenes.into();
+        }
+        out
     }
 }
 

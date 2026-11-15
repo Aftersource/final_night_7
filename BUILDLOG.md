@@ -1398,3 +1398,47 @@ Engineering (branch backend/earth-effects; state schema 20, since 18 and 19 are 
 - **State**: `dm.earth.refuges` (who sheltered where, from and until when), `wrecks` (buildings destroyed, they stay), `effects` (each beat's kept list, packed), `ended` (for attribution). **What lasts** is answered per cell as `scars` (burnt and regrowing, mud drying, ruins, wrecks, people sheltering, the fallen with counts) in `game.earth_at`, `game.earth {scars: true}` and a board with `scars: true`.
 - **Replay**: everything reads `World::earth_effects_rules()` (schema ≥ 20). Release `fn7-sim --replay` of the three newest finished LAN recordings (schema 17, earth on): 162 + 159 + 162 snapshots identical, 0 different (one recorded LLM miss in 96c36dfa that leaves every snapshot identical); a schema-20 earth-on scripted sim recording (30 beats, effects every few beats) replays with 90 snapshots identical.
 - Tests: `earth/effects_tests.rs` (a flood on a crowd → fled to a dry shelter with counts and the cast's power and seat; a wildfire through the Amazon → forest cells burned once each and bare after; a storm on a village → sheltering, a shelter destroyed, deaths and survivors running on, no shelter over capacity; determinism; the cap keeps the worst; `earth_at` at a past beat equals that beat's payload; packing round-trips; a schema-17 state names nothing); `fn7-tools` strict schema validation of the effects and scars.
+## 2026-11-15: the tokens play the will (verbatim)
+
+> Typed in-game actions, such as walking into the house to the left and approaching the person inside, should play out using the small game tokens.
+
+Benito's approved design (Unreal docs/design/EVENTS_IN_THE_WORLD.md, "Typed will actions"): the camera drops to people
+level, the token walks to the house on its left, the roof lifts like a dollhouse, bubbles and hearts, the d20 tumbles,
+the outcome plays (a heart burst, or a slap and she runs out), the camera returns; about 8 s per typed action.
+
+Engineering (branch backend/token-play; state schema 19, 18 and 20 being other branches'; nothing spent: scripted
+gateways only, the polish off by default):
+- **`scene.play`** (`fn7-plugin/src/scene.rs`, docs/CLIENT_API.md "Token play", DM_RULEBOOK chapter 29): after the
+  merge, one scene per demigod per beat from its hand's intents, the ledger rows they produced and the recorded d20
+  (or the god's ruling): actors, a timed path of at most 8 steps on the people-level hex grid (walk, enter, talk, give,
+  take, fight, cast, flee, kneel, embrace, slap, search, hide, celebrate, fall, exit), a mood per step (love, anger,
+  fear, joy, neutral), captions ≤ 70 characters, the d20 with its tumble time, the outcome (success, partial, failed,
+  twisted, with the step that shows it), ≤ 9000 ms (short scenes slowed toward 8000). Rules only and deterministic;
+  the scene never changes the outcome.
+- **The stage is the memory**: "the house to my left" is the nearest hex to the west with buildings in the place × time
+  memory (`dm::cell_state` or an observation), else the asked-side neighbour when the 30 m hex has houses, recorded as a
+  `place.building` fact. The cast is the society's: the persons the ledger names, else one brought forward the way every
+  mention is (a materialized, remembered person).
+- **Hidden stays hidden**: names, verb templates and the ledger's public line only; the order's words never appear
+  (only left/right/behind/ahead choose the side); subagents', possessions' and secret god rulings' acts make no scene.
+- **Where**: `round.outcome.public.scenes[]`, `present.scenes` (so reconnects and time travel see it), kept in
+  `World.dm.scenes` (newest 24). Room setting `token_play` (all | humans | off; all by default: rules cost nothing).
+- **Caption polish** (`token_play_llm`, off; `fn7-agents/src/scene_polish.rs`, `fn7-plugin/src/polish.rs`): the duel
+  picker's pattern: claude-haiku-5-5, no thinking, a schema of exactly one ≤ 70-char string per step, for human seats
+  only, run outside the hooks; the answer is journaled (`fields.scene_captions`), shown in `present` at once, applied
+  at the next resolve (`scene.captions` in `scene_captions[]`) and recorded as the `scene_captions` side input, which
+  replay feeds back without a model. The server wires it with a live LLM (`FN7_TOKEN_PLAY_LLM=off` disables).
+- **Replay**: gated on `World::token_play_rules()` (`dm::TOKEN_PLAY_SCHEMA` = 19; `token_play` reads `off` from older
+  settings). Release `fn7-sim --replay` on the three newest finished LAN recordings (schema 17): 0d90bd79 121/121
+  snapshots identical, a10a4a51 162/162, 96c36dfa 159/159 (summaries identical; one LLM replay miss in 96c36dfa takes
+  the same fallback it took live, 0 differences). A schema-19 scripted sim (seed 19, 8 beats, 57 `scene.play` events)
+  replays 24/24 identical.
+- Tests (`fn7-plugin/src/scene_tests.rs`): "I go into the house to my left and seduce the maiden" through the hooks
+  (walk to the adjacent house on the left, enter, charm a named remembered person, the society's sweet-talk ruling
+  shown as an embrace, the order's words nowhere, deterministic); the same scene through the resolver over 24 seeds
+  (the d20 rides along and matches the record; success embraces, a fail slaps and she runs out); a fight (walk up,
+  strike, the foe falls); a failed search ("finds nothing"); an accident twists it; subagents and schema 17 make no
+  scene (state byte-identical); the caps (≤ 8 steps, ≤ 9000 ms, ≤ 70-char captions) for every act × every die; the
+  polish journaled, shown in present, applied at the next resolve, replayed from the feed to the same state, never
+  sent by a client. `tests::hidden_information` caught the outcome line leaking a private row's words: a scene now
+  uses the ledger line only for public events.

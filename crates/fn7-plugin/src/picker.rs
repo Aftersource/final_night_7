@@ -169,18 +169,18 @@ impl Picker {
 
 /// Token counts of the HTTP exchanges a call made.
 #[derive(Default)]
-struct Tally(Mutex<(u64, u64)>);
+pub(crate) struct Tally(Mutex<(u64, u64)>);
 
 impl Tally {
-    fn get(&self) -> (u64, u64) {
+    pub(crate) fn get(&self) -> (u64, u64) {
         *self.0.lock().unwrap_or_else(|e| e.into_inner())
     }
 }
 
 /// Forwards every record to the match's recording (when there is one) and counts the tokens.
-struct Tee {
-    inner: Option<Arc<dyn Sink>>,
-    tally: Arc<Tally>,
+pub(crate) struct Tee {
+    pub(crate) inner: Option<Arc<dyn Sink>>,
+    pub(crate) tally: Arc<Tally>,
 }
 
 impl Sink for Tee {

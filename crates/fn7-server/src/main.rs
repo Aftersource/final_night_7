@@ -107,6 +107,15 @@ async fn main() -> anyhow::Result<()> {
             None => game,
         }
     };
+    // Token play (docs/CLIENT_API.md "Token play"): the caption polish, in rooms with `token_play_llm` (off by
+    // default), when there is a live LLM (never a replayed one); `FN7_TOKEN_PLAY_LLM=off` turns it off here.
+    let polish_off = env("FN7_TOKEN_PLAY_LLM").is_some_and(|v| matches!(v.trim(), "off" | "0" | "false"));
+    let game = if built.label != "none" && cfg.replay_from.is_none() && !polish_off {
+        tracing::info!(model = fn7_agents::scene_polish::MODEL, "token play polish: available (room setting token_play_llm)");
+        game.with_scene_polish(built.llm.clone())
+    } else {
+        game
+    };
     let journal_off = env("FN7_JOURNAL").is_some_and(|v| matches!(v.trim(), "off" | "0" | "false"));
     let game = if journal_off {
         tracing::info!("journal: off (memory only)");

@@ -36,6 +36,8 @@ pub mod occupancy;
 pub mod odds;
 pub mod panel;
 pub mod picker;
+pub mod polish;
+pub mod scene;
 pub mod merge;
 pub mod payload;
 pub mod persona;
@@ -285,6 +287,8 @@ pub struct FinalNight7Plugin {
     /// Schema 14: the duel picker ([`picker`]; the server's LLM), and where the duel data rows go.
     picker: Option<Arc<picker::Picker>>,
     duel_data: Option<Arc<dyn picker::DuelData>>,
+    /// Schema 19: the token-play caption polisher ([`polish`]; the server's LLM).
+    polisher: Option<Arc<polish::Polisher>>,
 }
 
 impl Default for FinalNight7Plugin {
@@ -298,6 +302,7 @@ impl Default for FinalNight7Plugin {
             media_style: None,
             picker: None,
             duel_data: None,
+            polisher: None,
         }
     }
 }
@@ -328,6 +333,12 @@ impl FinalNight7Plugin {
     /// Schema 14: where each ended duel's `duel_line` rows go (the server's SQLite store).
     pub fn with_duel_data(mut self, data: Arc<dyn picker::DuelData>) -> Self {
         self.duel_data = Some(data);
+        self
+    }
+
+    /// Schema 19: polish token-play captions with `llm` ([`polish`]; rooms with `token_play_llm` and the LLM on).
+    pub fn with_scene_polish(mut self, llm: Arc<dyn LlmProvider>) -> Self {
+        self.polisher = Some(Arc::new(polish::Polisher::new(llm)));
         self
     }
 
@@ -376,6 +387,11 @@ impl FinalNight7Plugin {
     }
 
     /// `present` (the journal's view) with each open duel's live typing lengths.
+    #[cfg(test)]
+    pub(crate) fn present_for_tests(&self, w: &World) -> Value {
+        self.present(w)
+    }
+
     fn present(&self, w: &World) -> Value {
         let mut v = self.journal.present(w);
         self.typing.fill(w.meta.seed, &mut v);
@@ -617,7 +633,28 @@ impl FinalNight7Plugin {
             }
             duels.add_picks(&picks);
         }
-        let out = beat::resolve(w, round, turns, &subs, &duels, &wills, &ctx.windows_closed, llm, &self.pantheon).await;
+        // Schema 19: the caption polishes that came back since the last resolve (a recorded side input:
+        // `scene_captions`), applied to their scenes before this beat's.
+        let mut polished: Vec<Value> = vec![];
+        if w.token_play_rules() {
+            let caps = match &self.feed {
+                Some(f) => f.captions.get(&round).cloned().unwrap_or_default(),
+                None => self.journal.captions(w),
+            };
+            if !caps.is_empty() {
+                world::event("scene_captions", None, json!({ "beat": round, "captions": caps }));
+            }
+            for c in &caps {
+                if let Some(e) = c.captions.as_deref().and_then(|x| scene::apply_captions(w, &c.scene_id, x)) {
+                    polished.push(e);
+                }
+            }
+        }
+        let mut out = beat::resolve(w, round, turns, &subs, &duels, &wills, &ctx.windows_closed, llm, &self.pantheon).await;
+        if !polished.is_empty() {
+            out.public["scene_captions"] = polished.into();
+        }
+        self.polish_scenes(w, round);
         // Schema 14: the ended duels' line rows to the server's store (never on a replay: it has no store).
         if let (Some(d), false) = (&self.duel_data, out.lines.is_empty()) {
             let run = theatre_trace::current().map(|c| c.run).unwrap_or_else(|| format!("seed-{}", w.meta.seed));
@@ -640,6 +677,22 @@ impl FinalNight7Plugin {
             per_seat: out.per_seat,
             choices: vec![],
             state: world::save(w),
+        }
+    }
+
+    /// Schema 19: ask for the captions of this beat's new scenes of human seats (never on a replay: it has no
+    /// polisher, and its captions come from the recording).
+    fn polish_scenes(&self, w: &World, round: u32) {
+        let (Some(p), None) = (&self.polisher, &self.feed) else { return };
+        let st = world::settings(w);
+        if !w.token_play_rules() || !st.token_play_llm || !st.llm {
+            return;
+        }
+        let key = present::Journal::key_of(w);
+        let timeout = std::time::Duration::from_millis(st.token_play_llm_timeout_ms as u64);
+        for s in scene::scenes_of(w, round).iter().filter(|s| scene::is_human(w, s.demigod)) {
+            let (journal, key, seed) = (self.journal.clone(), key.clone(), w.meta.seed);
+            p.spawn(s, timeout, move |rec| journal.note_captions(&key, seed, &rec));
         }
     }
 
@@ -859,6 +912,10 @@ impl GamePlugin for FinalNight7Plugin {
         // Schema 14: picks are the server's own journal entries, never a client's.
         if i.pick.is_some() {
             return Err("duel_pick is not an action".into());
+        }
+        // Schema 19: caption polishes are the server's own journal entries too.
+        if fields.get("scene_captions").is_some() {
+            return Err("scene_captions is not an action".into());
         }
         // Rules 0.8.1: a challenge or a duel line (instant only; checked against the live duels).
         if i.is_duel() {
@@ -1125,3 +1182,5 @@ mod moves_tests;
 mod picker_tests;
 #[cfg(test)]
 mod weapons_tests;
+#[cfg(test)]
+mod scene_tests;

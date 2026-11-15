@@ -103,6 +103,11 @@ use serde::{Deserialize, Serialize};
 /// what happened to which thing where (`earth.effects[]`), crowds flee to shelters that the field can destroy, armies and
 /// people standing in it are hurt, and the state keeps the shelters and the wrecks. Rules that changed read
 /// [`World::earth_effects_rules`], so schema-4..17 recordings replay exactly.
+///
+/// Schema 19 (token play; 18 and 20 belong to other branches): a demigod's typed will that resolves into acts at a
+/// place is played out on the people-level board by the game tokens (`scene.play`: actors, a timed path of steps on
+/// the hex grid, captions, the d20 and the outcome the rules already decided), kept in [`dm::Dm::scenes`]. Rules that
+/// changed read [`World::token_play_rules`], so schema-4..17 recordings replay exactly.
 pub const STATE_SCHEMA: u32 = 20;
 
 /// Match-wide settings and clocks.
@@ -505,6 +510,10 @@ impl World {
     /// Schema 14 rules: duel weapons, hammer-space, projectiles, the picker's recorded picks.
     pub fn duel_weapon_rules(&self) -> bool {
         self.meta.schema >= dm::DUEL_WEAPONS_SCHEMA
+    }
+    /// Schema 19 rules: token play (a typed will's acts played out by the tokens on the people-level board).
+    pub fn token_play_rules(&self) -> bool {
+        self.meta.schema >= dm::TOKEN_PLAY_SCHEMA
     }
     /// A seat's demigods, in id order (Left then Right in schema 5).
     pub fn bodies_of_seat(&self, seat: u8) -> impl Iterator<Item = &Demigod> {
