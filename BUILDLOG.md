@@ -1342,3 +1342,11 @@ Engineering (branch backend/earth-prompts; state schema 17; no LLM or image spen
 - Not done: the duel physics' floor friction stays fixed (`ground.slippery` is for the client and the minds); the picker gets no ground line (it sees the hazard props as scene objects); the Unreal side has nothing new to draw beyond optional scene props.
 
 Benito asked via the bridge where things stand, since he just got home, has almost no work left, and wants to know what the designer wants him to do tonight. He noted the Meshy key was saved on his machine, git-ignored, with nothing spent.
+
+Benito flagged four main problems: events exist only as log text and not on the board; players cannot find their own demigods among identical houses; the visual styles clash; and the screen gives no next-step guidance. He asked how these would be tackled first.
+
+Benito asked for two distinct styles: realistic statues for the point-of-view layer, and a board and earth layer that should feel like gods playing with the world. He wants clean, undistracted progress and a more detailed, perfect discussion of this.
+
+Chris asked the assistant to work out the styling part with Benito without blocking things, to have Benito produce Meshy dice, to route all Meshy requests through the assistant's SQL and storage, and to save every call.
+
+Engineering: two deliberate styles (Benito): the god's room realistic, the board and earth the gods' toys. Benito owns style and the event camera. Find-yourself beacon (his side), events-in-the-world on hold for his in-depth design, the "next move" hint from the server (backend/next-move, in progress). Every Meshy call goes through the backend into the asset registry (94 calls, 1,011 credits imported). Unreal: earth powers proven for all 11 powers x mega/mini in the sandbox against a private server, the Populous heave, earth time travel (hash-checked jumps, scrub, reconnect).
