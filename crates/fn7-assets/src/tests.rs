@@ -448,7 +448,7 @@ fn provenance_import_builds_the_chain_portrait_to_statue() {
     assert_eq!(one(&reg, "SELECT SUM(cost_credits) AS c FROM generations WHERE provider = 'meshy'")["c"], 114.0);
 
     // What a client asks to seat the statue.
-    let f = reg.figures(Some("  VEX ")).unwrap();
+    let f = reg.figures(Some("  VEX "), None).unwrap();
     assert_eq!((f["found"].as_bool(), f["key"].as_str()), (Some(true), Some("vex")));
     assert_eq!(f["statue"]["id"], sid);
     assert_eq!(f["statue"]["file_url"], format!("/api/assets/{sid}/file"));
@@ -456,9 +456,13 @@ fn provenance_import_builds_the_chain_portrait_to_statue() {
     assert!(f["figure"].is_null());
     assert_eq!(f["mannequin"]["models"][0]["variant"], "rigged");
     assert_eq!(f["mannequin"]["skins"].as_array().unwrap().len(), 4);
-    let none = reg.figures(Some("Nobody")).unwrap();
+    let none = reg.figures(Some("Nobody"), None).unwrap();
     assert_eq!((none["found"].as_bool(), none["fallback"].as_str()), (Some(false), Some("mannequin")));
-    assert_eq!(reg.figures(None).unwrap()["figures"].as_array().unwrap().len(), 2, "the demigod's statue and the god's");
+    assert_eq!(reg.figures(None, None).unwrap()["figures"].as_array().unwrap().len(), 2, "the demigod's statue and the god's");
+    // The demigod Vex and the god Vex share a name: the demigod's statue first, the god's beside it, or ask for one.
+    assert_eq!((f["statue"]["subject_kind"].as_str(), f["god_statue"]["id"].as_str()), (Some("demigod"), god["id"].as_str()));
+    let only_god = reg.figures(Some("Vex"), Some("god")).unwrap();
+    assert_eq!((only_god["statue"]["id"].as_str(), only_god["models"].as_array().unwrap().len()), (god["id"].as_str(), 1));
 }
 
 /// The real thing: a copy of the Unreal repo's provenance files (read-only source; skipped where the repo is absent).
@@ -500,7 +504,7 @@ fn the_unreal_repos_provenance_imports() {
     // Two statues with their exact task ids and 30 credits each.
     for (name, task, glb_sha) in [("Chris's Left Hand", "01a1dc59-9087-77f1-b365-e64fbf5e001f", "c358e92dbd22eff3a9d5eeff70873941893a6eff0f41a121e475a613fe7ab87f"),
                                   ("Benito's Left Hand", "01a1dc5b-3b55-7484-9921-7a1ba88eb055", "83b918161246b36c668d4db01e4559731e1da74c12bd74631b38755676ae7589")] {
-        let f = reg.figures(Some(name)).unwrap();
+        let f = reg.figures(Some(name), None).unwrap();
         assert_eq!(f["statue"]["sha256"], glb_sha, "{name}");
         assert!(f["statue"]["tris"].as_u64().unwrap() > 1000, "{name}: {}", f["statue"]["tris"]);
         let d = reg.detail(f["statue"]["id"].as_str().unwrap()).unwrap().unwrap();
@@ -558,7 +562,7 @@ fn job_records_import_and_are_idempotent() {
     provenance::import_jobs(&reg, &file, Some(&prod)).unwrap();
     assert_eq!(dump(&reg), before);
     // The rigged figure is what a client gets; it is the rig of the model, which came from the A-pose image.
-    let f = reg.figures(Some("Mara")).unwrap();
+    let f = reg.figures(Some("Mara"), None).unwrap();
     assert_eq!((f["figure"]["tris"].as_u64(), f["figure"]["variant"].as_str()), (Some(7), Some("")));
     let chain = reg.chain(f["figure"]["id"].as_str().unwrap()).unwrap();
     let got: Vec<(&str, &str)> = chain.iter().map(|c| (c["subkind"].as_str().unwrap(), c["variant"].as_str().unwrap())).collect();
@@ -569,7 +573,7 @@ fn job_records_import_and_are_idempotent() {
     // The failed job is on record, with no file and its error.
     let bad = one(&reg, "SELECT a.status, a.path, a.subject_kind, g.status AS gstatus, g.error FROM assets a JOIN generations g ON g.asset_id = a.id WHERE g.provider_task_id = 't-bad'");
     assert_eq!(bad, json!({ "status": "failed", "path": null, "subject_kind": "god", "gstatus": "failed", "error": "moderation" }));
-    assert!(reg.figures(Some("Consequence")).unwrap()["statue"].is_null(), "a failed statue is never current");
+    assert!(reg.figures(Some("Consequence"), None).unwrap()["statue"].is_null(), "a failed statue is never current");
 }
 
 /// The records exactly as the patched Unreal scripts write them (docs/patches/meshy_job_records.patch; produced by
@@ -594,7 +598,7 @@ fn the_tool_scripts_job_records_import() {
     let before = dump(&reg);
     provenance::import_jobs(&reg, &prod.join("jobs.jsonl"), None).unwrap();
     assert_eq!(dump(&reg), before);
-    let f = reg.figures(Some("mara's left hand")).unwrap();
+    let f = reg.figures(Some("mara's left hand"), None).unwrap();
     assert_eq!((f["statue"]["tris"].as_u64(), f["figure"]["tris"].as_u64(), f["figure"]["variant"].as_str()), (Some(100), Some(80), Some("")));
     // The figure's untextured model was never downloaded: on record with its cost, no file; the rig is its child.
     let mesh = one(&reg, "SELECT a.status, a.path, g.cost_credits, g.duration_ms FROM assets a JOIN generations g ON g.asset_id = a.id WHERE g.provider_task_id = 't-model'");

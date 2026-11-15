@@ -2496,7 +2496,9 @@ What the Unreal client does for each seat:
    asset with a new sha256: the next `figures` answer names it, and the old file can be evicted at leisure.
 6. **Re-ask** at each match start (the answer is small). `bytes` and `tris` are there to budget before fetching.
 
-`GET /api/assets/figures` without `name` lists every statue and figure there is, to prefetch.
+`GET /api/assets/figures` without `name` lists every statue and figure there is, to prefetch. A god's statue is
+asked for the same way (`name=Chris&subject_kind=god`); when a demigod and a god share a name and no `subject_kind` is
+given, `statue` is the demigod's and `god_statue` the god's.
 
 ### Any asset
 

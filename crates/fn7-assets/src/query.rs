@@ -223,7 +223,7 @@ impl Registry {
     /// What a client needs to put a figure on a seat: the current statue and rigged figure of a demigod or god by
     /// name, and the shared mannequin (rig, clip bundle, skins) to fall back on. Without a name: every subject that
     /// has a statue or figure.
-    pub fn figures(&self, name: Option<&str>) -> Result<Value> {
+    pub fn figures(&self, name: Option<&str>, subject_kind: Option<&str>) -> Result<Value> {
         let cols = "id, kind, subkind, variant, subject_kind, subject_key, display_name, sha256, path, bytes, mime, tris, created_at, meta";
         self.with(|c| {
             let shape = |v: Vec<Value>| -> Vec<Value> { v.into_iter().map(with_urls).collect() };
@@ -241,16 +241,24 @@ impl Registry {
                         &format!("SELECT {cols} FROM current_assets WHERE kind='model' AND subkind IN ('statue','figure') AND subject_kind IN ('demigod','god') AND subject_key = ?1 ORDER BY subkind, variant"),
                         &[&key],
                     )?);
-                    let pick = |sub: &str, variant: Option<&str>| {
-                        models.iter().find(|m| m["subkind"] == sub && variant.is_none_or(|v| m["variant"] == v)).cloned().unwrap_or(Value::Null)
+                    // A demigod and a god may share a name ("Chris"): `subject_kind` says which; without it the
+                    // demigod's comes first and the god's is also given as `god_statue`.
+                    let models: Vec<Value> = models.into_iter().filter(|m| subject_kind.is_none_or(|k| m["subject_kind"] == k)).collect();
+                    let pick = |kind: Option<&str>, sub: &str, variant: Option<&str>| {
+                        models
+                            .iter()
+                            .find(|m| m["subkind"] == sub && kind.is_none_or(|k| m["subject_kind"] == k) && variant.is_none_or(|v| m["variant"] == v))
+                            .cloned()
+                            .unwrap_or(Value::Null)
                     };
                     // The default file of each: the GLB (variant ''), else whatever there is.
-                    let statue = match pick("statue", Some("")) { Value::Null => pick("statue", None), v => v };
-                    let figure = match pick("figure", Some("")) { Value::Null => pick("figure", None), v => v };
+                    let best = |kind: Option<&str>, sub: &str| match pick(kind, sub, Some("")) { Value::Null => pick(kind, sub, None), v => v };
+                    let first = |sub: &str| match best(Some("demigod"), sub) { Value::Null => best(None, sub), v => v };
+                    let (statue, figure, god_statue) = (first("statue"), first("figure"), best(Some("god"), "statue"));
                     let previews = shape(rows(c, &format!("SELECT {cols} FROM current_assets WHERE kind='image' AND subkind='preview' AND subject_key = ?1"), &[&key])?);
                     Ok(json!({
                         "name": n, "key": key, "found": !models.is_empty(),
-                        "statue": statue, "figure": figure, "models": models, "previews": previews,
+                        "statue": statue, "figure": figure, "god_statue": god_statue, "models": models, "previews": previews,
                         "fallback": if models.is_empty() { json!("mannequin") } else { Value::Null },
                         "mannequin": mannequin()?,
                     }))

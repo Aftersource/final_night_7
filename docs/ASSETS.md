@@ -332,7 +332,7 @@ Like the profile routes: with a key configured (`FN7_ASSETS_KEY`, else `FN7_PROF
 | `GET /api/assets/{id}` | `{asset, current, generations[], lineage: {parents[], children[]}, uses[], uses_total}`. `{id}` is an asset id or a media hash |
 | `GET /api/assets/{id}/file` | The bytes. `Cache-Control: public, max-age=31536000, immutable`, `ETag: "<sha256>"`, `X-Asset-Sha256`, `Accept-Ranges: bytes`; `Range: bytes=a-b` → 206 (`416` when unsatisfiable); `If-None-Match` → 304. Streamed |
 | `GET /api/assets/{id}/chain` | `{id, chain[]}`: every ancestor and descendant, oldest first, with `depth` (0 = the asset) and `parents` (`role:parent_id`) |
-| `GET /api/assets/figures?name=` | What to put on a seat (below). Without `name`: every figure |
+| `GET /api/assets/figures?name=&subject_kind=` | What to put on a seat (below). Without `name`: every figure |
 | `GET /api/assets/costs?by=day\|kind\|provider\|match\|subject\|basis\|model&usd_per_credit=` | Roll-ups (below) |
 | `GET /api/assets/at?match=&beat=&demigod=` | Time travel (below) |
 | `GET /api/assets/mine` | The assets of the signed-in account (`Authorization: Bearer <session token>`): its display name, its profiles, its demigods' names, and anything a seat bound to it asked for. Same paging and filters as the list |
@@ -382,7 +382,8 @@ A generation (`GET /api/assets/{id}` → `generations[]`):
 ```
 
 `statue` is the current static statue (the GLB), `figure` the current rigged figure; either is `null` when there is
-none. `found: false` comes with `"fallback": "mannequin"` and the mannequin's files, so a client always has something
+none. A demigod and a god may share a name (the god "Chris", a demigod "Chris"): `statue` is then the demigod's and
+`god_statue` the god's; `&subject_kind=god` (or `demigod`) asks for one only. `found: false` comes with `"fallback": "mannequin"` and the mannequin's files, so a client always has something
 to seat. Names are normalized, so any spelling of the name finds it.
 
 ### `GET /api/assets/costs?by=provider`

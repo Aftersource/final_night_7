@@ -6,7 +6,7 @@
 //! | `GET /api/assets/{id}` | `{asset, current, generations, lineage: {parents, children}, uses}`; `{id}` may be a media hash |
 //! | `GET /api/assets/{id}/file` | the bytes: immutable cache headers, `ETag` = sha256, `Range` requests |
 //! | `GET /api/assets/{id}/chain` | the whole lineage chain, oldest ancestor first |
-//! | `GET /api/assets/figures?name=` | the current statue / figure of a demigod or god, and the mannequin |
+//! | `GET /api/assets/figures?name=&subject_kind=` | the current statue / figure of a demigod or god, and the mannequin |
 //! | `GET /api/assets/costs?by=day\|kind\|provider\|match\|subject\|basis\|model&usd_per_credit=` | roll-ups |
 //! | `GET /api/assets/at?match=&beat=&demigod=` | time travel: what was shown at that beat |
 //! | `GET /api/assets/mine` | the assets of the signed-in account's names (`Authorization: Bearer <session>`) |
@@ -233,8 +233,8 @@ async fn figures(State(app): State<App>, Query(q): Query<Q>) -> Response {
     if let Some(r) = gate(&app, &q) {
         return r;
     }
-    let name = nonempty(&q.name);
-    answer(&app, move |r| r.figures(name.as_deref()).map(Some)).await
+    let (name, kind) = (nonempty(&q.name), nonempty(&q.subject_kind));
+    answer(&app, move |r| r.figures(name.as_deref(), kind.as_deref()).map(Some)).await
 }
 
 async fn costs(State(app): State<App>, Query(q): Query<Q>) -> Response {
