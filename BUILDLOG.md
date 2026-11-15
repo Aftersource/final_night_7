@@ -1442,3 +1442,7 @@ gateways only, the polish off by default):
   polish journaled, shown in present, applied at the next resolve, replayed from the feed to the same state, never
   sent by a client. `tests::hidden_information` caught the outcome line leaking a private row's words: a scene now
   uses the ledger line only for public events.
+
+> Make sure the login screen, settings, character selection and god statue creation offer six options for the player to pick a favourite from.
+
+Engineering: six switchable looks (1-6) for the welcome/login, settings, demigod (character) and god-statue screens and the lobby (the Mac); the god-form server endpoints per ACCOUNTS.md §14 (backend/god-form; previews by image, Meshy statues off by default).
