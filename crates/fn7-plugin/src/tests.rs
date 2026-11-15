@@ -175,8 +175,10 @@ async fn the_final_night_leaves_exactly_one() {
 #[tokio::test(flavor = "multi_thread")]
 async fn full_match_with_scripted_llm() {
     let llm = Scripted::default();
+    // (Scripted replies vary by a hash of the prompt, so this seed must give at least one dispatch. Seed 5 stopped doing so
+    // at schema 17, whose prompts carry the earth underfoot.)
     let r = play(
-        json!({"seed": 5, "beats_total": 20, "clusters": 80}),
+        json!({"seed": 6, "beats_total": 20, "clusters": 80}),
         &llm,
         bots(4),
         None,

@@ -312,6 +312,10 @@ pub fn general_call(w: &World, m: &GeneralMeta, target: Option<Ref>, beat: u32) 
     if !captains.is_empty() {
         situation.push(format!("Your captains: {}.", captains.join(", ")));
     }
+    // Schema 17 (the earth underfoot): what the ground holds where the army stands now.
+    if let Some(g) = crate::earth::here::Ground::of(w, &crate::world::settings(w)) {
+        situation.extend(g.line("The earth where your army stands, now", a.pos));
+    }
     Some(GeneralCtx {
         army: m.army,
         army_name: c.label.clone(),

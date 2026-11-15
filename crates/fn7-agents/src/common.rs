@@ -209,6 +209,17 @@ pub fn line(text: &str, max: usize) -> String {
     truncate_chars(&scrub_ids(&flat), max)
 }
 
+/// Schema 17 (the earth underfoot): the earth lines of a prompt, one per line (none: nothing appended, so a prompt
+/// without them is byte for byte what it was). Each line is the plugin's, built from the Earth simulator's field.
+pub fn push_earth(u: &mut String, earth: &[String]) {
+    for e in earth.iter().take(EARTH_LINES_MAX) {
+        u.push_str(&format!("{}\n", line(e, 220)));
+    }
+}
+
+/// Most earth lines one prompt carries.
+pub const EARTH_LINES_MAX: usize = 3;
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Entities and labels
 // ---------------------------------------------------------------------------------------------------------------------

@@ -199,6 +199,7 @@ fn sample_hand_prompt(w: &World, pantheon: &Pantheon) -> String {
         own: vec![],
         rules_081: false,
         wills: false,
+        earth: vec![],
     })
 }
 
@@ -234,6 +235,7 @@ fn sample_god_prompt(g: &GodDef) -> String {
         world: "<ENTROPY LINE>".into(),
         dm: false,
         dm_memory: vec![],
+        earth: vec![],
     })
 }
 
@@ -258,6 +260,7 @@ fn sample_step_prompt(kind: fn7_agents::step::StepKind) -> String {
         orders: vec![],
         memory: String::new(),
         items_by_engine: false,
+        earth: vec![],
     })
 }
 

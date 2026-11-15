@@ -31,6 +31,8 @@ pub struct DuelCtx {
     pub place: String,
     pub time: String,
     pub seed: u64,
+    /// Schema 17: what the duel's hex stood on (the earth underfoot; empty before, or calm).
+    pub earth: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -61,8 +63,10 @@ pub fn user_prompt(ctx: &DuelCtx) -> String {
         _ => "A draw.".to_string(),
     };
     let lines: Vec<String> = ctx.lines.iter().take(4).map(|l| line(l, 120)).collect();
+    let mut ground = String::new();
+    push_earth(&mut ground, &ctx.earth);
     format!(
-        "{a} vs {b} in {place} ({time}), {n} blows. {outcome} Damage taken: {a} {da}, {b} {db}.\nSome lines they \
+        "{a} vs {b} in {place} ({time}), {n} blows. {outcome} Damage taken: {a} {da}, {b} {db}.\n{ground}Some lines they \
 threw:\n{lines}\nReply with JSON: deed.",
         a = line(&ctx.a, 60),
         b = line(&ctx.b, 60),
@@ -145,6 +149,7 @@ mod tests {
             duel_id: "duel:3:0:5".into(), a: "Ash's Left Hand".into(), b: "Vex's Right Hand".into(),
             winner: Some("Ash's Left Hand".into()), loser: Some("Vex's Right Hand".into()), ko: true, damage: [2.0, 9.0],
             blows: 6, lines: vec!["I kick your knee".into()], place: "Lagos".into(), time: "night".into(), seed: 4,
+            earth: vec![],
         };
         let a = fallback(&ctx);
         assert_eq!(a, fallback(&ctx), "seeded");

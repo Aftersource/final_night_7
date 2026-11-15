@@ -2163,6 +2163,11 @@ fn apply(w: &mut World, beat: u32, mut bout: Bout, pantheon: &Pantheon, st: &Set
         place: d.place.clone(),
         time: d.phase.to_string(),
         seed: Rng::derive(w.meta.seed, &[hash_str(&d.id), 0xDEED]).next_u64(),
+        // Schema 17 (the earth underfoot): the ground the stage stood on at the lock, else the field there now.
+        earth: match bout.scene.as_ref().and_then(|s| s["ground"]["line"].as_str()) {
+            Some(l) => vec![format!("The ground they fought on: {l}.")],
+            None => crate::earth::here::Ground::of(w, st).and_then(|g| g.line("The ground they fought on", d.at)).into_iter().collect(),
+        },
     };
     let human = d.f.iter().any(|f| !f.ai);
     Some(Pending { bout, ctx, human, reason, panels_from: 0 })

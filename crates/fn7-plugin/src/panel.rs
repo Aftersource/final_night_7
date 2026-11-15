@@ -156,6 +156,23 @@ fn object(kind: &str) -> (Vec<Value>, bool, &'static [&'static str], &'static st
                     false, &["vault"], "what somebody dropped here"),
         "bones" => (vec![part("sphere", &[0.14], [0.0, 0.14, 0.0], "bone"), part("box", &[0.6, 0.06, 0.06], [0.2, 0.05, 0.1], "bone")],
                     false, &[], "old bones"),
+        // Schema 17: the hazards the Earth simulator leaves on the duel's hex (flat patches on the floor, except the
+        // drift and the rubble), from [`crate::earth::here::Stage::props`].
+        "lava" => (vec![json!({ "shape": "cylinder", "size": [1.1, 0.06], "offset": [0.0, 0.03, 0.0], "material": "obsidian", "color": "#ff5a1f", "glow": 1 })],
+                   true, &[], "a pool of lava, still molten"),
+        "fire" => (vec![json!({ "shape": "cylinder", "size": [0.9, 0.04], "offset": [0.0, 0.02, 0.0], "material": "clay", "color": "#2a1a10" }),
+                        json!({ "shape": "cone", "size": [0.45, 0.9], "offset": [0.0, 0.49, 0.0], "material": "cloth", "color": "#ff7a1a", "glow": 1 })],
+                   true, &[], "the wildfire, burning right here"),
+        "floodwater" => (vec![json!({ "shape": "cylinder", "size": [1.6, 0.05], "offset": [0.0, 0.025, 0.0], "material": "glass", "color": "#3d6f8a" })],
+                         true, &[], "floodwater standing on the ground"),
+        "ice" => (vec![json!({ "shape": "cylinder", "size": [1.6, 0.05], "offset": [0.0, 0.025, 0.0], "material": "ice" })],
+                  true, &[], "floodwater frozen glass-smooth"),
+        "fissure" => (vec![json!({ "shape": "box", "size": [2.6, 0.04, 0.4], "offset": [0.0, 0.02, 0.0], "material": "obsidian", "color": "#0b0b0b" })],
+                      true, &[], "a crack in the ground the quake opened"),
+        "snowdrift" => (vec![json!({ "shape": "box", "size": [1.6, 0.4, 1.0], "offset": [0.0, 0.2, 0.0], "material": "ice", "color": "#f4f7fa" })],
+                        true, &["vault"], "a drift of fresh snow"),
+        "rubble" => (vec![part("ico", &[0.35], [0.0, 0.3, 0.0], "stone"), part("box", &[0.8, 0.2, 0.5], [0.3, 0.1, 0.2], "stone")],
+                     true, &["vault"], "rubble from the ruined buildings"),
         _ => (vec![part("cone", &[0.4, 0.7], [0.0, 0.35, 0.0], "stone")], true, &[], "a cairn: something was decided here"),
     }
 }
@@ -224,11 +241,23 @@ pub fn scene(w: &World, d: &Duel) -> Value {
     for text in remembered {
         put("cairn", Some(text), &mut r, &mut spots);
     }
+    // Schema 17 (the earth underfoot): what the Earth simulator's field holds on this hex at the lock: its hazards as
+    // props (after everything else, so the rest of the stage is unchanged) and the ground itself (`ground`).
+    let ground = crate::earth::here::Ground::of(w, &crate::world::settings(w)).and_then(|g| g.stage(d.at));
+    if let Some(g) = &ground {
+        for k in &g.props {
+            put(k, None, &mut r, &mut spots);
+        }
+    }
     let mut v = json!({ "event": "duel.scene", "duel_id": d.id, "source": "rules", "biome": biome, "place": d.place, "time_of_day": d.phase,
             "cell": d.cell, "level": d.level, "settlement_level": level,
             "backstory": format!("{} at {}. {} and {} have chosen this hex.", d.place, d.phase, d.f[0].name, d.f[1].name),
             "hex": { "x": "1.732 (q + r/2)", "z": "1.5 r", "unit": "m" }, "radius": 5,
             "a_start": start[0], "b_start": start[1], "objects": objects });
+    if let Some(g) = ground {
+        v["backstory"] = format!("{} The ground: {}.", v["backstory"].as_str().unwrap_or(""), g.line).into();
+        v["ground"] = json!({ "line": g.line, "floor": g.floor, "hazards": g.hazards, "slippery": g.slippery });
+    }
     // Schema 14: the list the duel is read with, and what a client without a clip plays (edited in the list file).
     if w.duel_weapon_rules() {
         let l = crate::moves::current();

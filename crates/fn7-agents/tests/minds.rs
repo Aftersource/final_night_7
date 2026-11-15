@@ -134,6 +134,7 @@ fn hand_ctx(utterance: &str) -> HandCtx {
         own: vec![],
         rules_081: false,
         wills: false,
+        earth: vec![],
     }
 }
 
@@ -162,6 +163,7 @@ fn step_ctx(kind: StepKind) -> StepCtx {
         },
         memory: String::new(),
         items_by_engine: false,
+        earth: vec![],
     }
 }
 
@@ -203,6 +205,7 @@ fn god_ctx(slug: &str, favor: f32, i: Intent) -> GodCtx {
         world: "Entropy 5/100 (calm)".into(),
         dm: false,
         dm_memory: vec![],
+        earth: vec![],
     }
 }
 

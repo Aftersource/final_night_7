@@ -88,7 +88,12 @@ use serde::{Deserialize, Serialize};
 /// `tiny`) that scales its ramifications, and a tiny one's lasting mods stay local. The gate is
 /// `fn7_plugin::faults::JUNCTION_SCHEMA` (with the room setting `fault_junctions_enabled`), so older recordings
 /// replay exactly.
-pub const STATE_SCHEMA: u32 = 16;
+///
+/// Schema 17 (the earth underfoot): every LLM prompt that acts in a place (a hand's orders, the resolver, a subagent's
+/// step, a god's ruling, Entropy's ramifications, a general, the narrator, a duel's deed) carries a short line of what
+/// the Earth simulator's field holds there now, and a duel's scene carries the ground (`ground`, hazard props). Rules
+/// that changed read [`World::earth_prompt_rules`], so schema-4..16 recordings replay exactly.
+pub const STATE_SCHEMA: u32 = 17;
 
 /// Match-wide settings and clocks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -474,6 +479,10 @@ impl World {
     /// The Earth simulator (schema 13): the god powers act on a simulated voxel field.
     pub fn earth_rules(&self) -> bool {
         self.meta.schema >= earth::EARTH_SCHEMA
+    }
+    /// Schema 17 rules: the earth underfoot reaches the prompts that act in a place (and a duel's scene).
+    pub fn earth_prompt_rules(&self) -> bool {
+        self.meta.schema >= earth::EARTH_PROMPT_SCHEMA
     }
     /// Schema 14 rules: duel weapons, hammer-space, projectiles, the picker's recorded picks.
     pub fn duel_weapon_rules(&self) -> bool {

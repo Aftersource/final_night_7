@@ -1213,3 +1213,11 @@ reads the field; it never invents it.
   hex: the same hexes burn every time anyone looks. An observed hex records its field values and the field's weather.
 - **Time.** The field is a pure function of the seed, the settings, the casts with their beats and the Entropy meter;
   a keyframe every 16 beats lets any past beat be rebuilt by re-simulating at most 16 beats. A fork continues the same.
+- **The earth underfoot (state schema 17).** The DM is told the ground wherever it speaks of a place: every prompt that
+  acts there (a hand's orders, the resolver, a subagent, a god's ruling, Entropy's ramifications, a general, the
+  narrator, a duel's deed) carries one short factual line built from the field ("The earth here, now: waist-deep
+  floodwater, the flood came 2 beats ago"; "cooling black lava, still glowing, smoke"; "the land here rose 3 levels
+  since beat 12"), and a duel's stage stands on it (`ground`, hazard props). Calm ground adds nothing. The line is the
+  engine's answer: the DM never contradicts it and makes the rest fit, Rube Goldberg style (chapter 0): the punch
+  landed only because the floodwater had carried the rival's boots off at dawn; Entropy's flood on fresh lava is told
+  as steam and new black rock because that is what the field will do with it (docs/EARTH_SIM.md §12).
