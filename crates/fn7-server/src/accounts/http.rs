@@ -738,16 +738,22 @@ async fn bind(State(st): St, h: HeaderMap, body: Bytes) -> Response {
     })
     .await;
     match res {
-        Ok(Ok((player, p))) => ok(json!({
-            "bound": true,
-            "player_id": player.id,
-            "display_name": player.display_name,
-            // The names this account's demigods will carry when it takes a seat.
-            "demigods": {
-                "left": { "match_name": p.left.name.unwrap_or_else(|| default_name(&account, "left")) },
-                "right": { "match_name": p.right.name.unwrap_or_else(|| default_name(&account, "right")) },
-            },
-        })),
+        Ok(Ok((player, p))) => {
+            // The names this account's demigods will carry when it takes a seat (a hero's, if one is picked; a
+            // name already in the match gets the seat appended there).
+            let hero = fn7_plugin::persona::hero_name(&p.hero).map(fn7_plugin::payload::hand_names);
+            let [hl, hr] = hero.map(|[l, r]| [Some(l), Some(r)]).unwrap_or([None, None]);
+            ok(json!({
+                "bound": true,
+                "player_id": player.id,
+                "display_name": player.display_name,
+                "hero": p.hero,
+                "demigods": {
+                    "left": { "match_name": hl.or(p.left.name).unwrap_or_else(|| default_name(&account, "left")) },
+                    "right": { "match_name": hr.or(p.right.name).unwrap_or_else(|| default_name(&account, "right")) },
+                },
+            }))
+        }
         Ok(Err("name_mismatch")) => fail(
             StatusCode::CONFLICT,
             "name_mismatch",

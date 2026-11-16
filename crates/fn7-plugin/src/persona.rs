@@ -55,6 +55,18 @@ pub struct SeatPersona {
     pub left: HandPersona,
     #[serde(default)]
     pub right: HandPersona,
+    /// The account setting `hero` ([`HEROES`]): `""` none, else play this seat as that hero's demigods
+    /// (schema 23, [`World::hero_rules`]; an older state ignores it).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub hero: String,
+}
+
+/// The heroes a player can play as (account setting `hero`), with the name their demigods carry.
+pub const HEROES: [(&str, &str); 2] = [("chris", "Chris"), ("benito", "Benito")];
+
+/// The display name of hero `key` (`"chris"` → `"Chris"`), `None` for `""` or an unknown key.
+pub fn hero_name(key: &str) -> Option<&'static str> {
+    HEROES.iter().find(|(k, _)| *k == key).map(|(_, n)| *n)
 }
 
 /// Longest demigod name kept (as the plugin keeps of a display name).
@@ -70,6 +82,7 @@ pub fn apply(w: &mut World, p: &SeatPersona, round: u32) -> Option<Vec<Value>> {
     let i = w.seats.iter().position(|s| s.seat == p.seat)?;
     w.seats[i].account = Some(p.account.clone());
     let ids: Vec<DemigodId> = w.bodies_of_seat(p.seat).filter(|d| d.side.is_some()).map(|d| d.id).collect();
+    let hero = if w.hero_rules() { hero_name(&p.hero) } else { None };
     let mut renamed = vec![];
     for d in ids {
         let hand = if w.demigods[d.ix()].side == Some(Hand::Right) { &p.right } else { &p.left };
@@ -80,10 +93,27 @@ pub fn apply(w: &mut World, p: &SeatPersona, round: u32) -> Option<Vec<Value>> {
             pronouns: p.pronouns.clone(),
         };
         w.demigods[d.ix()].persona = (!persona.is_empty()).then_some(persona);
+        let old = w.demigods[d.ix()].name.clone();
+        if let Some(hero) = hero {
+            // Schema 23: play as a hero. The hero's hand name wins over a custom name; the portraits, dioramas,
+            // statues and rigged figures all key on it. A name another demigod already carries (the real hero, or
+            // another hero-picker) gets the seat appended, as a takeover does (rules 0.8.0). Images ignore the
+            // " (n)" suffix, but the client's figures.json lookup does not: a " (2)" hero gets its portrait and
+            // statue art, not the rigged figure (acceptable for now).
+            let side = if w.demigods[d.ix()].side == Some(Hand::Right) { "Right" } else { "Left" };
+            let mut new = format!("{hero}'s {side} Hand");
+            if w.demigods.iter().any(|x| x.id != d && x.name == new) {
+                new = format!("{new} ({})", p.seat);
+            }
+            if old == new || w.demigods.iter().any(|x| x.id != d && x.name == new) {
+                continue;
+            }
+            rename(w, d, &old, &new, round, &mut renamed);
+            continue;
+        }
         let Some(new) = hand.name.as_deref().map(clean_name).filter(|n| !n.is_empty()) else {
             continue;
         };
-        let old = w.demigods[d.ix()].name.clone();
         if old == new {
             continue;
         }
@@ -97,16 +127,20 @@ pub fn apply(w: &mut World, p: &SeatPersona, round: u32) -> Option<Vec<Value>> {
             );
             continue;
         }
-        w.demigods[d.ix()].name = new.clone();
-        for h in w.demigods[d.ix()].hands {
-            if let Some(a) = w.agents.get_mut(h.ix()) {
-                a.name = new.clone();
-            }
-        }
-        event("demigod_renamed", Some(Ref::Demigod(d).to_string()), json!({ "round": round, "from": old, "to": new }));
-        renamed.push(json!({ "demigod": Ref::Demigod(d), "from": old, "to": new }));
+        rename(w, d, &old, &new, round, &mut renamed);
     }
     Some(renamed)
+}
+
+fn rename(w: &mut World, d: DemigodId, old: &str, new: &str, round: u32, renamed: &mut Vec<Value>) {
+    w.demigods[d.ix()].name = new.to_string();
+    for h in w.demigods[d.ix()].hands {
+        if let Some(a) = w.agents.get_mut(h.ix()) {
+            a.name = new.to_string();
+        }
+    }
+    event("demigod_renamed", Some(Ref::Demigod(d).to_string()), json!({ "round": round, "from": old, "to": new }));
+    renamed.push(json!({ "demigod": Ref::Demigod(d), "from": old, "to": new }));
 }
 
 /// [`apply`] on a serialized state, recording the [`EVENT`]. `None` when nothing applied (the state is unchanged).
@@ -158,7 +192,73 @@ mod tests {
                 creed: "Nothing is owed twice.".into(),
             },
             right: HandPersona::default(),
+            hero: String::new(),
         }
+    }
+
+    fn guest_world() -> World {
+        let seats = [
+            SeatInfo { seat: 0, display_name: "Kestrel".into(), is_bot: false },
+            SeatInfo { seat: 1, display_name: "Mara".into(), is_bot: false },
+        ];
+        crate::phases::new_match(&seats, &json!({ "seed": 7, "players": 4 }), &fn7_pantheon::load(), 7)
+    }
+
+    fn hero_persona(seat: u8, hero: &str) -> SeatPersona {
+        SeatPersona { seat, account: format!("acc_g{seat}"), hero: hero.into(), ..Default::default() }
+    }
+
+    fn names(w: &World, seat: u8) -> Vec<String> {
+        w.bodies_of_seat(seat).map(|d| d.name.clone()).collect()
+    }
+
+    #[test]
+    fn a_guest_plays_as_a_hero() {
+        let mut w = guest_world();
+        assert_eq!(w.meta.schema, fn7_model::STATE_SCHEMA);
+        assert!(w.hero_rules());
+        let mut p = hero_persona(0, "chris");
+        p.left.name = Some("Ashen Vow".into());
+        let renamed = apply(&mut w, &p, 0).unwrap();
+        assert_eq!(renamed.len(), 2);
+        assert_eq!(names(&w, 0), ["Chris's Left Hand", "Chris's Right Hand"], "the hero wins over a custom name");
+        let left = w.bodies_of_seat(0).next().unwrap();
+        assert_eq!(w.agents[left.hands[0].ix()].name, "Chris's Left Hand", "the hand agent follows");
+        assert_eq!(left.player, "Kestrel", "the player keeps their own name");
+        apply(&mut w, &hero_persona(1, "benito"), 0).unwrap();
+        assert_eq!(names(&w, 1), ["Benito's Left Hand", "Benito's Right Hand"]);
+    }
+
+    #[test]
+    fn no_hero_or_an_unknown_one_changes_no_name() {
+        for hero in ["", "vex", "Chris"] {
+            let mut w = guest_world();
+            let before = names(&w, 0);
+            apply(&mut w, &hero_persona(0, hero), 0).unwrap();
+            assert_eq!(names(&w, 0), before, "{hero:?}");
+        }
+    }
+
+    #[test]
+    fn a_hero_already_in_the_match_is_suffixed() {
+        // The real Chris sits at seat 0; a guest at seat 1 picks Chris.
+        let mut w = world();
+        apply(&mut w, &hero_persona(1, "chris"), 0).unwrap();
+        assert_eq!(names(&w, 0), ["Chris's Left Hand", "Chris's Right Hand"]);
+        assert_eq!(names(&w, 1), ["Chris's Left Hand (1)", "Chris's Right Hand (1)"]);
+    }
+
+    #[test]
+    fn a_schema_22_state_ignores_the_hero() {
+        let mut w = guest_world();
+        w.meta.schema = fn7_model::dm::CLEAR_WORDS_SCHEMA;
+        let before = crate::world::save(&w);
+        let mut w2 = w.clone();
+        apply(&mut w2, &hero_persona(0, "chris"), 0).unwrap();
+        assert_eq!(names(&w2, 0), names(&w, 0));
+        let mut after = crate::world::save(&w2);
+        after["seats"].as_array_mut().unwrap().iter_mut().for_each(|s| { s.as_object_mut().unwrap().remove("account"); });
+        assert_eq!(after, before, "only the account binding changes, as before schema 23");
     }
 
     #[test]

@@ -203,6 +203,7 @@ Schema: [`account_settings.schema.json`](schemas/account_settings.schema.json).
 | `version` | `1`. Send the one you read. A newer one is refused. |
 | `display_name` | The account's display name, 1 to 24 characters. Writing a different one **renames the account** (§ 2): `409 name_taken` / `name_lookalike`, `403 profile_claimed`, `422 refused`; a refused rename saves nothing. |
 | `pronouns` | `unspecified` \| `she` \| `he` \| `they` \| `it` (`unspecified`). Narration and the demigods' minds use it. |
+| `hero` | `""` \| `chris` \| `benito` (`""`). Play as a hero: your two demigods are named `"Chris's Left Hand"` / `"Chris's Right Hand"` (or Benito's) in a schema-23 match (§ 8 "Play as a hero"). Anything else is refused (`400 invalid`). |
 | `audio` | `master` (0.8), `music` (0.6), `sfx` (0.8), `voice` (1.0): each 0 to 1; `mute_when_unfocused` (true). |
 | `camera` | `pan_speed` (1.0), `zoom_speed` (1.0): 0.1 to 5; `edge_pan` (true); `invert_zoom` (false). |
 | `accessibility` | `aura_palette`: `default` \| `deuteranopia` \| `protanopia` \| `tritanopia` \| `high_contrast`; `reduce_flashing` (false); `text_scale` 0.75 to 2 (1.0); `subtitles` (true). |
@@ -322,6 +323,22 @@ When a signed-in, bound player's seat is created (match start) or taken (mid-mat
   for untrusted text is in the same prompt. Inside a prompt each field is one line: runs of whitespace and newlines
   are collapsed there, as for every prompt line. The stored text and the text in payloads keep them.) A demigod without a persona has no block, and its prompt is byte for
   byte what it was before accounts.
+
+### Play as a hero (state schema 23)
+
+A guest (or any signed-in account) can play as Chris's or Benito's demigods: `PUT /api/me/settings` with
+`"hero": "chris"` or `"benito"` (`""` turns it off). From the next match start or mid-match takeover of a bound seat,
+the seat's two demigods are named `"Chris's Left Hand"` / `"Chris's Right Hand"` (or Benito's), over any custom
+names; the player name, seat and controller stay the player's. Portraits, dioramas, statues and the client's rigged,
+animated figures (`figures.json`: `chris_left_hand` ...) all key on those names, so no client art change is needed.
+
+- **Duplicates.** If another demigod in the match already carries the name (the real Chris, or another
+  hero-picker), the seat number is appended (`"Chris's Left Hand (1)"`), as a takeover does. Images ignore the
+  ` (n)` suffix, so the portrait and diorama match; the client's figure lookup does not, so a suffixed hero gets no
+  rigged figure.
+- **Schema gate.** Applied only when the match's state schema is >= 23 (`dm::HERO_SCHEMA`, `World::hero_rules`).
+  The hero rides in the recorded `seat_persona` event (`persona.hero`), so replays reproduce it; older states ignore it.
+- `POST /api/game/bind` answers `hero` and the hero names as `demigods.left/right.match_name`.
 
 ### State, schema and replay
 

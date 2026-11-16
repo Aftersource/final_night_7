@@ -69,6 +69,9 @@ pub const DUEL_WORDS_SCHEMA: u32 = 21;
 /// stale hints rotated).
 pub const CLEAR_WORDS_SCHEMA: u32 = 22;
 
+/// The schema a seat persona's `hero` (account setting: play as Chris's or Benito's demigods) applies at.
+pub const HERO_SCHEMA: u32 = 23;
+
 /// Token-play scenes kept in the state (the newest).
 pub const SCENES_KEPT: usize = 24;
 

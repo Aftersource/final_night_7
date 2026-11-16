@@ -26,6 +26,10 @@ pub const MAX_KEYBINDS: usize = 64;
 /// The pronoun values (narration and the demigods' prompts use them; `unspecified` uses the demigod's name).
 pub const PRONOUNS: [&str; 5] = ["unspecified", "she", "he", "they", "it"];
 
+/// The heroes a player can play as (`""` = none): their demigods are named "Chris's Left Hand" / "... Right Hand"
+/// (or Benito's) in a schema-23 match, and wear those portraits and figures.
+pub const HEROES: [&str; 3] = ["", "chris", "benito"];
+
 fn num(min: f64, max: f64, default: f64, d: &str) -> Value {
     json!({ "type": "number", "minimum": min, "maximum": max, "default": default, "description": d })
 }
@@ -57,6 +61,7 @@ pub fn schema() -> Value {
             "display_name": { "type": "string", "minLength": 1, "maxLength": 24, "x-format": "display_name",
                               "description": "The account's display name (the name on the websocket's auth.login). Writing a different one renames the account: 409 name_taken / name_lookalike / profile_claimed if it cannot. Default: the current name." },
             "pronouns": choice(&PRONOUNS, "unspecified", "How narration and your demigods' minds refer to you. unspecified: by name."),
+            "hero": choice(&HEROES, "", "Play as a hero: chris or benito names your two demigods \"Chris's Left Hand\" / \"Chris's Right Hand\" (or Benito's) from your next match or takeover on, with that hero's portrait, statue and animated figure (over any custom demigod names). Empty: your own demigods."),
             "audio": object(json!({
                 "master": num(0.0, 1.0, 0.8, "Master volume."),
                 "music": num(0.0, 1.0, 0.6, "Music volume."),
@@ -311,6 +316,8 @@ mod tests {
         assert_eq!(v["pronouns"], "they");
         assert_eq!(v["display_name"], "Chris");
         assert_eq!(v["hud"]["layout"], "default");
+        assert_eq!(v["hero"], "", "no hero by default");
+        assert_eq!(validate(&json!({ "hero": "benito" }), "C").unwrap()["hero"], "benito");
     }
 
     #[test]
@@ -326,6 +333,9 @@ mod tests {
             (json!({ "audio": { "music": "loud" } }), "audio.music must be a number"),
             (json!({ "audio": 3 }), "audio must be an object"),
             (json!({ "pronouns": "xe" }), "pronouns must be one of unspecified, she, he, they, it"),
+            (json!({ "hero": "vex" }), "hero must be one of , chris, benito"),
+            (json!({ "hero": "Chris" }), "hero must be one of , chris, benito"),
+            (json!({ "hero": 1 }), "hero must be a string"),
             (json!({ "accessibility": { "reduce_flashing": "yes" } }), "accessibility.reduce_flashing must be true or false"),
             (json!({ "language": "English" }), "language must be a language tag like en or pt-BR"),
             (json!({ "keybinds": { "Fire!": "A" } }), "keybinds.Fire!: an action name is lower_snake (dots allowed), at most 40 characters"),
