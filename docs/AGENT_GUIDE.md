@@ -17,9 +17,9 @@ you get `403`. Substitute these everywhere below:
 
 | | Over the internet (anywhere) | On the host's Wi-Fi |
 |---|---|---|
-| Game WebSocket | `wss://<PUBLIC>/ws?key=<KEY>` | `ws://10.0.0.34:8080/ws` |
-| Health | `https://<PUBLIC>/healthz?key=<KEY>` | `http://10.0.0.34:8080/healthz` |
-| Docs (this folder) | `https://<PUBLIC>/docs/<file>?key=<KEY>` | `http://10.0.0.34:8081/<file>` |
+| Game WebSocket | `wss://<PUBLIC>/ws?key=<KEY>` | `ws://<LAN_HOST>:8080/ws` |
+| Health | `https://<PUBLIC>/healthz?key=<KEY>` | `http://<LAN_HOST>:8080/healthz` |
+| Docs (this folder) | `https://<PUBLIC>/docs/<file>?key=<KEY>` | `http://<LAN_HOST>:8081/<file>` |
 
 `<PUBLIC>` looks like `something.ngrok-free.dev`. Note `wss://` (TLS) over the internet, `ws://` on the LAN.
 
@@ -42,9 +42,9 @@ lets anyone spend the host's LLM budget.
 
 | What | Where |
 |---|---|
-| Game server (WebSocket) | `ws://10.0.0.34:8080/ws` (LAN playtest host) |
-| Health / stats | `http://10.0.0.34:8080/healthz` → `ok`, `http://10.0.0.34:8080/stats` |
-| These docs, served over HTTP | `http://10.0.0.34:8081/` (browse or `curl`; same files as `final_night_7/docs/`) |
+| Game server (WebSocket) | `ws://<LAN_HOST>:8080/ws` (LAN playtest host) |
+| Health / stats | `http://<LAN_HOST>:8080/healthz` → `ok`, `http://<LAN_HOST>:8080/stats` |
+| These docs, served over HTTP | `http://<LAN_HOST>:8081/` (browse or `curl`; same files as `final_night_7/docs/`) |
 | Engine protocol (envelope, login, lobby) | `theatre/PROTOCOL.md` (here: [`theatre/PROTOCOL.md`](theatre/PROTOCOL.md); also in the `Aftersource/theatre` repo) |
 | Game payloads (every Final Night 7 object) | [`CLIENT_API.md`](CLIENT_API.md) |
 | JSON Schemas (draft 2020-12), one per payload and one per query reply (`query_<name>`) | [`schemas/`](schemas/) |
@@ -61,10 +61,10 @@ The host IP is the host's current Wi-Fi address. If nothing answers, ask the hos
 ```sh
 mkdir fn7-docs && cd fn7-docs
 for f in AGENT_GUIDE.md CLIENT_API.md MEDIA.md theatre/PROTOCOL.md data/pantheon.json data/powers.json clients/fn7_client.mjs; do
-  mkdir -p "$(dirname "$f")"; curl -fsS "http://10.0.0.34:8081/$f" -o "$f"; done
+  mkdir -p "$(dirname "$f")"; curl -fsS "http://<LAN_HOST>:8081/$f" -o "$f"; done
 for d in schemas examples; do mkdir -p $d
-  curl -fsS "http://10.0.0.34:8081/$d/" | grep -o 'href="[^"]*\.json"' | cut -d'"' -f2 |
-  while read f; do curl -fsS "http://10.0.0.34:8081/$d/$f" -o "$d/$f"; done; done
+  curl -fsS "http://<LAN_HOST>:8081/$d/" | grep -o 'href="[^"]*\.json"' | cut -d'"' -f2 |
+  while read f; do curl -fsS "http://<LAN_HOST>:8081/$d/$f" -o "$d/$f"; done; done
 ```
 
 ## 2. Read in this order
@@ -79,10 +79,10 @@ for d in schemas examples; do mkdir -p $d
 
 ## 3. Prove the connection (5 minutes)
 ```sh
-curl -s http://10.0.0.34:8080/healthz          # ok
-curl -s http://10.0.0.34:8080/stats            # {"game":"final_night_7",...}
+curl -s http://<LAN_HOST>:8080/healthz          # ok
+curl -s http://<LAN_HOST>:8080/stats            # {"game":"final_night_7",...}
 node --version                                  # must be >= 22 (built-in WebSocket)
-node clients/fn7_client.mjs --url ws://10.0.0.34:8080/ws --name AgentTest --create --auto --beats 3 --beat-ms 8000 --log frames.jsonl
+node clients/fn7_client.mjs --url ws://<LAN_HOST>:8080/ws --name AgentTest --create --auto --beats 3 --beat-ms 8000 --log frames.jsonl
 ```
 That last command creates a private room, starts a short match against the built-in AI demigods, plays it with
 scripted orders every third beat and a lightning bolt now and then, prints each beat's caption (one beat late), slow
@@ -195,7 +195,7 @@ reply schemas `schemas/query_<name>.schema.json`; the manifest is `server.hello.
 - WebSocket, from your seat: `{ "t": "game.<name>", "id": "q1", "d": { …args } }` → `{ "t": "game.<name>", "re": "q1",
   "d": … }` or `error` (`bad_request` with the reason, `not_found`, `wrong_phase` before the first match).
 - HTTP, public queries only, no socket needed (public data only):
-  `curl "http://10.0.0.34:8080/api/rooms/<CODE>/query/globe?limit=30"` (args are query-string parameters; through
+  `curl "http://<LAN_HOST>:8080/api/rooms/<CODE>/query/globe?limit=30"` (args are query-string parameters; through
   ngrok keep the `?key=` gate parameter, it is ignored). `403` = a seat-only query (`me`), `404` = no such room.
 
 | Need | Query |
@@ -287,7 +287,7 @@ the rules version; the shape of `round.outcome.public.slow` (`event: "opened"` o
 ## 11. Fast-forward, time travel and local runs
 Data contract and how-to only. Placeholders: `<PUBLIC>` and `<KEY>` (§0; over the tunnel every request carries
 `?key=<KEY>`), `<ADMIN_TOKEN>` (the host's admin secret, sent only as the `Authorization: Bearer` header; never put it
-in a URL, a log or a repo). On the host's Wi-Fi drop `?key=` and use `http://10.0.0.34:8080`.
+in a URL, a log or a repo). On the host's Wi-Fi drop `?key=` and use `http://<LAN_HOST>:8080`.
 
 **Which server has what.** Fast matches work on any rules `0.5.0` server. The admin API (11.2) and the core JSONL
 recordings need a server built on Theatre `faa7220` or later and started with `THEATRE_RECORD=full`,

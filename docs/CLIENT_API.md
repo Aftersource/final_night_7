@@ -17,7 +17,7 @@ Theatre's [`PROTOCOL.md`](../../theatre/PROTOCOL.md) (also in the repo root of
 ## Connecting
 
 ```
-ws://<host>:<port>/ws          LAN playtest: ws://10.0.0.34:8080/ws
+ws://<host>:<port>/ws          LAN playtest: ws://<LAN_HOST>:8080/ws
 GET http://<host>:<port>/healthz → ok        GET /stats → { version, game: "final_night_7", players, connected, rooms }
 ```
 
@@ -4423,7 +4423,7 @@ just because every human is out: the built-in AI demigods fight on, and spectato
 ## A minimal bot (~40 lines)
 
 ```python
-ws = connect("ws://10.0.0.34:8080/ws")
+ws = connect("ws://<LAN_HOST>:8080/ws")
 send = lambda t, d, id=None: ws.send(json({"t": t, "id": id, "d": d}))
 send("auth.login", {"display_name": "Botty", "client": {"kind": "my-bot", "version": "1"}}, "1")
 send("room.quickjoin", {}, "2")              # or room.create {visibility, settings} / room.join {code}
@@ -4475,7 +4475,7 @@ while True:
 For an LLM bot, pass the brief's `public.rules`, your SeatView and the last `round.private` to the model and ask it for
 `{left, right, zoom}`. The real implementation is `crates/fn7-tools/src/bin/agents.rs` (`fn7-agents`, with `--claude`
 for LLM players). Run it against a server for a full 4-player match:
-`fn7-agents --url ws://10.0.0.34:8080/ws --players 4 --rounds 6`.
+`fn7-agents --url ws://<LAN_HOST>:8080/ws --players 4 --rounds 6`.
 
 ## Things that trip clients up
 

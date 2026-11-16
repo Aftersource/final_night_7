@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Final Night 7 reference client. Node >= 22 (built-in WebSocket), no dependencies.
 //
-//   node fn7_client.mjs --url ws://10.0.0.34:8080/ws --name Juno --create            # make a room, print its code
-//   node fn7_client.mjs --url ws://10.0.0.34:8080/ws --name Kai --join ABC123        # join that room
+//   node fn7_client.mjs --url ws://localhost:8080/ws --name Juno --create            # make a room, print its code
+//   node fn7_client.mjs --url ws://localhost:8080/ws --name Kai --join ABC123        # join that room
 //   node fn7_client.mjs ... --auto --beats 5                                          # play by itself (scripted lines)
 //   node fn7_client.mjs ... --log frames.jsonl                                        # every frame, both directions, as JSONL
 //   node fn7_client.mjs ... --script lines.txt                                        # "<delay_ms> <input line>" per line, typed for you
@@ -28,7 +28,7 @@ import readline from "node:readline";
 
 const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i < 0 ? d : (process.argv[i + 1] ?? true); };
 const flag = (k) => process.argv.includes(`--${k}`);
-const URL_ = arg("url", "ws://10.0.0.34:8080/ws");
+const URL_ = arg("url", "ws://localhost:8080/ws");
 const NAME = arg("name", "player");
 const JOIN = arg("join", null);
 const CREATE = flag("create");
