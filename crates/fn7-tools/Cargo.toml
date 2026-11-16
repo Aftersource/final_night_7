@@ -25,7 +25,14 @@ path = "src/bin/duel_lines.rs"
 name = "fn7-earth-view"
 path = "src/bin/earth_view.rs"
 
+[[bin]]
+name = "fn7-cutout"
+path = "src/bin/cutout.rs"
+
 [dependencies]
+fn7-media.workspace = true
+fn7-assets.workspace = true
+base64 = "0.22"
 fn7-pantheon.workspace = true
 fn7-model = { workspace = true, features = ["schema"] }
 fn7-plugin.workspace = true

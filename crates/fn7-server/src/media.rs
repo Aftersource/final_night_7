@@ -122,7 +122,9 @@ impl<P: GamePlugin> MediaPlugin<P> {
             }
             lib.entry(key.to_string()).or_insert_with(|| library_prompt(&self.media, key)).clone()?
         };
-        Some(self.media.request_with(&p, Some(LIBRARY), false))
+        let img = self.media.request_with(&p, Some(LIBRARY), false);
+        // A cutout (background removed, `fn7-cutout`) is served instead of the original when one exists.
+        Some(fn7_media::with_cutout(self.media.cache(), &self.media.config().url_prefix, img))
     }
 
     /// A look went out: its gear images go to the player's library once ready, and a `look.changed` event whose
