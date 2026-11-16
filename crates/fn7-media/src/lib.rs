@@ -980,3 +980,29 @@ async fn run_job(inner: Arc<Inner>, job: Job) {
 
 #[cfg(test)]
 mod tests;
+
+/// The cutout recipe (background removed with fal's BiRefNet). Bump to cut everything again.
+pub const CUTOUT_RECIPE: &str = "cutout/birefnet/v1";
+
+/// The media key of an image's cutout: sha256(original key \n [`CUTOUT_RECIPE`]), hex. Written by `fn7-cutout`.
+pub fn cutout_key(original: &str) -> String {
+    let mut h = Sha256::new();
+    h.update(original.as_bytes());
+    h.update(b"\n");
+    h.update(CUTOUT_RECIPE.as_bytes());
+    hex::encode(h.finalize())
+}
+
+/// A ready image with its cutout served instead: when `<dir>/<cutout_key(hash)>` exists, its hash and URL replace the
+/// original's. Anything else is returned unchanged.
+pub fn with_cutout(cache: &MediaCache, url_prefix: &str, mut img: ImageRef) -> ImageRef {
+    if img.status != "ready" {
+        return img;
+    }
+    let ck = cutout_key(&img.hash);
+    if let Some(side) = cache.lookup(&ck) {
+        img.url = Some(format!("{url_prefix}/{ck}.{}", side.ext));
+        img.hash = ck;
+    }
+    img
+}

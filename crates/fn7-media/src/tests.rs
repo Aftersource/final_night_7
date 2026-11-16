@@ -746,3 +746,26 @@ async fn a_gear_portrait_says_the_hands_change_before_the_style() {
     assert!(!d.text.contains(&st.portrait_base_note));
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[test]
+fn cutout_served_when_present_else_original() {
+    let dir = std::env::temp_dir().join(format!("fn7-cutout-test-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let cache = crate::MediaCache::new(&dir);
+    let orig = "a".repeat(64);
+    let img = crate::ImageRef { hash: orig.clone(), kind: crate::ImageKind::Sprite, status: "ready", url: Some(format!("/media/{orig}.png")), prompt: "p".into() };
+    // Absent: the original.
+    assert_eq!(crate::with_cutout(&cache, "/media", img.clone()), img);
+    // Present: the cutout's hash and url.
+    let ck = crate::cutout_key(&orig);
+    assert_ne!(ck, orig);
+    let side = crate::Sidecar { key: ck.clone(), kind: crate::ImageKind::Sprite, prompt: "cut".into(), provider: "fal".into(), model: "fal-ai/birefnet".into(), ext: "png".into(), bytes: 4, created_at: 0, cost_usd: 0.0, latency_ms: 0.0, match_id: None };
+    cache.store(b"\x89PNG", &side).unwrap();
+    let got = crate::with_cutout(&cache, "/media", img.clone());
+    assert_eq!(got.hash, ck);
+    assert_eq!(got.url.as_deref(), Some(format!("/media/{ck}.png").as_str()));
+    // Not ready: untouched.
+    let off = crate::ImageRef { status: "off", url: None, ..img };
+    assert_eq!(crate::with_cutout(&cache, "/media", off.clone()), off);
+    let _ = std::fs::remove_dir_all(&dir);
+}
