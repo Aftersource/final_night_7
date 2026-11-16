@@ -477,15 +477,19 @@ impl Accounts {
                 _ => HandPersona::default(),
             }
         };
-        let pronouns = self
-            .store
-            .settings_doc(account)
-            .ok()
-            .flatten()
-            .and_then(|(_, d)| d["pronouns"].as_str().map(str::to_string))
+        let doc = self.store.settings_doc(account).ok().flatten().map(|(_, d)| d);
+        let pronouns = doc
+            .as_ref()
+            .and_then(|d| d["pronouns"].as_str().map(str::to_string))
             .filter(|p| p != "unspecified" && fn7_profile::settings::PRONOUNS.contains(&p.as_str()))
             .unwrap_or_default();
-        SeatPersona { seat, account: account.to_string(), pronouns, left: hand("left"), right: hand("right") }
+        // Play as a hero (settings `hero`): the plugin renames the seat's demigods in a schema-23 match.
+        let hero = doc
+            .as_ref()
+            .and_then(|d| d["hero"].as_str().map(str::to_string))
+            .filter(|h| fn7_plugin::persona::hero_name(h).is_some())
+            .unwrap_or_default();
+        SeatPersona { seat, account: account.to_string(), pronouns, left: hand("left"), right: hand("right"), hero }
     }
 
     // ---- the game connection --------------------------------------------------------------------------------------

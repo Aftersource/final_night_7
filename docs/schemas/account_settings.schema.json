@@ -149,6 +149,16 @@
       "type": "string",
       "x-format": "display_name"
     },
+    "hero": {
+      "default": "",
+      "description": "Play as a hero: chris or benito names your two demigods \"Chris's Left Hand\" / \"Chris's Right Hand\" (or Benito's) from your next match or takeover on, with that hero's portrait, statue and animated figure (over any custom demigod names). Empty: your own demigods.",
+      "enum": [
+        "",
+        "chris",
+        "benito"
+      ],
+      "type": "string"
+    },
     "hud": {
       "additionalProperties": false,
       "description": "HUD layout.",

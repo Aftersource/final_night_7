@@ -4164,7 +4164,7 @@ Show `remains` before asking for the confirmation: ACCOUNTS.md §9 has the five 
 Session. Both answer `200 {"settings": {…}}`, the full document:
 ```json
 {"settings": {
-  "version": 1, "display_name": "Tess", "pronouns": "she",
+  "version": 1, "display_name": "Tess", "pronouns": "she", "hero": "",
   "audio": {"master": 0.8, "music": 0.25, "sfx": 0.8, "voice": 1.0, "mute_when_unfocused": true},
   "camera": {"pan_speed": 1.0, "zoom_speed": 1.0, "edge_pan": true, "invert_zoom": false},
   "accessibility": {"aura_palette": "deuteranopia", "reduce_flashing": true, "text_scale": 1.0, "subtitles": true},
@@ -4302,6 +4302,18 @@ Errors: `404 not_found` (no such preview), `409 preview_not_ready` (still being 
 **At the table** every client asks `GET /api/assets/figures?name=<seat display name>` (no session) and reads `god`
 (see "Assets" above): the accepted image, the statue once ready, else the house's marble god of that name, else
 `null`. Nothing about the god form is in the match's payloads.
+
+### Play as a hero
+
+A player (guests included) can play as Chris's or Benito's demigods. Read `settings.hero` from
+`GET /api/me/settings`; to pick, `PUT /api/me/settings` with the whole document and `"hero": "chris"` or
+`"benito"` (`""` = their own demigods; any other value is `400 invalid`, `"hero must be one of , chris, benito"`).
+It takes effect at the next match start or mid-match takeover of a seat bound with `POST /api/game/bind` (whose
+reply carries `hero` and the resulting `demigods.left/right.match_name`). The seat's demigods are then named
+`"Chris's Left Hand"` / `"Chris's Right Hand"` (or Benito's) in the payloads, so dress them by name as always: the
+portraits, dioramas, statues and the rigged figures in `figures.json` match. If that name is already in the match
+the demigod is `"Chris's Left Hand (1)"` (the seat appended): its portrait matches, but strip the ` (n)` suffix
+before the `figures.json` lookup if you want the rigged figure. State schema 23 (older matches ignore it).
 
 ### `GET /api/me/entitlements`
 Session. **Billing is not live.**

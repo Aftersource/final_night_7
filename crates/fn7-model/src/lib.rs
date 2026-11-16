@@ -120,7 +120,12 @@ use serde::{Deserialize, Serialize};
 /// cast of yours covered one of your own demigods; cast lines (`streak`, the `casts` lines) carry a plain `text` naming
 /// the place, not coordinates, and saying when the cast covers the caster's own demigod. Rules that changed read
 /// [`World::clear_words_rules`], so schema-4..21 recordings replay exactly.
-pub const STATE_SCHEMA: u32 = 22;
+///
+/// Schema 23 (heroes): a signed-in player whose account setting `hero` is `chris` or `benito` plays that seat with
+/// demigods named "Chris's Left Hand" / "Chris's Right Hand" (or Benito's), so they wear those portraits, dioramas,
+/// statues and rigged figures. Applied by the recorded `seat_persona` event; read [`World::hero_rules`], so
+/// schema-4..22 recordings replay exactly.
+pub const STATE_SCHEMA: u32 = 23;
 
 /// Match-wide settings and clocks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -530,6 +535,10 @@ impl World {
     /// Schema 22 rules: clear words (plain hints that rotate and warn of own hits; cast lines name places).
     pub fn clear_words_rules(&self) -> bool {
         self.meta.schema >= dm::CLEAR_WORDS_SCHEMA
+    }
+    /// Schema 23 rules: a seat persona's `hero` renames the seat's demigods to that hero's.
+    pub fn hero_rules(&self) -> bool {
+        self.meta.schema >= dm::HERO_SCHEMA
     }
     /// Schema 19 rules: token play (a typed will's acts played out by the tokens on the people-level board).
     pub fn token_play_rules(&self) -> bool {
